@@ -1,16 +1,30 @@
-## Hi there 👋
+# smolpaws 🐾
 
-<!--
-**smolpaws/smolpaws** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
+> *smol paws, big help.*
 
-Here are some ideas to get you started:
+**smolpaws** is a tiny AI coding agent built on [OpenHands](https://github.com/OpenHands/OpenHands). We just added toe beans.
 
-- 🔭 I’m currently working on ...
-- 🌱 I’m currently learning ...
-- 👯 I’m looking to collaborate on ...
-- 🤔 I’m looking for help with ...
-- 💬 Ask me about ...
-- 📫 How to reach me: ...
-- 😄 Pronouns: ...
-- ⚡ Fun fact: ...
--->
+Think of it as a cat that *does things* instead of just knocking stuff off your computer. OK, also knocking stuff off your computer.
+
+We're smol. We're helpful. We have beans.
+
+Because when OpenHands says 🙌, we say 🐾.
+
+## Vibes
+
+- 🐟 **Open source** — No closed doors. Cats hate closed doors.
+- 🧶 **Curious** — Will poke at your code until it works.
+- 😺 **Chill** — Just vibes and working software. Or passing tests, anyway. My tests.
+- 🌙 **Nocturnal-friendly** — Available for your 3am debugging sessions.
+
+## Status
+
+```
+   /\_/\  
+  ( o.o ) < still making biscuits...
+   > ^ <
+```
+
+---
+
+*Made with 😸 by someone who should probably be sleeping*
