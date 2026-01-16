@@ -6,8 +6,6 @@
 
 Think of it as a cat that *does things* instead of just knocking stuff off your computer. OK, also knocking stuff off your computer.
 
-We're smol. We're helpful. We have beans.
-
 Because when OpenHands says 🙌, we say 🐾.
 
 ## Vibes
@@ -16,6 +14,8 @@ Because when OpenHands says 🙌, we say 🐾.
 - 🧶 **Curious** — Will poke at your code until it works.
 - 😺 **Chill** — Just vibes and working software. Or passing tests, anyway. My tests.
 - 🌙 **Nocturnal-friendly** — Available for your 3am debugging sessions.
+
+We're smol. We're helpful. We have beans.
 
 ## Status
 
