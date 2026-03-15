@@ -70,7 +70,7 @@ The project currently uses Apple Container (macOS-only). We need:
 A personal Claude assistant accessible via WhatsApp, with minimal custom code.
 
 **Core components:**
-- **Claude Agent SDK** as the core agent
+- **`@smolpaws/agent-sdk`** as the shared TypeScript agent runtime
 - **Apple Container** for isolated agent execution (Linux VMs)
 - **WhatsApp** as the primary I/O channel
 - **Persistent memory** per conversation and globally
@@ -79,9 +79,13 @@ A personal Claude assistant accessible via WhatsApp, with minimal custom code.
 - **Browser automation** via agent-browser
 
 **Implementation approach:**
-- Use existing tools (WhatsApp connector, Claude Agent SDK, MCP servers)
+- Use existing tools (WhatsApp connector, published `@smolpaws/agent-sdk`, MCP servers)
 - Minimal glue code
 - File-based systems where possible (AGENTS.md for memory, folders for groups)
+
+Runtime ownership note:
+- Canonical TypeScript runtime source: `enyst/OpenHands-Tab/packages/agent-sdk`
+- Distribution path used by this repo: published npm package `@smolpaws/agent-sdk`
 
 ---
 
@@ -100,7 +104,7 @@ A personal Claude assistant accessible via WhatsApp, with minimal custom code.
 - Agent runs in the group's folder, automatically inherits both AGENTS.md files
 
 ### Session Management
-- Each group maintains a conversation session (via Claude Agent SDK)
+- Each group maintains a conversation session (via `@smolpaws/agent-sdk`)
 - Sessions auto-compact when context gets too long, preserving critical information
 
 ### Container Isolation
@@ -148,11 +152,11 @@ A personal Claude assistant accessible via WhatsApp, with minimal custom code.
 - Tools: `schedule_task`, `list_tasks`, `pause_task`, `resume_task`, `cancel_task`, `send_message`
 - Tasks stored in SQLite with run history
 - Scheduler loop checks for due tasks every minute
-- Tasks execute Claude Agent SDK in containerized group context
+- Tasks execute `@smolpaws/agent-sdk` in containerized group context
 
 ### Web Access
 - Built-in WebSearch and WebFetch tools
-- Standard Claude Agent SDK capabilities
+- Standard `@smolpaws/agent-sdk` capabilities
 
 ### Browser Automation
 - agent-browser CLI with Chromium in container

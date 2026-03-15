@@ -6,7 +6,7 @@
   Your smart cat. Lightweight, secure, customizable.
 </p>
 
-Powered by [@smolpaws/agent-sdk](https://github.com/smolpaws/smolpaws) — a tiny AI coding agent built on [OpenHands](https://github.com/OpenHands/OpenHands). Based on [NanoClaw](https://github.com/gavrielc/nanoclaw).
+Powered by the published `@smolpaws/agent-sdk` package. The canonical TypeScript runtime source lives in `enyst/OpenHands-Tab/packages/agent-sdk`, and this repo consumes that runtime in `container/agent-runner`. Built on [OpenHands](https://github.com/OpenHands/OpenHands). Based on [NanoClaw](https://github.com/gavrielc/nanoclaw).
 
 ## Why
 
@@ -117,6 +117,10 @@ WhatsApp (baileys) --> SQLite --> Polling loop --> Container (OpenHands Agent SD
 ```
 
 Single Node.js process. Agents execute in isolated Linux containers with mounted directories. IPC via filesystem. No daemons, no queues, no complexity.
+
+Runtime ownership:
+- Canonical TypeScript runtime source: `enyst/OpenHands-Tab/packages/agent-sdk`
+- Distribution path used here: published npm package `@smolpaws/agent-sdk`
 
 Key files:
 - `src/index.ts` - Main app: WhatsApp connection, routing, IPC

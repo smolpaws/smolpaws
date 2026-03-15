@@ -76,9 +76,13 @@ A personal Claude assistant accessible via WhatsApp, with persistent memory per 
 | WhatsApp Connection | Node.js (@whiskeysockets/baileys) | Connect to WhatsApp, send/receive messages |
 | Message Storage | SQLite (better-sqlite3) | Store messages for polling |
 | Container Runtime | Apple Container | Isolated Linux VMs for agent execution |
-| Agent | @anthropic-ai/claude-agent-sdk (0.2.29) | Run Claude with tools and MCP servers |
+| Agent | `@smolpaws/agent-sdk` (published npm package) | Shared TypeScript agent runtime, tools, and conversation orchestration |
 | Browser Automation | agent-browser + Chromium | Web interaction and screenshots |
 | Runtime | Node.js 20+ | Host process for routing and scheduling |
+
+Canonical runtime ownership note:
+- The shared TypeScript runtime is owned in `enyst/OpenHands-Tab/packages/agent-sdk`.
+- This repo consumes the published `@smolpaws/agent-sdk` package inside `container/agent-runner` rather than maintaining a repo-local runtime fork.
 
 ---
 
@@ -296,7 +300,7 @@ Sessions enable conversation continuity - Claude remembers what you talked about
 ### How Sessions Work
 
 1. Each group has a session ID stored in `data/sessions.json`
-2. Session ID is passed to Claude Agent SDK's `resume` option
+2. Session ID is passed to `@smolpaws/agent-sdk`'s `resume` option
 3. Claude continues the conversation with full context
 
 **data/sessions.json:**
@@ -337,7 +341,7 @@ Sessions enable conversation continuity - Claude remembers what you talked about
    └── Build prompt with full conversation context
    │
    ▼
-7. Router invokes Claude Agent SDK:
+7. Router invokes `@smolpaws/agent-sdk`:
    ├── cwd: groups/{group-name}/
    ├── prompt: conversation history + current message
    ├── resume: session_id (for continuity)
