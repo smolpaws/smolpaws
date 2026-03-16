@@ -22,7 +22,12 @@ import {
 import { RegisteredGroup, Session, NewMessage } from './types.js';
 import { initDatabase, storeMessage, storeChatMetadata, getNewMessages, getMessagesSince, getAllTasks, getTaskById, updateChatName, getAllChats, getLastGroupSync, setLastGroupSync } from './db.js';
 import { startSchedulerLoop } from './task-scheduler.js';
-import { runContainerAgent, writeTasksSnapshot, writeGroupsSnapshot, AvailableGroup } from './container-runner.js';
+import {
+  runAgentRuntime,
+  writeRuntimeGroupsSnapshot,
+  writeRuntimeTasksSnapshot,
+  type AvailableGroup
+} from './agent-runtime/index.js';
 import { loadJson, saveJson } from './utils.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -171,9 +176,9 @@ async function runAgent(group: RegisteredGroup, prompt: string, chatJid: string)
   const isMain = group.folder === MAIN_GROUP_FOLDER;
   const conversationId = sessions[group.folder];
 
-  // Update tasks snapshot for container to read (filtered by group)
+  // Update the runtime-side task snapshot (filtered by group).
   const tasks = getAllTasks();
-  writeTasksSnapshot(group.folder, isMain, tasks.map(t => ({
+  writeRuntimeTasksSnapshot(group.folder, isMain, tasks.map(t => ({
     id: t.id,
     groupFolder: t.group_folder,
     prompt: t.prompt,
@@ -183,12 +188,12 @@ async function runAgent(group: RegisteredGroup, prompt: string, chatJid: string)
     next_run: t.next_run
   })));
 
-  // Update available groups snapshot (main group only can see all groups)
+  // Update the runtime-side available-groups snapshot.
   const availableGroups = getAvailableGroups();
-  writeGroupsSnapshot(group.folder, isMain, availableGroups, new Set(Object.keys(registeredGroups)));
+  writeRuntimeGroupsSnapshot(group.folder, isMain, availableGroups, new Set(Object.keys(registeredGroups)));
 
   try {
-    const output = await runContainerAgent(group, {
+    const output = await runAgentRuntime(group, {
       prompt,
       conversationId,
       groupFolder: group.folder,
@@ -202,7 +207,7 @@ async function runAgent(group: RegisteredGroup, prompt: string, chatJid: string)
     }
 
     if (output.status === 'error') {
-      logger.error({ group: group.name, error: output.error }, 'Container agent error');
+      logger.error({ group: group.name, error: output.error }, 'Agent runtime error');
       return null;
     }
 
@@ -441,7 +446,7 @@ async function processTaskIpc(
         await syncGroupMetadata(true);
         // Write updated snapshot immediately
         const availableGroups = getAvailableGroups();
-        const { writeGroupsSnapshot: writeGroups } = await import('./container-runner.js');
+        const { writeRuntimeGroupsSnapshot: writeGroups } = await import('./agent-runtime/index.js');
         writeGroups(sourceGroup, true, availableGroups, new Set(Object.keys(registeredGroups)));
       } else {
         logger.warn({ sourceGroup }, 'Unauthorized refresh_groups attempt blocked');
