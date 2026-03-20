@@ -2,6 +2,10 @@ name = "smolpaws"
 main = "src/index.ts"
 compatibility_date = "2026-02-08"
 
+[[routes]]
+pattern = "smolpaws.liberty-labs.org"
+custom_domain = true
+
 [[queues.producers]]
 queue = "smolpaws-queue"
 binding = "SMOLPAWS_QUEUE"
