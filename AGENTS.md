@@ -3,6 +3,7 @@
 Your smart cat. Lightweight, secure, customizable. Based on [NanoClaw](https://github.com/gavrielc/nanoclaw).
 
 See [README.md](README.md) for philosophy and setup. See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) for architecture decisions.
+See [docs/README.md](docs/README.md) for the current doc index, including GitHub ingress ops notes and archived convergence context.
 
 ## Quick Context
 
@@ -28,6 +29,8 @@ This repo now owns the WhatsApp host, the GitHub Worker ingress, and the shared 
 | `/setup` | First-time installation, authentication, service configuration |
 | `/customize` | Adding channels, integrations, changing behavior |
 | `/debug` | Container issues, logs, troubleshooting |
+
+Reference skills for GitHub/Cloudflare/Fastify/Daytona work also live under `.agents/skills/`.
 
 ## Development
 
