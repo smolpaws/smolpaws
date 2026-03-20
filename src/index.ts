@@ -187,6 +187,7 @@ async function runAgent(group: RegisteredGroup, prompt: string, chatJid: string)
   const tasks = getAllTasks();
   writeRuntimeTasksSnapshot(scope.scopeId, scope.isControlScope, tasks.map(t => ({
     id: t.id,
+    scopeId: t.group_folder,
     groupFolder: t.group_folder,
     prompt: t.prompt,
     schedule_type: t.schedule_type,
@@ -203,8 +204,10 @@ async function runAgent(group: RegisteredGroup, prompt: string, chatJid: string)
     const output = await runAgentRuntime(scope, {
       prompt,
       conversationId,
+      scopeId: scope.scopeId,
       groupFolder: scope.scopeId,
       chatJid,
+      isControlScope: scope.isControlScope,
       isMain: scope.isControlScope
     });
 
@@ -324,8 +327,10 @@ async function processTaskIpc(
     schedule_type?: string;
     schedule_value?: string;
     context_mode?: string;
+    scopeId?: string;
     groupFolder?: string;
     chatJid?: string;
+    createdByScopeId?: string;
     // For register_group
     jid?: string;
     name?: string;
@@ -341,8 +346,8 @@ async function processTaskIpc(
 
   switch (data.type) {
     case 'schedule_task':
-      if (data.prompt && data.schedule_type && data.schedule_value && data.groupFolder) {
-        const targetGroup = data.groupFolder;
+      if (data.prompt && data.schedule_type && data.schedule_value && (data.scopeId || data.groupFolder)) {
+        const targetGroup = data.scopeId ?? data.groupFolder!;
         if (!canTargetScope(sourceGroup, targetGroup)) {
           logger.warn({ sourceGroup, targetGroup }, 'Unauthorized schedule_task attempt blocked');
           break;

@@ -11,9 +11,11 @@ import { createIpcTools } from './ipc-tools.js';
 interface ContainerInput {
   prompt: string;
   conversationId?: string;
-  groupFolder: string;
+  scopeId?: string;
+  groupFolder?: string;
   chatJid: string;
-  isMain: boolean;
+  isControlScope?: boolean;
+  isMain?: boolean;
   isScheduledTask?: boolean;
 }
 
@@ -51,13 +53,25 @@ function isMessageEvent(event: Event): event is MessageEvent {
   return event.kind === 'MessageEvent';
 }
 
+function resolveScopeId(input: ContainerInput): string {
+  const scopeId = input.scopeId ?? input.groupFolder;
+  if (!scopeId) {
+    throw new Error('Missing scopeId');
+  }
+  return scopeId;
+}
+
+function resolveIsControlScope(input: ContainerInput): boolean {
+  return input.isControlScope ?? input.isMain ?? false;
+}
+
 async function main(): Promise<void> {
   let input: ContainerInput;
 
   try {
     const stdinData = await readStdin();
     input = JSON.parse(stdinData);
-    log(`Received input for group: ${input.groupFolder}`);
+    log(`Received input for scope: ${resolveScopeId(input)}`);
   } catch (err) {
     writeOutput({
       status: 'error',
@@ -67,10 +81,13 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  const scopeId = resolveScopeId(input);
+  const isControlScope = resolveIsControlScope(input);
+
   const ipcTools = createIpcTools({
     chatJid: input.chatJid,
-    groupFolder: input.groupFolder,
-    isMain: input.isMain
+    scopeId,
+    isControlScope
   });
 
   let result: string | null = null;

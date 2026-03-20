@@ -34,12 +34,15 @@ export function canRegisterGroup(sourceScopeFolder: string): boolean {
   return isControlScope(sourceScopeFolder);
 }
 
-export function filterVisibleTasks<T extends { groupFolder: string }>(scopeFolder: string, tasks: T[]): T[] {
+export function filterVisibleTasks<T extends { scopeId?: string; groupFolder?: string }>(
+  scopeFolder: string,
+  tasks: T[]
+): T[] {
   if (isControlScope(scopeFolder)) {
     return tasks;
   }
 
-  return tasks.filter(task => task.groupFolder === scopeFolder);
+  return tasks.filter(task => (task.scopeId ?? task.groupFolder) === scopeFolder);
 }
 
 export function shouldExposeAvailableGroups(scopeFolder: string): boolean {

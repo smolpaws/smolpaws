@@ -31,9 +31,11 @@ const OUTPUT_END_MARKER = '---SMOLPAWS_OUTPUT_END---';
 export interface ContainerInput {
   prompt: string;
   conversationId?: string;
-  groupFolder: string;
+  scopeId: string;
+  groupFolder?: string;
   chatJid: string;
-  isMain: boolean;
+  isControlScope: boolean;
+  isMain?: boolean;
   isScheduledTask?: boolean;
 }
 

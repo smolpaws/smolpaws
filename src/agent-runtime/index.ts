@@ -58,10 +58,11 @@ export async function runAgentRuntime(
 }
 
 export function writeRuntimeTasksSnapshot(
-  groupFolder: string,
-  isMain: boolean,
+  scopeId: string,
+  isControlScope: boolean,
   tasks: Array<{
     id: string;
+    scopeId?: string;
     groupFolder: string;
     prompt: string;
     schedule_type: string;
@@ -70,16 +71,16 @@ export function writeRuntimeTasksSnapshot(
     next_run: string | null;
   }>
 ): void {
-  getAgentRuntime().writeTasksSnapshot(groupFolder, isMain, tasks);
+  getAgentRuntime().writeTasksSnapshot(scopeId, isControlScope, tasks);
 }
 
 export function writeRuntimeGroupsSnapshot(
-  groupFolder: string,
-  isMain: boolean,
+  scopeId: string,
+  isControlScope: boolean,
   groups: AvailableGroup[],
   registeredJids: Set<string>
 ): void {
-  getAgentRuntime().writeGroupsSnapshot(groupFolder, isMain, groups, registeredJids);
+  getAgentRuntime().writeGroupsSnapshot(scopeId, isControlScope, groups, registeredJids);
 }
 
 export type {

@@ -46,6 +46,7 @@ async function runTask(task: ScheduledTask, deps: SchedulerDependencies): Promis
   const tasks = getAllTasks();
   writeRuntimeTasksSnapshot(scope.scopeId, scope.isControlScope, tasks.map(t => ({
     id: t.id,
+    scopeId: t.group_folder,
     groupFolder: t.group_folder,
     prompt: t.prompt,
     schedule_type: t.schedule_type,
@@ -65,8 +66,10 @@ async function runTask(task: ScheduledTask, deps: SchedulerDependencies): Promis
     const output = await runAgentRuntime(scope, {
       prompt: task.prompt,
       conversationId,
+      scopeId: scope.scopeId,
       groupFolder: scope.scopeId,
       chatJid: task.chat_jid,
+      isControlScope: scope.isControlScope,
       isMain: scope.isControlScope,
       isScheduledTask: true
     });

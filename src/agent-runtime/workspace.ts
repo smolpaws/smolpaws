@@ -114,10 +114,11 @@ export function buildVolumeMounts(
 }
 
 export function writeTasksSnapshot(
-  groupFolder: string,
-  _isMain: boolean,
+  scopeId: string,
+  _isControlScope: boolean,
   tasks: Array<{
     id: string;
+    scopeId?: string;
     groupFolder: string;
     prompt: string;
     schedule_type: string;
@@ -126,25 +127,25 @@ export function writeTasksSnapshot(
     next_run: string | null;
   }>
 ): void {
-  const groupIpcDir = path.join(DATA_DIR, 'ipc', groupFolder);
+  const groupIpcDir = path.join(DATA_DIR, 'ipc', scopeId);
   fs.mkdirSync(groupIpcDir, { recursive: true });
 
-  const filteredTasks = filterVisibleTasks(groupFolder, tasks);
+  const filteredTasks = filterVisibleTasks(scopeId, tasks);
 
   const tasksFile = path.join(groupIpcDir, 'current_tasks.json');
   fs.writeFileSync(tasksFile, JSON.stringify(filteredTasks, null, 2));
 }
 
 export function writeGroupsSnapshot(
-  groupFolder: string,
-  _isMain: boolean,
+  scopeId: string,
+  _isControlScope: boolean,
   groups: AvailableGroup[],
   registeredJids: Set<string>
 ): void {
-  const groupIpcDir = path.join(DATA_DIR, 'ipc', groupFolder);
+  const groupIpcDir = path.join(DATA_DIR, 'ipc', scopeId);
   fs.mkdirSync(groupIpcDir, { recursive: true });
 
-  const visibleGroups = shouldExposeAvailableGroups(groupFolder) ? groups : [];
+  const visibleGroups = shouldExposeAvailableGroups(scopeId) ? groups : [];
   void registeredJids;
 
   const groupsFile = path.join(groupIpcDir, 'available_groups.json');

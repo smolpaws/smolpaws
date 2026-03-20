@@ -16,8 +16,8 @@ const TASKS_DIR = path.join(IPC_DIR, 'tasks');
 
 export interface IpcContext {
   chatJid: string;
-  groupFolder: string;
-  isMain: boolean;
+  scopeId: string;
+  isControlScope: boolean;
 }
 
 function writeIpcFile(dir: string, data: object): string {
@@ -52,7 +52,8 @@ class SendMessageTool extends ZodTool<z.infer<typeof sendMessageSchema>, { messa
       type: 'message',
       chatJid: this.ctx.chatJid,
       text: args.text,
-      groupFolder: this.ctx.groupFolder,
+      scopeId: this.ctx.scopeId,
+      groupFolder: this.ctx.scopeId,
       timestamp: new Date().toISOString(),
     };
 
@@ -116,7 +117,7 @@ class ScheduleTaskTool extends ZodTool<z.infer<typeof scheduleTaskSchema>, { mes
     }
 
     // Only the control scope can schedule on behalf of other scopes.
-    const targetGroup = this.ctx.isMain && args.target_group ? args.target_group : this.ctx.groupFolder;
+    const targetGroup = this.ctx.isControlScope && args.target_group ? args.target_group : this.ctx.scopeId;
 
     const data = {
       type: 'schedule_task',
@@ -124,9 +125,11 @@ class ScheduleTaskTool extends ZodTool<z.infer<typeof scheduleTaskSchema>, { mes
       schedule_type: args.schedule_type,
       schedule_value: args.schedule_value,
       context_mode: args.context_mode || 'group',
+      scopeId: targetGroup,
       groupFolder: targetGroup,
       chatJid: this.ctx.chatJid,
-      createdBy: this.ctx.groupFolder,
+      createdByScopeId: this.ctx.scopeId,
+      createdBy: this.ctx.scopeId,
       timestamp: new Date().toISOString(),
     };
 
@@ -156,9 +159,9 @@ class ListTasksTool extends ZodTool<z.infer<typeof listTasksSchema>, { message: 
 
       const allTasks = JSON.parse(fs.readFileSync(tasksFile, 'utf-8'));
 
-      const tasks = this.ctx.isMain
+      const tasks = this.ctx.isControlScope
         ? allTasks
-        : allTasks.filter((t: { groupFolder: string }) => t.groupFolder === this.ctx.groupFolder);
+        : allTasks.filter((t: { scopeId?: string; groupFolder?: string }) => (t.scopeId ?? t.groupFolder) === this.ctx.scopeId);
 
       if (tasks.length === 0) {
         return { message: 'No scheduled tasks found.' };
@@ -192,8 +195,10 @@ class PauseTaskTool extends ZodTool<z.infer<typeof taskIdSchema>, { message: str
     writeIpcFile(TASKS_DIR, {
       type: 'pause_task',
       taskId: args.task_id,
-      groupFolder: this.ctx.groupFolder,
-      isMain: this.ctx.isMain,
+      scopeId: this.ctx.scopeId,
+      groupFolder: this.ctx.scopeId,
+      isControlScope: this.ctx.isControlScope,
+      isMain: this.ctx.isControlScope,
       timestamp: new Date().toISOString(),
     });
     return { message: `Task ${args.task_id} pause requested.` };
@@ -213,8 +218,10 @@ class ResumeTaskTool extends ZodTool<z.infer<typeof taskIdSchema>, { message: st
     writeIpcFile(TASKS_DIR, {
       type: 'resume_task',
       taskId: args.task_id,
-      groupFolder: this.ctx.groupFolder,
-      isMain: this.ctx.isMain,
+      scopeId: this.ctx.scopeId,
+      groupFolder: this.ctx.scopeId,
+      isControlScope: this.ctx.isControlScope,
+      isMain: this.ctx.isControlScope,
       timestamp: new Date().toISOString(),
     });
     return { message: `Task ${args.task_id} resume requested.` };
@@ -234,8 +241,10 @@ class CancelTaskTool extends ZodTool<z.infer<typeof taskIdSchema>, { message: st
     writeIpcFile(TASKS_DIR, {
       type: 'cancel_task',
       taskId: args.task_id,
-      groupFolder: this.ctx.groupFolder,
-      isMain: this.ctx.isMain,
+      scopeId: this.ctx.scopeId,
+      groupFolder: this.ctx.scopeId,
+      isControlScope: this.ctx.isControlScope,
+      isMain: this.ctx.isControlScope,
       timestamp: new Date().toISOString(),
     });
     return { message: `Task ${args.task_id} cancellation requested.` };
@@ -261,7 +270,7 @@ Use available_groups.json to find the JID for a group. The folder name should be
   constructor(private ctx: IpcContext) { super(); }
 
   async execute(args: z.infer<typeof registerGroupSchema>, _context: ToolContext): Promise<{ message: string }> {
-    if (!this.ctx.isMain) {
+    if (!this.ctx.isControlScope) {
       return { message: 'Only the control scope can register new groups.' };
     }
 
