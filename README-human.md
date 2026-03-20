@@ -6,7 +6,7 @@
   Your smart cat. Lightweight, secure, customizable.
 </p>
 
-Powered by the published `@smolpaws/agent-sdk` package. The canonical TypeScript runtime source lives in `enyst/OpenHands-Tab/packages/agent-sdk`, and this repo consumes that runtime through an AppleWorkspace-managed local runner surface. Built on [OpenHands](https://github.com/OpenHands/OpenHands). Based on [NanoClaw](https://github.com/gavrielc/nanoclaw).
+Powered by the published `@smolpaws/agent-sdk` package. The canonical TypeScript runtime source lives in `enyst/OpenHands-Tab/packages/agent-sdk`, and this repo consumes that runtime through an AppleWorkspace-managed local runner surface. The shared Fastify agent-server now lives in this repo under `apps/agent-server`. Built on [OpenHands](https://github.com/OpenHands/OpenHands). Based on [NanoClaw](https://github.com/gavrielc/nanoclaw).
 
 ## Why
 
@@ -124,6 +124,7 @@ Runtime ownership:
 Key files:
 - `src/index.ts` - Main app: WhatsApp connection and routing
 - `src/agent-runtime/shared-runner.ts` - AppleWorkspace-backed runner client
+- `apps/agent-server/` - Shared Fastify agent-server app and runner image source
 - `src/task-scheduler.ts` - Runs scheduled tasks
 - `src/db.ts` - SQLite operations
 - `groups/*/AGENTS.md` - Per-group memory

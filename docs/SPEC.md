@@ -114,6 +114,9 @@ smolpaws/
 │       ├── workspace.ts           # Per-scope mount policy
 │       └── types.ts               # Runtime request/response types
 │
+├── apps/
+│   └── agent-server/              # Shared Fastify agent-server app + runner image
+│
 ├── dist/                          # Compiled JavaScript (gitignored)
 │
 ├── .claude/
@@ -222,7 +225,7 @@ The token can be extracted from `~/.claude/.credentials.json` if you're logged i
 ANTHROPIC_API_KEY=sk-ant-api03-...
 ```
 
-The shared runner forwards the required model/auth environment into the per-scope AppleWorkspace host. The older stdin-entrypoint `.env` mount workaround is no longer part of the active runtime path.
+The shared runner forwards the required model/auth environment into the per-scope AppleWorkspace host. The agent-server implementation and runner image source now live under `apps/agent-server`. The older stdin-entrypoint `.env` mount workaround is no longer part of the active runtime path.
 
 ### Changing the Assistant Name
 
