@@ -221,6 +221,17 @@ async function runAgent(group: RegisteredGroup, prompt: string, chatJid: string)
       return null;
     }
 
+    if (output.outboundMessages?.length) {
+      for (const outbound of output.outboundMessages) {
+        if (outbound.kind !== 'current_thread_message') {
+          logger.warn({ kind: outbound.kind, group: group.name }, 'Unsupported outbound message kind');
+          continue;
+        }
+        await sendMessage(chatJid, `${ASSISTANT_NAME}: ${outbound.text}`);
+      }
+      return null;
+    }
+
     return output.result;
   } catch (err) {
     logger.error({ group: group.name, err }, 'Agent error');

@@ -44,6 +44,10 @@ export interface ContainerOutput {
   result: string | null;
   conversationId?: string;
   error?: string;
+  outboundMessages?: Array<{
+    kind: 'current_thread_message';
+    text: string;
+  }>;
 }
 
 

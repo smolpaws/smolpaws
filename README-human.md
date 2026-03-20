@@ -118,6 +118,8 @@ WhatsApp (baileys) --> SQLite --> Polling loop --> Container (OpenHands Agent SD
 
 Single Node.js process. Agents execute in isolated Linux containers with mounted directories. IPC via filesystem. No daemons, no queues, no complexity.
 
+For the convergence work, there is now also an opt-in `shared-runner` backend behind `SMOLPAWS_AGENT_RUNTIME_BACKEND=shared-runner`. The default remains the container stdio path.
+
 Runtime ownership:
 - Canonical TypeScript runtime source: `enyst/OpenHands-Tab/packages/agent-sdk`
 - Distribution path used here: published npm package `@smolpaws/agent-sdk`

@@ -3,6 +3,7 @@ import {
   type ContainerInput,
   type ContainerOutput,
 } from '../container-runner.js';
+import { runSharedRunnerAgent } from './shared-runner.js';
 import type { ExecutionScope } from '../scope.js';
 import {
   type AvailableGroup,
@@ -10,7 +11,7 @@ import {
   writeTasksSnapshot,
 } from './workspace.js';
 
-type AgentRuntimeBackend = 'container-stdio';
+type AgentRuntimeBackend = 'container-stdio' | 'shared-runner';
 
 interface AgentRuntime {
   run(scope: ExecutionScope, input: ContainerInput): Promise<ContainerOutput>;
@@ -27,12 +28,24 @@ class ContainerStdioAgentRuntime implements AgentRuntime {
   }
 }
 
+class SharedRunnerAgentRuntime implements AgentRuntime {
+  writeTasksSnapshot = writeTasksSnapshot;
+  writeGroupsSnapshot = writeGroupsSnapshot;
+
+  async run(scope: ExecutionScope, input: ContainerInput): Promise<ContainerOutput> {
+    return await runSharedRunnerAgent(scope, input);
+  }
+}
+
 let runtime: AgentRuntime | undefined;
 
 function getConfiguredBackend(): AgentRuntimeBackend {
   const raw = process.env.SMOLPAWS_AGENT_RUNTIME_BACKEND?.trim();
   if (!raw || raw === 'container-stdio') {
     return 'container-stdio';
+  }
+  if (raw === 'shared-runner') {
+    return 'shared-runner';
   }
   throw new Error(`Unsupported SMOLPAWS_AGENT_RUNTIME_BACKEND: ${raw}`);
 }
@@ -42,6 +55,8 @@ function getAgentRuntime(): AgentRuntime {
     const backend = getConfiguredBackend();
     if (backend === 'container-stdio') {
       runtime = new ContainerStdioAgentRuntime();
+    } else if (backend === 'shared-runner') {
+      runtime = new SharedRunnerAgentRuntime();
     }
   }
   if (!runtime) {

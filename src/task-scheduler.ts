@@ -4,7 +4,7 @@ import pino from 'pino';
 import { CronExpressionParser } from 'cron-parser';
 import { getDueTasks, updateTaskAfterRun, logTaskRun, getTaskById, getAllTasks } from './db.js';
 import { ScheduledTask, RegisteredGroup } from './types.js';
-import { GROUPS_DIR, SCHEDULER_POLL_INTERVAL, TIMEZONE } from './config.js';
+import { ASSISTANT_NAME, GROUPS_DIR, SCHEDULER_POLL_INTERVAL, TIMEZONE } from './config.js';
 import { runAgentRuntime, writeRuntimeTasksSnapshot } from './agent-runtime/index.js';
 import { findScopeByFolder } from './scope.js';
 
@@ -78,6 +78,13 @@ async function runTask(task: ScheduledTask, deps: SchedulerDependencies): Promis
       error = output.error || 'Unknown error';
     } else {
       result = output.result;
+      for (const outbound of output.outboundMessages ?? []) {
+        if (outbound.kind !== 'current_thread_message') {
+          logger.warn({ taskId: task.id, kind: outbound.kind }, 'Unsupported outbound message kind');
+          continue;
+        }
+        await deps.sendMessage(task.chat_jid, `${ASSISTANT_NAME}: ${outbound.text}`);
+      }
     }
 
     logger.info({ taskId: task.id, durationMs: Date.now() - startTime }, 'Task completed');
