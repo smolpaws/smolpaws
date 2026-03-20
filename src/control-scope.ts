@@ -1,5 +1,5 @@
 import { MAIN_GROUP_FOLDER } from './config.js';
-import { RegisteredGroup } from './types.js';
+import type { RegisteredGroup } from './types.js';
 
 export function isControlScope(scopeFolder: string): boolean {
   return scopeFolder === MAIN_GROUP_FOLDER;

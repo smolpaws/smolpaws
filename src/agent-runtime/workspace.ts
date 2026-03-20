@@ -7,7 +7,7 @@ import {
 } from '../config.js';
 import { filterVisibleTasks, shouldExposeAvailableGroups } from '../control-scope.js';
 import { validateAdditionalMounts } from '../mount-security.js';
-import { RegisteredGroup } from '../types.js';
+import type { ExecutionScope } from '../scope.js';
 
 export interface VolumeMount {
   hostPath: string;
@@ -23,8 +23,8 @@ export interface AvailableGroup {
 }
 
 export function buildVolumeMounts(
-  group: RegisteredGroup,
-  isMain: boolean,
+  scope: ExecutionScope,
+  isControl: boolean,
   options?: {
     projectRoot?: string;
   }
@@ -32,20 +32,20 @@ export function buildVolumeMounts(
   const mounts: VolumeMount[] = [];
   const projectRoot = options?.projectRoot || process.cwd();
 
-  if (isMain) {
+  if (isControl) {
     mounts.push({
       hostPath: projectRoot,
       containerPath: '/workspace/project',
       readonly: false
     });
     mounts.push({
-      hostPath: path.join(GROUPS_DIR, group.folder),
+      hostPath: path.join(GROUPS_DIR, scope.workspaceFolder),
       containerPath: '/workspace/group',
       readonly: false
     });
   } else {
     mounts.push({
-      hostPath: path.join(GROUPS_DIR, group.folder),
+      hostPath: path.join(GROUPS_DIR, scope.workspaceFolder),
       containerPath: '/workspace/group',
       readonly: false
     });
@@ -60,7 +60,7 @@ export function buildVolumeMounts(
     }
   }
 
-  const groupConversationsDir = path.join(DATA_DIR, 'conversations', group.folder);
+  const groupConversationsDir = path.join(DATA_DIR, 'conversations', scope.scopeId);
   fs.mkdirSync(groupConversationsDir, { recursive: true });
   mounts.push({
     hostPath: groupConversationsDir,
@@ -68,7 +68,7 @@ export function buildVolumeMounts(
     readonly: false
   });
 
-  const groupIpcDir = path.join(DATA_DIR, 'ipc', group.folder);
+  const groupIpcDir = path.join(DATA_DIR, 'ipc', scope.scopeId);
   fs.mkdirSync(path.join(groupIpcDir, 'messages'), { recursive: true });
   fs.mkdirSync(path.join(groupIpcDir, 'tasks'), { recursive: true });
   mounts.push({
@@ -101,11 +101,11 @@ export function buildVolumeMounts(
     }
   }
 
-  if (group.containerConfig?.additionalMounts) {
+  if (scope.containerConfig?.additionalMounts) {
     const validatedMounts = validateAdditionalMounts(
-      group.containerConfig.additionalMounts,
-      group.name,
-      isMain
+      scope.containerConfig.additionalMounts,
+      scope.name,
+      isControl
     );
     mounts.push(...validatedMounts);
   }

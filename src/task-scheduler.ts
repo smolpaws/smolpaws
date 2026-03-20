@@ -2,11 +2,11 @@ import fs from 'fs';
 import path from 'path';
 import pino from 'pino';
 import { CronExpressionParser } from 'cron-parser';
-import { isControlScope } from './control-scope.js';
 import { getDueTasks, updateTaskAfterRun, logTaskRun, getTaskById, getAllTasks } from './db.js';
 import { ScheduledTask, RegisteredGroup } from './types.js';
 import { GROUPS_DIR, SCHEDULER_POLL_INTERVAL, TIMEZONE } from './config.js';
 import { runAgentRuntime, writeRuntimeTasksSnapshot } from './agent-runtime/index.js';
+import { findScopeByFolder } from './scope.js';
 
 const logger = pino({
   level: process.env.LOG_LEVEL || 'info',
@@ -27,25 +27,24 @@ async function runTask(task: ScheduledTask, deps: SchedulerDependencies): Promis
   logger.info({ taskId: task.id, group: task.group_folder }, 'Running scheduled task');
 
   const groups = deps.registeredGroups();
-  const group = Object.values(groups).find(g => g.folder === task.group_folder);
+  const scope = findScopeByFolder(groups, task.group_folder);
 
-  if (!group) {
-    logger.error({ taskId: task.id, groupFolder: task.group_folder }, 'Group not found for task');
+  if (!scope) {
+    logger.error({ taskId: task.id, scopeId: task.group_folder }, 'Execution scope not found for task');
     logTaskRun({
       task_id: task.id,
       run_at: new Date().toISOString(),
       duration_ms: Date.now() - startTime,
       status: 'error',
       result: null,
-      error: `Group not found: ${task.group_folder}`
+      error: `Execution scope not found: ${task.group_folder}`
     });
     return;
   }
 
-  // Update the runtime-side task snapshot (filtered by group).
-  const isMain = isControlScope(task.group_folder);
+  // Update the runtime-side task snapshot for this execution scope.
   const tasks = getAllTasks();
-  writeRuntimeTasksSnapshot(task.group_folder, isMain, tasks.map(t => ({
+  writeRuntimeTasksSnapshot(scope.scopeId, scope.isControlScope, tasks.map(t => ({
     id: t.id,
     groupFolder: t.group_folder,
     prompt: t.prompt,
@@ -58,17 +57,17 @@ async function runTask(task: ScheduledTask, deps: SchedulerDependencies): Promis
   let result: string | null = null;
   let error: string | null = null;
 
-  // For group context mode, use the group's current session
+  // For group context mode, use the current scope session.
   const sessions = deps.getSessions();
   const conversationId = task.context_mode === 'group' ? sessions[task.group_folder] : undefined;
 
   try {
-    const output = await runAgentRuntime(group, {
+    const output = await runAgentRuntime(scope, {
       prompt: task.prompt,
       conversationId,
-      groupFolder: task.group_folder,
+      groupFolder: scope.scopeId,
       chatJid: task.chat_jid,
-      isMain,
+      isMain: scope.isControlScope,
       isScheduledTask: true
     });
 

@@ -35,6 +35,7 @@ import {
   isControlScope,
   shouldRespondWithoutTrigger
 } from './control-scope.js';
+import { scopeFromRegisteredGroup } from './scope.js';
 import { loadJson, saveJson } from './utils.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -179,12 +180,12 @@ async function processMessage(msg: NewMessage): Promise<void> {
 }
 
 async function runAgent(group: RegisteredGroup, prompt: string, chatJid: string): Promise<string | null> {
-  const isMain = isControlScope(group.folder);
-  const conversationId = sessions[group.folder];
+  const scope = scopeFromRegisteredGroup(chatJid, group);
+  const conversationId = sessions[scope.scopeId];
 
-  // Update the runtime-side task snapshot (filtered by group).
+  // Update the runtime-side task snapshot for this execution scope.
   const tasks = getAllTasks();
-  writeRuntimeTasksSnapshot(group.folder, isMain, tasks.map(t => ({
+  writeRuntimeTasksSnapshot(scope.scopeId, scope.isControlScope, tasks.map(t => ({
     id: t.id,
     groupFolder: t.group_folder,
     prompt: t.prompt,
@@ -194,21 +195,21 @@ async function runAgent(group: RegisteredGroup, prompt: string, chatJid: string)
     next_run: t.next_run
   })));
 
-  // Update the runtime-side available-groups snapshot.
+  // Update the runtime-side available-groups snapshot for this scope.
   const availableGroups = getAvailableGroups();
-  writeRuntimeGroupsSnapshot(group.folder, isMain, availableGroups, new Set(Object.keys(registeredGroups)));
+  writeRuntimeGroupsSnapshot(scope.scopeId, scope.isControlScope, availableGroups, new Set(Object.keys(registeredGroups)));
 
   try {
-    const output = await runAgentRuntime(group, {
+    const output = await runAgentRuntime(scope, {
       prompt,
       conversationId,
-      groupFolder: group.folder,
+      groupFolder: scope.scopeId,
       chatJid,
-      isMain
+      isMain: scope.isControlScope
     });
 
     if (output.conversationId) {
-      sessions[group.folder] = output.conversationId;
+      sessions[scope.scopeId] = output.conversationId;
       saveJson(path.join(DATA_DIR, 'sessions.json'), sessions);
     }
 

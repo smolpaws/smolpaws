@@ -3,7 +3,7 @@ import {
   type ContainerInput,
   type ContainerOutput,
 } from '../container-runner.js';
-import type { RegisteredGroup } from '../types.js';
+import type { ExecutionScope } from '../scope.js';
 import {
   type AvailableGroup,
   writeGroupsSnapshot,
@@ -13,7 +13,7 @@ import {
 type AgentRuntimeBackend = 'container-stdio';
 
 interface AgentRuntime {
-  run(group: RegisteredGroup, input: ContainerInput): Promise<ContainerOutput>;
+  run(scope: ExecutionScope, input: ContainerInput): Promise<ContainerOutput>;
   writeTasksSnapshot: typeof writeTasksSnapshot;
   writeGroupsSnapshot: typeof writeGroupsSnapshot;
 }
@@ -22,8 +22,8 @@ class ContainerStdioAgentRuntime implements AgentRuntime {
   writeTasksSnapshot = writeTasksSnapshot;
   writeGroupsSnapshot = writeGroupsSnapshot;
 
-  async run(group: RegisteredGroup, input: ContainerInput): Promise<ContainerOutput> {
-    return await runContainerAgent(group, input);
+  async run(scope: ExecutionScope, input: ContainerInput): Promise<ContainerOutput> {
+    return await runContainerAgent(scope, input);
   }
 }
 
@@ -51,10 +51,10 @@ function getAgentRuntime(): AgentRuntime {
 }
 
 export async function runAgentRuntime(
-  group: RegisteredGroup,
+  scope: ExecutionScope,
   input: ContainerInput
 ): Promise<ContainerOutput> {
-  return await getAgentRuntime().run(group, input);
+  return await getAgentRuntime().run(scope, input);
 }
 
 export function writeRuntimeTasksSnapshot(

@@ -13,7 +13,7 @@ import {
   CONTAINER_MAX_OUTPUT_SIZE,
   GROUPS_DIR,
 } from './config.js';
-import { RegisteredGroup } from './types.js';
+import type { ExecutionScope } from './scope.js';
 import {
   buildVolumeMounts,
   type VolumeMount,
@@ -63,30 +63,32 @@ function buildContainerArgs(mounts: VolumeMount[]): string[] {
 }
 
 export async function runContainerAgent(
-  group: RegisteredGroup,
+  scope: ExecutionScope,
   input: ContainerInput
 ): Promise<ContainerOutput> {
   const startTime = Date.now();
 
-  const groupDir = path.join(GROUPS_DIR, group.folder);
-  fs.mkdirSync(groupDir, { recursive: true });
+  const scopeDir = path.join(GROUPS_DIR, scope.workspaceFolder);
+  fs.mkdirSync(scopeDir, { recursive: true });
 
-  const mounts = buildVolumeMounts(group, input.isMain);
+  const mounts = buildVolumeMounts(scope, scope.isControlScope);
   const containerArgs = buildContainerArgs(mounts);
 
   logger.debug({
-    group: group.name,
+    scope: scope.name,
+    scopeId: scope.scopeId,
     mounts: mounts.map(m => `${m.hostPath} -> ${m.containerPath}${m.readonly ? ' (ro)' : ''}`),
     containerArgs: containerArgs.join(' ')
   }, 'Container mount configuration');
 
   logger.info({
-    group: group.name,
+    scope: scope.name,
+    scopeId: scope.scopeId,
     mountCount: mounts.length,
-    isMain: input.isMain
+    isControlScope: scope.isControlScope
   }, 'Spawning container agent');
 
-  const logsDir = path.join(GROUPS_DIR, group.folder, 'logs');
+  const logsDir = path.join(GROUPS_DIR, scope.workspaceFolder, 'logs');
   fs.mkdirSync(logsDir, { recursive: true });
 
   return new Promise((resolve) => {
@@ -109,7 +111,7 @@ export async function runContainerAgent(
       if (chunk.length > remaining) {
         stdout += chunk.slice(0, remaining);
         stdoutTruncated = true;
-        logger.warn({ group: group.name, size: stdout.length }, 'Container stdout truncated due to size limit');
+        logger.warn({ scope: scope.name, size: stdout.length }, 'Container stdout truncated due to size limit');
       } else {
         stdout += chunk;
       }
@@ -119,28 +121,28 @@ export async function runContainerAgent(
       const chunk = data.toString();
       const lines = chunk.trim().split('\n');
       for (const line of lines) {
-        if (line) logger.debug({ container: group.folder }, line);
+        if (line) logger.debug({ container: scope.scopeId }, line);
       }
       if (stderrTruncated) return;
       const remaining = CONTAINER_MAX_OUTPUT_SIZE - stderr.length;
       if (chunk.length > remaining) {
         stderr += chunk.slice(0, remaining);
         stderrTruncated = true;
-        logger.warn({ group: group.name, size: stderr.length }, 'Container stderr truncated due to size limit');
+        logger.warn({ scope: scope.name, size: stderr.length }, 'Container stderr truncated due to size limit');
       } else {
         stderr += chunk;
       }
     });
 
     const timeout = setTimeout(() => {
-      logger.error({ group: group.name }, 'Container timeout, killing');
+      logger.error({ scope: scope.name }, 'Container timeout, killing');
       container.kill('SIGKILL');
       resolve({
         status: 'error',
         result: null,
         error: `Container timed out after ${CONTAINER_TIMEOUT}ms`
       });
-    }, group.containerConfig?.timeout || CONTAINER_TIMEOUT);
+    }, scope.containerConfig?.timeout || CONTAINER_TIMEOUT);
 
     container.on('close', (code) => {
       clearTimeout(timeout);
@@ -153,8 +155,9 @@ export async function runContainerAgent(
       const logLines = [
         `=== Container Run Log ===`,
         `Timestamp: ${new Date().toISOString()}`,
-        `Group: ${group.name}`,
-        `IsMain: ${input.isMain}`,
+        `Scope: ${scope.name}`,
+        `Scope ID: ${scope.scopeId}`,
+        `IsControlScope: ${scope.isControlScope}`,
         `Duration: ${duration}ms`,
         `Exit Code: ${code}`,
         `Stdout Truncated: ${stdoutTruncated}`,
@@ -204,7 +207,8 @@ export async function runContainerAgent(
 
       if (code !== 0) {
         logger.error({
-          group: group.name,
+          scope: scope.name,
+          scopeId: scope.scopeId,
           code,
           duration,
           stderr: stderr.slice(-500),
@@ -236,7 +240,8 @@ export async function runContainerAgent(
         const output: ContainerOutput = JSON.parse(jsonLine);
 
         logger.info({
-          group: group.name,
+          scope: scope.name,
+          scopeId: scope.scopeId,
           duration,
           status: output.status,
           hasResult: !!output.result
@@ -245,7 +250,8 @@ export async function runContainerAgent(
         resolve(output);
       } catch (err) {
         logger.error({
-          group: group.name,
+          scope: scope.name,
+          scopeId: scope.scopeId,
           stdout: stdout.slice(-500),
           error: err
         }, 'Failed to parse container output');
@@ -260,7 +266,7 @@ export async function runContainerAgent(
 
     container.on('error', (err) => {
       clearTimeout(timeout);
-      logger.error({ group: group.name, error: err }, 'Container spawn error');
+      logger.error({ scope: scope.name, scopeId: scope.scopeId, error: err }, 'Container spawn error');
       resolve({
         status: 'error',
         result: null,
