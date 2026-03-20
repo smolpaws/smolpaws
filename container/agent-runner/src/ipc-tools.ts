@@ -68,7 +68,7 @@ const scheduleTaskSchema = z.object({
   schedule_type: z.enum(['cron', 'interval', 'once']).describe('cron=recurring at specific times, interval=recurring every N ms, once=run once at specific time'),
   schedule_value: z.string().describe('cron: "*/5 * * * *" | interval: milliseconds like "300000" | once: local timestamp like "2026-02-01T15:30:00" (no Z suffix!)'),
   context_mode: z.enum(['group', 'isolated']).default('group').describe('group=runs with chat history and memory, isolated=fresh session (include context in prompt)'),
-  target_group: z.string().optional().describe('Target group folder (main only, defaults to current group)'),
+  target_group: z.string().optional().describe('Target group folder (control scope only, defaults to current group)'),
 });
 
 const SCHEDULE_TASK_DESCRIPTION = `Schedule a recurring or one-time task. The task will run as a full agent with access to all tools.
@@ -115,7 +115,7 @@ class ScheduleTaskTool extends ZodTool<z.infer<typeof scheduleTaskSchema>, { mes
       }
     }
 
-    // Non-main groups can only schedule for themselves
+    // Only the control scope can schedule on behalf of other scopes.
     const targetGroup = this.ctx.isMain && args.target_group ? args.target_group : this.ctx.groupFolder;
 
     const data = {
@@ -141,7 +141,7 @@ const listTasksSchema = z.object({});
 
 class ListTasksTool extends ZodTool<z.infer<typeof listTasksSchema>, { message: string }> {
   readonly name = 'list_tasks';
-  readonly description = "List all scheduled tasks. From main: shows all tasks. From other groups: shows only that group's tasks.";
+  readonly description = "List all scheduled tasks. From the control scope: shows all tasks. From other groups: shows only that group's tasks.";
   readonly schema = listTasksSchema;
 
   constructor(private ctx: IpcContext) { super(); }
@@ -253,7 +253,7 @@ const registerGroupSchema = z.object({
 
 class RegisterGroupTool extends ZodTool<z.infer<typeof registerGroupSchema>, { message: string }> {
   readonly name = 'register_group';
-  readonly description = `Register a new WhatsApp group so the agent can respond to messages there. Main group only.
+  readonly description = `Register a new WhatsApp group so the agent can respond to messages there. Control scope only.
 
 Use available_groups.json to find the JID for a group. The folder name should be lowercase with hyphens (e.g., "family-chat").`;
   readonly schema = registerGroupSchema;
@@ -262,7 +262,7 @@ Use available_groups.json to find the JID for a group. The folder name should be
 
   async execute(args: z.infer<typeof registerGroupSchema>, _context: ToolContext): Promise<{ message: string }> {
     if (!this.ctx.isMain) {
-      return { message: 'Only the main group can register new groups.' };
+      return { message: 'Only the control scope can register new groups.' };
     }
 
     writeIpcFile(TASKS_DIR, {

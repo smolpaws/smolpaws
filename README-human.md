@@ -44,7 +44,7 @@ Then run `/setup`. Claude Code handles everything: dependencies, authentication,
 
 - **WhatsApp I/O** - Message Claude from your phone
 - **Isolated group context** - Each group has its own `AGENTS.md` memory, isolated filesystem, and runs in its own container sandbox with only that filesystem mounted
-- **Main channel** - Your private channel (self-chat) for admin control; every other group is completely isolated
+- **Control channel** - Your private self-chat acts as the trusted control scope; every other group stays isolated
 - **Scheduled tasks** - Recurring jobs that run Claude and can message you back
 - **Web access** - Search and fetch content
 - **Container isolation** - Agents sandboxed in Apple Container (macOS) or Docker (macOS/Linux)
@@ -60,7 +60,7 @@ Talk to your assistant with the trigger word (default: `@smolpaws`):
 @smolpaws every Monday at 8am, compile news on AI developments from Hacker News and TechCrunch and message me a briefing
 ```
 
-From the main channel (your self-chat), you can manage groups and tasks:
+From the control channel (your self-chat), you can manage groups and tasks:
 ```
 @smolpaws list all scheduled tasks across groups
 @smolpaws pause the Monday briefing task

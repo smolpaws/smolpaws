@@ -121,17 +121,17 @@ Runtime ownership note:
 - Tasks can optionally send messages to their group via `send_message` tool, or complete silently
 - Task runs are logged to the database with duration and result
 - Schedule types: cron expressions, intervals (ms), or one-time (ISO timestamp)
-- From main: can schedule tasks for any group, view/manage all tasks
+- From the control scope: can schedule tasks for any group, view/manage all tasks
 - From other groups: can only manage that group's tasks
 
 ### Group Management
-- New groups are added explicitly via the main channel
+- New groups are added explicitly via the control scope
 - Groups are registered by editing `data/registered_groups.json`
 - Each group gets a dedicated folder under `groups/`
 - Groups can have additional directories mounted via `containerConfig`
 
-### Main Channel Privileges
-- Main channel is the admin/control group (typically self-chat)
+### Control Scope Privileges
+- The control scope is the admin channel (typically self-chat)
 - Can write to global memory (`groups/AGENTS.md`)
 - Can schedule tasks for any group
 - Can view and manage tasks from all groups

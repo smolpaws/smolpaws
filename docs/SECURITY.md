@@ -4,7 +4,7 @@
 
 | Entity | Trust Level | Rationale |
 |--------|-------------|-----------|
-| Main group | Trusted | Private self-chat, admin control |
+| Control scope | Trusted | Private self-chat, admin control |
 | Non-main groups | Untrusted | Other users may be malicious |
 | Container agents | Sandboxed | Isolated execution environment |
 | WhatsApp messages | User input | Potential prompt injection |
@@ -38,7 +38,7 @@ private_key, .secret
 **Protections:**
 - Symlink resolution before validation (prevents traversal attacks)
 - Container path validation (rejects `..` and absolute paths)
-- `nonMainReadOnly` option forces read-only for non-main groups
+- `nonMainReadOnly` option forces read-only for non-control groups
 
 ### 3. Session Isolation
 
@@ -49,9 +49,9 @@ Each group has isolated Claude sessions at `data/sessions/{group}/.claude/`:
 
 ### 4. IPC Authorization
 
-Messages and task operations are verified against group identity:
+Messages and task operations are verified against scope identity. Today the control scope is the WhatsApp self-chat; this is the seam that should later generalize across ingress types.
 
-| Operation | Main Group | Non-Main Group |
+| Operation | Control Scope | Other Groups |
 |-----------|------------|----------------|
 | Send message to own chat | ✓ | ✓ |
 | Send message to other chats | ✓ | ✗ |

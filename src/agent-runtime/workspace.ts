@@ -5,6 +5,7 @@ import {
   DATA_DIR,
   GROUPS_DIR,
 } from '../config.js';
+import { filterVisibleTasks, shouldExposeAvailableGroups } from '../control-scope.js';
 import { validateAdditionalMounts } from '../mount-security.js';
 import { RegisteredGroup } from '../types.js';
 
@@ -114,7 +115,7 @@ export function buildVolumeMounts(
 
 export function writeTasksSnapshot(
   groupFolder: string,
-  isMain: boolean,
+  _isMain: boolean,
   tasks: Array<{
     id: string;
     groupFolder: string;
@@ -128,9 +129,7 @@ export function writeTasksSnapshot(
   const groupIpcDir = path.join(DATA_DIR, 'ipc', groupFolder);
   fs.mkdirSync(groupIpcDir, { recursive: true });
 
-  const filteredTasks = isMain
-    ? tasks
-    : tasks.filter(t => t.groupFolder === groupFolder);
+  const filteredTasks = filterVisibleTasks(groupFolder, tasks);
 
   const tasksFile = path.join(groupIpcDir, 'current_tasks.json');
   fs.writeFileSync(tasksFile, JSON.stringify(filteredTasks, null, 2));
@@ -138,14 +137,14 @@ export function writeTasksSnapshot(
 
 export function writeGroupsSnapshot(
   groupFolder: string,
-  isMain: boolean,
+  _isMain: boolean,
   groups: AvailableGroup[],
   registeredJids: Set<string>
 ): void {
   const groupIpcDir = path.join(DATA_DIR, 'ipc', groupFolder);
   fs.mkdirSync(groupIpcDir, { recursive: true });
 
-  const visibleGroups = isMain ? groups : [];
+  const visibleGroups = shouldExposeAvailableGroups(groupFolder) ? groups : [];
   void registeredJids;
 
   const groupsFile = path.join(groupIpcDir, 'available_groups.json');

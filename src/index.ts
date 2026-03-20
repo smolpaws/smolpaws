@@ -15,7 +15,6 @@ import {
   STORE_DIR,
   DATA_DIR,
   TRIGGER_PATTERN,
-  MAIN_GROUP_FOLDER,
   IPC_POLL_INTERVAL,
   TIMEZONE
 } from './config.js';
@@ -28,6 +27,14 @@ import {
   writeRuntimeTasksSnapshot,
   type AvailableGroup
 } from './agent-runtime/index.js';
+import {
+  canRefreshGroupMetadata,
+  canRegisterGroup,
+  canSendToChat,
+  canTargetScope,
+  isControlScope,
+  shouldRespondWithoutTrigger
+} from './control-scope.js';
 import { loadJson, saveJson } from './utils.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -138,10 +145,9 @@ async function processMessage(msg: NewMessage): Promise<void> {
   if (!group) return;
 
   const content = msg.content.trim();
-  const isMainGroup = group.folder === MAIN_GROUP_FOLDER;
 
-  // Main group responds to all messages; other groups require trigger prefix
-  if (!isMainGroup && !TRIGGER_PATTERN.test(content)) return;
+  // The control scope responds to ambient messages; all others require the trigger prefix.
+  if (!shouldRespondWithoutTrigger(group.folder) && !TRIGGER_PATTERN.test(content)) return;
 
   // Get all messages since last agent interaction so the session has full context
   const sinceTimestamp = lastAgentTimestamp[msg.chat_jid] || '';
@@ -173,7 +179,7 @@ async function processMessage(msg: NewMessage): Promise<void> {
 }
 
 async function runAgent(group: RegisteredGroup, prompt: string, chatJid: string): Promise<string | null> {
-  const isMain = group.folder === MAIN_GROUP_FOLDER;
+  const isMain = isControlScope(group.folder);
   const conversationId = sessions[group.folder];
 
   // Update the runtime-side task snapshot (filtered by group).
@@ -232,7 +238,7 @@ function startIpcWatcher(): void {
   fs.mkdirSync(ipcBaseDir, { recursive: true });
 
   const processIpcFiles = async () => {
-    // Scan all group IPC directories (identity determined by directory)
+    // Scan all scope IPC directories (identity determined by directory)
     let groupFolders: string[];
     try {
       groupFolders = fs.readdirSync(ipcBaseDir).filter(f => {
@@ -246,7 +252,6 @@ function startIpcWatcher(): void {
     }
 
     for (const sourceGroup of groupFolders) {
-      const isMain = sourceGroup === MAIN_GROUP_FOLDER;
       const messagesDir = path.join(ipcBaseDir, sourceGroup, 'messages');
       const tasksDir = path.join(ipcBaseDir, sourceGroup, 'tasks');
 
@@ -259,9 +264,7 @@ function startIpcWatcher(): void {
             try {
               const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
               if (data.type === 'message' && data.chatJid && data.text) {
-                // Authorization: verify this group can send to this chatJid
-                const targetGroup = registeredGroups[data.chatJid];
-                if (isMain || (targetGroup && targetGroup.folder === sourceGroup)) {
+                if (canSendToChat(sourceGroup, data.chatJid, registeredGroups)) {
                   await sendMessage(data.chatJid, `${ASSISTANT_NAME}: ${data.text}`);
                   logger.info({ chatJid: data.chatJid, sourceGroup }, 'IPC message sent');
                 } else {
@@ -289,8 +292,8 @@ function startIpcWatcher(): void {
             const filePath = path.join(tasksDir, file);
             try {
               const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-              // Pass source group identity to processTaskIpc for authorization
-              await processTaskIpc(data, sourceGroup, isMain);
+              // Pass the source scope identity to processTaskIpc for authorization.
+              await processTaskIpc(data, sourceGroup);
               fs.unlinkSync(filePath);
             } catch (err) {
               logger.error({ file, sourceGroup, err }, 'Error processing IPC task');
@@ -309,7 +312,7 @@ function startIpcWatcher(): void {
   };
 
   processIpcFiles();
-  logger.info('IPC watcher started (per-group namespaces)');
+  logger.info('IPC watcher started (per-scope namespaces)');
 }
 
 async function processTaskIpc(
@@ -329,8 +332,7 @@ async function processTaskIpc(
     trigger?: string;
     containerConfig?: RegisteredGroup['containerConfig'];
   },
-  sourceGroup: string,  // Verified identity from IPC directory
-  isMain: boolean       // Verified from directory path
+  sourceGroup: string
 ): Promise<void> {
   // Import db functions dynamically to avoid circular deps
   const { createTask, updateTask, deleteTask, getTaskById: getTask } = await import('./db.js');
@@ -339,9 +341,8 @@ async function processTaskIpc(
   switch (data.type) {
     case 'schedule_task':
       if (data.prompt && data.schedule_type && data.schedule_value && data.groupFolder) {
-        // Authorization: non-main groups can only schedule for themselves
         const targetGroup = data.groupFolder;
-        if (!isMain && targetGroup !== sourceGroup) {
+        if (!canTargetScope(sourceGroup, targetGroup)) {
           logger.warn({ sourceGroup, targetGroup }, 'Unauthorized schedule_task attempt blocked');
           break;
         }
@@ -406,7 +407,7 @@ async function processTaskIpc(
     case 'pause_task':
       if (data.taskId) {
         const task = getTask(data.taskId);
-        if (task && (isMain || task.group_folder === sourceGroup)) {
+        if (task && canTargetScope(sourceGroup, task.group_folder)) {
           updateTask(data.taskId, { status: 'paused' });
           logger.info({ taskId: data.taskId, sourceGroup }, 'Task paused via IPC');
         } else {
@@ -418,7 +419,7 @@ async function processTaskIpc(
     case 'resume_task':
       if (data.taskId) {
         const task = getTask(data.taskId);
-        if (task && (isMain || task.group_folder === sourceGroup)) {
+        if (task && canTargetScope(sourceGroup, task.group_folder)) {
           updateTask(data.taskId, { status: 'active' });
           logger.info({ taskId: data.taskId, sourceGroup }, 'Task resumed via IPC');
         } else {
@@ -430,7 +431,7 @@ async function processTaskIpc(
     case 'cancel_task':
       if (data.taskId) {
         const task = getTask(data.taskId);
-        if (task && (isMain || task.group_folder === sourceGroup)) {
+        if (task && canTargetScope(sourceGroup, task.group_folder)) {
           deleteTask(data.taskId);
           logger.info({ taskId: data.taskId, sourceGroup }, 'Task cancelled via IPC');
         } else {
@@ -440,8 +441,7 @@ async function processTaskIpc(
       break;
 
     case 'refresh_groups':
-      // Only main group can request a refresh
-      if (isMain) {
+      if (canRefreshGroupMetadata(sourceGroup)) {
         logger.info({ sourceGroup }, 'Group metadata refresh requested via IPC');
         await syncGroupMetadata(true);
         // Write updated snapshot immediately
@@ -454,8 +454,7 @@ async function processTaskIpc(
       break;
 
     case 'register_group':
-      // Only main group can register new groups
-      if (!isMain) {
+      if (!canRegisterGroup(sourceGroup)) {
         logger.warn({ sourceGroup }, 'Unauthorized register_group attempt blocked');
         break;
       }

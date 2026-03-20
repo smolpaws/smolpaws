@@ -2,9 +2,10 @@ import fs from 'fs';
 import path from 'path';
 import pino from 'pino';
 import { CronExpressionParser } from 'cron-parser';
+import { isControlScope } from './control-scope.js';
 import { getDueTasks, updateTaskAfterRun, logTaskRun, getTaskById, getAllTasks } from './db.js';
 import { ScheduledTask, RegisteredGroup } from './types.js';
-import { GROUPS_DIR, SCHEDULER_POLL_INTERVAL, DATA_DIR, MAIN_GROUP_FOLDER, TIMEZONE } from './config.js';
+import { GROUPS_DIR, SCHEDULER_POLL_INTERVAL, TIMEZONE } from './config.js';
 import { runAgentRuntime, writeRuntimeTasksSnapshot } from './agent-runtime/index.js';
 
 const logger = pino({
@@ -42,7 +43,7 @@ async function runTask(task: ScheduledTask, deps: SchedulerDependencies): Promis
   }
 
   // Update the runtime-side task snapshot (filtered by group).
-  const isMain = task.group_folder === MAIN_GROUP_FOLDER;
+  const isMain = isControlScope(task.group_folder);
   const tasks = getAllTasks();
   writeRuntimeTasksSnapshot(task.group_folder, isMain, tasks.map(t => ({
     id: t.id,
