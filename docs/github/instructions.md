@@ -1,6 +1,6 @@
 # Hybrid GitHub mention intake (webhooks + notifications)
 
-This repo supports two independent ways to trigger the agent when someone comments `@smolpaws ...`.
+This repo supports two independent ways to trigger the agent when someone mentions `@smolpaws ...`.
 
 - Webhook path (GitHub App): near-real-time for repos where the GitHub App is installed.
 - Notifications path (GitHub user token): works across any repo where the `smolpaws` user receives a GitHub notification for the mention.
@@ -37,6 +37,7 @@ Set these as Cloudflare Worker secrets (e.g. via `wrangler secret put ...`):
 
 ### GitHub App configuration
 - Subscribe to webhook events:
+  - `issues` (opened)
   - `issue_comment` (created)
   - `pull_request_review_comment` (created)
 - Webhook URL:

@@ -1,4 +1,7 @@
-export type SmolpawsEvent = "issue_comment" | "pull_request_review_comment";
+export type SmolpawsEvent =
+  | "issue_comment"
+  | "pull_request_review_comment"
+  | "issues";
 
 export type GithubEventPayload = {
   action?: string;
@@ -8,7 +11,7 @@ export type GithubEventPayload = {
     full_name?: string;
     owner?: { login?: string };
   };
-  issue?: { number?: number };
+  issue?: { number?: number; body?: string; title?: string };
   pull_request?: { number?: number };
   installation?: { id?: number };
 };

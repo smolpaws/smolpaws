@@ -55,6 +55,7 @@ export const SmolpawsRunnerGithubContextSchema = Type.Object({
   event: Type.Union([
     Type.Literal('issue_comment'),
     Type.Literal('pull_request_review_comment'),
+    Type.Literal('issues'),
   ]),
   payload: Type.Any(),
   token: Type.Optional(Type.String()),

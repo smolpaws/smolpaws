@@ -6,13 +6,13 @@
 
 ## Architecture (current)
 
-1. **GitHub App** receives `issue_comment` + `pull_request_review_comment` webhooks.
+1. **GitHub App** receives `issues` (opened), `issue_comment`, and `pull_request_review_comment` webhooks.
 2. **Cloudflare Worker** in `apps/github` validates signature + allowlists, then enqueues a job on **Cloudflare Queues**.
 3. **Queue consumer** (same Worker) normalizes the GitHub event into a prompt-based `/run` request, while attaching optional GitHub context for Daytona.
 4. **Fastify runner** in `apps/agent-server` uses `@smolpaws/agent-sdk` to run an agent and returns a reply.
 
 ```
-GitHub → CF Worker (webhook/auth) → CF Queue → Fastify Runner → GitHub comment
+GitHub issue or comment mention → CF Worker (webhook/auth) → CF Queue → Fastify Runner → GitHub comment
 ```
 
 ## Runtime ownership / distribution
@@ -76,6 +76,7 @@ npm run github:deploy
    - Pull Requests: Read/Write
    - Contents: Read
 3. Events:
+   - `issues`
    - `issue_comment`
    - `pull_request_review_comment`
 4. Webhook URL: `https://<worker-host>/webhooks/github`

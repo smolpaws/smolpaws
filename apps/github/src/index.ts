@@ -81,11 +81,11 @@ export default {
       return new Response("Invalid payload", { status: 400 });
     }
 
-    if (payload.action && payload.action !== "created") {
+    if (!isSupportedAction(event, payload.action)) {
       return new Response("Ignored", { status: 200 });
     }
 
-    const commentBody = payload.comment?.body ?? "";
+    const commentBody = getMentionBody(payload);
     if (!containsMention(commentBody)) {
       return new Response("Ignored", { status: 200 });
     }
@@ -145,14 +145,35 @@ function parseList(value?: string): Set<string> {
 }
 
 function parseEvent(event: string): SmolpawsEvent | null {
-  if (event === "issue_comment" || event === "pull_request_review_comment") {
+  if (
+    event === "issue_comment" ||
+    event === "pull_request_review_comment" ||
+    event === "issues"
+  ) {
     return event;
   }
   return null;
 }
 
+function isSupportedAction(
+  event: SmolpawsEvent,
+  action: string | undefined,
+): boolean {
+  if (!action) {
+    return true;
+  }
+  if (event === "issues") {
+    return action === "opened";
+  }
+  return action === "created";
+}
+
 function containsMention(body: string): boolean {
   return new RegExp(`(^|\\s)${MENTION}\\b`, "i").test(body);
+}
+
+function getMentionBody(payload: GithubEventPayload): string {
+  return payload.comment?.body ?? payload.issue?.body ?? "";
 }
 
 function isAllowed(payload: GithubEventPayload, env: Env): boolean {
@@ -729,11 +750,14 @@ function extractPromptFromComment(comment?: string | null): string {
   return comment.replace(/@smolpaws/gi, "").trim();
 }
 
+function extractPromptFromPayload(payload: GithubEventPayload): string {
+  return extractPromptFromComment(getMentionBody(payload));
+}
+
 function buildFallbackReply(message: SmolpawsQueueMessage): string {
   const actor = message.payload.sender?.login ?? "there";
   const repo = message.payload.repository?.full_name ?? "your repo";
-  const body = message.payload.comment?.body ?? "";
-  const trimmed = extractPromptFromComment(body);
+  const trimmed = extractPromptFromPayload(message.payload);
   const requestLine = trimmed ? `Request: "${trimmed}"` : "Request: (none)";
   return `🐾 Hey ${actor}! smolpaws is warming up in ${repo}.\n${requestLine}`;
 }
@@ -771,7 +795,7 @@ async function dispatchToRunner(
   }
 
   const runnerMessage: SmolpawsRunnerRequest = {
-    prompt: extractPromptFromComment(message.payload.comment?.body ?? ""),
+    prompt: extractPromptFromPayload(message.payload),
     fallback_reply: buildFallbackReply(message),
     delivery_id: message.delivery_id,
     ingress: message.meta?.ingress ?? "github_webhook",
