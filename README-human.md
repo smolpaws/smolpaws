@@ -6,7 +6,7 @@
   Your smart cat. Lightweight, secure, customizable.
 </p>
 
-Powered by the published `@smolpaws/agent-sdk` package. The canonical TypeScript runtime source lives in `enyst/OpenHands-Tab/packages/agent-sdk`, and this repo consumes that runtime through an AppleWorkspace-managed local runner surface. The shared Fastify agent-server now lives in this repo under `apps/agent-server`. Built on [OpenHands](https://github.com/OpenHands/OpenHands). Based on [NanoClaw](https://github.com/gavrielc/nanoclaw).
+Powered by the published `@smolpaws/agent-sdk` package. The canonical TypeScript runtime source lives in `enyst/OpenHands-Tab/packages/agent-sdk`, and this repo now owns the WhatsApp host, the GitHub ingress worker, and the shared AppleWorkspace-managed runner surface. The shared Fastify agent-server lives here under `apps/agent-server`. Built on [OpenHands](https://github.com/OpenHands/OpenHands). Based on [NanoClaw](https://github.com/gavrielc/nanoclaw).
 
 ## Why
 
@@ -112,10 +112,10 @@ Skills we'd love to see:
 ## Architecture
 
 ```
-WhatsApp (baileys) --> SQLite --> Polling loop --> AppleWorkspace-managed runner --> Response
+WhatsApp or GitHub ingress --> scope resolution --> AppleWorkspace-managed runner --> channel response
 ```
 
-Single Node.js host process. Each execution scope gets its own AppleWorkspace-managed local runner container that exposes the shared agent-server-compatible runtime surface used across SmolPaws ingress layers.
+The WhatsApp host, GitHub Worker, and shared runner now live in the same repo. Each execution scope gets its own AppleWorkspace-managed local runner container that exposes the shared agent-server-compatible runtime surface used across SmolPaws ingress layers.
 
 Runtime ownership:
 - Canonical TypeScript runtime source: `enyst/OpenHands-Tab/packages/agent-sdk`
@@ -123,6 +123,7 @@ Runtime ownership:
 
 Key files:
 - `src/index.ts` - Main app: WhatsApp connection and routing
+- `apps/github/` - GitHub webhook/notification ingress worker
 - `src/agent-runtime/shared-runner.ts` - AppleWorkspace-backed runner client
 - `apps/agent-server/` - Shared Fastify agent-server app and runner image source
 - `src/task-scheduler.ts` - Runs scheduled tasks

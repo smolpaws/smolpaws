@@ -115,7 +115,8 @@ smolpaws/
 │       └── types.ts               # Runtime request/response types
 │
 ├── apps/
-│   └── agent-server/              # Shared Fastify agent-server app + runner image
+│   ├── agent-server/              # Shared Fastify agent-server app + runner image
+│   └── github/                    # GitHub webhook + notification ingress worker
 │
 ├── dist/                          # Compiled JavaScript (gitignored)
 │

@@ -9,6 +9,8 @@
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "auth": "tsx src/whatsapp-auth.ts",
+    "github:dev": "npm --prefix apps/github run dev",
+    "github:deploy": "npm --prefix apps/github run deploy",
     "runner:dev": "npm --prefix apps/agent-server run dev",
     "runner:start": "npm --prefix apps/agent-server run start",
     "runner:image:build": "container build -t smolpaws-runner:latest apps/agent-server",

@@ -1,0 +1,806 @@
+import { Value } from "@sinclair/typebox/value";
+import type {
+  GithubEventPayload,
+  SmolpawsEvent,
+  SmolpawsQueueMessage,
+} from "../../agent-server/src/shared/github.js";
+import {
+  SmolpawsRunnerResponseSchema,
+} from "../../agent-server/src/shared/runner.js";
+import type {
+  SmolpawsOutboundMessage,
+  SmolpawsRunnerRequest,
+  SmolpawsRunnerResponse,
+} from "../../agent-server/src/shared/runner.js";
+
+interface Env {
+  // GitHub App (webhook-installed repos)
+  GITHUB_WEBHOOK_SECRET: string;
+  GITHUB_APP_ID: string;
+  GITHUB_APP_PRIVATE_KEY: string;
+
+  // GitHub user token (notifications polling for @smolpaws mentions)
+  GITHUB_USER_TOKEN?: string;
+
+  ALLOWED_ACTORS?: string;
+  ALLOWED_OWNERS?: string;
+  ALLOWED_REPOS?: string;
+  SMOLPAWS_QUEUE: Queue<SmolpawsQueueMessage>;
+
+  // Only applies to webhook flow (notifications have no installation id)
+  ALLOWED_INSTALLATIONS?: string;
+  SMOLPAWS_RUNNER_URL?: string;
+  SMOLPAWS_RUNNER_TOKEN?: string;
+}
+
+const MENTION = "@smolpaws";
+const USER_AGENT = "smolpaws-webhook";
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/health") {
+      return new Response("ok", { status: 200 });
+    }
+
+    if (request.method !== "POST" || url.pathname !== "/webhooks/github") {
+      return new Response("Not found", { status: 404 });
+    }
+
+    const rawBody = await request.text();
+
+    if (!env.GITHUB_WEBHOOK_SECRET) {
+      return new Response("Webhook secret not configured", { status: 500 });
+    }
+
+    const signature = request.headers.get("X-Hub-Signature-256");
+    if (!signature) {
+      return new Response("Missing signature", { status: 401 });
+    }
+
+    const signatureValid = await verifySignature(
+      rawBody,
+      env.GITHUB_WEBHOOK_SECRET,
+      signature,
+    );
+
+    if (!signatureValid) {
+      return new Response("Invalid signature", { status: 401 });
+    }
+
+    const event = parseEvent(request.headers.get("X-GitHub-Event") ?? "");
+    if (!event) {
+      return new Response("Ignored", { status: 200 });
+    }
+
+    let payload: GithubEventPayload;
+    try {
+      payload = JSON.parse(rawBody) as GithubEventPayload;
+    } catch (error) {
+      console.error("Invalid JSON", error);
+      return new Response("Invalid payload", { status: 400 });
+    }
+
+    if (payload.action && payload.action !== "created") {
+      return new Response("Ignored", { status: 200 });
+    }
+
+    const commentBody = payload.comment?.body ?? "";
+    if (!containsMention(commentBody)) {
+      return new Response("Ignored", { status: 200 });
+    }
+
+    if (!isAllowed(payload, env)) {
+      return new Response("Ignored", { status: 200 });
+    }
+
+    const installationId = payload.installation?.id;
+    const repoFullName = payload.repository?.full_name;
+    const issueNumber = payload.issue?.number ?? payload.pull_request?.number;
+    if (!installationId || !repoFullName || !issueNumber) {
+      return new Response("Missing repository context", { status: 400 });
+    }
+
+    const queueMessage: SmolpawsQueueMessage = {
+      event,
+      payload,
+      delivery_id: request.headers.get("X-GitHub-Delivery") ?? undefined,
+      meta: { ingress: "github_webhook" },
+    };
+
+    await env.SMOLPAWS_QUEUE.send(queueMessage);
+
+    return new Response("Queued", { status: 202 });
+  },
+
+  async scheduled(
+    _controller: ScheduledController,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
+    ctx.waitUntil(pollGithubNotifications(env));
+  },
+
+
+  async queue(
+    batch: MessageBatch<SmolpawsQueueMessage>,
+    env: Env,
+  ): Promise<void> {
+    await Promise.all(
+      batch.messages.map((message) => processQueueMessage(message, env)),
+    );
+  },
+} satisfies ExportedHandler<Env, SmolpawsQueueMessage>;
+
+function parseList(value?: string): Set<string> {
+  if (!value) {
+    return new Set();
+  }
+  return new Set(
+    value
+      .split(",")
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+function parseEvent(event: string): SmolpawsEvent | null {
+  if (event === "issue_comment" || event === "pull_request_review_comment") {
+    return event;
+  }
+  return null;
+}
+
+function containsMention(body: string): boolean {
+  return new RegExp(`(^|\\s)${MENTION}\\b`, "i").test(body);
+}
+
+function isAllowed(payload: GithubEventPayload, env: Env): boolean {
+  const allowedActors = parseList(env.ALLOWED_ACTORS);
+  const allowedOwners = parseList(env.ALLOWED_OWNERS);
+  const allowedRepos = parseList(env.ALLOWED_REPOS);
+  const allowedInstallations = parseList(env.ALLOWED_INSTALLATIONS);
+
+  const actor = payload.sender?.login?.toLowerCase();
+  const owner = payload.repository?.owner?.login?.toLowerCase();
+  const repo = payload.repository?.full_name?.toLowerCase();
+  const installationId = payload.installation?.id?.toString();
+
+  if (allowedActors.size && (!actor || !allowedActors.has(actor))) {
+    return false;
+  }
+
+  if (allowedOwners.size && (!owner || !allowedOwners.has(owner))) {
+    return false;
+  }
+
+  if (allowedRepos.size && (!repo || !allowedRepos.has(repo))) {
+    return false;
+  }
+
+  // Notifications-based ingestion has no installation id; this allowlist is only
+  // applied when an installation id is present (i.e. GitHub App webhooks).
+  if (allowedInstallations.size && installationId) {
+    if (!allowedInstallations.has(installationId)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+async function processQueueMessage(
+  message: Message<SmolpawsQueueMessage>,
+  env: Env,
+): Promise<void> {
+  const { payload } = message.body;
+  const installationId = payload.installation?.id;
+  const repoFullName = payload.repository?.full_name;
+  const issueNumber = payload.issue?.number ?? payload.pull_request?.number;
+
+  if (!repoFullName || !issueNumber) {
+    console.error("Queue message missing repository context", {
+      delivery_id: message.body.delivery_id,
+      ingress: message.body.meta?.ingress,
+    });
+    message.ack();
+    return;
+  }
+
+  try {
+    const token = await resolveGithubToken({ env, installationId });
+    const runnerResponse = await dispatchToRunner(message.body, env, token);
+    const outboundMessages = runnerResponse?.outbound_messages ?? [];
+
+    if (outboundMessages.length > 0) {
+      for (const outbound of collapseOutboundMessages(outboundMessages)) {
+        await deliverRunnerOutboundMessage({
+          token,
+          repoFullName,
+          issueNumber,
+          outbound,
+        });
+      }
+    } else {
+      const replyBody =
+        runnerResponse?.reply ??
+        "🐾 smolpaws heard you and is waking up. Runner is not configured yet.";
+
+      await postIssueComment({
+        token,
+        repoFullName,
+        issueNumber,
+        body: replyBody,
+      });
+    }
+
+    message.ack();
+  } catch (error) {
+    console.error("Queue message processing failed", error);
+    message.retry({ delaySeconds: 30 });
+  }
+}
+
+
+type GithubNotification = {
+  id?: string;
+  reason?: string;
+  subject?: {
+    url?: string;
+    latest_comment_url?: string;
+    type?: string;
+  };
+  repository?: {
+    full_name?: string;
+    owner?: { login?: string };
+  };
+};
+
+type GithubMentionComment = {
+  id?: number;
+  body?: string;
+  user?: { login?: string; id?: number };
+  issue_url?: string;
+  pull_request_url?: string;
+};
+
+function normalizeToken(value?: string): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+async function githubApiFetch(
+  token: string,
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers);
+  headers.set("Accept", "application/vnd.github+json");
+  headers.set("Authorization", `Bearer ${token}`);
+  headers.set("User-Agent", USER_AGENT);
+  headers.set("X-GitHub-Api-Version", "2022-11-28");
+  return fetch(url, { ...init, headers });
+}
+
+async function resolveGithubToken(options: {
+  env: Env;
+  installationId?: number;
+}): Promise<string> {
+  if (options.installationId) {
+    return createInstallationToken(options.installationId, options.env);
+  }
+  const userToken = normalizeToken(options.env.GITHUB_USER_TOKEN);
+  if (!userToken) {
+    throw new Error("GITHUB_USER_TOKEN not configured");
+  }
+  return userToken;
+}
+
+function isReviewCommentUrl(url: string): boolean {
+  return url.includes("/pulls/comments/");
+}
+
+function parseRepoFullNameFromApiUrl(url?: string): string | undefined {
+  if (!url) return undefined;
+  const match = url.match(/\/repos\/([^/]+\/[^/]+)\//);
+  return match?.[1];
+}
+
+function parseIssueOrPrNumberFromApiUrl(url?: string): number | undefined {
+  if (!url) return undefined;
+  const match = url.match(/\/(issues|pulls)\/(\d+)(?:$|\b)/);
+  if (!match) return undefined;
+  return Number(match[2]);
+}
+
+async function markNotificationThreadRead(
+  threadId: string,
+  token: string,
+): Promise<void> {
+  const response = await githubApiFetch(
+    token,
+    `https://api.github.com/notifications/threads/${threadId}`,
+    { method: "PATCH" },
+  );
+  if (!response.ok) {
+    const text = await response.text();
+    console.error("Failed to mark notification read", {
+      threadId,
+      status: response.status,
+      text,
+    });
+  }
+}
+
+const NOTIFICATION_POLL_CONCURRENCY = 5;
+const NOTIFICATION_DEDUPE_TTL_SECONDS = 60 * 60 * 24;
+
+function isTrustedGithubApiUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" && url.hostname === "api.github.com";
+  } catch {
+    return false;
+  }
+}
+
+const NOTIFICATION_DEDUPE_CACHE = "smolpaws-notification-dedupe";
+
+function notificationDedupeKey(threadId: string): Request {
+  return new Request(
+    `https://smolpaws.internal/dedupe/notifications/${encodeURIComponent(threadId)}`,
+  );
+}
+
+async function getNotificationDedupeCache(): Promise<Cache> {
+  return caches.open(NOTIFICATION_DEDUPE_CACHE);
+}
+
+async function wasNotificationEnqueued(threadId: string): Promise<boolean> {
+  const cache = await getNotificationDedupeCache();
+  const cached = await cache.match(notificationDedupeKey(threadId));
+  return Boolean(cached);
+}
+
+async function markNotificationEnqueued(threadId: string): Promise<void> {
+  const cache = await getNotificationDedupeCache();
+  const response = new Response("1", {
+    headers: {
+      "Cache-Control": `max-age=${NOTIFICATION_DEDUPE_TTL_SECONDS}`,
+    },
+  });
+  await cache.put(notificationDedupeKey(threadId), response);
+}
+
+async function forEachWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  handler: (item: T) => Promise<void>,
+): Promise<void> {
+  const queue = items.slice();
+  const workerCount = Math.max(1, Math.min(concurrency, queue.length));
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (queue.length) {
+        const item = queue.shift();
+        if (!item) return;
+        await handler(item);
+      }
+    }),
+  );
+}
+
+
+async function pollGithubNotifications(env: Env): Promise<void> {
+  const token = normalizeToken(env.GITHUB_USER_TOKEN);
+  if (!token) {
+    return;
+  }
+
+  const response = await githubApiFetch(
+    token,
+    "https://api.github.com/notifications?per_page=50",
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    console.error("Failed to fetch GitHub notifications", {
+      status: response.status,
+      text,
+    });
+    return;
+  }
+
+  const notifications = (await response.json()) as GithubNotification[];
+
+  await forEachWithConcurrency(
+    notifications,
+    NOTIFICATION_POLL_CONCURRENCY,
+    async (notification) => {
+      try {
+        await handleNotification(notification, env, token);
+      } catch (error) {
+        console.error("Notification handling error", error);
+      }
+    },
+  );
+}
+
+async function handleNotification(
+  notification: GithubNotification,
+  env: Env,
+  token: string,
+): Promise<void> {
+  if (notification.reason !== "mention") {
+    return;
+  }
+
+  const threadId = notification.id;
+  if (!threadId) {
+    return;
+  }
+
+  if (await wasNotificationEnqueued(threadId)) {
+    await markNotificationThreadRead(threadId, token);
+    return;
+  }
+
+  const latestCommentUrl = notification.subject?.latest_comment_url;
+  if (!latestCommentUrl) {
+    await markNotificationThreadRead(threadId, token);
+    return;
+  }
+
+  if (!isTrustedGithubApiUrl(latestCommentUrl)) {
+    console.error("Invalid latest_comment_url", { threadId, latestCommentUrl });
+    await markNotificationThreadRead(threadId, token);
+    return;
+  }
+
+  const commentResponse = await githubApiFetch(token, latestCommentUrl);
+  if (!commentResponse.ok) {
+    const text = await commentResponse.text();
+    console.error("Failed to fetch mention comment", {
+      threadId,
+      status: commentResponse.status,
+      text,
+    });
+    await markNotificationThreadRead(threadId, token);
+    return;
+  }
+
+  const comment = (await commentResponse.json()) as GithubMentionComment;
+  const commentBody = comment.body ?? "";
+  if (!containsMention(commentBody)) {
+    await markNotificationThreadRead(threadId, token);
+    return;
+  }
+
+  const senderLogin = comment.user?.login;
+  if (!senderLogin) {
+    await markNotificationThreadRead(threadId, token);
+    return;
+  }
+
+  if (senderLogin.toLowerCase() === "smolpaws") {
+    await markNotificationThreadRead(threadId, token);
+    return;
+  }
+
+  const repoFullName =
+    notification.repository?.full_name ??
+    parseRepoFullNameFromApiUrl(
+      comment.issue_url ?? comment.pull_request_url ?? notification.subject?.url,
+    );
+  const ownerLogin =
+    notification.repository?.owner?.login ??
+    (repoFullName ? repoFullName.split("/")[0] : undefined);
+  const number = parseIssueOrPrNumberFromApiUrl(
+    comment.issue_url ?? comment.pull_request_url ?? notification.subject?.url,
+  );
+
+  if (!repoFullName || !ownerLogin || !number) {
+    console.error("Notification missing repository context", {
+      threadId,
+      repoFullName,
+      ownerLogin,
+      number,
+    });
+    await markNotificationThreadRead(threadId, token);
+    return;
+  }
+
+  const event: SmolpawsEvent = isReviewCommentUrl(latestCommentUrl)
+    ? "pull_request_review_comment"
+    : "issue_comment";
+
+  const payload: GithubEventPayload = {
+    action: "created",
+    sender: { login: senderLogin, id: comment.user?.id },
+    comment: { body: commentBody, id: comment.id },
+    repository: { full_name: repoFullName, owner: { login: ownerLogin } },
+    ...(event === "issue_comment"
+      ? { issue: { number } }
+      : { pull_request: { number } }),
+  };
+
+  if (!isAllowed(payload, env)) {
+    await markNotificationThreadRead(threadId, token);
+    return;
+  }
+
+  const queueMessage: SmolpawsQueueMessage = {
+    event,
+    payload,
+    meta: {
+      ingress: "github_notifications",
+      notification_thread_id: threadId,
+    },
+  };
+
+  await env.SMOLPAWS_QUEUE.send(queueMessage);
+  await markNotificationEnqueued(threadId);
+  await markNotificationThreadRead(threadId, token);
+}
+
+
+
+async function verifySignature(
+  rawBody: string,
+  secret: string,
+  signatureHeader: string,
+): Promise<boolean> {
+  const [algorithm, signature] = signatureHeader.split("=");
+  if (algorithm !== "sha256" || !signature) {
+    return false;
+  }
+
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+
+  const digest = await crypto.subtle.sign("HMAC", key, encoder.encode(rawBody));
+  const digestHex = bufferToHex(digest);
+  return timingSafeEqual(`sha256=${digestHex}`, signatureHeader);
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  let result = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
+function bufferToHex(buffer: ArrayBuffer): string {
+  return Array.from(new Uint8Array(buffer))
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function createInstallationToken(
+  installationId: number,
+  env: Env,
+): Promise<string> {
+  if (!env.GITHUB_APP_ID || !env.GITHUB_APP_PRIVATE_KEY) {
+    throw new Error("GitHub App credentials not configured");
+  }
+
+  const jwt = await createAppJwt(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY);
+  const response = await fetch(
+    `https://api.github.com/app/installations/${installationId}/access_tokens`,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${jwt}`,
+        "User-Agent": USER_AGENT,
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    },
+  );
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`Failed to get installation token: ${message}`);
+  }
+
+  const data = (await response.json()) as { token: string };
+  return data.token;
+}
+
+async function createAppJwt(
+  appId: string,
+  privateKeyPem: string,
+): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: "RS256", typ: "JWT" };
+  const payload = {
+    iat: now - 60,
+    exp: now + 540,
+    iss: appId,
+  };
+
+  const encodedHeader = base64UrlEncode(JSON.stringify(header));
+  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
+  const signingInput = `${encodedHeader}.${encodedPayload}`;
+
+  const keyData = pemToArrayBuffer(privateKeyPem);
+  const key = await crypto.subtle.importKey(
+    "pkcs8",
+    keyData,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+
+  const signature = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    key,
+    new TextEncoder().encode(signingInput),
+  );
+
+  const encodedSignature = base64UrlEncode(signature);
+  return `${signingInput}.${encodedSignature}`;
+}
+
+function base64UrlEncode(input: string | ArrayBuffer): string {
+  const bytes =
+    typeof input === "string" ? new TextEncoder().encode(input) : input;
+  let binary = "";
+  for (const byte of new Uint8Array(bytes)) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function pemToArrayBuffer(pem: string): ArrayBuffer {
+  const trimmed = pem
+    .replace(/-----BEGIN PRIVATE KEY-----/g, "")
+    .replace(/-----END PRIVATE KEY-----/g, "")
+    .replace(/\s+/g, "");
+  const binary = atob(trimmed);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+async function postIssueComment(options: {
+  token: string;
+  repoFullName: string;
+  issueNumber: number;
+  body: string;
+}): Promise<void> {
+  const response = await fetch(
+    `https://api.github.com/repos/${options.repoFullName}/issues/${options.issueNumber}/comments`,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${options.token}`,
+        "User-Agent": USER_AGENT,
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      body: JSON.stringify({ body: options.body }),
+    },
+  );
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`Failed to post comment: ${message}`);
+  }
+}
+
+async function deliverRunnerOutboundMessage(options: {
+  token: string;
+  repoFullName: string;
+  issueNumber: number;
+  outbound: SmolpawsOutboundMessage;
+}): Promise<void> {
+  if (options.outbound.kind === "current_thread_message") {
+    await postIssueComment({
+      token: options.token,
+      repoFullName: options.repoFullName,
+      issueNumber: options.issueNumber,
+      body: options.outbound.text,
+    });
+    return;
+  }
+
+  throw new Error(
+    `Unsupported outbound message kind: ${(options.outbound as { kind?: string }).kind ?? "unknown"}`,
+  );
+}
+
+function extractPromptFromComment(comment?: string | null): string {
+  if (!comment) return "";
+  return comment.replace(/@smolpaws/gi, "").trim();
+}
+
+function buildFallbackReply(message: SmolpawsQueueMessage): string {
+  const actor = message.payload.sender?.login ?? "there";
+  const repo = message.payload.repository?.full_name ?? "your repo";
+  const body = message.payload.comment?.body ?? "";
+  const trimmed = extractPromptFromComment(body);
+  const requestLine = trimmed ? `Request: "${trimmed}"` : "Request: (none)";
+  return `🐾 Hey ${actor}! smolpaws is warming up in ${repo}.\n${requestLine}`;
+}
+
+function collapseOutboundMessages(
+  outboundMessages: SmolpawsOutboundMessage[],
+): SmolpawsOutboundMessage[] {
+  if (outboundMessages.length <= 1) {
+    return outboundMessages;
+  }
+
+  return [
+    {
+      kind: "current_thread_message",
+      text: outboundMessages
+        .map((outbound) => {
+          if (outbound.kind !== "current_thread_message") {
+            throw new Error(`Unsupported outbound message kind: ${outbound.kind}`);
+          }
+          return outbound.text.trim();
+        })
+        .filter(Boolean)
+        .join("\n\n"),
+    },
+  ];
+}
+
+async function dispatchToRunner(
+  message: SmolpawsQueueMessage,
+  env: Env,
+  githubToken: string,
+): Promise<SmolpawsRunnerResponse | null> {
+  if (!env.SMOLPAWS_RUNNER_URL) {
+    return null;
+  }
+
+  const runnerMessage: SmolpawsRunnerRequest = {
+    prompt: extractPromptFromComment(message.payload.comment?.body ?? ""),
+    fallback_reply: buildFallbackReply(message),
+    delivery_id: message.delivery_id,
+    ingress: message.meta?.ingress ?? "github_webhook",
+    github: {
+      event: message.event,
+      payload: message.payload,
+      token: githubToken,
+    },
+  };
+
+  const response = await fetch(env.SMOLPAWS_RUNNER_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(env.SMOLPAWS_RUNNER_TOKEN
+        ? { Authorization: `Bearer ${env.SMOLPAWS_RUNNER_TOKEN}` }
+        : {}),
+    },
+    body: JSON.stringify(runnerMessage),
+  });
+
+  if (!response.ok) {
+    const responseText = await response.text();
+    throw new Error(`Runner error: ${responseText}`);
+  }
+
+  const data = await response.json();
+  if (!Value.Check(SmolpawsRunnerResponseSchema, data)) {
+    throw new Error("Invalid runner response payload");
+  }
+  return data as SmolpawsRunnerResponse;
+}

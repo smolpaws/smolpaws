@@ -6,7 +6,7 @@ See [README.md](README.md) for philosophy and setup. See [docs/REQUIREMENTS.md](
 
 ## Quick Context
 
-Single Node.js host process that connects to WhatsApp and routes messages into an AppleWorkspace-managed local runner container. The shared Fastify agent-server now lives in `apps/agent-server`, and each execution scope keeps its own mounted filesystem and conversation state.
+This repo now owns the WhatsApp host, the GitHub Worker ingress, and the shared Fastify agent-server. Execution still converges on the same AppleWorkspace-managed local runner surface, with each scope keeping its own mounted filesystem and conversation state.
 
 ## Key Files
 
@@ -15,6 +15,7 @@ Single Node.js host process that connects to WhatsApp and routes messages into a
 | `src/index.ts` | Main app: WhatsApp connection and message routing |
 | `src/config.ts` | Trigger pattern, paths, intervals |
 | `src/agent-runtime/shared-runner.ts` | AppleWorkspace-backed runner client |
+| `apps/github/` | Cloudflare Worker for GitHub webhook + notification ingress |
 | `apps/agent-server/` | Shared Fastify agent-server app and runner image source |
 | `src/task-scheduler.ts` | Runs scheduled tasks |
 | `src/db.ts` | SQLite operations |
@@ -35,6 +36,7 @@ Run commands directly—don't tell the user to run them.
 ```bash
 npm run dev          # Run with hot reload
 npm run build        # Compile TypeScript
+npm run github:dev   # Run the GitHub Worker locally
 npm run runner:dev   # Run the shared agent-server locally
 npm run runner:image:build
 ```
