@@ -72,6 +72,8 @@ async function runTask(task: ScheduledTask, deps: SchedulerDependencies): Promis
       isControlScope: scope.isControlScope,
       isMain: scope.isControlScope,
       isScheduledTask: true
+    }, {
+      registeredGroups: groups,
     });
 
     if (output.status === 'error') {

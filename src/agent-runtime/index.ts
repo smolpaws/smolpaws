@@ -10,11 +10,16 @@ import {
   writeGroupsSnapshot,
   writeTasksSnapshot,
 } from './workspace.js';
+import type { RegisteredGroup } from '../types.js';
 
 type AgentRuntimeBackend = 'container-stdio' | 'shared-runner';
 
 interface AgentRuntime {
-  run(scope: ExecutionScope, input: ContainerInput): Promise<ContainerOutput>;
+  run(
+    scope: ExecutionScope,
+    input: ContainerInput,
+    options?: { registeredGroups?: Record<string, RegisteredGroup> },
+  ): Promise<ContainerOutput>;
   writeTasksSnapshot: typeof writeTasksSnapshot;
   writeGroupsSnapshot: typeof writeGroupsSnapshot;
 }
@@ -23,7 +28,10 @@ class ContainerStdioAgentRuntime implements AgentRuntime {
   writeTasksSnapshot = writeTasksSnapshot;
   writeGroupsSnapshot = writeGroupsSnapshot;
 
-  async run(scope: ExecutionScope, input: ContainerInput): Promise<ContainerOutput> {
+  async run(
+    scope: ExecutionScope,
+    input: ContainerInput,
+  ): Promise<ContainerOutput> {
     return await runContainerAgent(scope, input);
   }
 }
@@ -32,8 +40,12 @@ class SharedRunnerAgentRuntime implements AgentRuntime {
   writeTasksSnapshot = writeTasksSnapshot;
   writeGroupsSnapshot = writeGroupsSnapshot;
 
-  async run(scope: ExecutionScope, input: ContainerInput): Promise<ContainerOutput> {
-    return await runSharedRunnerAgent(scope, input);
+  async run(
+    scope: ExecutionScope,
+    input: ContainerInput,
+    options?: { registeredGroups?: Record<string, RegisteredGroup> },
+  ): Promise<ContainerOutput> {
+    return await runSharedRunnerAgent(scope, input, options);
   }
 }
 
@@ -67,9 +79,10 @@ function getAgentRuntime(): AgentRuntime {
 
 export async function runAgentRuntime(
   scope: ExecutionScope,
-  input: ContainerInput
+  input: ContainerInput,
+  options?: { registeredGroups?: Record<string, RegisteredGroup> },
 ): Promise<ContainerOutput> {
-  return await getAgentRuntime().run(scope, input);
+  return await getAgentRuntime().run(scope, input, options);
 }
 
 export function writeRuntimeTasksSnapshot(

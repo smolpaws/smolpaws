@@ -1,7 +1,10 @@
 import path from 'path';
+import pino from 'pino';
 import { GROUPS_DIR } from '../config.js';
 import type { ExecutionScope } from '../scope.js';
 import type { ContainerInput, ContainerOutput } from '../container-runner.js';
+import { buildVisibleTaskSnapshot, processSharedRunnerTaskCommand } from '../task-commands.js';
+import type { RegisteredGroup } from '../types.js';
 
 type RunnerConversationInfo = {
   id: string;
@@ -23,9 +26,30 @@ type RunnerOutboundMessage = {
   text: string;
 };
 
+type RunnerTaskCommand =
+  | {
+      kind: 'schedule_task';
+      prompt: string;
+      schedule_type: 'cron' | 'interval' | 'once';
+      schedule_value: string;
+      context_mode: 'group' | 'isolated';
+      target_scope_id?: string;
+      source_scope_id?: string;
+    }
+  | {
+      kind: 'pause_task' | 'resume_task' | 'cancel_task';
+      task_id: string;
+      source_scope_id?: string;
+    };
+
 type SharedRunnerOutput = ContainerOutput & {
   outboundMessages?: RunnerOutboundMessage[];
 };
+
+const logger = pino({
+  level: process.env.LOG_LEVEL || 'info',
+  transport: { target: 'pino-pretty', options: { colorize: true } },
+});
 
 function getRunnerBaseUrl(): string {
   const value = process.env.SMOLPAWS_RUNNER_URL?.trim();
@@ -74,6 +98,17 @@ function buildPrompt(input: ContainerInput): string {
     return input.prompt;
   }
   return `[SCHEDULED TASK - You are running automatically, not in response to a user message. Use send_message if needed to communicate with the user.]\n\n${input.prompt}`;
+}
+
+function buildSmolpawsConfig(scope: ExecutionScope) {
+  return {
+    ingress: 'whatsapp',
+    scope_id: scope.scopeId,
+    is_control_scope: scope.isControlScope,
+    enable_send_message: true,
+    enable_task_tools: true,
+    visible_tasks: buildVisibleTaskSnapshot(scope.scopeId),
+  };
 }
 
 async function fetchJson<T>(
@@ -128,12 +163,7 @@ async function createOrContinueConversation(
         content: [{ type: 'text', text: buildPrompt(input) }],
         run: true,
       },
-      smolpaws: {
-        ingress: 'whatsapp',
-        scope_id: scope.scopeId,
-        is_control_scope: scope.isControlScope,
-        enable_send_message: true,
-      },
+      smolpaws: buildSmolpawsConfig(scope),
     }),
   });
 }
@@ -143,6 +173,18 @@ async function claimConversationOutbox(
 ): Promise<RunnerOutboundMessage[]> {
   return await fetchJson<RunnerOutboundMessage[]>(
     `/api/conversations/${conversationId}/outbound_messages/claim`,
+    {
+      method: 'POST',
+      headers: buildRunnerHeaders(),
+    },
+  );
+}
+
+async function claimConversationTaskCommands(
+  conversationId: string,
+): Promise<RunnerTaskCommand[]> {
+  return await fetchJson<RunnerTaskCommand[]>(
+    `/api/conversations/${conversationId}/task_commands/claim`,
     {
       method: 'POST',
       headers: buildRunnerHeaders(),
@@ -166,9 +208,21 @@ async function loadLatestAssistantReply(
 export async function runSharedRunnerAgent(
   scope: ExecutionScope,
   input: ContainerInput,
+  options?: {
+    registeredGroups?: Record<string, RegisteredGroup>;
+  },
 ): Promise<SharedRunnerOutput> {
   const conversation = await createOrContinueConversation(scope, input);
   const outboundMessages = await claimConversationOutbox(conversation.id);
+  const taskCommands = await claimConversationTaskCommands(conversation.id);
+  for (const command of taskCommands) {
+    processSharedRunnerTaskCommand(
+      command,
+      scope.scopeId,
+      options?.registeredGroups ?? {},
+      logger,
+    );
+  }
   const result = await loadLatestAssistantReply(conversation.id);
   return {
     status: 'success',

@@ -36,6 +36,7 @@ import {
   shouldRespondWithoutTrigger
 } from './control-scope.js';
 import { scopeFromRegisteredGroup } from './scope.js';
+import { processSharedRunnerTaskCommand } from './task-commands.js';
 import { loadJson, saveJson } from './utils.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -209,6 +210,8 @@ async function runAgent(group: RegisteredGroup, prompt: string, chatJid: string)
       chatJid,
       isControlScope: scope.isControlScope,
       isMain: scope.isControlScope
+    }, {
+      registeredGroups,
     });
 
     if (output.conversationId) {
@@ -352,111 +355,34 @@ async function processTaskIpc(
   sourceGroup: string
 ): Promise<void> {
   // Import db functions dynamically to avoid circular deps
-  const { createTask, updateTask, deleteTask, getTaskById: getTask } = await import('./db.js');
-  const { CronExpressionParser } = await import('cron-parser');
+  const { getTaskById: getTask } = await import('./db.js');
+
+  if (data.type === 'schedule_task' && data.prompt && data.schedule_type && data.schedule_value) {
+    processSharedRunnerTaskCommand({
+      kind: 'schedule_task',
+      prompt: data.prompt,
+      schedule_type: data.schedule_type as 'cron' | 'interval' | 'once',
+      schedule_value: data.schedule_value,
+      context_mode: data.context_mode === 'isolated' ? 'isolated' : 'group',
+      target_scope_id: data.scopeId ?? data.groupFolder,
+      source_scope_id: sourceGroup,
+    }, sourceGroup, registeredGroups, logger);
+    return;
+  }
+
+  if (
+    (data.type === 'pause_task' || data.type === 'resume_task' || data.type === 'cancel_task') &&
+    data.taskId
+  ) {
+    processSharedRunnerTaskCommand({
+      kind: data.type,
+      task_id: data.taskId,
+      source_scope_id: sourceGroup,
+    }, sourceGroup, registeredGroups, logger);
+    return;
+  }
 
   switch (data.type) {
-    case 'schedule_task':
-      if (data.prompt && data.schedule_type && data.schedule_value && (data.scopeId || data.groupFolder)) {
-        const targetGroup = data.scopeId ?? data.groupFolder!;
-        if (!canTargetScope(sourceGroup, targetGroup)) {
-          logger.warn({ sourceGroup, targetGroup }, 'Unauthorized schedule_task attempt blocked');
-          break;
-        }
-
-        // Resolve the correct JID for the target group (don't trust IPC payload)
-        const targetJid = Object.entries(registeredGroups).find(
-          ([, group]) => group.folder === targetGroup
-        )?.[0];
-
-        if (!targetJid) {
-          logger.warn({ targetGroup }, 'Cannot schedule task: target group not registered');
-          break;
-        }
-
-        const scheduleType = data.schedule_type as 'cron' | 'interval' | 'once';
-
-        let nextRun: string | null = null;
-        if (scheduleType === 'cron') {
-          try {
-            const interval = CronExpressionParser.parse(data.schedule_value, { tz: TIMEZONE });
-            nextRun = interval.next().toISOString();
-          } catch {
-            logger.warn({ scheduleValue: data.schedule_value }, 'Invalid cron expression');
-            break;
-          }
-        } else if (scheduleType === 'interval') {
-          const ms = parseInt(data.schedule_value, 10);
-          if (isNaN(ms) || ms <= 0) {
-            logger.warn({ scheduleValue: data.schedule_value }, 'Invalid interval');
-            break;
-          }
-          nextRun = new Date(Date.now() + ms).toISOString();
-        } else if (scheduleType === 'once') {
-          const scheduled = new Date(data.schedule_value);
-          if (isNaN(scheduled.getTime())) {
-            logger.warn({ scheduleValue: data.schedule_value }, 'Invalid timestamp');
-            break;
-          }
-          nextRun = scheduled.toISOString();
-        }
-
-        const taskId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        const contextMode = (data.context_mode === 'group' || data.context_mode === 'isolated')
-          ? data.context_mode
-          : 'isolated';
-        createTask({
-          id: taskId,
-          group_folder: targetGroup,
-          chat_jid: targetJid,
-          prompt: data.prompt,
-          schedule_type: scheduleType,
-          schedule_value: data.schedule_value,
-          context_mode: contextMode,
-          next_run: nextRun,
-          status: 'active',
-          created_at: new Date().toISOString()
-        });
-        logger.info({ taskId, sourceGroup, targetGroup, contextMode }, 'Task created via IPC');
-      }
-      break;
-
-    case 'pause_task':
-      if (data.taskId) {
-        const task = getTask(data.taskId);
-        if (task && canTargetScope(sourceGroup, task.group_folder)) {
-          updateTask(data.taskId, { status: 'paused' });
-          logger.info({ taskId: data.taskId, sourceGroup }, 'Task paused via IPC');
-        } else {
-          logger.warn({ taskId: data.taskId, sourceGroup }, 'Unauthorized task pause attempt');
-        }
-      }
-      break;
-
-    case 'resume_task':
-      if (data.taskId) {
-        const task = getTask(data.taskId);
-        if (task && canTargetScope(sourceGroup, task.group_folder)) {
-          updateTask(data.taskId, { status: 'active' });
-          logger.info({ taskId: data.taskId, sourceGroup }, 'Task resumed via IPC');
-        } else {
-          logger.warn({ taskId: data.taskId, sourceGroup }, 'Unauthorized task resume attempt');
-        }
-      }
-      break;
-
-    case 'cancel_task':
-      if (data.taskId) {
-        const task = getTask(data.taskId);
-        if (task && canTargetScope(sourceGroup, task.group_folder)) {
-          deleteTask(data.taskId);
-          logger.info({ taskId: data.taskId, sourceGroup }, 'Task cancelled via IPC');
-        } else {
-          logger.warn({ taskId: data.taskId, sourceGroup }, 'Unauthorized task cancel attempt');
-        }
-      }
-      break;
-
     case 'refresh_groups':
       if (canRefreshGroupMetadata(sourceGroup)) {
         logger.info({ sourceGroup }, 'Group metadata refresh requested via IPC');
