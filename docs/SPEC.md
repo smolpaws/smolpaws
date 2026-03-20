@@ -82,7 +82,7 @@ A personal Claude assistant accessible via WhatsApp, with persistent memory per 
 
 Canonical runtime ownership note:
 - The shared TypeScript runtime is owned in `enyst/OpenHands-Tab/packages/agent-sdk`.
-- This repo consumes the published `@smolpaws/agent-sdk` package inside `container/agent-runner` rather than maintaining a repo-local runtime fork.
+- This repo consumes the published `@smolpaws/agent-sdk` package through its AppleWorkspace-managed runner surface rather than maintaining a repo-local runtime fork.
 
 ---
 
@@ -109,19 +109,10 @@ smolpaws/
 │   ├── db.ts                      # Database initialization and queries
 │   ├── whatsapp-auth.ts           # Standalone WhatsApp authentication
 │   ├── task-scheduler.ts          # Runs scheduled tasks when due
-│   └── container-runner.ts        # Spawns agents in Apple Containers
-│
-├── container/
-│   ├── Dockerfile                 # Container image (runs as 'node' user, includes OpenHands Agent SDK)
-│   ├── build.sh                   # Build script for container image
-│   ├── agent-runner/              # Code that runs inside the container
-│   │   ├── package.json
-│   │   ├── tsconfig.json
-│   │   └── src/
-│   │       ├── index.ts           # Entry point (reads JSON, runs agent)
-│   │       └── ipc-mcp.ts         # MCP server for host communication
-│   └── skills/
-│       └── agent-browser.md       # Browser automation skill
+│   └── agent-runtime/
+│       ├── shared-runner.ts       # AppleWorkspace-backed runner client
+│       ├── workspace.ts           # Per-scope mount policy
+│       └── types.ts               # Runtime request/response types
 │
 ├── dist/                          # Compiled JavaScript (gitignored)
 │
@@ -152,8 +143,7 @@ smolpaws/
 │   ├── sessions.json              # Active session IDs per group
 │   ├── registered_groups.json     # Group JID → folder mapping
 │   ├── router_state.json          # Last processed timestamp + last agent timestamps
-│   ├── env/env                    # Copy of .env for container mounting
-│   └── ipc/                       # Container IPC (messages/, tasks/)
+│   └── runner-conversations/      # Per-scope runner persistence roots
 │
 ├── logs/                          # Runtime logs (gitignored)
 │   ├── smolpaws.log               # Host stdout
@@ -182,11 +172,6 @@ const PROJECT_ROOT = process.cwd();
 export const STORE_DIR = path.resolve(PROJECT_ROOT, 'store');
 export const GROUPS_DIR = path.resolve(PROJECT_ROOT, 'groups');
 export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');
-
-// Container configuration
-export const CONTAINER_IMAGE = process.env.CONTAINER_IMAGE || 'smolpaws-agent:latest';
-export const CONTAINER_TIMEOUT = parseInt(process.env.CONTAINER_TIMEOUT || '300000', 10);
-export const IPC_POLL_INTERVAL = 1000;
 
 export const TRIGGER_PATTERN = new RegExp(`^@${ASSISTANT_NAME}\\b`, 'i');
 ```
@@ -237,7 +222,7 @@ The token can be extracted from `~/.claude/.credentials.json` if you're logged i
 ANTHROPIC_API_KEY=sk-ant-api03-...
 ```
 
-Only the authentication variables (`CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY`) are extracted from `.env` and mounted into the container at `/workspace/env-dir/env`, then sourced by the entrypoint script. This ensures other environment variables in `.env` are not exposed to the agent. This workaround is needed because Apple Container loses `-e` environment variables when using `-i` (interactive mode with piped stdin).
+The shared runner forwards the required model/auth environment into the per-scope AppleWorkspace host. The older stdin-entrypoint `.env` mount workaround is no longer part of the active runtime path.
 
 ### Changing the Assistant Name
 
@@ -494,7 +479,7 @@ When SmolPaws starts, it:
 4. Connects to WhatsApp
 5. Starts the message polling loop
 6. Starts the scheduler loop
-7. Starts the IPC watcher for container messages
+7. Provisions or reuses per-scope runner containers through the shared local runtime surface
 
 ### Service: com.smolpaws
 

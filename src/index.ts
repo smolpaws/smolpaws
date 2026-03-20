@@ -14,29 +14,17 @@ import {
   POLL_INTERVAL,
   STORE_DIR,
   DATA_DIR,
-  TRIGGER_PATTERN,
-  IPC_POLL_INTERVAL,
-  TIMEZONE
+  TRIGGER_PATTERN
 } from './config.js';
 import { RegisteredGroup, Session, NewMessage } from './types.js';
-import { initDatabase, storeMessage, storeChatMetadata, getNewMessages, getMessagesSince, getAllTasks, getTaskById, updateChatName, getAllChats, getLastGroupSync, setLastGroupSync } from './db.js';
+import { initDatabase, storeMessage, storeChatMetadata, getNewMessages, getMessagesSince, updateChatName, getLastGroupSync, setLastGroupSync } from './db.js';
 import { startSchedulerLoop } from './task-scheduler.js';
+import { runAgentRuntime } from './agent-runtime/index.js';
 import {
-  runAgentRuntime,
-  writeRuntimeGroupsSnapshot,
-  writeRuntimeTasksSnapshot,
-  type AvailableGroup
-} from './agent-runtime/index.js';
-import {
-  canRefreshGroupMetadata,
-  canRegisterGroup,
-  canSendToChat,
-  canTargetScope,
   isControlScope,
   shouldRespondWithoutTrigger
 } from './control-scope.js';
 import { scopeFromRegisteredGroup } from './scope.js';
-import { processSharedRunnerTaskCommand } from './task-commands.js';
 import { loadJson, saveJson } from './utils.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -75,17 +63,6 @@ function saveState(): void {
   saveJson(path.join(DATA_DIR, 'sessions.json'), sessions);
 }
 
-function registerGroup(jid: string, group: RegisteredGroup): void {
-  registeredGroups[jid] = group;
-  saveJson(path.join(DATA_DIR, 'registered_groups.json'), registeredGroups);
-
-  // Create group folder
-  const groupDir = path.join(DATA_DIR, '..', 'groups', group.folder);
-  fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
-
-  logger.info({ jid, name: group.name, folder: group.folder }, 'Group registered');
-}
-
 /**
  * Sync group metadata from WhatsApp.
  * Fetches all participating groups and stores their names in the database.
@@ -122,24 +99,6 @@ async function syncGroupMetadata(force = false): Promise<void> {
   } catch (err) {
     logger.error({ err }, 'Failed to sync group metadata');
   }
-}
-
-/**
- * Get available groups list for the agent.
- * Returns groups ordered by most recent activity.
- */
-function getAvailableGroups(): AvailableGroup[] {
-  const chats = getAllChats();
-  const registeredJids = new Set(Object.keys(registeredGroups));
-
-  return chats
-    .filter(c => c.jid !== '__group_sync__' && c.jid.endsWith('@g.us'))
-    .map(c => ({
-      jid: c.jid,
-      name: c.name,
-      lastActivity: c.last_message_time,
-      isRegistered: registeredJids.has(c.jid)
-    }));
 }
 
 async function processMessage(msg: NewMessage): Promise<void> {
@@ -183,23 +142,6 @@ async function processMessage(msg: NewMessage): Promise<void> {
 async function runAgent(group: RegisteredGroup, prompt: string, chatJid: string): Promise<string | null> {
   const scope = scopeFromRegisteredGroup(chatJid, group);
   const conversationId = sessions[scope.scopeId];
-
-  // Update the runtime-side task snapshot for this execution scope.
-  const tasks = getAllTasks();
-  writeRuntimeTasksSnapshot(scope.scopeId, scope.isControlScope, tasks.map(t => ({
-    id: t.id,
-    scopeId: t.group_folder,
-    groupFolder: t.group_folder,
-    prompt: t.prompt,
-    schedule_type: t.schedule_type,
-    schedule_value: t.schedule_value,
-    status: t.status,
-    next_run: t.next_run
-  })));
-
-  // Update the runtime-side available-groups snapshot for this scope.
-  const availableGroups = getAvailableGroups();
-  writeRuntimeGroupsSnapshot(scope.scopeId, scope.isControlScope, availableGroups, new Set(Object.keys(registeredGroups)));
 
   try {
     const output = await runAgentRuntime(scope, {
@@ -251,174 +193,6 @@ async function sendMessage(jid: string, text: string): Promise<void> {
   }
 }
 
-function startIpcWatcher(): void {
-  const ipcBaseDir = path.join(DATA_DIR, 'ipc');
-  fs.mkdirSync(ipcBaseDir, { recursive: true });
-
-  const processIpcFiles = async () => {
-    // Scan all scope IPC directories (identity determined by directory)
-    let groupFolders: string[];
-    try {
-      groupFolders = fs.readdirSync(ipcBaseDir).filter(f => {
-        const stat = fs.statSync(path.join(ipcBaseDir, f));
-        return stat.isDirectory() && f !== 'errors';
-      });
-    } catch (err) {
-      logger.error({ err }, 'Error reading IPC base directory');
-      setTimeout(processIpcFiles, IPC_POLL_INTERVAL);
-      return;
-    }
-
-    for (const sourceGroup of groupFolders) {
-      const messagesDir = path.join(ipcBaseDir, sourceGroup, 'messages');
-      const tasksDir = path.join(ipcBaseDir, sourceGroup, 'tasks');
-
-      // Process messages from this group's IPC directory
-      try {
-        if (fs.existsSync(messagesDir)) {
-          const messageFiles = fs.readdirSync(messagesDir).filter(f => f.endsWith('.json'));
-          for (const file of messageFiles) {
-            const filePath = path.join(messagesDir, file);
-            try {
-              const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-              if (data.type === 'message' && data.chatJid && data.text) {
-                if (canSendToChat(sourceGroup, data.chatJid, registeredGroups)) {
-                  await sendMessage(data.chatJid, `${ASSISTANT_NAME}: ${data.text}`);
-                  logger.info({ chatJid: data.chatJid, sourceGroup }, 'IPC message sent');
-                } else {
-                  logger.warn({ chatJid: data.chatJid, sourceGroup }, 'Unauthorized IPC message attempt blocked');
-                }
-              }
-              fs.unlinkSync(filePath);
-            } catch (err) {
-              logger.error({ file, sourceGroup, err }, 'Error processing IPC message');
-              const errorDir = path.join(ipcBaseDir, 'errors');
-              fs.mkdirSync(errorDir, { recursive: true });
-              fs.renameSync(filePath, path.join(errorDir, `${sourceGroup}-${file}`));
-            }
-          }
-        }
-      } catch (err) {
-        logger.error({ err, sourceGroup }, 'Error reading IPC messages directory');
-      }
-
-      // Process tasks from this group's IPC directory
-      try {
-        if (fs.existsSync(tasksDir)) {
-          const taskFiles = fs.readdirSync(tasksDir).filter(f => f.endsWith('.json'));
-          for (const file of taskFiles) {
-            const filePath = path.join(tasksDir, file);
-            try {
-              const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-              // Pass the source scope identity to processTaskIpc for authorization.
-              await processTaskIpc(data, sourceGroup);
-              fs.unlinkSync(filePath);
-            } catch (err) {
-              logger.error({ file, sourceGroup, err }, 'Error processing IPC task');
-              const errorDir = path.join(ipcBaseDir, 'errors');
-              fs.mkdirSync(errorDir, { recursive: true });
-              fs.renameSync(filePath, path.join(errorDir, `${sourceGroup}-${file}`));
-            }
-          }
-        }
-      } catch (err) {
-        logger.error({ err, sourceGroup }, 'Error reading IPC tasks directory');
-      }
-    }
-
-    setTimeout(processIpcFiles, IPC_POLL_INTERVAL);
-  };
-
-  processIpcFiles();
-  logger.info('IPC watcher started (per-scope namespaces)');
-}
-
-async function processTaskIpc(
-  data: {
-    type: string;
-    taskId?: string;
-    prompt?: string;
-    schedule_type?: string;
-    schedule_value?: string;
-    context_mode?: string;
-    scopeId?: string;
-    groupFolder?: string;
-    chatJid?: string;
-    createdByScopeId?: string;
-    // For register_group
-    jid?: string;
-    name?: string;
-    folder?: string;
-    trigger?: string;
-    containerConfig?: RegisteredGroup['containerConfig'];
-  },
-  sourceGroup: string
-): Promise<void> {
-  // Import db functions dynamically to avoid circular deps
-  const { getTaskById: getTask } = await import('./db.js');
-
-  if (data.type === 'schedule_task' && data.prompt && data.schedule_type && data.schedule_value) {
-    processSharedRunnerTaskCommand({
-      kind: 'schedule_task',
-      prompt: data.prompt,
-      schedule_type: data.schedule_type as 'cron' | 'interval' | 'once',
-      schedule_value: data.schedule_value,
-      context_mode: data.context_mode === 'isolated' ? 'isolated' : 'group',
-      target_scope_id: data.scopeId ?? data.groupFolder,
-      source_scope_id: sourceGroup,
-    }, sourceGroup, registeredGroups, logger);
-    return;
-  }
-
-  if (
-    (data.type === 'pause_task' || data.type === 'resume_task' || data.type === 'cancel_task') &&
-    data.taskId
-  ) {
-    processSharedRunnerTaskCommand({
-      kind: data.type,
-      task_id: data.taskId,
-      source_scope_id: sourceGroup,
-    }, sourceGroup, registeredGroups, logger);
-    return;
-  }
-
-  switch (data.type) {
-    case 'refresh_groups':
-      if (canRefreshGroupMetadata(sourceGroup)) {
-        logger.info({ sourceGroup }, 'Group metadata refresh requested via IPC');
-        await syncGroupMetadata(true);
-        // Write updated snapshot immediately
-        const availableGroups = getAvailableGroups();
-        const { writeRuntimeGroupsSnapshot: writeGroups } = await import('./agent-runtime/index.js');
-        writeGroups(sourceGroup, true, availableGroups, new Set(Object.keys(registeredGroups)));
-      } else {
-        logger.warn({ sourceGroup }, 'Unauthorized refresh_groups attempt blocked');
-      }
-      break;
-
-    case 'register_group':
-      if (!canRegisterGroup(sourceGroup)) {
-        logger.warn({ sourceGroup }, 'Unauthorized register_group attempt blocked');
-        break;
-      }
-      if (data.jid && data.name && data.folder && data.trigger) {
-        registerGroup(data.jid, {
-          name: data.name,
-          folder: data.folder,
-          trigger: data.trigger,
-          added_at: new Date().toISOString(),
-          containerConfig: data.containerConfig
-        });
-      } else {
-        logger.warn({ data }, 'Invalid register_group request - missing required fields');
-      }
-      break;
-
-    default:
-      logger.warn({ type: data.type }, 'Unknown IPC task type');
-  }
-}
-
 async function connectWhatsApp(): Promise<void> {
   const authDir = path.join(STORE_DIR, 'auth');
   fs.mkdirSync(authDir, { recursive: true });
@@ -467,7 +241,6 @@ async function connectWhatsApp(): Promise<void> {
         registeredGroups: () => registeredGroups,
         getSessions: () => sessions
       });
-      startIpcWatcher();
       startMessageLoop();
     }
   });

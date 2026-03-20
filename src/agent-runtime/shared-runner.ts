@@ -1,10 +1,16 @@
-import path from 'path';
+import net from 'node:net';
+import { randomUUID } from 'node:crypto';
 import pino from 'pino';
-import { GROUPS_DIR } from '../config.js';
+import {
+  Workspace,
+  isAgentServerWorkspace,
+  type AgentServerWorkspace,
+} from '@smolpaws/agent-sdk';
 import type { ExecutionScope } from '../scope.js';
-import type { ContainerInput, ContainerOutput } from '../container-runner.js';
+import type { AgentRuntimeInput, AgentRuntimeOutput } from './types.js';
 import { buildVisibleTaskSnapshot, processSharedRunnerTaskCommand } from '../task-commands.js';
 import type { RegisteredGroup } from '../types.js';
+import { buildRunnerHostMounts } from './workspace.js';
 
 type RunnerConversationInfo = {
   id: string;
@@ -42,32 +48,58 @@ type RunnerTaskCommand =
       source_scope_id?: string;
     };
 
-type SharedRunnerOutput = ContainerOutput & {
+type SharedRunnerOutput = AgentRuntimeOutput & {
   outboundMessages?: RunnerOutboundMessage[];
 };
+
+const DEFAULT_RUNNER_IMAGE = 'smolpaws-runner:latest';
+const DEFAULT_RUNNER_ROOT = '/workspace';
+const DEFAULT_RUNNER_WORKING_DIR = '/workspace/group';
+const DEFAULT_RUNNER_PERSISTENCE_DIR = '/workspace/persistence';
+const DEFAULT_RUNNER_CONTAINER_PORT = 8788;
+const DEFAULT_RUNNER_PORT_BASE = 41000;
+const RUNNER_FORWARD_ENV = [
+  'LLM_MODEL',
+  'MODEL',
+  'LLM_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'LLM_PROVIDER',
+  'LLM_BASE_URL',
+  'SMOLPAWS_RUNNER_TOKEN',
+  'SMOLPAWS_WORKSPACE_ROOT',
+  'SMOLPAWS_PERSISTENCE_DIR',
+];
 
 const logger = pino({
   level: process.env.LOG_LEVEL || 'info',
   transport: { target: 'pino-pretty', options: { colorize: true } },
 });
 
-function getRunnerBaseUrl(): string {
-  const value = process.env.SMOLPAWS_RUNNER_URL?.trim();
-  if (!value) {
-    throw new Error('SMOLPAWS_RUNNER_URL is required for shared-runner backend');
-  }
-  return value.endsWith('/') ? value : `${value}/`;
+const workspaceCache = new Map<string, AgentServerWorkspace>();
+let nextRunnerPort = Number.parseInt(
+  process.env.SMOLPAWS_RUNNER_PORT_BASE ?? `${DEFAULT_RUNNER_PORT_BASE}`,
+  10,
+);
+
+function resolveRunnerImage(): string {
+  const image = process.env.SMOLPAWS_RUNNER_IMAGE?.trim();
+  return image || DEFAULT_RUNNER_IMAGE;
 }
 
-function buildRunnerHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
+function resolveRunnerToken(): string {
   const token = process.env.SMOLPAWS_RUNNER_TOKEN?.trim();
   if (token) {
-    headers.Authorization = `Bearer ${token}`;
+    return token;
   }
-  return headers;
+  const generated = randomUUID();
+  process.env.SMOLPAWS_RUNNER_TOKEN = generated;
+  return generated;
+}
+
+function ensureRunnerEnvDefaults(): void {
+  resolveRunnerToken();
+  process.env.SMOLPAWS_WORKSPACE_ROOT ||= DEFAULT_RUNNER_ROOT;
+  process.env.SMOLPAWS_PERSISTENCE_DIR ||= DEFAULT_RUNNER_PERSISTENCE_DIR;
 }
 
 function buildRunnerLlmRequest(): {
@@ -78,7 +110,7 @@ function buildRunnerLlmRequest(): {
 } {
   const model = (process.env.LLM_MODEL ?? process.env.MODEL ?? '').trim();
   if (!model) {
-    throw new Error('LLM_MODEL or MODEL is required for shared-runner backend');
+    throw new Error('LLM_MODEL or MODEL is required for the runner workspace');
   }
   const apiKey = process.env.LLM_API_KEY ?? process.env.ANTHROPIC_API_KEY;
   return {
@@ -89,11 +121,7 @@ function buildRunnerLlmRequest(): {
   };
 }
 
-function buildWorkspaceRoot(scope: ExecutionScope): string {
-  return path.join(GROUPS_DIR, scope.workspaceFolder);
-}
-
-function buildPrompt(input: ContainerInput): string {
+function buildPrompt(input: AgentRuntimeInput): string {
   if (!input.isScheduledTask) {
     return input.prompt;
   }
@@ -111,11 +139,91 @@ function buildSmolpawsConfig(scope: ExecutionScope) {
   };
 }
 
+function buildConversationWorkingDir(): string {
+  return DEFAULT_RUNNER_WORKING_DIR;
+}
+
+async function isPortAvailable(port: number): Promise<boolean> {
+  return await new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => {
+      resolve(false);
+    });
+    server.once('listening', () => {
+      server.close(() => resolve(true));
+    });
+    server.listen(port, '127.0.0.1');
+  });
+}
+
+async function reserveRunnerPort(): Promise<number> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const port = nextRunnerPort;
+    nextRunnerPort += 1;
+    if (await isPortAvailable(port)) {
+      return port;
+    }
+  }
+  throw new Error('No available host port found for shared-runner workspace');
+}
+
+async function getWorkspaceForScope(scope: ExecutionScope): Promise<AgentServerWorkspace> {
+  const existing = workspaceCache.get(scope.scopeId);
+  if (existing) {
+    try {
+      await existing.isAlive();
+      return existing;
+    } catch (error) {
+      logger.warn(
+        { scopeId: scope.scopeId, error: error instanceof Error ? error.message : String(error) },
+        'Recreating shared-runner workspace after failed health check',
+      );
+      workspaceCache.delete(scope.scopeId);
+    }
+  }
+
+  ensureRunnerEnvDefaults();
+  const hostPort = await reserveRunnerPort();
+  const workspace = Workspace({
+    kind: 'apple',
+    root: DEFAULT_RUNNER_ROOT,
+    hostPort,
+    serverPort: DEFAULT_RUNNER_CONTAINER_PORT,
+    serverImage: resolveRunnerImage(),
+    volumes: buildRunnerHostMounts(scope, scope.isControlScope),
+    forwardEnv: RUNNER_FORWARD_ENV,
+    runtimeSessionApiKey: resolveRunnerToken(),
+    containerBinary: process.env.SMOLPAWS_CONTAINER_BINARY,
+  });
+
+  if (!isAgentServerWorkspace(workspace) || workspace.kind !== 'apple') {
+    throw new Error('Expected Workspace() to return an AppleWorkspace-backed agent-server workspace');
+  }
+  await workspace.isAlive();
+  workspaceCache.set(scope.scopeId, workspace);
+  return workspace;
+}
+
+function mergeHeaders(
+  workspace: AgentServerWorkspace,
+  extra: Record<string, string> = {},
+): Record<string, string> {
+  return workspace.getAuthHeaders(extra);
+}
+
 async function fetchJson<T>(
+  workspace: AgentServerWorkspace,
   pathname: string,
   init: RequestInit,
 ): Promise<T> {
-  const response = await fetch(new URL(pathname, getRunnerBaseUrl()), init);
+  const headers = mergeHeaders(
+    workspace,
+    (init.headers as Record<string, string> | undefined) ?? {},
+  );
+  const response = await fetch(new URL(pathname, workspace.getServerUrl()), {
+    ...init,
+    headers,
+  });
   if (!response.ok) {
     const text = await response.text();
     throw new Error(`Runner request failed (${response.status}): ${text}`);
@@ -142,19 +250,20 @@ function extractLatestAssistantReply(page: RunnerEventPage): string | null {
 }
 
 async function createOrContinueConversation(
+  workspace: AgentServerWorkspace,
   scope: ExecutionScope,
-  input: ContainerInput,
+  input: AgentRuntimeInput,
 ): Promise<RunnerConversationInfo> {
-  return await fetchJson<RunnerConversationInfo>('/api/conversations', {
+  return await fetchJson<RunnerConversationInfo>(workspace, '/api/conversations', {
     method: 'POST',
-    headers: buildRunnerHeaders(),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       agent: {
         llm: buildRunnerLlmRequest(),
       },
       workspace: {
         kind: 'local',
-        working_dir: buildWorkspaceRoot(scope),
+        working_dir: buildConversationWorkingDir(),
       },
       max_iterations: 100,
       conversation_id: input.conversationId,
@@ -169,37 +278,40 @@ async function createOrContinueConversation(
 }
 
 async function claimConversationOutbox(
+  workspace: AgentServerWorkspace,
   conversationId: string,
 ): Promise<RunnerOutboundMessage[]> {
   return await fetchJson<RunnerOutboundMessage[]>(
+    workspace,
     `/api/conversations/${conversationId}/outbound_messages/claim`,
     {
       method: 'POST',
-      headers: buildRunnerHeaders(),
     },
   );
 }
 
 async function claimConversationTaskCommands(
+  workspace: AgentServerWorkspace,
   conversationId: string,
 ): Promise<RunnerTaskCommand[]> {
   return await fetchJson<RunnerTaskCommand[]>(
+    workspace,
     `/api/conversations/${conversationId}/task_commands/claim`,
     {
       method: 'POST',
-      headers: buildRunnerHeaders(),
     },
   );
 }
 
 async function loadLatestAssistantReply(
+  workspace: AgentServerWorkspace,
   conversationId: string,
 ): Promise<string | null> {
   const page = await fetchJson<RunnerEventPage>(
+    workspace,
     `/api/conversations/${conversationId}/events/search?source=agent&sort_order=TIMESTAMP_DESC&limit=20`,
     {
       method: 'GET',
-      headers: buildRunnerHeaders(),
     },
   );
   return extractLatestAssistantReply(page);
@@ -207,14 +319,15 @@ async function loadLatestAssistantReply(
 
 export async function runSharedRunnerAgent(
   scope: ExecutionScope,
-  input: ContainerInput,
+  input: AgentRuntimeInput,
   options?: {
     registeredGroups?: Record<string, RegisteredGroup>;
   },
 ): Promise<SharedRunnerOutput> {
-  const conversation = await createOrContinueConversation(scope, input);
-  const outboundMessages = await claimConversationOutbox(conversation.id);
-  const taskCommands = await claimConversationTaskCommands(conversation.id);
+  const workspace = await getWorkspaceForScope(scope);
+  const conversation = await createOrContinueConversation(workspace, scope, input);
+  const outboundMessages = await claimConversationOutbox(workspace, conversation.id);
+  const taskCommands = await claimConversationTaskCommands(workspace, conversation.id);
   for (const command of taskCommands) {
     processSharedRunnerTaskCommand(
       command,
@@ -223,7 +336,7 @@ export async function runSharedRunnerAgent(
       logger,
     );
   }
-  const result = await loadLatestAssistantReply(conversation.id);
+  const result = await loadLatestAssistantReply(workspace, conversation.id);
   return {
     status: 'success',
     result,

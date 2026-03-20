@@ -2,10 +2,10 @@ import fs from 'fs';
 import path from 'path';
 import pino from 'pino';
 import { CronExpressionParser } from 'cron-parser';
-import { getDueTasks, updateTaskAfterRun, logTaskRun, getTaskById, getAllTasks } from './db.js';
+import { getDueTasks, updateTaskAfterRun, logTaskRun, getTaskById } from './db.js';
 import { ScheduledTask, RegisteredGroup } from './types.js';
 import { ASSISTANT_NAME, GROUPS_DIR, SCHEDULER_POLL_INTERVAL, TIMEZONE } from './config.js';
-import { runAgentRuntime, writeRuntimeTasksSnapshot } from './agent-runtime/index.js';
+import { runAgentRuntime } from './agent-runtime/index.js';
 import { findScopeByFolder } from './scope.js';
 
 const logger = pino({
@@ -41,19 +41,6 @@ async function runTask(task: ScheduledTask, deps: SchedulerDependencies): Promis
     });
     return;
   }
-
-  // Update the runtime-side task snapshot for this execution scope.
-  const tasks = getAllTasks();
-  writeRuntimeTasksSnapshot(scope.scopeId, scope.isControlScope, tasks.map(t => ({
-    id: t.id,
-    scopeId: t.group_folder,
-    groupFolder: t.group_folder,
-    prompt: t.prompt,
-    schedule_type: t.schedule_type,
-    schedule_value: t.schedule_value,
-    status: t.status,
-    next_run: t.next_run
-  })));
 
   let result: string | null = null;
   let error: string | null = null;

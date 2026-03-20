@@ -6,7 +6,7 @@
   Your smart cat. Lightweight, secure, customizable.
 </p>
 
-Powered by the published `@smolpaws/agent-sdk` package. The canonical TypeScript runtime source lives in `enyst/OpenHands-Tab/packages/agent-sdk`, and this repo consumes that runtime in `container/agent-runner`. Built on [OpenHands](https://github.com/OpenHands/OpenHands). Based on [NanoClaw](https://github.com/gavrielc/nanoclaw).
+Powered by the published `@smolpaws/agent-sdk` package. The canonical TypeScript runtime source lives in `enyst/OpenHands-Tab/packages/agent-sdk`, and this repo consumes that runtime through an AppleWorkspace-managed local runner surface. Built on [OpenHands](https://github.com/OpenHands/OpenHands). Based on [NanoClaw](https://github.com/gavrielc/nanoclaw).
 
 ## Why
 
@@ -60,11 +60,10 @@ Talk to your assistant with the trigger word (default: `@smolpaws`):
 @smolpaws every Monday at 8am, compile news on AI developments from Hacker News and TechCrunch and message me a briefing
 ```
 
-From the control channel (your self-chat), you can manage groups and tasks:
+From the control channel (your self-chat), you can manage tasks across scopes:
 ```
 @smolpaws list all scheduled tasks across groups
 @smolpaws pause the Monday briefing task
-@smolpaws join the Family Chat group
 ```
 
 ## Customizing
@@ -113,20 +112,18 @@ Skills we'd love to see:
 ## Architecture
 
 ```
-WhatsApp (baileys) --> SQLite --> Polling loop --> Container (OpenHands Agent SDK) --> Response
+WhatsApp (baileys) --> SQLite --> Polling loop --> AppleWorkspace-managed runner --> Response
 ```
 
-Single Node.js process. Agents execute in isolated Linux containers with mounted directories. IPC via filesystem. No daemons, no queues, no complexity.
-
-For the convergence work, there is now also an opt-in `shared-runner` backend behind `SMOLPAWS_AGENT_RUNTIME_BACKEND=shared-runner`. The default remains the container stdio path.
+Single Node.js host process. Each execution scope gets its own AppleWorkspace-managed local runner container that exposes the shared agent-server-compatible runtime surface used across SmolPaws ingress layers.
 
 Runtime ownership:
 - Canonical TypeScript runtime source: `enyst/OpenHands-Tab/packages/agent-sdk`
 - Distribution path used here: published npm package `@smolpaws/agent-sdk`
 
 Key files:
-- `src/index.ts` - Main app: WhatsApp connection, routing, IPC
-- `src/container-runner.ts` - Spawns agent containers
+- `src/index.ts` - Main app: WhatsApp connection and routing
+- `src/agent-runtime/shared-runner.ts` - AppleWorkspace-backed runner client
 - `src/task-scheduler.ts` - Runs scheduled tasks
 - `src/db.ts` - SQLite operations
 - `groups/*/AGENTS.md` - Per-group memory

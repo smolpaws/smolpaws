@@ -6,15 +6,15 @@ See [README.md](README.md) for philosophy and setup. See [docs/REQUIREMENTS.md](
 
 ## Quick Context
 
-Single Node.js process that connects to WhatsApp, routes messages to OpenHands Agent SDK running in Apple Container (Linux VMs). Each group has isolated filesystem and memory.
+Single Node.js host process that connects to WhatsApp and routes messages into an AppleWorkspace-managed local runner container. Each execution scope keeps its own mounted filesystem and conversation state.
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Main app: WhatsApp connection, message routing, IPC |
+| `src/index.ts` | Main app: WhatsApp connection and message routing |
 | `src/config.ts` | Trigger pattern, paths, intervals |
-| `src/container-runner.ts` | Spawns agent containers with mounts |
+| `src/agent-runtime/shared-runner.ts` | AppleWorkspace-backed runner client |
 | `src/task-scheduler.ts` | Runs scheduled tasks |
 | `src/db.ts` | SQLite operations |
 | `groups/{name}/AGENTS.md` | Per-group memory (isolated) |
@@ -34,7 +34,8 @@ Run commands directly—don't tell the user to run them.
 ```bash
 npm run dev          # Run with hot reload
 npm run build        # Compile TypeScript
-./container/build.sh # Rebuild agent container
+# Build the runner image in ../smolpaws-enyst when needed:
+#   cd ../smolpaws-enyst && npm run runner:image:build
 ```
 
 Service management:
