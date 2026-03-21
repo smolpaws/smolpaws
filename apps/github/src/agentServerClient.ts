@@ -155,6 +155,14 @@ export async function dispatchToAgentServer(
       smolpaws: {
         ingress: message.meta?.ingress ?? 'github_webhook',
         enable_send_message: true,
+        github: {
+          event: message.event,
+          repository_full_name: message.payload.repository?.full_name,
+          owner_login: message.payload.repository?.owner?.login,
+          actor_login: message.payload.sender?.login,
+          issue_number: message.payload.issue?.number,
+          pull_request_number: message.payload.pull_request?.number,
+        },
       },
     }),
   });

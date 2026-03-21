@@ -82,7 +82,18 @@ test('dispatchToAgentServer creates a conversation, claims outbound messages, th
     conversation_id: string;
     initial_message: { content: Array<{ text: string }> };
     agent: { tools: Array<{ name: string }> };
-    smolpaws: { ingress: string; enable_send_message: boolean };
+    smolpaws: {
+      ingress: string;
+      enable_send_message: boolean;
+      github: {
+        event: string;
+        repository_full_name: string;
+        owner_login: string;
+        actor_login: string;
+        issue_number: number;
+        pull_request_number?: number;
+      };
+    };
   };
   assert.equal(createBody.conversation_id, 'github-smolpaws-smolpaws-20');
   assert.deepEqual(
@@ -92,6 +103,13 @@ test('dispatchToAgentServer creates a conversation, claims outbound messages, th
   assert.equal(createBody.initial_message.content[0]?.text, 'fix the bug');
   assert.equal(createBody.smolpaws.ingress, 'github_webhook');
   assert.equal(createBody.smolpaws.enable_send_message, true);
+  assert.deepEqual(createBody.smolpaws.github, {
+    event: 'issue_comment',
+    repository_full_name: 'smolpaws/smolpaws',
+    owner_login: 'smolpaws',
+    actor_login: 'enyst',
+    issue_number: 20,
+  });
 
   assert.equal(
     calls[1]?.url,

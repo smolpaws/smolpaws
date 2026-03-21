@@ -14,11 +14,35 @@ Important current behavior:
 - default tools are enabled for the GitHub ingress path: `terminal`, `file_editor`, and `task_tracker`
 - SmolPaws adds `send_message` on top of those default tools
 - SDK built-ins `finish` and `think` are also present
-- there is still no `AgentContext` attached here, so no repo/user/public skills are loaded into the first request yet
+- the agent-server now attaches an `AgentContext`
+- the system prompt now includes an `<environment information>` block with:
+  - the local repo root convention (`~/repos`)
+  - the canonical SmolPaws repo location (`~/repos/smolpaws`)
+  - the resolved workspace root for the conversation
+  - GitHub invocation metadata when present (repo, event type, actor, issue/PR number)
+- repo/user/public skill loading is still not attached here yet; this change only uses the existing environment-information seam
 
 ## Capture Method
 
 The payload below was captured by instantiating the same `LocalConversation` shape used by `createConversationRecord(...)`, injecting a fake LLM client, and recording the first `streamChat(request)` call.
+
+## Environment Information Excerpt
+
+The exact values vary by request, but the current canonical path now appends an environment block shaped like:
+
+```xml
+<environment information>
+- Local machine repo root: /Users/enyst/repos
+- Repositories on this machine are typically cloned under: /Users/enyst/repos
+- The canonical SmolPaws repository on this machine is: /Users/enyst/repos/smolpaws
+- Current workspace root for this conversation: <resolved workspace root>
+- This run was triggered from GitHub.
+- GitHub repository: <owner>/<repo>
+- GitHub thread: issue #<n> or pull request #<n>
+- GitHub event type: <event>
+- GitHub actor: <login>
+</environment information>
+```
 
 ## Exact First Request
 

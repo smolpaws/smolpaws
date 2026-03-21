@@ -7,6 +7,16 @@ export type SmolpawsConversationConfig = {
   enable_send_message?: boolean;
   enable_task_tools?: boolean;
   visible_tasks?: SmolpawsVisibleTask[];
+  github?: SmolpawsGithubContext;
+};
+
+export type SmolpawsGithubContext = {
+  event?: string;
+  repository_full_name?: string;
+  owner_login?: string;
+  actor_login?: string;
+  issue_number?: number;
+  pull_request_number?: number;
 };
 
 export type SmolpawsVisibleTask = {
@@ -88,6 +98,16 @@ export const SmolpawsConversationConfigSchema = Type.Object({
   enable_send_message: Type.Optional(Type.Boolean()),
   enable_task_tools: Type.Optional(Type.Boolean()),
   visible_tasks: Type.Optional(Type.Array(SmolpawsVisibleTaskSchema)),
+  github: Type.Optional(
+    Type.Object({
+      event: Type.Optional(Type.String()),
+      repository_full_name: Type.Optional(Type.String()),
+      owner_login: Type.Optional(Type.String()),
+      actor_login: Type.Optional(Type.String()),
+      issue_number: Type.Optional(Type.Number()),
+      pull_request_number: Type.Optional(Type.Number()),
+    }),
+  ),
 });
 
 export const SmolpawsOutboundMessageListSchema = Type.Array(
