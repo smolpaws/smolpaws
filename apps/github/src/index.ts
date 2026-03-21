@@ -685,17 +685,112 @@ function base64UrlEncode(input: string | ArrayBuffer): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function pemToArrayBuffer(pem: string): ArrayBuffer {
-  const trimmed = pem
-    .replace(/-----BEGIN PRIVATE KEY-----/g, "")
-    .replace(/-----END PRIVATE KEY-----/g, "")
-    .replace(/\s+/g, "");
-  const binary = atob(trimmed);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
+type ParsedPem = {
+  label: string;
+  der: Uint8Array;
+};
+
+function encodeDerLength(length: number): Uint8Array {
+  if (length < 0x80) {
+    return Uint8Array.from([length]);
   }
-  return bytes.buffer;
+  const octets: number[] = [];
+  let remaining = length;
+  while (remaining > 0) {
+    octets.unshift(remaining & 0xff);
+    remaining >>= 8;
+  }
+  return Uint8Array.from([0x80 | octets.length, ...octets]);
+}
+
+function encodeDerSequence(contents: Uint8Array): Uint8Array {
+  const length = encodeDerLength(contents.length);
+  const result = new Uint8Array(1 + length.length + contents.length);
+  result[0] = 0x30;
+  result.set(length, 1);
+  result.set(contents, 1 + length.length);
+  return result;
+}
+
+function encodeDerIntegerZero(): Uint8Array {
+  return Uint8Array.from([0x02, 0x01, 0x00]);
+}
+
+function encodeDerOctetString(contents: Uint8Array): Uint8Array {
+  const length = encodeDerLength(contents.length);
+  const result = new Uint8Array(1 + length.length + contents.length);
+  result[0] = 0x04;
+  result.set(length, 1);
+  result.set(contents, 1 + length.length);
+  return result;
+}
+
+function concatUint8Arrays(...arrays: Uint8Array[]): Uint8Array {
+  const totalLength = arrays.reduce((sum, array) => sum + array.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const array of arrays) {
+    result.set(array, offset);
+    offset += array.length;
+  }
+  return result;
+}
+
+function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.length);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
+function wrapPkcs1RsaPrivateKeyInPkcs8(pkcs1Der: Uint8Array): Uint8Array {
+  // PKCS#8 PrivateKeyInfo ::= SEQUENCE {
+  //   version                   INTEGER,
+  //   privateKeyAlgorithm       AlgorithmIdentifier,
+  //   privateKey                OCTET STRING
+  // }
+  // rsaEncryption OID = 1.2.840.113549.1.1.1 with NULL params.
+  const rsaAlgorithmIdentifier = Uint8Array.from([
+    0x30, 0x0d,
+    0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01,
+    0x05, 0x00,
+  ]);
+  return encodeDerSequence(
+    concatUint8Arrays(
+      encodeDerIntegerZero(),
+      rsaAlgorithmIdentifier,
+      encodeDerOctetString(pkcs1Der),
+    ),
+  );
+}
+
+function parsePem(pem: string): ParsedPem {
+  const normalized = pem.replace(/\\n/g, "\n").trim();
+  const match = normalized.match(
+    /-----BEGIN ([A-Z0-9 ]+)-----([\s\S]+?)-----END \1-----/,
+  );
+  if (!match) {
+    throw new Error("Invalid GitHub App private key PEM format");
+  }
+  const [, label, body] = match;
+  const base64Body = body.replace(/\s+/g, "");
+  const binary = atob(base64Body);
+  const der = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    der[i] = binary.charCodeAt(i);
+  }
+  return { label, der };
+}
+
+function pemToArrayBuffer(pem: string): ArrayBuffer {
+  const parsed = parsePem(pem);
+  if (parsed.label === "PRIVATE KEY") {
+    return copyToArrayBuffer(parsed.der);
+  }
+  if (parsed.label === "RSA PRIVATE KEY") {
+    const wrapped = wrapPkcs1RsaPrivateKeyInPkcs8(parsed.der);
+    return copyToArrayBuffer(wrapped);
+  }
+  throw new Error(`Unsupported GitHub App private key label: ${parsed.label}`);
 }
 
 async function postIssueComment(options: {
