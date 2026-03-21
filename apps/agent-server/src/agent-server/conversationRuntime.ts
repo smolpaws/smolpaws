@@ -192,7 +192,6 @@ function buildEnvironmentInformationBlock(params: {
   const defaultWorkingDir = getDefaultWorkingDir(params.env);
   const lines = [
     "<environment information>",
-    `- Default allowed workspace root on this machine: ${configuredWorkspaceRoot}`,
     `- Repositories on this machine are typically cloned under: ${configuredWorkspaceRoot}`,
     `- The canonical SmolPaws repository on this machine is: ${path.join(os.homedir(), "repos", "smolpaws")}`,
     `- Default conversation working_dir within that root: ${defaultWorkingDirSetting}`,
