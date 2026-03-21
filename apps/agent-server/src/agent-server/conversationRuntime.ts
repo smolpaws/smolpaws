@@ -28,6 +28,8 @@ import {
 } from "../runner/conversationState.js";
 import { readPersistedEventsOrThrow } from "../runner/eventService.js";
 import {
+  getConfiguredWorkspaceRoot,
+  getDefaultWorkingDir,
   resolveAbsolutePersistenceRoot,
   resolvePersistenceDir,
   resolveWorkspaceRoot,
@@ -181,15 +183,21 @@ function formatGithubThread(github?: SmolpawsGithubContext): string | undefined 
 
 function buildEnvironmentInformationBlock(params: {
   workspaceRoot: string;
+  env: RunnerEnv;
   smolpawsConfig?: SmolpawsConversationConfigValue;
 }): string {
-  const reposRoot = path.join(os.homedir(), "repos");
+  const configuredWorkspaceRoot = getConfiguredWorkspaceRoot(params.env);
+  const defaultWorkingDirSetting =
+    params.env.SMOLPAWS_DEFAULT_WORKING_DIR?.trim() || '.';
+  const defaultWorkingDir = getDefaultWorkingDir(params.env);
   const lines = [
     "<environment information>",
-    `- Local machine repo root: ${reposRoot}`,
-    `- Repositories on this machine are typically cloned under: ${reposRoot}`,
-    `- The canonical SmolPaws repository on this machine is: ${path.join(reposRoot, "smolpaws")}`,
-    `- Current workspace root for this conversation: ${params.workspaceRoot}`,
+    `- Default allowed workspace root on this machine: ${configuredWorkspaceRoot}`,
+    `- Repositories on this machine are typically cloned under: ${configuredWorkspaceRoot}`,
+    `- The canonical SmolPaws repository on this machine is: ${path.join(os.homedir(), "repos", "smolpaws")}`,
+    `- Default conversation working_dir within that root: ${defaultWorkingDirSetting}`,
+    `- Resolved default startup working directory for local SmolPaws runs: ${defaultWorkingDir}`,
+    `- Current resolved working directory for this conversation: ${params.workspaceRoot}`,
   ];
 
   const github = params.smolpawsConfig?.github;
@@ -220,11 +228,13 @@ function buildEnvironmentInformationBlock(params: {
 
 function buildAgentContext(
   workspaceRoot: string,
+  env: RunnerEnv,
   smolpawsConfig?: SmolpawsConversationConfigValue,
 ): AgentContext {
   return new AgentContext({
     systemMessageSuffix: buildEnvironmentInformationBlock({
       workspaceRoot,
+      env,
       smolpawsConfig,
     }),
   });
@@ -544,7 +554,7 @@ export function createConversationRuntime({
     const settings = buildSettingsFromRequest(request, registry, env);
     const workspaceRoot = resolveWorkspaceRoot(request.workspace?.working_dir, env);
     const workspace = Workspace({ kind: "local", root: workspaceRoot });
-    const agentContext = buildAgentContext(workspaceRoot, smolpawsConfig);
+    const agentContext = buildAgentContext(workspaceRoot, env, smolpawsConfig);
     let activeConversationId = requestedId;
     const toolProfile = resolveConversationToolProfile(
       request,

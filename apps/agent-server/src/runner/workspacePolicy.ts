@@ -11,6 +11,7 @@ export type RunnerEnv = {
   LLM_PROVIDER?: string;
   LLM_API_KEY?: string;
   SMOLPAWS_WORKSPACE_ROOT?: string;
+  SMOLPAWS_DEFAULT_WORKING_DIR?: string;
   SMOLPAWS_PERSISTENCE_DIR?: string;
 };
 
@@ -35,6 +36,7 @@ export function getEnv(): RunnerEnv {
     LLM_PROVIDER: process.env.LLM_PROVIDER,
     LLM_API_KEY: process.env.LLM_API_KEY,
     SMOLPAWS_WORKSPACE_ROOT: process.env.SMOLPAWS_WORKSPACE_ROOT,
+    SMOLPAWS_DEFAULT_WORKING_DIR: process.env.SMOLPAWS_DEFAULT_WORKING_DIR,
     SMOLPAWS_PERSISTENCE_DIR: process.env.SMOLPAWS_PERSISTENCE_DIR,
   };
 }
@@ -111,6 +113,21 @@ export function getConfiguredWorkspaceRoot(env: RunnerEnv): string {
   return path.resolve(configuredRoot || process.cwd());
 }
 
+export function getDefaultWorkingDir(env: RunnerEnv): string {
+  const configuredRoot = getConfiguredWorkspaceRoot(env);
+  const configuredWorkingDir = env.SMOLPAWS_DEFAULT_WORKING_DIR?.trim();
+  if (!configuredWorkingDir) {
+    return configuredRoot;
+  }
+  const resolved = path.isAbsolute(configuredWorkingDir)
+    ? path.resolve(configuredWorkingDir)
+    : path.resolve(configuredRoot, configuredWorkingDir);
+  if (!isWithinResolvedRoot(resolved, configuredRoot)) {
+    throw new Error('default_working_dir_not_allowed');
+  }
+  return resolved;
+}
+
 export function listAllowedWorkspaceRoots(env: RunnerEnv): string[] {
   return [getConfiguredWorkspaceRoot(env)];
 }
@@ -172,9 +189,12 @@ export function resolveWorkspaceRoot(
 ): string {
   const configuredRoot = getConfiguredWorkspaceRoot(env);
   if (typeof requestedWorkingDir !== 'string' || !requestedWorkingDir.trim()) {
-    return configuredRoot;
+    return getDefaultWorkingDir(env);
   }
-  const resolved = path.resolve(requestedWorkingDir.trim());
+  const normalized = requestedWorkingDir.trim();
+  const resolved = path.isAbsolute(normalized)
+    ? path.resolve(normalized)
+    : path.resolve(configuredRoot, normalized);
   if (!isWithinResolvedRoot(resolved, configuredRoot)) {
     throw new Error('workspace_root_not_allowed');
   }

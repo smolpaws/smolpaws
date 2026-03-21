@@ -38,9 +38,13 @@ if [[ -z "${LLM_API_KEY:-}" ]]; then
 fi
 
 export PORT="${PORT:-8788}"
+export SMOLPAWS_WORKSPACE_ROOT="${SMOLPAWS_WORKSPACE_ROOT:-$HOME/repos}"
+export SMOLPAWS_DEFAULT_WORKING_DIR="${SMOLPAWS_DEFAULT_WORKING_DIR:-smolpaws}"
 
 echo "Starting smolpaws agent-server on http://localhost:${PORT}"
 echo "Health: curl http://localhost:${PORT}/health"
+echo "Allowed workspace root: ${SMOLPAWS_WORKSPACE_ROOT}"
+echo "Default startup working directory: ${SMOLPAWS_DEFAULT_WORKING_DIR}"
 if [[ -n "${SMOLPAWS_RUNNER_TOKEN:-}" ]]; then
   echo "Runner auth: enabled"
 else

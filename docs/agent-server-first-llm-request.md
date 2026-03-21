@@ -32,10 +32,12 @@ The exact values vary by request, but the current canonical path now appends an 
 
 ```xml
 <environment information>
-- Local machine repo root: /Users/enyst/repos
+- Default allowed workspace root on this machine: /Users/enyst/repos
 - Repositories on this machine are typically cloned under: /Users/enyst/repos
 - The canonical SmolPaws repository on this machine is: /Users/enyst/repos/smolpaws
-- Current workspace root for this conversation: <resolved workspace root>
+- Default conversation working_dir within that root: smolpaws
+- Resolved default startup working directory for local SmolPaws runs: /Users/enyst/repos/smolpaws
+- Current resolved working directory for this conversation: <resolved working directory>
 - This run was triggered from GitHub.
 - GitHub repository: <owner>/<repo>
 - GitHub thread: issue #<n> or pull request #<n>
