@@ -45,6 +45,10 @@ import {
 } from "../runner/outboundMessaging.js";
 import { appendOutboundMessage, appendTaskCommand } from "../runner/outbox.js";
 import { createTaskTools } from "../runner/taskCommands.js";
+import {
+  loadProjectSkills,
+  resolveProjectSkillsRoot,
+} from "./projectSkills.js";
 import type {
   SmolpawsGithubContext,
   SmolpawsConversationConfigValue,
@@ -183,6 +187,7 @@ function formatGithubThread(github?: SmolpawsGithubContext): string | undefined 
 
 function buildEnvironmentInformationBlock(params: {
   workspaceRoot: string;
+  projectSkillsRoot: string;
   env: RunnerEnv;
   smolpawsConfig?: SmolpawsConversationConfigValue;
 }): string {
@@ -197,6 +202,7 @@ function buildEnvironmentInformationBlock(params: {
     `- Default conversation working_dir within that root: ${defaultWorkingDirSetting}`,
     `- Resolved default startup working directory for local SmolPaws runs: ${defaultWorkingDir}`,
     `- Current resolved working directory for this conversation: ${params.workspaceRoot}`,
+    `- Project/repo skills for this conversation are loaded from: ${params.projectSkillsRoot}`,
   ];
 
   const github = params.smolpawsConfig?.github;
@@ -227,12 +233,16 @@ function buildEnvironmentInformationBlock(params: {
 
 function buildAgentContext(
   workspaceRoot: string,
+  projectSkillsRoot: string,
   env: RunnerEnv,
   smolpawsConfig?: SmolpawsConversationConfigValue,
 ): AgentContext {
   return new AgentContext({
+    skills: loadProjectSkills(projectSkillsRoot),
+    loadUserSkills: true,
     systemMessageSuffix: buildEnvironmentInformationBlock({
       workspaceRoot,
+      projectSkillsRoot,
       env,
       smolpawsConfig,
     }),
@@ -553,7 +563,17 @@ export function createConversationRuntime({
     const settings = buildSettingsFromRequest(request, registry, env);
     const workspaceRoot = resolveWorkspaceRoot(request.workspace?.working_dir, env);
     const workspace = Workspace({ kind: "local", root: workspaceRoot });
-    const agentContext = buildAgentContext(workspaceRoot, env, smolpawsConfig);
+    const projectSkillsRoot = resolveProjectSkillsRoot({
+      workspaceRoot,
+      env,
+      smolpawsConfig,
+    });
+    const agentContext = buildAgentContext(
+      workspaceRoot,
+      projectSkillsRoot,
+      env,
+      smolpawsConfig,
+    );
     let activeConversationId = requestedId;
     const toolProfile = resolveConversationToolProfile(
       request,

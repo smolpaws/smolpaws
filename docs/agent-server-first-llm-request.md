@@ -1,6 +1,6 @@
 # Agent-Server First LLM Request
 
-This records the first `ChatCompletionRequest` produced by the canonical local agent-server conversation-start path:
+This records the first `ChatCompletionRequest` shape produced by the canonical local agent-server conversation-start path:
 
 - route: `POST /api/conversations`
 - runtime: `createConversationRecord(...)` in `apps/agent-server/src/agent-server/conversationRuntime.ts`
@@ -20,11 +20,18 @@ Important current behavior:
   - the canonical SmolPaws repo location (`~/repos/smolpaws`)
   - the resolved workspace root for the conversation
   - GitHub invocation metadata when present (repo, event type, actor, issue/PR number)
-- repo/user/public skill loading is still not attached here yet; this change only uses the existing environment-information seam
+- user skills are auto-loaded through `AgentContext(loadUserSkills: true)`
+- project skills are loaded from the resolved repo root using the Python-style local sources:
+  - `<repo>/.agents/skills`
+  - `<repo>/.openhands/skills`
+  - `<repo>/.openhands/microagents` (legacy)
+- for GitHub-triggered runs, the project skill root prefers the local clone of the target GitHub repo under `~/repos`; if that cannot be resolved, it falls back to `~/repos/smolpaws`
 
 ## Capture Method
 
 The payload below was captured by instantiating the same `LocalConversation` shape used by `createConversationRecord(...)`, injecting a fake LLM client, and recording the first `streamChat(request)` call.
+
+Because the current path now loads user and project skills from the local machine, the exact contents of `<REPO_CONTEXT>` and `<SKILLS>` depend on the checkout and home-directory skill inventory present on the host. The request skeleton below is therefore representative of the stable structure, while the earlier sections describe the current live sources that are appended to it.
 
 ## Environment Information Excerpt
 
@@ -38,6 +45,7 @@ The exact values vary by request, but the current canonical path now appends an 
 - Default conversation working_dir within that root: smolpaws
 - Resolved default startup working directory for local SmolPaws runs: /Users/enyst/repos/smolpaws
 - Current resolved working directory for this conversation: <resolved working directory>
+- Project/repo skills for this conversation are loaded from: <resolved project skill root>
 - This run was triggered from GitHub.
 - GitHub repository: <owner>/<repo>
 - GitHub thread: issue #<n> or pull request #<n>
@@ -46,7 +54,7 @@ The exact values vary by request, but the current canonical path now appends an 
 </environment information>
 ```
 
-## Exact First Request
+## Representative First Request
 
 ```json
 {
