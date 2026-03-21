@@ -92,6 +92,18 @@ npm install
 LLM_MODEL=<model> LLM_API_KEY=<key> npm run runner:dev
 ```
 
+Or use the checked-in launcher with env validation:
+
+```bash
+LLM_MODEL=<model> OPENAI_API_KEY=<key> npm run runner:local
+```
+
+### Worker -> agent-server contract test
+
+```bash
+npm run github:test:agent-server-contract
+```
+
 ### Required env vars
 
 - `LLM_MODEL` (required)

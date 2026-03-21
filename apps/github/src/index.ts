@@ -6,6 +6,7 @@ import type {
 import type {
   SmolpawsOutboundMessage,
 } from "../../agent-server/src/shared/runner.js";
+import { dispatchToAgentServer } from "./agentServerClient.js";
 
 interface Env {
   // GitHub App (webhook-installed repos)
@@ -29,11 +30,6 @@ interface Env {
 
 const MENTION = "@smolpaws";
 const USER_AGENT = "smolpaws-webhook";
-const DEFAULT_AGENT_TOOLS = [
-  { name: "terminal" },
-  { name: "file_editor" },
-  { name: "task_tracker" },
-] as const;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -233,7 +229,7 @@ async function processQueueMessage(
     const outboundMessages = agentResult?.outbound_messages ?? [];
 
     if (outboundMessages.length > 0) {
-      for (const outbound of collapseOutboundMessages(outboundMessages)) {
+      for (const outbound of outboundMessages) {
         await deliverRunnerOutboundMessage({
           token,
           repoFullName,
@@ -288,49 +284,6 @@ function normalizeToken(value?: string): string | null {
   if (!value) return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
-}
-
-function normalizeAgentServerBaseUrl(value?: string): string | null {
-  const normalized = normalizeToken(value);
-  if (!normalized) return null;
-  return normalized.replace(/\/+$/, "");
-}
-
-function buildConversationId(message: SmolpawsQueueMessage): string {
-  const repo = (message.payload.repository?.full_name ?? "repo")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  const threadNumber =
-    message.payload.issue?.number ?? message.payload.pull_request?.number ?? 0;
-  return `github-${repo}-${threadNumber}`;
-}
-
-function extractAssistantReplyFromEventPage(data: unknown): string | null {
-  if (!data || typeof data !== "object" || !Array.isArray((data as { items?: unknown[] }).items)) {
-    return null;
-  }
-  for (const item of (data as { items: unknown[] }).items) {
-    if (!item || typeof item !== "object") {
-      continue;
-    }
-    const event = item as {
-      kind?: unknown;
-      llm_message?: { role?: unknown; content?: Array<{ type?: unknown; text?: unknown }> };
-    };
-    if (event.kind !== "MessageEvent" || event.llm_message?.role !== "assistant") {
-      continue;
-    }
-    const text = (event.llm_message.content ?? [])
-      .filter((part) => part?.type === "text" && typeof part.text === "string")
-      .map((part) => (part.text as string).trim())
-      .filter(Boolean)
-      .join("\n");
-    if (text) {
-      return text;
-    }
-  }
-  return null;
 }
 
 async function githubApiFetch(
@@ -880,132 +833,4 @@ async function deliverRunnerOutboundMessage(options: {
   throw new Error(
     `Unsupported outbound message kind: ${(options.outbound as { kind?: string }).kind ?? "unknown"}`,
   );
-}
-
-function extractPromptFromComment(comment?: string | null): string {
-  if (!comment) return "";
-  return comment.replace(/@smolpaws/gi, "").trim();
-}
-
-function extractPromptFromPayload(payload: GithubEventPayload): string {
-  return extractPromptFromComment(getMentionBody(payload));
-}
-
-function buildFallbackReply(message: SmolpawsQueueMessage): string {
-  const actor = message.payload.sender?.login ?? "there";
-  const repo = message.payload.repository?.full_name ?? "your repo";
-  const trimmed = extractPromptFromPayload(message.payload);
-  const requestLine = trimmed ? `Request: "${trimmed}"` : "Request: (none)";
-  return `🐾 Hey ${actor}! smolpaws is warming up in ${repo}.\n${requestLine}`;
-}
-
-function collapseOutboundMessages(
-  outboundMessages: SmolpawsOutboundMessage[],
-): SmolpawsOutboundMessage[] {
-  if (outboundMessages.length <= 1) {
-    return outboundMessages;
-  }
-
-  return [
-    {
-      kind: "current_thread_message",
-      text: outboundMessages
-        .map((outbound) => {
-          if (outbound.kind !== "current_thread_message") {
-            throw new Error(`Unsupported outbound message kind: ${outbound.kind}`);
-          }
-          return outbound.text.trim();
-        })
-        .filter(Boolean)
-        .join("\n\n"),
-    },
-  ];
-}
-
-async function dispatchToAgentServer(
-  message: SmolpawsQueueMessage,
-  env: Env,
-): Promise<{ reply: string; outbound_messages?: SmolpawsOutboundMessage[] } | null> {
-  const agentServerBaseUrl = normalizeAgentServerBaseUrl(env.SMOLPAWS_RUNNER_URL);
-  if (!agentServerBaseUrl) {
-    return null;
-  }
-
-  const prompt = extractPromptFromPayload(message.payload);
-  if (!prompt) {
-    return { reply: buildFallbackReply(message) };
-  }
-  const conversationId = buildConversationId(message);
-  const response = await fetch(`${agentServerBaseUrl}/api/conversations`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(env.SMOLPAWS_RUNNER_TOKEN
-        ? { Authorization: `Bearer ${env.SMOLPAWS_RUNNER_TOKEN}` }
-        : {}),
-    },
-    body: JSON.stringify({
-      agent: {
-        llm: {},
-        tools: DEFAULT_AGENT_TOOLS,
-      },
-      conversation_id: conversationId,
-      initial_message: {
-        role: "user",
-        content: [{ type: "text", text: prompt }],
-        run: true,
-      },
-      smolpaws: {
-        ingress: message.meta?.ingress ?? "github_webhook",
-        enable_send_message: true,
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    const responseText = await response.text();
-    throw new Error(`Agent-server error: ${responseText}`);
-  }
-
-  const data = (await response.json()) as { id?: unknown };
-  if (typeof data.id !== "string" || !data.id.trim()) {
-    throw new Error("Agent-server response missing conversation id");
-  }
-  const claimedMessagesResponse = await fetch(
-    `${agentServerBaseUrl}/api/conversations/${encodeURIComponent(data.id)}/outbound_messages/claim`,
-    {
-      method: "POST",
-      headers: env.SMOLPAWS_RUNNER_TOKEN
-        ? { Authorization: `Bearer ${env.SMOLPAWS_RUNNER_TOKEN}` }
-        : {},
-    },
-  );
-  if (!claimedMessagesResponse.ok) {
-    const responseText = await claimedMessagesResponse.text();
-    throw new Error(`Agent-server outbound claim error: ${responseText}`);
-  }
-  const outbound_messages = (await claimedMessagesResponse.json()) as SmolpawsOutboundMessage[];
-  if (outbound_messages.length > 0) {
-    return {
-      reply: buildFallbackReply(message),
-      outbound_messages,
-    };
-  }
-
-  const eventsResponse = await fetch(
-    `${agentServerBaseUrl}/api/conversations/${encodeURIComponent(data.id)}/events/search?kind=MessageEvent&source=agent&sort_order=timestamp_desc&limit=20`,
-    {
-      headers: env.SMOLPAWS_RUNNER_TOKEN
-        ? { Authorization: `Bearer ${env.SMOLPAWS_RUNNER_TOKEN}` }
-        : {},
-    },
-  );
-  if (!eventsResponse.ok) {
-    const responseText = await eventsResponse.text();
-    throw new Error(`Agent-server events search error: ${responseText}`);
-  }
-  const reply = extractAssistantReplyFromEventPage(await eventsResponse.json());
-  return {
-    reply: reply ?? buildFallbackReply(message),
-  };
 }
