@@ -22,15 +22,14 @@ if [[ -z "${LLM_API_KEY:-}" ]]; then
         export LLM_API_KEY="${ANTHROPIC_API_KEY}"
       fi
       ;;
+    *)
+      if [[ -n "${OPENAI_API_KEY:-}" ]]; then
+        export LLM_API_KEY="${OPENAI_API_KEY}"
+      elif [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+        export LLM_API_KEY="${ANTHROPIC_API_KEY}"
+      fi
+      ;;
   esac
-fi
-
-if [[ -z "${LLM_API_KEY:-}" ]]; then
-  if [[ -n "${OPENAI_API_KEY:-}" ]]; then
-    export LLM_API_KEY="${OPENAI_API_KEY}"
-  elif [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
-    export LLM_API_KEY="${ANTHROPIC_API_KEY}"
-  fi
 fi
 
 if [[ -z "${LLM_API_KEY:-}" ]]; then
