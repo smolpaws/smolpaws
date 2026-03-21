@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install agent-server dependencies
+        run: npm ci --prefix apps/agent-server
+
+      - name: Install GitHub ingress dependencies
+        run: npm ci --prefix apps/github
+
+      - name: Typecheck root
+        run: npm run typecheck
+
+      - name: Typecheck agent-server
+        run: npm run typecheck --prefix apps/agent-server
+
+      - name: Typecheck GitHub ingress
+        run: npm run typecheck --prefix apps/github
+
+      - name: Run GitHub -> agent-server contract test
+        run: npm run github:test:agent-server-contract
+
+      - name: Start agent-server and verify health
+        run: |
+          npm run runner:start > /tmp/smolpaws-runner.log 2>&1 &
+          echo $! > /tmp/smolpaws-runner.pid
+
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8788/health >/tmp/smolpaws-runner-health.json; then
+              break
+            fi
+            sleep 1
+          done
+
+          curl -fsS http://localhost:8788/health
+          curl -fsS http://localhost:8788/ready
+
+      - name: Print agent-server log on failure
+        if: failure()
+        run: |
+          if [ -f /tmp/smolpaws-runner.log ]; then
+            tail -n 200 /tmp/smolpaws-runner.log
+          fi
+
+      - name: Stop agent-server
+        if: always()
+        run: |
+          if [ -f /tmp/smolpaws-runner.pid ]; then
+            kill "$(cat /tmp/smolpaws-runner.pid)" || true
+            wait "$(cat /tmp/smolpaws-runner.pid)" 2>/dev/null || true
+          fi
