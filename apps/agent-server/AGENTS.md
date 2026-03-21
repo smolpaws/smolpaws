@@ -12,9 +12,9 @@ This app exposes the local agent-server-compatible runtime surface used by both 
 |------|---------|
 | `src/runner.ts` | Thin entrypoint for local development |
 | `src/agent-server/app.ts` | Fastify bootstrap |
-| `src/agent-server/conversationRouter.ts` | `/run` and conversation routes |
+| `src/agent-server/conversationRouter.ts` | Conversation lifecycle routes |
 | `src/agent-server/conversationRuntime.ts` | Local conversation lifecycle and persistence |
-| `src/daytona.ts` | Current Daytona-specific execution helper; intended to become a workspace backend later |
+| `src/runner/workspacePolicy.ts` | Auth, workspace-root, and persistence policy |
 
 ## Development
 

@@ -1,4 +1,5 @@
 import {
+  BrowserTool,
   LLMSecurityAnalyzer,
   LocalConversation,
   SecretRegistry,
@@ -7,9 +8,8 @@ import {
   type Event,
   type OpenHandsSettings,
   type TextContent,
+  type ToolDefinition,
 } from "@smolpaws/agent-sdk";
-import { randomUUID } from "crypto";
-import type { DaytonaLlmConfig } from "../daytona.js";
 import {
   buildConversationDirPath,
   buildConversationInfoFromPersistence,
@@ -42,7 +42,6 @@ import { appendOutboundMessage, appendTaskCommand } from "../runner/outbox.js";
 import { createTaskTools } from "../runner/taskCommands.js";
 import type {
   SmolpawsConversationConfigValue,
-  SmolpawsRunnerResponse,
   SmolpawsTaskCommand,
 } from "../shared/runner.js";
 import type {
@@ -54,6 +53,7 @@ import type {
 
 const DEFAULT_MODEL_ENV = "LLM_MODEL";
 const DEFAULT_API_KEY_ENV = "LLM_API_KEY";
+const DEFAULT_REMOTE_TOOL_NAMES = ["terminal", "file_editor", "task_tracker"] as const;
 
 export type EventSubscriber = (event: Event) => void;
 
@@ -61,6 +61,15 @@ type ConversationRuntimeArgs = {
   env: RunnerEnv;
   persistenceRoot: string;
   persistenceDir?: string;
+};
+
+type RequestedAgentTool = {
+  name?: unknown;
+};
+
+type ConversationToolProfile = {
+  includeDefaultTools: boolean | string[];
+  tools: ToolDefinition<unknown, unknown>[];
 };
 
 function normalizeSecretValue(value: unknown): string | undefined {
@@ -77,6 +86,41 @@ function normalizeSecretValue(value: unknown): string | undefined {
     return trimmed ? trimmed : undefined;
   }
   return undefined;
+}
+
+function normalizeRequestedToolNames(
+  tools: unknown,
+): string[] | undefined {
+  if (!Array.isArray(tools)) {
+    return undefined;
+  }
+  const normalized = tools
+    .map((tool) => {
+      if (!tool || typeof tool !== "object") {
+        return "";
+      }
+      const rawName = (tool as RequestedAgentTool).name;
+      return typeof rawName === "string" ? rawName.trim() : "";
+    })
+    .filter(Boolean);
+  return Array.from(new Set(normalized));
+}
+
+function buildRequestedNonDefaultTools(
+  requestedToolNames: string[],
+): ToolDefinition<unknown, unknown>[] {
+  const tools: ToolDefinition<unknown, unknown>[] = [];
+  for (const name of requestedToolNames) {
+    if (name === "terminal" || name === "file_editor" || name === "task_tracker") {
+      continue;
+    }
+    if (name === "browser") {
+      tools.push(new BrowserTool());
+      continue;
+    }
+    throw new Error(`unsupported_tool:${name}`);
+  }
+  return tools;
 }
 
 function shouldEnableSendMessage(
@@ -111,55 +155,6 @@ function mergeSmolpawsConfig(
   };
 }
 
-export function buildSettingsFromEnv(env: RunnerEnv): OpenHandsSettings {
-  const model = env.LLM_MODEL ?? process.env[DEFAULT_MODEL_ENV];
-  if (!model) {
-    throw new Error(
-      `LLM model is required. Set ${DEFAULT_MODEL_ENV} or LLM_MODEL.`,
-    );
-  }
-
-  return {
-    llm: {
-      provider: env.LLM_PROVIDER as OpenHandsSettings["llm"]["provider"],
-      model,
-      baseUrl: env.LLM_BASE_URL,
-    },
-    agent: {
-      enableSecurityAnalyzer: false,
-      debug: false,
-      summarizeToolCalls: false,
-    },
-    conversation: {
-      maxIterations: 50,
-      stuckDetection: true,
-    },
-    confirmation: {
-      policy: "never",
-      riskyThreshold: "HIGH",
-      confirmUnknown: true,
-    },
-    secrets: {
-      llmApiKey: env.LLM_API_KEY ?? process.env[DEFAULT_API_KEY_ENV],
-    },
-  };
-}
-
-export function buildLlmConfigFromEnv(env: RunnerEnv): DaytonaLlmConfig {
-  const model = env.LLM_MODEL ?? process.env[DEFAULT_MODEL_ENV];
-  if (!model) {
-    throw new Error(
-      `LLM model is required. Set ${DEFAULT_MODEL_ENV} or LLM_MODEL.`,
-    );
-  }
-  return {
-    model,
-    provider: env.LLM_PROVIDER,
-    baseUrl: env.LLM_BASE_URL,
-    apiKey: env.LLM_API_KEY ?? process.env[DEFAULT_API_KEY_ENV],
-  };
-}
-
 function registerSecrets(
   secrets: Record<string, unknown> | undefined,
   registry: SecretRegistry,
@@ -183,9 +178,12 @@ function registerSecrets(
 function buildSettingsFromRequest(
   request: StartConversationRequest,
   registry: SecretRegistry,
+  env: RunnerEnv,
 ): OpenHandsSettings {
   const llm = request.agent.llm;
-  const model = typeof llm.model === "string" ? llm.model.trim() : "";
+  const model = typeof llm.model === "string"
+    ? llm.model.trim()
+    : (env.LLM_MODEL ?? process.env[DEFAULT_MODEL_ENV] ?? "").trim();
   if (!model) {
     throw new Error("LLM model is required");
   }
@@ -194,9 +192,14 @@ function buildSettingsFromRequest(
       provider:
         typeof llm.provider === "string"
           ? (llm.provider as OpenHandsSettings["llm"]["provider"])
-          : undefined,
+          : (typeof env.LLM_PROVIDER === "string"
+            ? (env.LLM_PROVIDER as OpenHandsSettings["llm"]["provider"])
+            : undefined),
       model,
-      baseUrl: typeof llm.base_url === "string" ? llm.base_url : undefined,
+      baseUrl:
+        typeof llm.base_url === "string" && llm.base_url.trim()
+          ? llm.base_url
+          : env.LLM_BASE_URL,
       apiVersion: typeof llm.api_version === "string" ? llm.api_version : undefined,
       timeout: typeof llm.timeout === "number" ? llm.timeout : undefined,
       temperature: typeof llm.temperature === "number" ? llm.temperature : undefined,
@@ -250,7 +253,9 @@ function buildSettingsFromRequest(
     },
     secrets: {
       llmApiKey:
-        typeof llm.api_key === "string" ? llm.api_key : undefined,
+        typeof llm.api_key === "string" && llm.api_key.trim()
+          ? llm.api_key
+          : (env.LLM_API_KEY ?? process.env[DEFAULT_API_KEY_ENV]),
       awsAccessKeyId: (llm as { aws_access_key_id?: string }).aws_access_key_id,
       awsSecretAccessKey: (llm as { aws_secret_access_key?: string })
         .aws_secret_access_key,
@@ -277,20 +282,25 @@ export async function runStandaloneQuestion(
   prompt: string,
   workspaceRoot?: string,
   persistenceDir?: string,
-  options?: { enableOutboundMessages?: boolean },
-): Promise<SmolpawsRunnerResponse> {
+  options?: {
+    enableOutboundMessages?: boolean;
+    toolProfile?: ConversationToolProfile;
+  },
+): Promise<{ reply: string; outbound_messages?: RunnerOutboundMessage[] }> {
   const registry = new SecretRegistry();
   const outboundMessages: RunnerOutboundMessage[] = [];
+  const requestedTools = options?.toolProfile?.tools ?? [];
+  const extraTools = options?.enableOutboundMessages
+    ? [createCurrentThreadMessageTool((message) => {
+        outboundMessages.push(message);
+      })]
+    : [];
   const conversation = new LocalConversation({
     settings,
     workspace: Workspace({ kind: "local", root: workspaceRoot }),
     secrets: registry,
-    tools: options?.enableOutboundMessages
-      ? [createCurrentThreadMessageTool((message) => {
-          outboundMessages.push(message);
-        })]
-      : [],
-    includeDefaultTools: false,
+    tools: [...requestedTools, ...extraTools],
+    includeDefaultTools: options?.toolProfile?.includeDefaultTools ?? false,
     persistenceDir,
   });
   const responses: string[] = [];
@@ -319,6 +329,60 @@ export function createConversationRuntime({
 
   function touch(): void {
     lastEventAt = Date.now();
+  }
+
+  function resolveConversationToolProfile(
+    request: StartConversationRequest,
+    smolpawsConfig: SmolpawsConversationConfigValue | undefined,
+    activeConversationIdRef: () => string | undefined,
+  ): ConversationToolProfile {
+    const requestedToolNames = normalizeRequestedToolNames(request.agent.tools);
+    return {
+      includeDefaultTools:
+        requestedToolNames === undefined
+          ? true
+          : DEFAULT_REMOTE_TOOL_NAMES.filter((name) =>
+              requestedToolNames.includes(name),
+            ),
+      tools: [
+        ...buildRequestedNonDefaultTools(requestedToolNames ?? []),
+        ...(shouldEnableSendMessage(smolpawsConfig)
+          ? [createCurrentThreadMessageTool(async (message) => {
+              const activeConversationId = activeConversationIdRef();
+              if (!activeConversationId) {
+                throw new Error("conversation_id_unavailable");
+              }
+              await appendOutboundMessage(
+                activeConversationId,
+                persistenceRoot,
+                message,
+              );
+            })]
+          : []),
+        ...(shouldEnableTaskTools(smolpawsConfig)
+          ? createTaskTools({
+              getConfig: () => {
+                const activeConversationId = activeConversationIdRef();
+                if (activeConversationId) {
+                  return conversations.get(activeConversationId)?.smolpaws ?? smolpawsConfig;
+                }
+                return smolpawsConfig;
+              },
+              onCommand: async (command: SmolpawsTaskCommand) => {
+                const activeConversationId = activeConversationIdRef();
+                if (!activeConversationId) {
+                  throw new Error("conversation_id_unavailable");
+                }
+                await appendTaskCommand(
+                  activeConversationId,
+                  persistenceRoot,
+                  command,
+                );
+              },
+            })
+          : []),
+      ],
+    };
   }
 
   function addEventSubscriber(
@@ -402,43 +466,21 @@ export function createConversationRuntime({
     const smolpawsConfig = request.smolpaws ?? persistedMeta.smolpaws;
 
     const registry = new SecretRegistry();
-    const settings = buildSettingsFromRequest(request, registry);
+    const settings = buildSettingsFromRequest(request, registry, env);
     const workspaceRoot = resolveWorkspaceRoot(request.workspace?.working_dir, env);
     const workspace = Workspace({ kind: "local", root: workspaceRoot });
     let activeConversationId = requestedId;
-    let currentSmolpawsConfig = smolpawsConfig;
-    const tools = [
-      ...(shouldEnableSendMessage(currentSmolpawsConfig)
-        ? [createCurrentThreadMessageTool(async (message) => {
-            if (!activeConversationId) {
-              throw new Error("conversation_id_unavailable");
-            }
-            await appendOutboundMessage(activeConversationId, persistenceRoot, message);
-          })]
-        : []),
-      ...(shouldEnableTaskTools(currentSmolpawsConfig)
-        ? createTaskTools({
-            getConfig: () => {
-              if (activeConversationId) {
-                return conversations.get(activeConversationId)?.smolpaws ?? currentSmolpawsConfig;
-              }
-              return currentSmolpawsConfig;
-            },
-            onCommand: async (command: SmolpawsTaskCommand) => {
-              if (!activeConversationId) {
-                throw new Error("conversation_id_unavailable");
-              }
-              await appendTaskCommand(activeConversationId, persistenceRoot, command);
-            },
-          })
-        : []),
-    ];
+    const toolProfile = resolveConversationToolProfile(
+      request,
+      smolpawsConfig,
+      () => activeConversationId,
+    );
     const conversation = new LocalConversation({
       settings,
       workspace,
       secrets: registry,
-      tools,
-      includeDefaultTools: true,
+      tools: toolProfile.tools,
+      includeDefaultTools: toolProfile.includeDefaultTools,
       persistenceDir,
     });
 
@@ -447,7 +489,6 @@ export function createConversationRuntime({
       throw new Error("conversation_id_unavailable");
     }
     activeConversationId = id;
-    currentSmolpawsConfig = smolpawsConfig;
 
     if (requestedId) {
       conversation.restoreConversation(id);
@@ -482,6 +523,7 @@ export function createConversationRuntime({
       secrets: registry,
       workspaceRoot,
       smolpaws: smolpawsConfig,
+      toolProfile,
     };
 
     if (record.events.length) {
@@ -636,8 +678,6 @@ export function createConversationRuntime({
     getLastEventAt: () => lastEventAt,
     touch,
     registerSecrets,
-    buildSettingsFromEnv: () => buildSettingsFromEnv(env),
-    buildLlmConfigFromEnv: () => buildLlmConfigFromEnv(env),
     runStandaloneQuestion,
     createConversationRecord,
     getConversationOrThrow,

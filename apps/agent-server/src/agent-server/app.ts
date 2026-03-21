@@ -46,6 +46,12 @@ function registerErrorHandler(
       reply.status(400).send({ error: "Conversation id is invalid" });
       return;
     }
+    if (error instanceof Error && error.message.startsWith("unsupported_tool:")) {
+      reply.status(400).send({
+        error: `Unsupported tool requested: ${error.message.slice("unsupported_tool:".length)}`,
+      });
+      return;
+    }
     if (error instanceof Error && error.message === "queued_run_not_supported") {
       request.log.error(
         { err: error },

@@ -8,8 +8,8 @@
 
 1. **GitHub App** receives `issues` (opened), `issue_comment`, and `pull_request_review_comment` webhooks.
 2. **Cloudflare Worker** in `apps/github` validates signature + allowlists, then enqueues a job on **Cloudflare Queues**.
-3. **Queue consumer** (same Worker) normalizes the GitHub event into a prompt-based `/run` request, while attaching optional GitHub context for Daytona.
-4. **Fastify runner** in `apps/agent-server` uses `@smolpaws/agent-sdk` to run an agent and returns a reply.
+3. **Queue consumer** (same Worker) creates or resumes a real conversation via `POST /api/conversations`, using a stable GitHub-thread-scoped `conversation_id`.
+4. **Fastify agent-server** in `apps/agent-server` runs the conversation with the normal conversation lifecycle, then the Worker claims outbound messages and posts them back to GitHub.
 
 ```
 GitHub issue or comment mention → CF Worker (webhook/auth) → CF Queue → Fastify Runner → GitHub comment
@@ -56,7 +56,7 @@ Set in Cloudflare dashboard or via `wrangler secret put`:
 - `ALLOWED_OWNERS` (ex: `enyst`)
 - `ALLOWED_REPOS` (optional, ex: `enyst/smolpaws`)
 - `ALLOWED_INSTALLATIONS` (optional)
-- `SMOLPAWS_RUNNER_URL` (Fastify runner URL)
+- `SMOLPAWS_RUNNER_URL` (Fastify agent-server base URL, e.g. `https://runner.example.com`)
 - `SMOLPAWS_RUNNER_TOKEN` (Bearer token expected by runner)
 
 ### 4) Deploy Worker
@@ -102,11 +102,6 @@ LLM_MODEL=<model> LLM_API_KEY=<key> npm run runner:dev
 - `SMOLPAWS_WORKSPACE_ROOT` (optional workspace path)
 - `SMOLPAWS_PERSISTENCE_DIR` (optional persistence root; defaults to `~/.openhands/conversations`)
 - `OPENHANDS_CONVERSATIONS_DIR` (optional alias for persistence root)
-- `DAYTONA_API_KEY` (optional; enables Daytona runner)
-- `DAYTONA_API_URL` (optional)
-- `DAYTONA_TARGET` (optional)
-- `SMOLPAWS_DAYTONA_AUTO_STOP_MINUTES` (optional; defaults to 30)
-
 
 ## Deployment alternatives
 
@@ -114,27 +109,11 @@ See [deployment-alternatives.md](deployment-alternatives.md) for the two support
 
 ## Daytona integration
 
-When `DAYTONA_API_KEY` is set, `apps/agent-server` can dispatch `/run` jobs into Daytona sandboxes.
+Daytona is currently deferred as a workspace-level follow-up, not an active request path.
 
-**Behavior**
-- PR events → per-PR sandbox keyed by `<head repo>#<pr number>` and reused.
-- Non-PR events → per-job sandbox (created + deleted after run).
-
-**Flow**
-1. Runner receives `/run`.
-2. Runner creates/reuses a sandbox via `@daytonaio/sdk`.
-3. Sandbox bootstraps:
-   - `git clone` target repo using the GitHub installation token
-   - checkout PR head ref if available
-   - install [`@smolpaws/agent-sdk`](https://www.npmjs.com/package/@smolpaws/agent-sdk) from npm
-4. Execute the agent inside the sandbox; reply is returned to the runner.
-5. Per-job sandboxes are deleted; per-PR sandboxes are left for Daytona auto-stop.
-
-**Notes**
-- Use `SMOLPAWS_DAYTONA_AUTO_STOP_MINUTES` to control auto-stop. (default 30)
-- The runner now exposes a websocket conversation stream at `/sockets/events/:conversationId`, including Python-compatible `session_api_key` query auth for browser-style clients and incoming user-message handling for the TypeScript `RemoteConversation` websocket path.
-- Daytona process sessions may still be useful later if we want richer log streaming.
-- Persistence lives on the runner host (`SMOLPAWS_PERSISTENCE_DIR`) while sandbox runs are ephemeral.
+- The live GitHub ingress now targets the normal conversation API directly.
+- The old `/run`-based Daytona shortcut has been removed.
+- The intended future direction remains: Daytona should come back as a real workspace backend parallel to local execution, following the Python workspace model.
 
 **Download events**
 - `GET /api/conversations/:id/events/download`
@@ -152,6 +131,6 @@ When `DAYTONA_API_KEY` is set, `apps/agent-server` can dispatch `/run` jobs into
 
 ## Remaining work
 
-- Implement repo checkout for non-Daytona runs (clone + working dir setup) - can we in Workers?
+- Implement repo checkout / workspace resolution for non-Daytona runs so GitHub mentions are not limited to one ambient runner root.
 - Decide whether any deeper persisted-conversation resume/rehydration behavior is worth supporting beyond the current explicit conflict responses for non-live control routes.
-- Validate whether any remaining git parity beyond the query + legacy path-based `/api/git/*` forms is actually needed by the shared remote workspace surface.
+- Reintroduce Daytona later as a real workspace backend instead of a request-path special case.

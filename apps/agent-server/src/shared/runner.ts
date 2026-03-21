@@ -1,11 +1,4 @@
 import { Type, type Static } from '@sinclair/typebox';
-import type { GithubEventPayload, SmolpawsEvent } from './github.js';
-
-export type SmolpawsRunnerGithubContext = {
-  event: SmolpawsEvent;
-  payload: GithubEventPayload;
-  token?: string;
-};
 
 export type SmolpawsConversationConfig = {
   ingress?: string;
@@ -41,25 +34,7 @@ export type SmolpawsTaskCommand =
       kind: 'pause_task' | 'resume_task' | 'cancel_task';
       task_id: string;
       source_scope_id?: string;
-    };
-
-export type SmolpawsRunnerRequest = {
-  prompt: string;
-  fallback_reply?: string;
-  delivery_id?: string;
-  ingress?: string;
-  github?: SmolpawsRunnerGithubContext;
 };
-
-export const SmolpawsRunnerGithubContextSchema = Type.Object({
-  event: Type.Union([
-    Type.Literal('issue_comment'),
-    Type.Literal('pull_request_review_comment'),
-    Type.Literal('issues'),
-  ]),
-  payload: Type.Any(),
-  token: Type.Optional(Type.String()),
-});
 
 export const SmolpawsOutboundMessageSchema = Type.Object({
   kind: Type.Literal('current_thread_message'),
@@ -115,14 +90,6 @@ export const SmolpawsConversationConfigSchema = Type.Object({
   visible_tasks: Type.Optional(Type.Array(SmolpawsVisibleTaskSchema)),
 });
 
-export const SmolpawsRunnerRequestSchema = Type.Object({
-  prompt: Type.String(),
-  fallback_reply: Type.Optional(Type.String()),
-  delivery_id: Type.Optional(Type.String()),
-  ingress: Type.Optional(Type.String()),
-  github: Type.Optional(SmolpawsRunnerGithubContextSchema),
-});
-
 export const SmolpawsOutboundMessageListSchema = Type.Array(
   SmolpawsOutboundMessageSchema,
 );
@@ -131,15 +98,8 @@ export const SmolpawsTaskCommandListSchema = Type.Array(
   SmolpawsTaskCommandSchema,
 );
 
-export const SmolpawsRunnerResponseSchema = Type.Object({
-  reply: Type.String(),
-  outbound_messages: Type.Optional(Type.Array(SmolpawsOutboundMessageSchema)),
-});
-
 export type SmolpawsConversationConfigValue = Static<
   typeof SmolpawsConversationConfigSchema
 >;
 export type SmolpawsOutboundMessage = Static<typeof SmolpawsOutboundMessageSchema>;
 export type SmolpawsTaskCommandValue = Static<typeof SmolpawsTaskCommandSchema>;
-export type SmolpawsRunnerResponse = Static<typeof SmolpawsRunnerResponseSchema>;
-export type SmolpawsRunnerRequestBody = Static<typeof SmolpawsRunnerRequestSchema>;

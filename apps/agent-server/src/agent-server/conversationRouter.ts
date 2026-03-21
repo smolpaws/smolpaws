@@ -19,7 +19,6 @@ import {
 import { readPersistedEventsOrThrow } from "../runner/eventService.js";
 import { isAuthorized } from "../runner/workspacePolicy.js";
 import { claimOutboundMessages, claimTaskCommands } from "../runner/outbox.js";
-import { maybeRunInDaytona } from "../daytona.js";
 import type { AgentServerDeps } from "./dependencies.js";
 import {
   AskAgentRequestSchema,
@@ -31,8 +30,6 @@ import {
   ErrorSchema,
   GenerateTitleRequestSchema,
   GenerateTitleResponseSchema,
-  RunRequestSchema,
-  RunResponseSchema,
   SetConfirmationPolicyRequestSchema,
   SetSecretsRequestSchema,
   SetSecurityAnalyzerRequestSchema,
@@ -48,81 +45,12 @@ import {
   type ConversationPage,
   type ErrorResponse,
   type GenerateTitleResponse,
-  type RunRequest,
-  type RunResponse,
 } from "./models.js";
 
 export function registerConversationRoutes(
   app: FastifyInstance,
   deps: AgentServerDeps,
 ): void {
-  app.post<{
-    Body: Static<typeof RunRequestSchema>;
-    Reply: RunResponse;
-  }>(
-    "/run",
-    {
-      schema: {
-        body: RunRequestSchema,
-        response: {
-          200: RunResponseSchema,
-          401: RunResponseSchema,
-        },
-      },
-    },
-    async (request, reply): Promise<RunResponse> => {
-      const auth = isAuthorized(request, deps.env);
-      if (!auth.allowed) {
-        reply.status(401);
-        return { reply: auth.reason ?? "Unauthorized" };
-      }
-
-      const message = request.body;
-      const prompt = message.prompt.trim();
-      const fallbackReply =
-        message.fallback_reply ??
-        "🐾 smolpaws heard you and is waking up. Runner is not configured yet.";
-      if (!prompt) {
-        return { reply: fallbackReply };
-      }
-
-      try {
-        try {
-          const daytonaResult = await maybeRunInDaytona({
-            env: deps.env,
-            message,
-            prompt,
-            llm: deps.conversationRuntime.buildLlmConfigFromEnv(),
-            persistenceDir: deps.persistenceDir,
-          });
-          if (daytonaResult) {
-            return {
-              reply: daytonaResult.reply || fallbackReply,
-              outbound_messages: daytonaResult.outbound_messages,
-            };
-          }
-        } catch (error) {
-          console.error("Daytona runner error", error);
-        }
-
-        const response = await deps.conversationRuntime.runStandaloneQuestion(
-          deps.conversationRuntime.buildSettingsFromEnv(),
-          prompt,
-          deps.env.SMOLPAWS_WORKSPACE_ROOT,
-          deps.persistenceRoot,
-          { enableOutboundMessages: true },
-        );
-        return {
-          reply: response.reply || fallbackReply,
-          outbound_messages: response.outbound_messages,
-        };
-      } catch (error) {
-        console.error("Runner error", error);
-        return { reply: fallbackReply };
-      }
-    },
-  );
-
   app.get<{
     Querystring: {
       ids?: string | string[];
@@ -504,7 +432,7 @@ export function registerConversationRoutes(
           }
           reply.status(400);
           return {
-            error: `This runner can only /run paused conversations; current status is '${executionStatus}'.`,
+            error: `This runner can only run paused conversations; current status is '${executionStatus}'.`,
           };
       }
     },
@@ -610,6 +538,7 @@ export function registerConversationRoutes(
         request.body.question,
         record.workspaceRoot,
         deps.persistenceRoot,
+        { toolProfile: record.toolProfile },
       );
       return { response: response.reply };
     },

@@ -8,6 +8,7 @@ import {
   type LocalConversation,
   type OpenHandsSettings,
   type SecretRegistry,
+  type ToolDefinition,
 } from '@smolpaws/agent-sdk';
 import {
   SmolpawsConversationConfigSchema,
@@ -53,6 +54,10 @@ export type ConversationRecord = {
   secrets: SecretRegistry;
   workspaceRoot: string;
   smolpaws?: SmolpawsConversationConfigValue;
+  toolProfile?: {
+    includeDefaultTools: boolean | string[];
+    tools: ToolDefinition<unknown, unknown>[];
+  };
 };
 
 function parsePaginationLimit(value: unknown): number {

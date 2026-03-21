@@ -66,11 +66,11 @@ Token guidance:
 - A fine-grained PAT is typically limited to a single owner (user/org) and selected repositories, so it usually cannot cover "any repo" unless you intentionally restrict the scope.
 
 ### Cron trigger
-The Worker is configured with a 1-minute cron schedule in `apps/github/wrangler.toml`:
+The Worker is configured with an hourly cron schedule in `apps/github/wrangler.toml`:
 
 ```toml
 [triggers]
-crons = ["*/1 * * * *"]
+crons = ["0 * * * *"]
 ```
 
 On each tick the Worker:
@@ -108,21 +108,30 @@ Notes:
 ### Worker -> Runner
 If configured, the Worker will call the Runner URL:
 
-- `SMOLPAWS_RUNNER_URL` (e.g. `https://runner.example.com/run`)
+- `SMOLPAWS_RUNNER_URL` (agent-server base URL, e.g. `https://runner.example.com`)
 - Optional: `SMOLPAWS_RUNNER_TOKEN` (Bearer token)
 
-The Worker sends the runner a request shaped like:
+The Worker creates or resumes a real conversation on the agent-server:
 
 ```json
 {
-  "prompt": "...",
-  "fallback_reply": "...",
-  "delivery_id": "...",
-  "ingress": "github_webhook" | "github_notifications",
-  "github": {
-    "event": "issue_comment" | "pull_request_review_comment",
-    "payload": {},
-    "token": "..."
+  "agent": {
+    "llm": {},
+    "tools": [
+      { "name": "terminal" },
+      { "name": "file_editor" },
+      { "name": "task_tracker" }
+    ]
+  },
+  "conversation_id": "github-owner-repo-123",
+  "initial_message": {
+    "role": "user",
+    "content": [{ "type": "text", "text": "..." }],
+    "run": true
+  },
+  "smolpaws": {
+    "ingress": "github_webhook",
+    "enable_send_message": true
   }
 }
 ```
@@ -132,9 +141,6 @@ At minimum:
 
 - `LLM_MODEL`
 - `LLM_API_KEY`
-
-Optional:
-- `DAYTONA_API_KEY` (enables Daytona execution)
 
 ## 5) Operational notes
 

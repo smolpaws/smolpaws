@@ -2,16 +2,12 @@ import { Type, type Static } from "@sinclair/typebox";
 import {
   SmolpawsConversationConfigSchema,
   SmolpawsOutboundMessageListSchema,
-  SmolpawsRunnerRequestSchema,
-  SmolpawsRunnerResponseSchema,
   SmolpawsTaskCommandListSchema,
 } from "../shared/runner.js";
 
 export {
   SmolpawsConversationConfigSchema,
   SmolpawsOutboundMessageListSchema,
-  SmolpawsRunnerRequestSchema,
-  SmolpawsRunnerResponseSchema,
   SmolpawsTaskCommandListSchema,
 };
 
@@ -256,9 +252,6 @@ export const SetSecurityAnalyzerRequestSchema = Type.Object({
   security_analyzer: Type.Optional(RemoteSecurityAnalyzerSchema),
 });
 
-export const RunRequestSchema = SmolpawsRunnerRequestSchema;
-export const RunResponseSchema = SmolpawsRunnerResponseSchema;
-
 export const ServerInfoSchema = Type.Object({
   uptime: Type.Number(),
   idle_time: Type.Number(),
@@ -274,8 +267,6 @@ export type ConversationPage = Static<typeof ConversationPageSchema>;
 export type ConversationBatch = Static<typeof ConversationBatchSchema>;
 export type EventPage = Static<typeof EventPageSchema>;
 export type EventBatch = Static<typeof EventBatchSchema>;
-export type RunRequest = Static<typeof RunRequestSchema>;
-export type RunResponse = Static<typeof RunResponseSchema>;
 export type ConversationList = Static<typeof ConversationListSchema>;
 export type StartBashCommandRequest = Static<typeof StartBashCommandRequestSchema>;
 export type StartBashCommandResponse = Static<typeof StartBashCommandResponseSchema>;

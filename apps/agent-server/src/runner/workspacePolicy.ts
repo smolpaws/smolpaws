@@ -1,9 +1,8 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { DaytonaEnv } from '../daytona.js';
 
-export type RunnerEnv = DaytonaEnv & {
+export type RunnerEnv = {
   SMOLPAWS_RUNNER_TOKEN?: string;
   RUNNER_PORT?: string;
   PORT?: string;
@@ -37,11 +36,6 @@ export function getEnv(): RunnerEnv {
     LLM_API_KEY: process.env.LLM_API_KEY,
     SMOLPAWS_WORKSPACE_ROOT: process.env.SMOLPAWS_WORKSPACE_ROOT,
     SMOLPAWS_PERSISTENCE_DIR: process.env.SMOLPAWS_PERSISTENCE_DIR,
-    DAYTONA_API_KEY: process.env.DAYTONA_API_KEY,
-    DAYTONA_API_URL: process.env.DAYTONA_API_URL,
-    DAYTONA_TARGET: process.env.DAYTONA_TARGET,
-    SMOLPAWS_DAYTONA_AUTO_STOP_MINUTES:
-      process.env.SMOLPAWS_DAYTONA_AUTO_STOP_MINUTES,
   };
 }
 
