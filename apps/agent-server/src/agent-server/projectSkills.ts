@@ -86,7 +86,7 @@ function parseGithubRepoName(
   if (!fullName) {
     return undefined;
   }
-  const repoName = fullName.split('/').pop()?.trim();
+  const repoName = fullName.substring(fullName.lastIndexOf('/') + 1).trim();
   return repoName || undefined;
 }
 
