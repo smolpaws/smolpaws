@@ -101,6 +101,7 @@ LLM_MODEL=<model> OPENAI_API_KEY=<key> npm run runner:local
 ### Agent-server runtime tests
 
 ```bash
+# From the repository root
 npm run agent-server:test
 ```
 

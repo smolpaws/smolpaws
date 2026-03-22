@@ -35,7 +35,7 @@ The payload below was originally captured by instantiating the same `LocalConver
 
 That shape is now continuously verified by the runtime tests:
 
-- `npm run agent-server:test`
+- `npm run agent-server:test` (from the repository root)
 - `apps/agent-server/src/agent-server/conversationRuntime.test.ts`
 
 Because the current path now loads user and project skills from the local machine, the exact contents of `<REPO_CONTEXT>` and `<SKILLS>` depend on the checkout and home-directory skill inventory present on the host. The request skeleton below is therefore representative of the stable structure, while the earlier sections describe the current live sources that are appended to it.

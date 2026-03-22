@@ -1,6 +1,6 @@
 # Agent-Server Runtime Tests
 
-The canonical agent-server test entrypoint is:
+The canonical agent-server test entrypoint, run from the repository root, is:
 
 ```bash
 npm run agent-server:test
