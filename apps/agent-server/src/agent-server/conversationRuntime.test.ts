@@ -4,6 +4,9 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import type { FastifyInstance } from 'fastify';
+import type { AgentServerDeps } from './dependencies.js';
+import type { RunnerEnv } from '../runner/workspacePolicy.js';
 
 type OpenAiRequest = {
   model: string;
@@ -26,8 +29,11 @@ type TestFixture = {
 };
 
 type AgentServerModules = {
-  createAgentServerApp: (...args: any[]) => Promise<any>;
-  createAgentServerDeps: (...args: any[]) => any;
+  createAgentServerApp: (deps?: AgentServerDeps) => Promise<{
+    app: FastifyInstance;
+    deps: AgentServerDeps;
+  }>;
+  createAgentServerDeps: (env?: RunnerEnv) => AgentServerDeps;
 };
 
 const originalHome = process.env.HOME;
@@ -107,7 +113,7 @@ async function loadAgentServerModules(): Promise<AgentServerModules> {
     loadedModulesPromise = Promise.all([
       import('./app.js'),
       import('./dependencies.js'),
-    ]).then(([appModule, depsModule]) => ({
+    ]).then(([appModule, depsModule]): AgentServerModules => ({
       createAgentServerApp: appModule.createAgentServerApp,
       createAgentServerDeps: depsModule.createAgentServerDeps,
     }));
@@ -298,12 +304,14 @@ test('POST /api/conversations sends repo skills, user skills, tools, and environ
     assert.match(systemPrompt, /<name>demo-skill<\/name>/);
     assert.match(systemPrompt, /<name>user-guidance<\/name>/);
 
-    assert(toolNames.includes('terminal'));
-    assert(toolNames.includes('file_editor'));
-    assert(toolNames.includes('task_tracker'));
-    assert(toolNames.includes('send_message'));
-    assert(toolNames.includes('finish'));
-    assert(toolNames.includes('think'));
+    assert.deepEqual(toolNames, [
+      'file_editor',
+      'finish',
+      'send_message',
+      'task_tracker',
+      'terminal',
+      'think',
+    ]);
   } finally {
     await app.close();
     await fakeLlm.close();
@@ -330,13 +338,7 @@ test('requested remote tools shape the exposed tool set without reintroducing un
     assert.equal(fakeLlm.requests.length, 1);
 
     const toolNames = getToolNames(fakeLlm.requests[0]!);
-    assert(toolNames.includes('terminal'));
-    assert(toolNames.includes('browser'));
-    assert(!toolNames.includes('file_editor'));
-    assert(!toolNames.includes('task_tracker'));
-    assert(!toolNames.includes('send_message'));
-    assert(toolNames.includes('finish'));
-    assert(toolNames.includes('think'));
+    assert.deepEqual(toolNames, ['browser', 'finish', 'terminal', 'think']);
   } finally {
     await app.close();
     await fakeLlm.close();
@@ -374,24 +376,41 @@ test('queued idle runs stay on the canonical conversation path and only hit the 
     });
     assert.equal(fakeLlm.requests.length, 1);
 
-    const eventsResponse = await app.inject({
-      method: 'GET',
-      url: `/api/conversations/${createdConversation.id}/events/search?kind=MessageEvent&source=agent&sort_order=timestamp_desc&limit=20`,
-    });
+    let assistantEvent:
+      | {
+          kind: string;
+          llm_message?: {
+            role: string;
+            content?: Array<{ type?: string; text?: string }>;
+          };
+        }
+      | undefined;
 
-    assert.equal(eventsResponse.statusCode, 200);
-    const events = parseJson<{
-      items: Array<{
-        kind: string;
-        llm_message?: {
-          role: string;
-          content?: Array<{ type?: string; text?: string }>;
-        };
-      }>;
-    }>(eventsResponse.body);
-    const assistantEvent = events.items.find(
-      (event) => event.kind === 'MessageEvent' && event.llm_message?.role === 'assistant',
-    );
+    const deadline = Date.now() + 2000;
+    while (!assistantEvent && Date.now() < deadline) {
+      const eventsResponse = await app.inject({
+        method: 'GET',
+        url: `/api/conversations/${createdConversation.id}/events/search?kind=MessageEvent&source=agent&sort_order=timestamp_desc&limit=20`,
+      });
+
+      assert.equal(eventsResponse.statusCode, 200);
+      const events = parseJson<{
+        items: Array<{
+          kind: string;
+          llm_message?: {
+            role: string;
+            content?: Array<{ type?: string; text?: string }>;
+          };
+        }>;
+      }>(eventsResponse.body);
+      assistantEvent = events.items.find(
+        (event) => event.kind === 'MessageEvent' && event.llm_message?.role === 'assistant',
+      );
+      if (!assistantEvent) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+
     assert(assistantEvent);
     assert.equal(
       assistantEvent.llm_message?.content?.[0]?.text,
