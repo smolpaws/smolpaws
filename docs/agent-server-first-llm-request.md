@@ -8,6 +8,8 @@ This records the first `ChatCompletionRequest` shape produced by the canonical l
 - capture date: 2026-03-21
 - example ingress prompt after GitHub mention stripping: `say meow once more`
 
+This document is now backed by the executable runtime harness in `apps/agent-server/src/agent-server/conversationRuntime.test.ts`. Treat the test as the source of truth for the current first-turn behavior; this file is the human-readable companion that explains the same shape.
+
 Important current behavior:
 
 - the canonical path now uses the full conversation lifecycle instead of the removed top-level `/run` shortcut
@@ -29,7 +31,12 @@ Important current behavior:
 
 ## Capture Method
 
-The payload below was captured by instantiating the same `LocalConversation` shape used by `createConversationRecord(...)`, injecting a fake LLM client, and recording the first `streamChat(request)` call.
+The payload below was originally captured by instantiating the same `LocalConversation` shape used by `createConversationRecord(...)`, injecting a fake LLM client, and recording the first `streamChat(request)` call.
+
+That shape is now continuously verified by the runtime tests:
+
+- `npm run agent-server:test`
+- `apps/agent-server/src/agent-server/conversationRuntime.test.ts`
 
 Because the current path now loads user and project skills from the local machine, the exact contents of `<REPO_CONTEXT>` and `<SKILLS>` depend on the checkout and home-directory skill inventory present on the host. The request skeleton below is therefore representative of the stable structure, while the earlier sections describe the current live sources that are appended to it.
 

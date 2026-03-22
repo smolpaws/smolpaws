@@ -98,6 +98,14 @@ Or use the checked-in launcher with env validation:
 LLM_MODEL=<model> OPENAI_API_KEY=<key> npm run runner:local
 ```
 
+### Agent-server runtime tests
+
+```bash
+npm run agent-server:test
+```
+
+This runs the real Fastify app through `app.inject(...)` with a fake OpenAI-compatible stream and isolated temp repo/user-skill fixtures. See [../agent-server-testing.md](../agent-server-testing.md) for the harness shape and coverage boundaries.
+
 ### Worker -> agent-server contract test
 
 ```bash
