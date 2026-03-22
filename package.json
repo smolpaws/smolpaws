@@ -12,6 +12,7 @@
     "github:dev": "npm --prefix apps/github run dev",
     "github:deploy": "npm --prefix apps/github run deploy",
     "github:test:agent-server-contract": "npm --prefix apps/github run test:agent-server-contract",
+    "agent-server:test": "npm --prefix apps/agent-server run test",
     "runner:dev": "npm --prefix apps/agent-server run dev",
     "runner:start": "npm --prefix apps/agent-server run start",
     "runner:local": "./scripts/run-local-agent-server.sh",

@@ -36,6 +36,9 @@ jobs:
       - name: Typecheck GitHub ingress
         run: npm run typecheck --prefix apps/github
 
+      - name: Run agent-server runtime tests
+        run: npm run agent-server:test
+
       - name: Run GitHub -> agent-server contract test
         run: npm run github:test:agent-server-contract
 
