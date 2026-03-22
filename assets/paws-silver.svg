@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="20" height="20">
+  <!-- Cat paw print - silver with black contour -->
+  <!-- Main pad -->
+  <ellipse cx="32" cy="40" rx="12" ry="10" fill="#C0C0C0" stroke="#000" stroke-width="1.5"/>
+  <!-- Top left toe -->
+  <ellipse cx="18" cy="24" rx="6" ry="7" fill="#C0C0C0" stroke="#000" stroke-width="1.5"/>
+  <!-- Top center-left toe -->
+  <ellipse cx="28" cy="18" rx="5.5" ry="7" fill="#C0C0C0" stroke="#000" stroke-width="1.5"/>
+  <!-- Top center-right toe -->
+  <ellipse cx="38" cy="18" rx="5.5" ry="7" fill="#C0C0C0" stroke="#000" stroke-width="1.5"/>
+  <!-- Top right toe -->
+  <ellipse cx="48" cy="24" rx="6" ry="7" fill="#C0C0C0" stroke="#000" stroke-width="1.5"/>
+</svg>

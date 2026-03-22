@@ -6,7 +6,7 @@
 
 Think of it as a cat that *does things* instead of just knocking stuff off your computer. OK, also knocking stuff off your computer.
 
-Because when OpenHands says 🙌, we say 🐾.
+Because when OpenHands says 🙌, we say <img src="assets/paws-silver.svg" alt="paws" height="18" style="vertical-align: middle;" />.
 
 ## Vibes
 
