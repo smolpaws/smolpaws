@@ -184,55 +184,20 @@ test('dispatchToAgentServer returns a fallback reply without calling the runner 
   assert.equal(called, false);
 });
 
-test('dispatchToAgentServer normalizes a legacy /run runner URL down to the agent-server base URL', async () => {
-  const calls: string[] = [];
-  const fetchStub: typeof fetch = async (input) => {
-    const url = typeof input === 'string' ? input : input.toString();
-    calls.push(url);
-    if (url.endsWith('/api/conversations')) {
-      return new Response(JSON.stringify({ id: 'conv-1' }), {
-        status: 201,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.endsWith('/outbound_messages/claim')) {
-      return new Response(JSON.stringify([]), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.includes('/events/search?')) {
-      return new Response(
-        JSON.stringify({
-          items: [
-            {
-              kind: 'MessageEvent',
-              llm_message: {
-                role: 'assistant',
-                content: [{ type: 'text', text: 'meow from normalized base url' }],
-              },
-            },
-          ],
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      );
-    }
-    throw new Error(`unexpected fetch ${url}`);
+test('dispatchToAgentServer rejects a legacy /run runner URL', async () => {
+  let called = false;
+  const fetchStub: typeof fetch = async () => {
+    called = true;
+    throw new Error('should not be called');
   };
 
-  const result = await dispatchToAgentServer(
-    buildMessage('@smolpaws say meow'),
-    { SMOLPAWS_RUNNER_URL: 'https://runner.example.com/run/' },
-    fetchStub,
+  await assert.rejects(
+    dispatchToAgentServer(
+      buildMessage('@smolpaws say meow'),
+      { SMOLPAWS_RUNNER_URL: 'https://runner.example.com/run/' },
+      fetchStub,
+    ),
+    /must not end with \/run/,
   );
-
-  assert.deepEqual(result, { reply: 'meow from normalized base url' });
-  assert.deepEqual(calls, [
-    'https://runner.example.com/api/conversations',
-    'https://runner.example.com/api/conversations/conv-1/outbound_messages/claim',
-    'https://runner.example.com/api/conversations/conv-1/events/search?kind=MessageEvent&source=agent&sort_order=timestamp_desc&limit=20',
-  ]);
+  assert.equal(called, false);
 });
