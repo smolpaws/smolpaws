@@ -127,7 +127,7 @@ export async function dispatchToAgentServer(
   message: SmolpawsQueueMessage,
   env: AgentServerEnv,
   fetchImpl: typeof fetch = fetch,
-): Promise<{ reply: string; outbound_messages?: SmolpawsOutboundMessage[] } | null> {
+): Promise<{ reply?: string; outbound_messages?: SmolpawsOutboundMessage[] } | null> {
   const agentServerBaseUrl = normalizeAgentServerBaseUrl(env.SMOLPAWS_RUNNER_URL);
   if (!agentServerBaseUrl) {
     return null;
@@ -198,15 +198,9 @@ export async function dispatchToAgentServer(
   }
   const outboundMessages =
     (await claimedMessagesResponse.json()) as SmolpawsOutboundMessage[];
-  if (outboundMessages.length > 0) {
-    return {
-      reply: buildFallbackReply(message),
-      outbound_messages: collapseOutboundMessages(outboundMessages),
-    };
-  }
 
   const eventsResponse = await fetchImpl(
-    `${agentServerBaseUrl}/api/conversations/${encodeURIComponent(data.id)}/events/search?kind=MessageEvent&source=agent&sort_order=timestamp_desc&limit=20`,
+    `${agentServerBaseUrl}/api/conversations/${encodeURIComponent(data.id)}/events/search?kind=MessageEvent&source=agent&sort_order=TIMESTAMP_DESC&limit=20`,
     {
       headers: env.SMOLPAWS_RUNNER_TOKEN
         ? { Authorization: `Bearer ${env.SMOLPAWS_RUNNER_TOKEN}` }
@@ -219,6 +213,10 @@ export async function dispatchToAgentServer(
   }
   const reply = extractAssistantReplyFromEventPage(await eventsResponse.json());
   return {
-    reply: reply ?? buildFallbackReply(message),
+    reply: reply ?? (outboundMessages.length > 0 ? undefined : buildFallbackReply(message)),
+    outbound_messages:
+      outboundMessages.length > 0
+        ? collapseOutboundMessages(outboundMessages)
+        : undefined,
   };
 }

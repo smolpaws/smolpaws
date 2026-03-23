@@ -252,20 +252,22 @@ async function processQueueMessage(
     const agentResult = await dispatchToAgentServer(message.body, env);
     const outboundMessages = agentResult?.outbound_messages ?? [];
 
-    if (outboundMessages.length > 0) {
-      for (const outbound of outboundMessages) {
-        await deliverRunnerOutboundMessage({
-          token,
-          repoFullName,
-          issueNumber,
-          outbound,
-        });
-      }
-    } else {
-      const replyBody =
-        agentResult?.reply ??
-        "🐾 smolpaws heard you and is waking up. Runner is not configured yet.";
+    for (const outbound of outboundMessages) {
+      await deliverRunnerOutboundMessage({
+        token,
+        repoFullName,
+        issueNumber,
+        outbound,
+      });
+    }
 
+    const replyBody =
+      agentResult?.reply ??
+      (outboundMessages.length > 0
+        ? undefined
+        : "🐾 smolpaws heard you and is waking up. Runner is not configured yet.");
+
+    if (replyBody && shouldPostReplyAfterOutbound(replyBody, outboundMessages)) {
       await postIssueComment({
         token,
         repoFullName,
@@ -330,6 +332,30 @@ function normalizeToken(value?: string): string | null {
   if (!value) return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+function normalizeComparableMessageText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+export function shouldPostReplyAfterOutbound(
+  reply: string,
+  outboundMessages: SmolpawsOutboundMessage[],
+): boolean {
+  if (!reply.trim()) {
+    return false;
+  }
+  if (outboundMessages.length === 0) {
+    return true;
+  }
+  const lastOutbound = outboundMessages[outboundMessages.length - 1];
+  if (!lastOutbound || lastOutbound.kind !== "current_thread_message") {
+    return true;
+  }
+  return (
+    normalizeComparableMessageText(lastOutbound.text) !==
+    normalizeComparableMessageText(reply)
+  );
 }
 
 async function githubApiFetch(

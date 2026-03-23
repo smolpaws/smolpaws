@@ -69,7 +69,7 @@ test('dispatchToAgentServer creates a conversation, claims outbound messages, th
     fetchStub,
   );
 
-  assert.deepEqual(result, { reply: 'meow from events' });
+  assert.deepEqual(result, { reply: 'meow from events', outbound_messages: undefined });
   assert.equal(calls.length, 3);
   assert.equal(calls[0]?.url, 'https://runner.example.com/api/conversations');
   assert.equal(calls[0]?.init?.method, 'POST');
@@ -118,11 +118,11 @@ test('dispatchToAgentServer creates a conversation, claims outbound messages, th
   assert.equal(calls[1]?.init?.method, 'POST');
   assert.equal(
     calls[2]?.url,
-    'https://runner.example.com/api/conversations/github-smolpaws-smolpaws-20/events/search?kind=MessageEvent&source=agent&sort_order=timestamp_desc&limit=20',
+    'https://runner.example.com/api/conversations/github-smolpaws-smolpaws-20/events/search?kind=MessageEvent&source=agent&sort_order=TIMESTAMP_DESC&limit=20',
   );
 });
 
-test('dispatchToAgentServer returns collapsed outbound messages without fetching events', async () => {
+test('dispatchToAgentServer returns collapsed outbound messages and the final assistant reply', async () => {
   const calls: string[] = [];
   const fetchStub: typeof fetch = async (input) => {
     const url = typeof input === 'string' ? input : input.toString();
@@ -145,6 +145,25 @@ test('dispatchToAgentServer returns collapsed outbound messages without fetching
         },
       );
     }
+    if (url.includes('/events/search?')) {
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              kind: 'MessageEvent',
+              llm_message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'final answer' }],
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }
     throw new Error(`unexpected fetch ${url}`);
   };
 
@@ -155,13 +174,12 @@ test('dispatchToAgentServer returns collapsed outbound messages without fetching
   );
 
   assert.deepEqual(result, {
-    reply:
-      '🐾 Hey enyst! smolpaws is warming up in smolpaws/smolpaws.\nRequest: "answer here"',
+    reply: 'final answer',
     outbound_messages: [
       { kind: 'current_thread_message', text: 'first\n\nsecond' },
     ],
   });
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
 });
 
 test('dispatchToAgentServer returns a fallback reply without calling the runner when the mention has no prompt', async () => {
