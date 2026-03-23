@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import type { RunnerEnv } from '../runner/workspacePolicy.js';
 import type { SmolpawsConversationConfigValue } from '../shared/runner.js';
 import { resolveConversationWorkspaceRoot } from './repoWorkspace.js';
+
+const tempRoots: string[] = [];
 
 function createEnv(rootDir: string, options?: {
   defaultWorkingDir?: string;
@@ -28,6 +30,7 @@ function createGithubConfig(repositoryFullName: string): SmolpawsConversationCon
 
 test('resolveConversationWorkspaceRoot prefers the same-name GitHub repo clone when present', () => {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'smolpaws-repo-workspace-'));
+  tempRoots.push(tempRoot);
   const defaultRoot = path.join(tempRoot, 'smolpaws');
   const githubRepoRoot = path.join(tempRoot, '.openhands');
   mkdirSync(defaultRoot, { recursive: true });
@@ -43,6 +46,7 @@ test('resolveConversationWorkspaceRoot prefers the same-name GitHub repo clone w
 
 test('resolveConversationWorkspaceRoot honors ~/.smolpaws/repo-map.json overrides for mismatched local clone names', () => {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'smolpaws-repo-map-'));
+  tempRoots.push(tempRoot);
   const defaultRoot = path.join(tempRoot, 'smolpaws');
   const mappedRepoRoot = path.join(tempRoot, 'oh-tab');
   const repoMapPath = path.join(tempRoot, 'repo-map.json');
@@ -63,6 +67,7 @@ test('resolveConversationWorkspaceRoot honors ~/.smolpaws/repo-map.json override
 
 test('resolveConversationWorkspaceRoot falls back to the default working dir when the target repo clone is unavailable', () => {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'smolpaws-repo-fallback-'));
+  tempRoots.push(tempRoot);
   const defaultRoot = path.join(tempRoot, 'smolpaws');
   mkdirSync(defaultRoot, { recursive: true });
 
@@ -72,4 +77,24 @@ test('resolveConversationWorkspaceRoot falls back to the default working dir whe
   });
 
   assert.equal(resolved, defaultRoot);
+});
+
+test('resolveConversationWorkspaceRoot blocks GitHub repo names that would escape the configured root', () => {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'smolpaws-repo-traversal-'));
+  tempRoots.push(tempRoot);
+  const defaultRoot = path.join(tempRoot, 'smolpaws');
+  mkdirSync(defaultRoot, { recursive: true });
+
+  const resolved = resolveConversationWorkspaceRoot({
+    env: createEnv(tempRoot),
+    smolpawsConfig: createGithubConfig('enyst/../../../etc'),
+  });
+
+  assert.equal(resolved, defaultRoot);
+});
+
+test.after(() => {
+  for (const tempRoot of tempRoots) {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
 });

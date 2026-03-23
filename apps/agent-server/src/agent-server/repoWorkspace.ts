@@ -10,7 +10,11 @@ import {
 import type { SmolpawsConversationConfigValue } from '../shared/runner.js';
 
 function isDirectory(dirPath: string): boolean {
-  return fsSync.existsSync(dirPath) && fsSync.statSync(dirPath).isDirectory();
+  try {
+    return fsSync.statSync(dirPath).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 function isWithinConfiguredRoot(targetPath: string, configuredRoot: string): boolean {
@@ -102,11 +106,11 @@ export function resolveGithubRepoWorkspaceRoot(params: {
   const mapped = repoMap.get(repoFullName.toLowerCase());
   const candidates = [
     ...(mapped ? [resolveRepoMapCandidate(mapped, configuredRoot)] : []),
-    path.resolve(configuredRoot, repoName),
+    resolveRepoMapCandidate(repoName, configuredRoot),
   ].filter((candidate): candidate is string => Boolean(candidate));
 
   for (const candidate of candidates) {
-    if (isDirectory(candidate)) {
+    if (isWithinConfiguredRoot(candidate, configuredRoot) && isDirectory(candidate)) {
       return candidate;
     }
   }
