@@ -144,6 +144,8 @@ At minimum:
 - `RUNNER_HOST` defaults to `127.0.0.1`
 - `SMOLPAWS_RUNNER_TOKEN` is required if you bind the runner to any non-localhost host
 
+The checked-in launcher also auto-loads `~/.smolpaws/.env` if present. That is the preferred local place for `LLM_MODEL`, provider API keys, and a stable `GITHUB_TOKEN` for the `smolpaws` runtime identity.
+
 ## 5) Operational notes
 
 - The notifications path marks threads as read after enqueueing. If a queue job fails and retries, it will not be re-enqueued by polling (but the queued message will still retry).

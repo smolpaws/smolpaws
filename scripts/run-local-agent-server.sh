@@ -5,6 +5,15 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+SMOLPAWS_HOME_DIR="${SMOLPAWS_HOME_DIR:-$HOME/.smolpaws}"
+SMOLPAWS_ENV_FILE="${SMOLPAWS_ENV_FILE:-$SMOLPAWS_HOME_DIR/.env}"
+if [[ -f "${SMOLPAWS_ENV_FILE}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${SMOLPAWS_ENV_FILE}"
+  set +a
+fi
+
 if [[ -z "${LLM_MODEL:-}" ]]; then
   echo "LLM_MODEL is required. Example: LLM_MODEL=openai/gpt-5.4" >&2
   exit 1
@@ -52,6 +61,9 @@ echo "Starting smolpaws agent-server on http://${RUNNER_HOST}:${PORT}"
 echo "Health: curl http://${RUNNER_HOST}:${PORT}/health"
 echo "Allowed workspace root: ${SMOLPAWS_WORKSPACE_ROOT}"
 echo "Default startup working directory: ${SMOLPAWS_DEFAULT_WORKING_DIR}"
+if [[ -f "${SMOLPAWS_ENV_FILE}" ]]; then
+  echo "Loaded env file: ${SMOLPAWS_ENV_FILE}"
+fi
 if [[ -n "${SMOLPAWS_RUNNER_TOKEN:-}" ]]; then
   echo "Runner auth: enabled"
 else

@@ -95,10 +95,10 @@ LLM_MODEL=<model> LLM_API_KEY=<key> npm run runner:dev
 Or use the checked-in launcher with env validation:
 
 ```bash
-LLM_MODEL=<model> OPENAI_API_KEY=<key> npm run runner:local
+npm run runner:local
 ```
 
-The local launcher now binds to `127.0.0.1` by default. If you override `RUNNER_HOST` to a non-localhost address, you must also set `SMOLPAWS_RUNNER_TOKEN`.
+The local launcher now binds to `127.0.0.1` by default. If `~/.smolpaws/.env` exists, it is loaded automatically before startup. Use that file for local runtime secrets such as `LLM_MODEL`, `OPENAI_API_KEY`, and `GITHUB_TOKEN`. If you override `RUNNER_HOST` to a non-localhost address, you must also set `SMOLPAWS_RUNNER_TOKEN`.
 
 ### Agent-server runtime tests
 
@@ -123,6 +123,7 @@ This includes the Worker -> agent-server contract test and notifications-path co
 - `LLM_API_KEY` (required for hosted LLMs)
 - `LLM_BASE_URL` (optional)
 - `LLM_PROVIDER` (optional)
+- `GITHUB_TOKEN` (optional local runtime GitHub token for the agent)
 - `SMOLPAWS_RUNNER_TOKEN` (required for non-localhost binds; optional for localhost-only use)
 - `RUNNER_HOST` (optional listen host; defaults to `127.0.0.1`)
 - `SMOLPAWS_WORKSPACE_ROOT` (optional workspace path)
