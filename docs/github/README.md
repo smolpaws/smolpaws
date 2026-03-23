@@ -56,7 +56,7 @@ Set in Cloudflare dashboard or via `wrangler secret put`:
 - `ALLOWED_OWNERS` (ex: `enyst`)
 - `ALLOWED_REPOS` (optional, ex: `enyst/smolpaws`)
 - `ALLOWED_INSTALLATIONS` (optional)
-- `SMOLPAWS_RUNNER_URL` (Fastify agent-server base URL, e.g. `https://runner.example.com`)
+- `SMOLPAWS_RUNNER_URL` (Fastify agent-server base URL, e.g. `https://runner.example.com`; do not append `/run`)
 - `SMOLPAWS_RUNNER_TOKEN` (Bearer token expected by runner)
 
 ### 4) Deploy Worker
@@ -143,7 +143,7 @@ See [deployment-alternatives.md](deployment-alternatives.md) for the two support
 Daytona is currently deferred as a workspace-level follow-up, not an active request path.
 
 - The live GitHub ingress now targets the normal conversation API directly.
-- The old `/run`-based Daytona shortcut has been removed.
+- The old top-level runner shortcut path has been removed.
 - The intended future direction remains: Daytona should come back as a real workspace backend parallel to local execution, following the Python workspace model.
 
 **Download events**

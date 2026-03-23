@@ -183,3 +183,52 @@ test('dispatchToAgentServer returns a fallback reply without calling the runner 
   });
   assert.equal(called, false);
 });
+
+test('dispatchToAgentServer normalizes a legacy /run runner URL down to the agent-server base URL', async () => {
+  const calls: string[] = [];
+  const fetchStub: typeof fetch = async (input) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    calls.push(url);
+    if (url.endsWith('/api/conversations')) {
+      return new Response(JSON.stringify({ id: 'conv-1' }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.endsWith('/outbound_messages/claim')) {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.includes('/events/search?')) {
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              kind: 'MessageEvent',
+              llm_message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'meow from normalized base url' }],
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+
+  const result = await dispatchToAgentServer(
+    buildMessage('@smolpaws say meow'),
+    { SMOLPAWS_RUNNER_URL: 'https://runner.example.com/run/' },
+    fetchStub,
+  );
+
+  assert.deepEqual(result, { reply: 'meow from normalized base url' });
+  assert.equal(calls[0], 'https://runner.example.com/api/conversations');
+});

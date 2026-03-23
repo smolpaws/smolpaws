@@ -12,7 +12,7 @@ This document is now backed by the executable runtime harness in `apps/agent-ser
 
 Important current behavior:
 
-- the canonical path now uses the full conversation lifecycle instead of the removed top-level `/run` shortcut
+- the canonical path now uses the full conversation lifecycle instead of the removed top-level runner shortcut
 - LLM selection is profile-first:
   - the request may provide `agent.llm.profile_id`
   - otherwise the standalone runner resolves the active profile from VS Code user settings key `openhands.llm.profileId`

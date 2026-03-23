@@ -26,7 +26,7 @@ function normalizeValue(value?: string): string | null {
 function normalizeAgentServerBaseUrl(value?: string): string | null {
   const normalized = normalizeValue(value);
   if (!normalized) return null;
-  return normalized.replace(/\/+$/, '');
+  return normalized.replace(/\/run\/?$/, '').replace(/\/+$/, '');
 }
 
 function getMentionBody(payload: GithubEventPayload): string {

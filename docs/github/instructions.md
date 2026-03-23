@@ -66,11 +66,11 @@ Token guidance:
 - A fine-grained PAT is typically limited to a single owner (user/org) and selected repositories, so it usually cannot cover "any repo" unless you intentionally restrict the scope.
 
 ### Cron trigger
-The Worker is configured with a 5-minute cron schedule in `apps/github/wrangler.toml`:
+The Worker is configured with a 1-minute cron schedule in `apps/github/wrangler.toml`:
 
 ```toml
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["* * * * *"]
 ```
 
 On each tick the Worker:
@@ -108,7 +108,7 @@ Notes:
 ### Worker -> Runner
 If configured, the Worker will call the Runner URL:
 
-- `SMOLPAWS_RUNNER_URL` (agent-server base URL, e.g. `https://runner.example.com`)
+- `SMOLPAWS_RUNNER_URL` (agent-server base URL, e.g. `https://runner.example.com`; do not append `/run`)
 - Optional: `SMOLPAWS_RUNNER_TOKEN` (Bearer token)
 
 The Worker creates or resumes a real conversation on the agent-server:
