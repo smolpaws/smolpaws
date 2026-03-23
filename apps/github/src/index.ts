@@ -280,6 +280,28 @@ type GithubMentionComment = {
   pull_request_url?: string;
 };
 
+type GithubMentionIssue = {
+  number?: number;
+  title?: string;
+  body?: string;
+  user?: { login?: string; id?: number };
+  url?: string;
+  repository_url?: string;
+  pull_request?: unknown;
+};
+
+type NotificationMention = {
+  event: SmolpawsEvent;
+  body: string;
+  senderLogin: string;
+  senderId?: number;
+  commentId?: number;
+  issueNumber: number;
+  pullRequestNumber?: number;
+  repoFullName: string;
+  ownerLogin: string;
+};
+
 function normalizeToken(value?: string): string | null {
   if (!value) return null;
   const trimmed = value.trim();
@@ -328,6 +350,149 @@ function parseIssueOrPrNumberFromApiUrl(url?: string): number | undefined {
   const match = url.match(/\/(issues|pulls)\/(\d+)(?:$|\b)/);
   if (!match) return undefined;
   return Number(match[2]);
+}
+
+async function fetchNotificationMention(
+  notification: GithubNotification,
+  token: string,
+): Promise<NotificationMention | null> {
+  const latestCommentUrl = notification.subject?.latest_comment_url;
+  if (latestCommentUrl) {
+    if (!isTrustedGithubApiUrl(latestCommentUrl)) {
+      console.error("Invalid latest_comment_url", {
+        threadId: notification.id,
+        latestCommentUrl,
+      });
+      return null;
+    }
+
+    const commentResponse = await githubApiFetch(token, latestCommentUrl);
+    if (!commentResponse.ok) {
+      const text = await commentResponse.text();
+      console.error("Failed to fetch mention comment", {
+        threadId: notification.id,
+        status: commentResponse.status,
+        text,
+      });
+      return null;
+    }
+
+    const comment = (await commentResponse.json()) as GithubMentionComment;
+    const commentBody = comment.body ?? "";
+    if (!containsMention(commentBody)) {
+      return null;
+    }
+
+    const senderLogin = comment.user?.login;
+    if (!senderLogin || senderLogin.toLowerCase() === "smolpaws") {
+      return null;
+    }
+
+    const repoFullName =
+      notification.repository?.full_name ??
+      parseRepoFullNameFromApiUrl(
+        comment.issue_url ?? comment.pull_request_url ?? notification.subject?.url,
+      );
+    const ownerLogin =
+      notification.repository?.owner?.login ??
+      (repoFullName ? repoFullName.split("/")[0] : undefined);
+    const issueNumber = parseIssueOrPrNumberFromApiUrl(
+      comment.issue_url ?? comment.pull_request_url ?? notification.subject?.url,
+    );
+
+    if (!repoFullName || !ownerLogin || !issueNumber) {
+      console.error("Notification comment missing repository context", {
+        threadId: notification.id,
+        repoFullName,
+        ownerLogin,
+        issueNumber,
+      });
+      return null;
+    }
+
+    return {
+      event: isReviewCommentUrl(latestCommentUrl)
+        ? "pull_request_review_comment"
+        : "issue_comment",
+      body: commentBody,
+      senderLogin,
+      senderId: comment.user?.id,
+      commentId: comment.id,
+      issueNumber,
+      repoFullName,
+      ownerLogin,
+    };
+  }
+
+  const subjectUrl = notification.subject?.url;
+  if (!subjectUrl) {
+    return null;
+  }
+
+  if (!isTrustedGithubApiUrl(subjectUrl)) {
+    console.error("Invalid notification subject url", {
+      threadId: notification.id,
+      subjectUrl,
+    });
+    return null;
+  }
+
+  const issueResponse = await githubApiFetch(token, subjectUrl);
+  if (!issueResponse.ok) {
+    const text = await issueResponse.text();
+    console.error("Failed to fetch mention issue thread", {
+      threadId: notification.id,
+      status: issueResponse.status,
+      text,
+    });
+    return null;
+  }
+
+  const issue = (await issueResponse.json()) as GithubMentionIssue;
+  const body = issue.body ?? "";
+  if (!containsMention(body)) {
+    return null;
+  }
+
+  const senderLogin = issue.user?.login;
+  if (!senderLogin || senderLogin.toLowerCase() === "smolpaws") {
+    return null;
+  }
+
+  const repoFullName =
+    notification.repository?.full_name ??
+    parseRepoFullNameFromApiUrl(issue.repository_url ?? issue.url ?? subjectUrl);
+  const ownerLogin =
+    notification.repository?.owner?.login ??
+    (repoFullName ? repoFullName.split("/")[0] : undefined);
+  const issueNumber =
+    issue.number ??
+    parseIssueOrPrNumberFromApiUrl(issue.url ?? subjectUrl);
+  const pullRequestNumber =
+    issue.pull_request || notification.subject?.type === "PullRequest"
+      ? issueNumber
+      : undefined;
+
+  if (!repoFullName || !ownerLogin || !issueNumber) {
+    console.error("Notification issue missing repository context", {
+      threadId: notification.id,
+      repoFullName,
+      ownerLogin,
+      issueNumber,
+    });
+    return null;
+  }
+
+  return {
+    event: "issues",
+    body,
+    senderLogin,
+    senderId: issue.user?.id,
+    issueNumber,
+    pullRequestNumber,
+    repoFullName,
+    ownerLogin,
+  };
 }
 
 async function markNotificationThreadRead(
@@ -463,83 +628,29 @@ async function handleNotification(
     return;
   }
 
-  const latestCommentUrl = notification.subject?.latest_comment_url;
-  if (!latestCommentUrl) {
+  const mention = await fetchNotificationMention(notification, token);
+  if (!mention) {
     await markNotificationThreadRead(threadId, token);
     return;
   }
-
-  if (!isTrustedGithubApiUrl(latestCommentUrl)) {
-    console.error("Invalid latest_comment_url", { threadId, latestCommentUrl });
-    await markNotificationThreadRead(threadId, token);
-    return;
-  }
-
-  const commentResponse = await githubApiFetch(token, latestCommentUrl);
-  if (!commentResponse.ok) {
-    const text = await commentResponse.text();
-    console.error("Failed to fetch mention comment", {
-      threadId,
-      status: commentResponse.status,
-      text,
-    });
-    await markNotificationThreadRead(threadId, token);
-    return;
-  }
-
-  const comment = (await commentResponse.json()) as GithubMentionComment;
-  const commentBody = comment.body ?? "";
-  if (!containsMention(commentBody)) {
-    await markNotificationThreadRead(threadId, token);
-    return;
-  }
-
-  const senderLogin = comment.user?.login;
-  if (!senderLogin) {
-    await markNotificationThreadRead(threadId, token);
-    return;
-  }
-
-  if (senderLogin.toLowerCase() === "smolpaws") {
-    await markNotificationThreadRead(threadId, token);
-    return;
-  }
-
-  const repoFullName =
-    notification.repository?.full_name ??
-    parseRepoFullNameFromApiUrl(
-      comment.issue_url ?? comment.pull_request_url ?? notification.subject?.url,
-    );
-  const ownerLogin =
-    notification.repository?.owner?.login ??
-    (repoFullName ? repoFullName.split("/")[0] : undefined);
-  const number = parseIssueOrPrNumberFromApiUrl(
-    comment.issue_url ?? comment.pull_request_url ?? notification.subject?.url,
-  );
-
-  if (!repoFullName || !ownerLogin || !number) {
-    console.error("Notification missing repository context", {
-      threadId,
-      repoFullName,
-      ownerLogin,
-      number,
-    });
-    await markNotificationThreadRead(threadId, token);
-    return;
-  }
-
-  const event: SmolpawsEvent = isReviewCommentUrl(latestCommentUrl)
-    ? "pull_request_review_comment"
-    : "issue_comment";
 
   const payload: GithubEventPayload = {
-    action: "created",
-    sender: { login: senderLogin, id: comment.user?.id },
-    comment: { body: commentBody, id: comment.id },
-    repository: { full_name: repoFullName, owner: { login: ownerLogin } },
-    ...(event === "issue_comment"
-      ? { issue: { number } }
-      : { pull_request: { number } }),
+    action: mention.event === "issues" ? "opened" : "created",
+    sender: { login: mention.senderLogin, id: mention.senderId },
+    repository: {
+      full_name: mention.repoFullName,
+      owner: { login: mention.ownerLogin },
+    },
+    issue: {
+      number: mention.issueNumber,
+      ...(mention.event === "issues" ? { body: mention.body } : {}),
+    },
+    ...(mention.commentId
+      ? { comment: { body: mention.body, id: mention.commentId } }
+      : {}),
+    ...(mention.pullRequestNumber
+      ? { pull_request: { number: mention.pullRequestNumber } }
+      : {}),
   };
 
   if (!isAllowed(payload, env)) {
@@ -548,7 +659,7 @@ async function handleNotification(
   }
 
   const queueMessage: SmolpawsQueueMessage = {
-    event,
+    event: mention.event,
     payload,
     meta: {
       ingress: "github_notifications",

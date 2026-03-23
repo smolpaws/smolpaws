@@ -107,11 +107,13 @@ npm run agent-server:test
 
 This runs the real Fastify app through `app.inject(...)` with a fake OpenAI-compatible stream and isolated temp repo/user-skill fixtures. See [../agent-server-testing.md](../agent-server-testing.md) for the harness shape and coverage boundaries.
 
-### Worker -> agent-server contract test
+### GitHub ingress tests
 
 ```bash
-npm run github:test:agent-server-contract
+npm run github:test
 ```
+
+This includes the Worker -> agent-server contract test and notifications-path coverage for issue-body mentions in repos where the GitHub App is not installed.
 
 ### Required env vars
 

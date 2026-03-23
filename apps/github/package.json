@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "test": "tsx --test src/__tests__/*.test.ts",
     "test:agent-server-contract": "tsx --test src/__tests__/agentServerClient.test.ts",
+    "test:notifications": "tsx --test src/__tests__/notifications.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

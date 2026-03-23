@@ -76,7 +76,7 @@ crons = ["0 * * * *"]
 On each tick the Worker:
 1. Calls `GET https://api.github.com/notifications?per_page=50`
 2. Filters notifications where `reason == "mention"`
-3. Fetches the latest comment (`subject.latest_comment_url`) and checks for `@smolpaws`
+3. Prefers the latest comment (`subject.latest_comment_url`) when present, but falls back to the issue thread object itself for issue-body mentions
 4. Enqueues a queue message for processing
 5. Marks the notification thread as read
 

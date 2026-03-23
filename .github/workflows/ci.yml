@@ -39,8 +39,8 @@ jobs:
       - name: Run agent-server runtime tests
         run: npm run agent-server:test
 
-      - name: Run GitHub -> agent-server contract test
-        run: npm run github:test:agent-server-contract
+      - name: Run GitHub ingress tests
+        run: npm run github:test
 
       - name: Start agent-server and verify health
         run: |
