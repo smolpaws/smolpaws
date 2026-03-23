@@ -414,8 +414,6 @@ test('scheduled notifications re-enqueue new mentions on the same thread when la
     },
   });
 
-  assert.equal(firstRun.sent.length, 1);
-  assert.equal(secondRun.sent.length, 1);
-  assert.equal(firstRun.sent[0]?.payload.comment?.id, 100);
-  assert.equal(secondRun.sent[0]?.payload.comment?.id, 101);
+  assert.deepEqual(firstRun.sent.map((message) => message.payload.comment?.id), [100]);
+  assert.deepEqual(secondRun.sent.map((message) => message.payload.comment?.id), [101]);
 });
