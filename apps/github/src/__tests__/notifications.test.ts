@@ -224,12 +224,14 @@ test('scheduled notifications queue issue-body mentions when latest_comment_url 
     },
   });
   assert.ok(
-    fetchCalls.some(
-      (call) =>
-        call.url.includes('https://api.github.com/notifications?') &&
-        call.url.includes('all=true') &&
-        call.url.includes('since='),
-    ),
+    fetchCalls.some((call) => {
+      if (!call.url.startsWith('https://api.github.com/notifications?')) {
+        return false;
+      }
+      const url = new URL(call.url);
+      return url.searchParams.get('all') === 'true' && url.searchParams.has('since');
+    }),
+    'A call to the notifications API with all=true and since parameters was not made.',
   );
   assert.ok(
     fetchCalls.some(
@@ -275,9 +277,30 @@ test('scheduled notifications still queue recent mention notifications that are 
     },
   });
 
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0]?.payload.repository?.full_name, 'enyst/llm-playground');
-  assert.equal(sent[0]?.payload.comment?.id, 77);
+  assert.deepEqual(sent, [
+    {
+      event: 'issue_comment',
+      payload: {
+        action: 'created',
+        sender: { login: 'enyst', id: 8 },
+        repository: {
+          full_name: 'enyst/llm-playground',
+          owner: { login: 'enyst' },
+        },
+        issue: {
+          number: 11,
+        },
+        comment: {
+          id: 77,
+          body: '@smolpaws recent-but-read mention',
+        },
+      },
+      meta: {
+        ingress: 'github_notifications',
+        notification_thread_id: 'thread-read-1',
+      },
+    },
+  ]);
 });
 
 test('webhook mentions fail closed when ALLOWED_ACTORS is missing', async () => {
