@@ -84,7 +84,7 @@ On each tick the Worker:
 
 The Worker can restrict which mentions are accepted via environment variables:
 
-- `ALLOWED_ACTORS`: comma-separated GitHub usernames
+- `ALLOWED_ACTORS`: required comma-separated GitHub usernames
 - `ALLOWED_OWNERS`: comma-separated repo owners/orgs
 - `ALLOWED_REPOS`: comma-separated full repo names (`owner/repo`)
 - `ALLOWED_INSTALLATIONS`: comma-separated GitHub App installation IDs (only applies when an installation id is present)
@@ -101,7 +101,7 @@ Where to set it:
 
 Notes:
 - For the notifications path there is no `installation.id`, so `ALLOWED_INSTALLATIONS` is ignored.
-- If you enable notifications without allowlists, anyone can mention `@smolpaws` in public repos and trigger replies.
+- `ALLOWED_ACTORS` is required. If it is unset or empty, both webhook and notifications intake now fail closed.
 
 ## 4) Runner integration
 
@@ -141,6 +141,8 @@ At minimum:
 
 - `LLM_MODEL`
 - `LLM_API_KEY`
+- `RUNNER_HOST` defaults to `127.0.0.1`
+- `SMOLPAWS_RUNNER_TOKEN` is required if you bind the runner to any non-localhost host
 
 ## 5) Operational notes
 

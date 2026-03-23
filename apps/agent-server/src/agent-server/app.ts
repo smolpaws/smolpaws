@@ -8,6 +8,7 @@ import Fastify, {
   type FastifyRequest,
 } from "fastify";
 import { createAgentServerDeps, type AgentServerDeps } from "./dependencies.js";
+import { assertSafeRunnerBind, resolveRunnerHost } from "../runner/workspacePolicy.js";
 import { registerServerDetailsRoutes } from "./serverDetailsRouter.js";
 import { registerSocketRoutes } from "./sockets.js";
 import { registerFileRoutes } from "./fileRouter.js";
@@ -91,5 +92,7 @@ export async function startAgentServer(
 ): Promise<void> {
   const { app } = await createAgentServerApp(deps);
   const port = Number(deps.env.PORT ?? deps.env.RUNNER_PORT ?? 8788);
-  await app.listen({ port, host: "0.0.0.0" });
+  const host = resolveRunnerHost(deps.env);
+  assertSafeRunnerBind(deps.env);
+  await app.listen({ port, host });
 }

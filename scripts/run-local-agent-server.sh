@@ -38,11 +38,18 @@ if [[ -z "${LLM_API_KEY:-}" ]]; then
 fi
 
 export PORT="${PORT:-8788}"
+export RUNNER_HOST="${RUNNER_HOST:-127.0.0.1}"
 export SMOLPAWS_WORKSPACE_ROOT="${SMOLPAWS_WORKSPACE_ROOT:-$HOME/repos}"
 export SMOLPAWS_DEFAULT_WORKING_DIR="${SMOLPAWS_DEFAULT_WORKING_DIR:-smolpaws}"
 
-echo "Starting smolpaws agent-server on http://localhost:${PORT}"
-echo "Health: curl http://localhost:${PORT}/health"
+runner_host_lc="$(printf '%s' "${RUNNER_HOST}" | tr '[:upper:]' '[:lower:]')"
+if [[ -z "${SMOLPAWS_RUNNER_TOKEN:-}" ]] && [[ "${runner_host_lc}" != "127.0.0.1" ]] && [[ "${runner_host_lc}" != "localhost" ]] && [[ "${runner_host_lc}" != "::1" ]]; then
+  echo "SMOLPAWS_RUNNER_TOKEN is required when RUNNER_HOST is non-localhost (${RUNNER_HOST})." >&2
+  exit 1
+fi
+
+echo "Starting smolpaws agent-server on http://${RUNNER_HOST}:${PORT}"
+echo "Health: curl http://${RUNNER_HOST}:${PORT}/health"
 echo "Allowed workspace root: ${SMOLPAWS_WORKSPACE_ROOT}"
 echo "Default startup working directory: ${SMOLPAWS_DEFAULT_WORKING_DIR}"
 if [[ -n "${SMOLPAWS_RUNNER_TOKEN:-}" ]]; then

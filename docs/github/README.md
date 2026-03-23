@@ -52,7 +52,7 @@ Set in Cloudflare dashboard or via `wrangler secret put`:
 - `GITHUB_WEBHOOK_SECRET`
 - `GITHUB_APP_ID`
 - `GITHUB_APP_PRIVATE_KEY`
-- `ALLOWED_ACTORS` (ex: `enyst`)
+- `ALLOWED_ACTORS` (required, ex: `enyst`)
 - `ALLOWED_OWNERS` (ex: `enyst`)
 - `ALLOWED_REPOS` (optional, ex: `enyst/smolpaws`)
 - `ALLOWED_INSTALLATIONS` (optional)
@@ -98,6 +98,8 @@ Or use the checked-in launcher with env validation:
 LLM_MODEL=<model> OPENAI_API_KEY=<key> npm run runner:local
 ```
 
+The local launcher now binds to `127.0.0.1` by default. If you override `RUNNER_HOST` to a non-localhost address, you must also set `SMOLPAWS_RUNNER_TOKEN`.
+
 ### Agent-server runtime tests
 
 ```bash
@@ -121,7 +123,8 @@ This includes the Worker -> agent-server contract test and notifications-path co
 - `LLM_API_KEY` (required for hosted LLMs)
 - `LLM_BASE_URL` (optional)
 - `LLM_PROVIDER` (optional)
-- `SMOLPAWS_RUNNER_TOKEN` (optional bearer auth)
+- `SMOLPAWS_RUNNER_TOKEN` (required for non-localhost binds; optional for localhost-only use)
+- `RUNNER_HOST` (optional listen host; defaults to `127.0.0.1`)
 - `SMOLPAWS_WORKSPACE_ROOT` (optional workspace path)
 - `SMOLPAWS_PERSISTENCE_DIR` (optional persistence root; defaults to `~/.openhands/conversations`)
 - `OPENHANDS_CONVERSATIONS_DIR` (optional alias for persistence root)

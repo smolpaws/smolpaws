@@ -4,6 +4,8 @@ import path from 'node:path';
 
 export type RunnerEnv = {
   SMOLPAWS_RUNNER_TOKEN?: string;
+  RUNNER_HOST?: string;
+  HOST?: string;
   RUNNER_PORT?: string;
   PORT?: string;
   LLM_MODEL?: string;
@@ -29,6 +31,8 @@ const DEFAULT_PERSISTENCE_DIR = path.join(
 export function getEnv(): RunnerEnv {
   return {
     SMOLPAWS_RUNNER_TOKEN: process.env.SMOLPAWS_RUNNER_TOKEN,
+    RUNNER_HOST: process.env.RUNNER_HOST,
+    HOST: process.env.HOST,
     RUNNER_PORT: process.env.RUNNER_PORT,
     PORT: process.env.PORT,
     LLM_MODEL: process.env.LLM_MODEL,
@@ -39,6 +43,25 @@ export function getEnv(): RunnerEnv {
     SMOLPAWS_DEFAULT_WORKING_DIR: process.env.SMOLPAWS_DEFAULT_WORKING_DIR,
     SMOLPAWS_PERSISTENCE_DIR: process.env.SMOLPAWS_PERSISTENCE_DIR,
   };
+}
+
+export function resolveRunnerHost(env: RunnerEnv): string {
+  const configuredHost = env.RUNNER_HOST?.trim() || env.HOST?.trim();
+  return configuredHost || '127.0.0.1';
+}
+
+export function isLoopbackHost(host: string): boolean {
+  const normalizedHost = host.trim().toLowerCase();
+  return normalizedHost === '127.0.0.1' ||
+    normalizedHost === 'localhost' ||
+    normalizedHost === '::1';
+}
+
+export function assertSafeRunnerBind(env: RunnerEnv): void {
+  const host = resolveRunnerHost(env);
+  if (!isLoopbackHost(host) && !env.SMOLPAWS_RUNNER_TOKEN?.trim()) {
+    throw new Error('runner_token_required_for_non_localhost_bind');
+  }
 }
 
 export function resolvePersistenceDir(env: RunnerEnv): string {

@@ -48,6 +48,10 @@ export default {
       return new Response("Webhook secret not configured", { status: 500 });
     }
 
+    if (!hasConfiguredAllowedActors(env)) {
+      return new Response("ALLOWED_ACTORS not configured", { status: 500 });
+    }
+
     const signature = request.headers.get("X-Hub-Signature-256");
     if (!signature) {
       return new Response("Missing signature", { status: 401 });
@@ -139,6 +143,10 @@ function parseList(value?: string): Set<string> {
   );
 }
 
+function hasConfiguredAllowedActors(env: Pick<Env, "ALLOWED_ACTORS">): boolean {
+  return parseList(env.ALLOWED_ACTORS).size > 0;
+}
+
 function parseEvent(event: string): SmolpawsEvent | null {
   if (
     event === "issue_comment" ||
@@ -176,6 +184,10 @@ function isAllowed(payload: GithubEventPayload, env: Env): boolean {
   const allowedOwners = parseList(env.ALLOWED_OWNERS);
   const allowedRepos = parseList(env.ALLOWED_REPOS);
   const allowedInstallations = parseList(env.ALLOWED_INSTALLATIONS);
+
+  if (!allowedActors.size) {
+    return false;
+  }
 
   const actor = payload.sender?.login?.toLowerCase();
   const owner = payload.repository?.owner?.login?.toLowerCase();
@@ -590,6 +602,11 @@ async function forEachWithConcurrency<T>(
 async function pollGithubNotifications(env: Env): Promise<void> {
   const token = normalizeToken(env.GITHUB_USER_TOKEN);
   if (!token) {
+    return;
+  }
+
+  if (!hasConfiguredAllowedActors(env)) {
+    console.error("Refusing to poll GitHub notifications without ALLOWED_ACTORS");
     return;
   }
 

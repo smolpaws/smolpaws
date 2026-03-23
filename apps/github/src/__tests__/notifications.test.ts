@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import test from 'node:test';
 import worker from '../index.js';
 import type {
@@ -31,6 +32,22 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+async function createSignedWebhookRequest(body: unknown, secret: string): Promise<Request> {
+  const rawBody = JSON.stringify(body);
+  const signature = createHmac('sha256', secret)
+    .update(rawBody)
+    .digest('hex');
+  return new Request('https://smolpaws.liberty-labs.org/webhooks/github', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-GitHub-Event': 'issue_comment',
+      'X-Hub-Signature-256': `sha256=${signature}`,
+    },
+    body: rawBody,
   });
 }
 
@@ -213,6 +230,42 @@ test('scheduled notifications queue issue-body mentions when latest_comment_url 
         call.method === 'PATCH',
     ),
   );
+});
+
+test('webhook mentions fail closed when ALLOWED_ACTORS is missing', async () => {
+  const sent: SmolpawsQueueMessage[] = [];
+  const env: TestEnv = {
+    GITHUB_WEBHOOK_SECRET: 'secret',
+    GITHUB_APP_ID: '1',
+    GITHUB_APP_PRIVATE_KEY: 'pem',
+    SMOLPAWS_QUEUE: {
+      async send(message: SmolpawsQueueMessage): Promise<void> {
+        sent.push(message);
+      },
+    },
+  };
+
+  const request = await createSignedWebhookRequest(
+    {
+      action: 'created',
+      sender: { login: 'enyst', id: 1 },
+      comment: { body: '@smolpaws test the webhook path', id: 42 },
+      repository: {
+        full_name: 'enyst/.openhands',
+        owner: { login: 'enyst' },
+      },
+      issue: { number: 4 },
+      installation: { id: 99 },
+    },
+    env.GITHUB_WEBHOOK_SECRET,
+  );
+
+  const response = await worker.fetch?.(request, env as never);
+
+  assert(response);
+  assert.equal(response.status, 500);
+  assert.equal(await response.text(), 'ALLOWED_ACTORS not configured');
+  assert.equal(sent.length, 0);
 });
 
 test('scheduled notifications still queue comment mentions from latest_comment_url', async () => {
@@ -416,4 +469,41 @@ test('scheduled notifications re-enqueue new mentions on the same thread when la
 
   assert.deepEqual(firstRun.sent.map((message) => message.payload.comment?.id), [100]);
   assert.deepEqual(secondRun.sent.map((message) => message.payload.comment?.id), [101]);
+});
+
+test('scheduled notifications fail closed when ALLOWED_ACTORS is missing', async () => {
+  const threadUrl = 'https://api.github.com/repos/enyst/.openhands/issues/9';
+  const { sent, fetchCalls } = await runScheduled({
+    notifications: [
+      {
+        id: 'thread-5',
+        reason: 'mention',
+        subject: {
+          url: threadUrl,
+          type: 'Issue',
+        },
+        repository: {
+          full_name: 'enyst/.openhands',
+          owner: { login: 'enyst' },
+        },
+      },
+    ],
+    responses: {
+      [threadUrl]: {
+        body: {
+          number: 9,
+          body: '@smolpaws test the notifications path',
+          user: { login: 'enyst', id: 7 },
+          url: threadUrl,
+          repository_url: 'https://api.github.com/repos/enyst/.openhands',
+        },
+      },
+    },
+    env: {
+      ALLOWED_ACTORS: undefined,
+    },
+  });
+
+  assert.equal(sent.length, 0);
+  assert.deepEqual(fetchCalls, []);
 });
