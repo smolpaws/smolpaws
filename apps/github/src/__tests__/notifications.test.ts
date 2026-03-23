@@ -123,7 +123,7 @@ async function runScheduled(options: {
     const method = init?.method ?? 'GET';
     fetchCalls.push({ url, method });
 
-    if (url === 'https://api.github.com/notifications?per_page=50') {
+    if (url.startsWith('https://api.github.com/notifications?')) {
       return jsonResponse(options.notifications);
     }
 
@@ -226,10 +226,58 @@ test('scheduled notifications queue issue-body mentions when latest_comment_url 
   assert.ok(
     fetchCalls.some(
       (call) =>
+        call.url.includes('https://api.github.com/notifications?') &&
+        call.url.includes('all=true') &&
+        call.url.includes('since='),
+    ),
+  );
+  assert.ok(
+    fetchCalls.some(
+      (call) =>
         call.url === 'https://api.github.com/notifications/threads/thread-1' &&
         call.method === 'PATCH',
     ),
   );
+});
+
+test('scheduled notifications still queue recent mention notifications that are already read', async () => {
+  const commentUrl = 'https://api.github.com/repos/enyst/llm-playground/issues/comments/77';
+  const { sent } = await runScheduled({
+    notifications: [
+      {
+        id: 'thread-read-1',
+        unread: false,
+        reason: 'mention',
+        updated_at: new Date().toISOString(),
+        subject: {
+          url: 'https://api.github.com/repos/enyst/llm-playground/issues/11',
+          latest_comment_url: commentUrl,
+          type: 'Issue',
+        },
+        repository: {
+          full_name: 'enyst/llm-playground',
+          owner: { login: 'enyst' },
+        },
+      },
+    ],
+    responses: {
+      [commentUrl]: {
+        body: {
+          id: 77,
+          body: '@smolpaws recent-but-read mention',
+          user: { login: 'enyst', id: 8 },
+          issue_url: 'https://api.github.com/repos/enyst/llm-playground/issues/11',
+        },
+      },
+      'https://api.github.com/notifications/threads/thread-read-1': {
+        body: {},
+      },
+    },
+  });
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]?.payload.repository?.full_name, 'enyst/llm-playground');
+  assert.equal(sent[0]?.payload.comment?.id, 77);
 });
 
 test('webhook mentions fail closed when ALLOWED_ACTORS is missing', async () => {

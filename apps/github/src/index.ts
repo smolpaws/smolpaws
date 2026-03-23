@@ -30,6 +30,18 @@ interface Env {
 
 const MENTION = "@smolpaws";
 const USER_AGENT = "smolpaws-webhook";
+const NOTIFICATION_POLL_LOOKBACK_MINUTES = 30;
+
+function buildNotificationsPollUrl(nowMs = Date.now()): string {
+  const url = new URL("https://api.github.com/notifications");
+  url.searchParams.set("all", "true");
+  url.searchParams.set("per_page", "50");
+  url.searchParams.set(
+    "since",
+    new Date(nowMs - (NOTIFICATION_POLL_LOOKBACK_MINUTES * 60 * 1000)).toISOString(),
+  );
+  return url.toString();
+}
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -612,7 +624,7 @@ async function pollGithubNotifications(env: Env): Promise<void> {
 
   const response = await githubApiFetch(
     token,
-    "https://api.github.com/notifications?per_page=50",
+    buildNotificationsPollUrl(),
   );
 
   if (!response.ok) {
