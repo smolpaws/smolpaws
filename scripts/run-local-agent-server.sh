@@ -8,10 +8,12 @@ cd "$ROOT_DIR"
 SMOLPAWS_HOME_DIR="${SMOLPAWS_HOME_DIR:-$HOME/.smolpaws}"
 SMOLPAWS_ENV_FILE="${SMOLPAWS_ENV_FILE:-$SMOLPAWS_HOME_DIR/.env}"
 if [[ -f "${SMOLPAWS_ENV_FILE}" ]]; then
+  set +u
   set -a
   # shellcheck disable=SC1090
   source "${SMOLPAWS_ENV_FILE}"
   set +a
+  set -u
 fi
 
 if [[ -z "${LLM_MODEL:-}" ]]; then
