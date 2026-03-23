@@ -76,6 +76,7 @@ function createMockCache(): Cache {
 async function runScheduled(options: {
   notifications: unknown[];
   responses: Record<string, MockResponse>;
+  cache?: Cache;
   env?: Partial<TestEnv>;
 }): Promise<{
   sent: SmolpawsQueueMessage[];
@@ -85,7 +86,7 @@ async function runScheduled(options: {
   const fetchCalls: Array<{ url: string; method: string }> = [];
   const originalFetch = globalThis.fetch;
   const originalCaches = globalThis.caches;
-  const cache = createMockCache();
+  const cache = options.cache ?? createMockCache();
 
   globalThis.caches = {
     open: async () => cache,
@@ -339,4 +340,82 @@ test('scheduled notifications queue pull request review-comment mentions with pu
       notification_thread_id: 'thread-3',
     },
   });
+});
+
+test('scheduled notifications re-enqueue new mentions on the same thread when latest_comment_url changes', async () => {
+  const cache = createMockCache();
+  const firstCommentUrl =
+    'https://api.github.com/repos/enyst/.openhands/issues/comments/100';
+  const secondCommentUrl =
+    'https://api.github.com/repos/enyst/.openhands/issues/comments/101';
+  const threadUrl = 'https://api.github.com/repos/enyst/.openhands/issues/4';
+
+  const firstRun = await runScheduled({
+    cache,
+    notifications: [
+      {
+        id: 'thread-4',
+        reason: 'mention',
+        subject: {
+          url: threadUrl,
+          latest_comment_url: firstCommentUrl,
+          type: 'Issue',
+        },
+        repository: {
+          full_name: 'enyst/.openhands',
+          owner: { login: 'enyst' },
+        },
+      },
+    ],
+    responses: {
+      [firstCommentUrl]: {
+        body: {
+          id: 100,
+          body: '@smolpaws first ping',
+          user: { login: 'enyst', id: 8 },
+          issue_url: threadUrl,
+        },
+      },
+      'https://api.github.com/notifications/threads/thread-4': {
+        body: {},
+      },
+    },
+  });
+
+  const secondRun = await runScheduled({
+    cache,
+    notifications: [
+      {
+        id: 'thread-4',
+        reason: 'mention',
+        subject: {
+          url: threadUrl,
+          latest_comment_url: secondCommentUrl,
+          type: 'Issue',
+        },
+        repository: {
+          full_name: 'enyst/.openhands',
+          owner: { login: 'enyst' },
+        },
+      },
+    ],
+    responses: {
+      [secondCommentUrl]: {
+        body: {
+          id: 101,
+          body: '@smolpaws second ping',
+          user: { login: 'enyst', id: 8 },
+          issue_url: threadUrl,
+        },
+      },
+      'https://api.github.com/notifications/threads/thread-4': {
+        body: {},
+      },
+    },
+  });
+
+  assert.equal(firstRun.sent.length, 1);
+  assert.equal(secondRun.sent.length, 1);
+  assert.equal(firstRun.sent[0]?.payload.comment?.id, 100);
+  assert.equal(secondRun.sent[0]?.payload.comment?.id, 101);
 });

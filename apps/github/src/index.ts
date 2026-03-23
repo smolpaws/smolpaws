@@ -532,9 +532,18 @@ function isTrustedGithubApiUrl(raw: string): boolean {
 
 const NOTIFICATION_DEDUPE_CACHE = "smolpaws-notification-dedupe";
 
-function notificationDedupeKey(threadId: string): Request {
+function notificationDedupeIdentity(notification: GithubNotification): string {
+  return (
+    notification.subject?.latest_comment_url ??
+    notification.subject?.url ??
+    notification.id ??
+    "unknown"
+  );
+}
+
+function notificationDedupeKey(identity: string): Request {
   return new Request(
-    `https://smolpaws.internal/dedupe/notifications/${encodeURIComponent(threadId)}`,
+    `https://smolpaws.internal/dedupe/notifications/${encodeURIComponent(identity)}`,
   );
 }
 
@@ -542,20 +551,20 @@ async function getNotificationDedupeCache(): Promise<Cache> {
   return caches.open(NOTIFICATION_DEDUPE_CACHE);
 }
 
-async function wasNotificationEnqueued(threadId: string): Promise<boolean> {
+async function wasNotificationEnqueued(identity: string): Promise<boolean> {
   const cache = await getNotificationDedupeCache();
-  const cached = await cache.match(notificationDedupeKey(threadId));
+  const cached = await cache.match(notificationDedupeKey(identity));
   return Boolean(cached);
 }
 
-async function markNotificationEnqueued(threadId: string): Promise<void> {
+async function markNotificationEnqueued(identity: string): Promise<void> {
   const cache = await getNotificationDedupeCache();
   const response = new Response("1", {
     headers: {
       "Cache-Control": `max-age=${NOTIFICATION_DEDUPE_TTL_SECONDS}`,
     },
   });
-  await cache.put(notificationDedupeKey(threadId), response);
+  await cache.put(notificationDedupeKey(identity), response);
 }
 
 async function forEachWithConcurrency<T>(
@@ -627,7 +636,8 @@ async function handleNotification(
     return;
   }
 
-  if (await wasNotificationEnqueued(threadId)) {
+  const dedupeIdentity = notificationDedupeIdentity(notification);
+  if (await wasNotificationEnqueued(dedupeIdentity)) {
     await markNotificationThreadRead(threadId, token);
     return;
   }
@@ -672,7 +682,7 @@ async function handleNotification(
   };
 
   await env.SMOLPAWS_QUEUE.send(queueMessage);
-  await markNotificationEnqueued(threadId);
+  await markNotificationEnqueued(dedupeIdentity);
   await markNotificationThreadRead(threadId, token);
 }
 
