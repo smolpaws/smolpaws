@@ -230,5 +230,9 @@ test('dispatchToAgentServer normalizes a legacy /run runner URL down to the agen
   );
 
   assert.deepEqual(result, { reply: 'meow from normalized base url' });
-  assert.equal(calls[0], 'https://runner.example.com/api/conversations');
+  assert.deepEqual(calls, [
+    'https://runner.example.com/api/conversations',
+    'https://runner.example.com/api/conversations/conv-1/outbound_messages/claim',
+    'https://runner.example.com/api/conversations/conv-1/events/search?kind=MessageEvent&source=agent&sort_order=timestamp_desc&limit=20',
+  ]);
 });
