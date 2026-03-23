@@ -59,15 +59,17 @@ const DEFAULT_RUNNER_PERSISTENCE_DIR = '/workspace/persistence';
 const DEFAULT_RUNNER_CONTAINER_PORT = 8788;
 const DEFAULT_RUNNER_PORT_BASE = 41000;
 const RUNNER_FORWARD_ENV = [
-  'LLM_MODEL',
-  'MODEL',
-  'LLM_API_KEY',
+  'LLM_PROFILE_ID',
+  'OPENAI_API_KEY',
   'ANTHROPIC_API_KEY',
-  'LLM_PROVIDER',
-  'LLM_BASE_URL',
+  'GEMINI_API_KEY',
+  'OPENROUTER_API_KEY',
+  'LITELLM_API_KEY',
+  'GITHUB_TOKEN',
   'SMOLPAWS_RUNNER_TOKEN',
   'SMOLPAWS_WORKSPACE_ROOT',
   'SMOLPAWS_PERSISTENCE_DIR',
+  'SMOLPAWS_VSCODE_SETTINGS_PATH',
 ];
 
 const logger = pino({
@@ -102,22 +104,13 @@ function ensureRunnerEnvDefaults(): void {
   process.env.SMOLPAWS_PERSISTENCE_DIR ||= DEFAULT_RUNNER_PERSISTENCE_DIR;
 }
 
-function buildRunnerLlmRequest(): {
-  provider?: string;
-  model: string;
-  base_url?: string;
-  api_key?: string;
-} {
-  const model = (process.env.LLM_MODEL ?? process.env.MODEL ?? '').trim();
-  if (!model) {
-    throw new Error('LLM_MODEL or MODEL is required for the runner workspace');
+function buildRunnerLlmRequest(): { profile_id?: string } {
+  const profileId = (process.env.LLM_PROFILE_ID ?? '').trim();
+  if (!profileId) {
+    return {};
   }
-  const apiKey = process.env.LLM_API_KEY ?? process.env.ANTHROPIC_API_KEY;
   return {
-    provider: process.env.LLM_PROVIDER ?? 'anthropic',
-    model,
-    base_url: process.env.LLM_BASE_URL,
-    api_key: apiKey,
+    profile_id: profileId,
   };
 }
 

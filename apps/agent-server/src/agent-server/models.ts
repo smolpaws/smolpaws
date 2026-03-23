@@ -70,20 +70,7 @@ export const ConfirmationPolicySchema = Type.Union([
 
 export const LlmSchema = Type.Object(
   {
-    usage_id: Type.Optional(Type.String()),
-    model: Type.Optional(Type.String()),
-    provider: Type.Optional(Type.String()),
-    base_url: Type.Optional(Type.String()),
-    api_key: Type.Optional(Type.String()),
-    api_version: Type.Optional(Type.String()),
-    timeout: Type.Optional(Type.Number()),
-    temperature: Type.Optional(Type.Number()),
-    top_p: Type.Optional(Type.Number()),
-    top_k: Type.Optional(Type.Number()),
-    max_input_tokens: Type.Optional(Type.Number()),
-    max_output_tokens: Type.Optional(Type.Number()),
-    reasoning_effort: Type.Optional(Type.String()),
-    reasoning_summary: Type.Optional(Type.String()),
+    profile_id: Type.Optional(Type.String()),
   },
   { additionalProperties: true },
 );

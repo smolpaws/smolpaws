@@ -7,6 +7,7 @@ import {
   LocalConversation,
   SecretRegistry,
   Workspace,
+  clearRawLlmFieldsWhenProfileSelected,
   createConfirmationPolicyFromSettings,
   type Event,
   type OpenHandsSettings,
@@ -29,6 +30,7 @@ import {
 import { readPersistedEventsOrThrow } from "../runner/eventService.js";
 import {
   getConfiguredWorkspaceRoot,
+  getConfiguredLlmProfileId,
   getDefaultWorkingDir,
   resolveAbsolutePersistenceRoot,
   resolvePersistenceDir,
@@ -61,8 +63,6 @@ import type {
   StartConversationRequest,
 } from "./models.js";
 
-const DEFAULT_MODEL_ENV = "LLM_MODEL";
-const DEFAULT_API_KEY_ENV = "LLM_API_KEY";
 const DEFAULT_REMOTE_TOOL_NAMES = ["terminal", "file_editor", "task_tracker"] as const;
 
 export type EventSubscriber = (event: Event) => void;
@@ -269,53 +269,33 @@ function registerSecrets(
   }
 }
 
+function registerRuntimeEnvSecrets(
+  registry: SecretRegistry,
+  settings: OpenHandsSettings,
+): void {
+  const githubToken = process.env.GITHUB_TOKEN?.trim();
+  if (githubToken) {
+    registry.set("GITHUB_TOKEN", githubToken);
+    settings.secrets.githubToken ||= githubToken;
+  }
+}
+
 function buildSettingsFromRequest(
   request: StartConversationRequest,
   registry: SecretRegistry,
   env: RunnerEnv,
 ): OpenHandsSettings {
   const llm = request.agent.llm;
-  const model = typeof llm.model === "string"
-    ? llm.model.trim()
-    : (env.LLM_MODEL ?? process.env[DEFAULT_MODEL_ENV] ?? "").trim();
-  if (!model) {
-    throw new Error("LLM model is required");
+  const profileId = typeof llm.profile_id === "string"
+    ? llm.profile_id.trim()
+    : getConfiguredLlmProfileId(env);
+  if (!profileId) {
+    throw new Error("LLM profile id is required");
   }
   const settings: OpenHandsSettings = {
-    llm: {
-      provider:
-        typeof llm.provider === "string"
-          ? (llm.provider as OpenHandsSettings["llm"]["provider"])
-          : (typeof env.LLM_PROVIDER === "string"
-            ? (env.LLM_PROVIDER as OpenHandsSettings["llm"]["provider"])
-            : undefined),
-      model,
-      baseUrl:
-        typeof llm.base_url === "string" && llm.base_url.trim()
-          ? llm.base_url
-          : env.LLM_BASE_URL,
-      apiVersion: typeof llm.api_version === "string" ? llm.api_version : undefined,
-      timeout: typeof llm.timeout === "number" ? llm.timeout : undefined,
-      temperature: typeof llm.temperature === "number" ? llm.temperature : undefined,
-      topP: typeof llm.top_p === "number" ? llm.top_p : undefined,
-      topK: typeof llm.top_k === "number" ? llm.top_k : undefined,
-      maxInputTokens:
-        typeof llm.max_input_tokens === "number"
-          ? llm.max_input_tokens
-          : undefined,
-      maxOutputTokens:
-        typeof llm.max_output_tokens === "number"
-          ? llm.max_output_tokens
-          : undefined,
-      reasoningEffort:
-        typeof llm.reasoning_effort === "string"
-          ? (llm.reasoning_effort as OpenHandsSettings["llm"]["reasoningEffort"])
-          : undefined,
-      reasoningSummary:
-        typeof llm.reasoning_summary === "string"
-          ? (llm.reasoning_summary as OpenHandsSettings["llm"]["reasoningSummary"])
-          : undefined,
-    },
+    llm: clearRawLlmFieldsWhenProfileSelected({
+      profileId,
+    }),
     agent: {
       enableSecurityAnalyzer: Boolean(request.agent.security_analyzer),
       debug: false,
@@ -346,10 +326,6 @@ function buildSettingsFromRequest(
       confirmUnknown: true,
     },
     secrets: {
-      llmApiKey:
-        typeof llm.api_key === "string" && llm.api_key.trim()
-          ? llm.api_key
-          : (env.LLM_API_KEY ?? process.env[DEFAULT_API_KEY_ENV]),
       awsAccessKeyId: (llm as { aws_access_key_id?: string }).aws_access_key_id,
       awsSecretAccessKey: (llm as { aws_secret_access_key?: string })
         .aws_secret_access_key,
@@ -367,6 +343,7 @@ function buildSettingsFromRequest(
   }
 
   registerSecrets(request.secrets, registry, settings);
+  registerRuntimeEnvSecrets(registry, settings);
 
   return settings;
 }

@@ -89,16 +89,16 @@ npm run github:deploy
 
 ```bash
 npm install
-LLM_MODEL=<model> LLM_API_KEY=<key> npm run runner:dev
+npm run runner:local
 ```
 
-Or use the checked-in launcher with env validation:
+The checked-in launcher is the canonical local entrypoint:
 
 ```bash
 npm run runner:local
 ```
 
-The local launcher now binds to `127.0.0.1` by default. If `~/.smolpaws/.env` exists, it is loaded automatically before startup. Use that file for local runtime secrets such as `LLM_MODEL`, `OPENAI_API_KEY`, and `GITHUB_TOKEN`. If you override `RUNNER_HOST` to a non-localhost address, you must also set `SMOLPAWS_RUNNER_TOKEN`.
+The local launcher now binds to `127.0.0.1` by default. If `~/.smolpaws/.env` exists, it is loaded automatically before startup. The active LLM profile is resolved from `LLM_PROFILE_ID` first, then from the VS Code user setting `openhands.llm.profileId` in the configured user `settings.json`. Use `~/.smolpaws/.env` for local runtime secrets such as provider API keys and `GITHUB_TOKEN`. If you override `RUNNER_HOST` to a non-localhost address, you must also set `SMOLPAWS_RUNNER_TOKEN`.
 
 ### Agent-server runtime tests
 
@@ -119,15 +119,19 @@ This includes the Worker -> agent-server contract test and notifications-path co
 
 ### Required env vars
 
-- `LLM_MODEL` (required)
-- `LLM_API_KEY` (required for hosted LLMs)
-- `LLM_BASE_URL` (optional)
-- `LLM_PROVIDER` (optional)
+- `LLM_PROFILE_ID` (optional if VS Code user settings already define `openhands.llm.profileId`)
+- provider API key(s) for the selected profile, usually one of:
+  - `OPENAI_API_KEY`
+  - `ANTHROPIC_API_KEY`
+  - `GEMINI_API_KEY`
+  - `OPENROUTER_API_KEY`
+  - `LITELLM_API_KEY`
 - `GITHUB_TOKEN` (optional local runtime GitHub token for the agent)
 - `SMOLPAWS_RUNNER_TOKEN` (required for non-localhost binds; optional for localhost-only use)
 - `RUNNER_HOST` (optional listen host; defaults to `127.0.0.1`)
 - `SMOLPAWS_WORKSPACE_ROOT` (optional workspace path)
 - `SMOLPAWS_PERSISTENCE_DIR` (optional persistence root; defaults to `~/.openhands/conversations`)
+- `SMOLPAWS_VSCODE_SETTINGS_PATH` (optional override for the VS Code user settings file used to resolve `openhands.llm.profileId`)
 - `OPENHANDS_CONVERSATIONS_DIR` (optional alias for persistence root)
 
 ## Deployment alternatives

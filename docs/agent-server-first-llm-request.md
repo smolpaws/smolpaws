@@ -13,6 +13,10 @@ This document is now backed by the executable runtime harness in `apps/agent-ser
 Important current behavior:
 
 - the canonical path now uses the full conversation lifecycle instead of the removed top-level `/run` shortcut
+- LLM selection is profile-first:
+  - the request may provide `agent.llm.profile_id`
+  - otherwise the standalone runner resolves the active profile from VS Code user settings key `openhands.llm.profileId`
+  - provider API keys come from the local runtime environment (for example `~/.smolpaws/.env`)
 - default tools are enabled for the GitHub ingress path: `terminal`, `file_editor`, and `task_tracker`
 - SmolPaws adds `send_message` on top of those default tools
 - SDK built-ins `finish` and `think` are also present
@@ -39,6 +43,8 @@ That shape is now continuously verified by the runtime tests:
 - `apps/agent-server/src/agent-server/conversationRuntime.test.ts`
 
 Because the current path now loads user and project skills from the local machine, the exact contents of `<REPO_CONTEXT>` and `<SKILLS>` depend on the checkout and home-directory skill inventory present on the host. The request skeleton below is therefore representative of the stable structure, while the earlier sections describe the current live sources that are appended to it.
+
+The representative request also assumes the local runner resolved a concrete profile before making the first provider call. In other words, the first provider request is still a normal resolved model call; the standalone agent-server just no longer treats raw inline `llm.model` as the primary public configuration path.
 
 ## Environment Information Excerpt
 

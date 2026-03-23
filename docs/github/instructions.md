@@ -139,12 +139,12 @@ The Worker creates or resumes a real conversation on the agent-server:
 ### Runner required env
 At minimum:
 
-- `LLM_MODEL`
-- `LLM_API_KEY`
+- an active LLM profile, resolved from `LLM_PROFILE_ID` or the VS Code user setting `openhands.llm.profileId`
+- the provider API key needed by that profile (for example `OPENAI_API_KEY`)
 - `RUNNER_HOST` defaults to `127.0.0.1`
 - `SMOLPAWS_RUNNER_TOKEN` is required if you bind the runner to any non-localhost host
 
-The checked-in launcher also auto-loads `~/.smolpaws/.env` if present. That is the preferred local place for `LLM_MODEL`, provider API keys, and a stable `GITHUB_TOKEN` for the `smolpaws` runtime identity.
+The checked-in launcher also auto-loads `~/.smolpaws/.env` if present. That is the preferred local place for provider API keys and a stable `GITHUB_TOKEN` for the `smolpaws` runtime identity. The launcher will also reuse the active VS Code profile selection from user `settings.json` unless you explicitly override it with `LLM_PROFILE_ID`.
 
 ## 5) Operational notes
 

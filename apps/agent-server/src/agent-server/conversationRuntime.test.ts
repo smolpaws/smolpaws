@@ -26,6 +26,7 @@ type TestFixture = {
   reposRoot: string;
   defaultRepoRoot: string;
   targetRepoRoot: string;
+  vscodeSettingsPath: string;
 };
 
 type AgentServerModules = {
@@ -41,6 +42,9 @@ const originalUserProfile = process.env.USERPROFILE;
 
 let sharedFixture: TestFixture | undefined;
 let loadedModulesPromise: Promise<AgentServerModules> | undefined;
+let saveProfilePromise:
+  | Promise<typeof import('@smolpaws/agent-sdk')['saveProfile']>
+  | undefined;
 
 function ensureSharedFixture(): TestFixture {
   if (sharedFixture) {
@@ -54,6 +58,11 @@ function ensureSharedFixture(): TestFixture {
   const reposRoot = path.join(homeDir, 'repos');
   const defaultRepoRoot = path.join(reposRoot, 'smolpaws');
   const targetRepoRoot = path.join(reposRoot, 'repo-a');
+  const vscodeSettingsPath = process.platform === 'darwin'
+    ? path.join(homeDir, 'Library', 'Application Support', 'Code', 'User', 'settings.json')
+    : process.platform === 'win32'
+      ? path.join(homeDir, 'AppData', 'Roaming', 'Code', 'User', 'settings.json')
+      : path.join(homeDir, '.config', 'Code', 'User', 'settings.json');
 
   mkdirSync(reposRoot, { recursive: true });
   mkdirSync(path.join(defaultRepoRoot, '.git'), { recursive: true });
@@ -64,6 +73,7 @@ function ensureSharedFixture(): TestFixture {
   mkdirSync(path.join(homeDir, '.openhands', 'skills', 'user-guidance'), {
     recursive: true,
   });
+  mkdirSync(path.dirname(vscodeSettingsPath), { recursive: true });
 
   writeFileSync(
     path.join(defaultRepoRoot, 'AGENTS.md'),
@@ -103,8 +113,28 @@ function ensureSharedFixture(): TestFixture {
     reposRoot,
     defaultRepoRoot,
     targetRepoRoot,
+    vscodeSettingsPath,
   };
   return sharedFixture;
+}
+
+function writeVscodeProfileSelection(fixture: TestFixture, profileId: string): void {
+  writeFileSync(
+    fixture.vscodeSettingsPath,
+    `${JSON.stringify({ 'openhands.llm.profileId': profileId }, null, 2)}\n`,
+  );
+}
+
+async function saveDefaultProfile(profileId: string, baseUrl: string, model = 'gpt-5'): Promise<void> {
+  if (!saveProfilePromise) {
+    saveProfilePromise = import('@smolpaws/agent-sdk').then((module) => module.saveProfile);
+  }
+  const saveProfile = await saveProfilePromise;
+  saveProfile(profileId, {
+    provider: 'openai',
+    model,
+    baseUrl,
+  });
 }
 
 async function loadAgentServerModules(): Promise<AgentServerModules> {
@@ -188,7 +218,6 @@ async function createTestApp(fakeLlmBaseUrl: string) {
     SMOLPAWS_WORKSPACE_ROOT: fixture.reposRoot,
     SMOLPAWS_DEFAULT_WORKING_DIR: 'smolpaws',
     SMOLPAWS_PERSISTENCE_DIR: persistenceDir,
-    LLM_BASE_URL: fakeLlmBaseUrl,
   });
   const { app } = await createAgentServerApp(deps);
   return { app, fixture };
@@ -213,21 +242,19 @@ function getToolNames(request: OpenAiRequest): string[] {
 }
 
 function buildCreateConversationBody(params: {
-  baseUrl: string;
   initialMessage: string;
   run?: boolean;
   tools?: Array<{ name: string }>;
   enableSendMessage?: boolean;
+  profileId?: string;
 }) {
   return {
     agent: {
-      llm: {
-        provider: 'openai',
-        model: 'test-model',
-        base_url: params.baseUrl,
-        api_key: 'test-api-key',
-      },
+      llm: params.profileId ? { profile_id: params.profileId } : {},
       ...(params.tools ? { tools: params.tools } : {}),
+    },
+    secrets: {
+      OPENAI_API_KEY: 'test-api-key',
     },
     max_iterations: 1,
     initial_message: {
@@ -250,13 +277,14 @@ function buildCreateConversationBody(params: {
 test('POST /api/conversations sends repo skills, user skills, tools, and environment info on the first LLM request', async () => {
   const fakeLlm = await startFakeLlmServer('hello from the first request');
   const { app, fixture } = await createTestApp(fakeLlm.baseUrl);
+  writeVscodeProfileSelection(fixture, 'gpt-5');
+  await saveDefaultProfile('gpt-5', fakeLlm.baseUrl);
 
   try {
     const response = await app.inject({
       method: 'POST',
       url: '/api/conversations',
       payload: buildCreateConversationBody({
-        baseUrl: fakeLlm.baseUrl,
         initialMessage: 'please inspect repo-a',
         enableSendMessage: true,
       }),
@@ -269,7 +297,7 @@ test('POST /api/conversations sends repo skills, user skills, tools, and environ
     const systemPrompt = getSystemPrompt(llmRequest);
     const toolNames = getToolNames(llmRequest);
 
-    assert.equal(llmRequest.model, 'test-model');
+    assert.equal(llmRequest.model, 'gpt-5');
     assert.equal(llmRequest.stream, true);
     assert.deepEqual(llmRequest.messages.at(-1), {
       role: 'user',
@@ -320,14 +348,15 @@ test('POST /api/conversations sends repo skills, user skills, tools, and environ
 
 test('requested remote tools shape the exposed tool set without reintroducing unwanted defaults', async () => {
   const fakeLlm = await startFakeLlmServer('tool profile response');
-  const { app } = await createTestApp(fakeLlm.baseUrl);
+  const { app, fixture } = await createTestApp(fakeLlm.baseUrl);
+  writeVscodeProfileSelection(fixture, 'gpt-5');
+  await saveDefaultProfile('gpt-5', fakeLlm.baseUrl);
 
   try {
     const response = await app.inject({
       method: 'POST',
       url: '/api/conversations',
       payload: buildCreateConversationBody({
-        baseUrl: fakeLlm.baseUrl,
         initialMessage: 'check the available tools',
         tools: [{ name: 'terminal' }, { name: 'browser' }],
         enableSendMessage: false,
@@ -347,14 +376,15 @@ test('requested remote tools shape the exposed tool set without reintroducing un
 
 test('queued idle runs stay on the canonical conversation path and only hit the LLM when /run is called', async () => {
   const fakeLlm = await startFakeLlmServer('queued meow');
-  const { app } = await createTestApp(fakeLlm.baseUrl);
+  const { app, fixture } = await createTestApp(fakeLlm.baseUrl);
+  writeVscodeProfileSelection(fixture, 'gpt-5');
+  await saveDefaultProfile('gpt-5', fakeLlm.baseUrl);
 
   try {
     const createResponse = await app.inject({
       method: 'POST',
       url: '/api/conversations',
       payload: buildCreateConversationBody({
-        baseUrl: fakeLlm.baseUrl,
         initialMessage: 'wait before running',
         run: false,
         enableSendMessage: true,
@@ -416,6 +446,33 @@ test('queued idle runs stay on the canonical conversation path and only hit the 
       assistantEvent.llm_message?.content?.[0]?.text,
       'queued meow',
     );
+  } finally {
+    await app.close();
+    await fakeLlm.close();
+  }
+});
+
+test('request llm.profile_id overrides the VS Code-selected default profile', async () => {
+  const fakeLlm = await startFakeLlmServer('override profile response');
+  const { app, fixture } = await createTestApp(fakeLlm.baseUrl);
+  writeVscodeProfileSelection(fixture, 'gpt-5');
+  await saveDefaultProfile('gpt-5', fakeLlm.baseUrl);
+  await saveDefaultProfile('repo-a-profile', fakeLlm.baseUrl, 'gpt-5-mini');
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/conversations',
+      payload: buildCreateConversationBody({
+        initialMessage: 'use the explicit profile',
+        enableSendMessage: false,
+        profileId: 'repo-a-profile',
+      }),
+    });
+
+    assert.equal(response.statusCode, 201);
+    assert.equal(fakeLlm.requests.length, 1);
+    assert.equal(fakeLlm.requests[0]?.model, 'gpt-5-mini');
   } finally {
     await app.close();
     await fakeLlm.close();

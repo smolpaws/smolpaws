@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -8,13 +9,11 @@ export type RunnerEnv = {
   HOST?: string;
   RUNNER_PORT?: string;
   PORT?: string;
-  LLM_MODEL?: string;
-  LLM_BASE_URL?: string;
-  LLM_PROVIDER?: string;
-  LLM_API_KEY?: string;
+  LLM_PROFILE_ID?: string;
   SMOLPAWS_WORKSPACE_ROOT?: string;
   SMOLPAWS_DEFAULT_WORKING_DIR?: string;
   SMOLPAWS_PERSISTENCE_DIR?: string;
+  SMOLPAWS_VSCODE_SETTINGS_PATH?: string;
 };
 
 export type AuthResult = {
@@ -35,14 +34,54 @@ export function getEnv(): RunnerEnv {
     HOST: process.env.HOST,
     RUNNER_PORT: process.env.RUNNER_PORT,
     PORT: process.env.PORT,
-    LLM_MODEL: process.env.LLM_MODEL,
-    LLM_BASE_URL: process.env.LLM_BASE_URL,
-    LLM_PROVIDER: process.env.LLM_PROVIDER,
-    LLM_API_KEY: process.env.LLM_API_KEY,
+    LLM_PROFILE_ID: process.env.LLM_PROFILE_ID,
     SMOLPAWS_WORKSPACE_ROOT: process.env.SMOLPAWS_WORKSPACE_ROOT,
     SMOLPAWS_DEFAULT_WORKING_DIR: process.env.SMOLPAWS_DEFAULT_WORKING_DIR,
     SMOLPAWS_PERSISTENCE_DIR: process.env.SMOLPAWS_PERSISTENCE_DIR,
+    SMOLPAWS_VSCODE_SETTINGS_PATH: process.env.SMOLPAWS_VSCODE_SETTINGS_PATH,
   };
+}
+
+function expandHomeDir(value: string): string {
+  if (value === '~') return os.homedir();
+  if (value.startsWith('~/')) return path.join(os.homedir(), value.slice(2));
+  return value;
+}
+
+export function resolveVscodeSettingsPath(env: RunnerEnv): string {
+  const configured = env.SMOLPAWS_VSCODE_SETTINGS_PATH?.trim();
+  if (configured) {
+    return path.resolve(expandHomeDir(configured));
+  }
+  if (process.platform === 'darwin') {
+    return path.join(os.homedir(), 'Library', 'Application Support', 'Code', 'User', 'settings.json');
+  }
+  if (process.platform === 'win32') {
+    return path.join(os.homedir(), 'AppData', 'Roaming', 'Code', 'User', 'settings.json');
+  }
+  return path.join(os.homedir(), '.config', 'Code', 'User', 'settings.json');
+}
+
+export function getConfiguredLlmProfileId(env: RunnerEnv): string | undefined {
+  const explicit = env.LLM_PROFILE_ID?.trim();
+  if (explicit) {
+    return explicit;
+  }
+
+  try {
+    const settingsPath = resolveVscodeSettingsPath(env);
+    if (!fsSync.existsSync(settingsPath)) {
+      return undefined;
+    }
+    const raw = fsSync.readFileSync(settingsPath, 'utf8');
+    const parsed = JSON.parse(raw) as { ['openhands.llm.profileId']?: unknown };
+    const profileId = typeof parsed['openhands.llm.profileId'] === 'string'
+      ? parsed['openhands.llm.profileId'].trim()
+      : '';
+    return profileId || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function resolveRunnerHost(env: RunnerEnv): string {

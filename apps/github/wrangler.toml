@@ -16,7 +16,7 @@ max_batch_size = 1
 max_batch_timeout = 5
 
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["* * * * *"]
 
 [vars]
 ALLOWED_ACTORS = "amanape,neubig,enyst,mamoodi,malhotra5,rbren,xingyaoww"
