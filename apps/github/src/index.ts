@@ -410,15 +410,19 @@ async function fetchNotificationMention(
       return null;
     }
 
+    const event = isReviewCommentUrl(latestCommentUrl)
+      ? "pull_request_review_comment"
+      : "issue_comment";
+
     return {
-      event: isReviewCommentUrl(latestCommentUrl)
-        ? "pull_request_review_comment"
-        : "issue_comment",
+      event,
       body: commentBody,
       senderLogin,
       senderId: comment.user?.id,
       commentId: comment.id,
       issueNumber,
+      pullRequestNumber:
+        event === "pull_request_review_comment" ? issueNumber : undefined,
       repoFullName,
       ownerLogin,
     };

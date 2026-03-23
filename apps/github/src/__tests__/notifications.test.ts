@@ -278,3 +278,65 @@ test('scheduled notifications still queue comment mentions from latest_comment_u
     ),
   );
 });
+
+test('scheduled notifications queue pull request review-comment mentions with pull_request context', async () => {
+  const commentUrl =
+    'https://api.github.com/repos/enyst/OpenHands-Tab/pulls/comments/99';
+  const { sent } = await runScheduled({
+    notifications: [
+      {
+        id: 'thread-3',
+        reason: 'mention',
+        subject: {
+          url: 'https://api.github.com/repos/enyst/OpenHands-Tab/pulls/456',
+          latest_comment_url: commentUrl,
+          type: 'PullRequest',
+        },
+        repository: {
+          full_name: 'enyst/OpenHands-Tab',
+          owner: { login: 'enyst' },
+        },
+      },
+    ],
+    responses: {
+      [commentUrl]: {
+        body: {
+          id: 99,
+          body: '@smolpaws review this PR comment',
+          user: { login: 'enyst', id: 9 },
+          pull_request_url: 'https://api.github.com/repos/enyst/OpenHands-Tab/pulls/456',
+        },
+      },
+      'https://api.github.com/notifications/threads/thread-3': {
+        body: {},
+      },
+    },
+  });
+
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0], {
+    event: 'pull_request_review_comment',
+    payload: {
+      action: 'created',
+      sender: { login: 'enyst', id: 9 },
+      comment: {
+        body: '@smolpaws review this PR comment',
+        id: 99,
+      },
+      repository: {
+        full_name: 'enyst/OpenHands-Tab',
+        owner: { login: 'enyst' },
+      },
+      issue: {
+        number: 456,
+      },
+      pull_request: {
+        number: 456,
+      },
+    },
+    meta: {
+      ingress: 'github_notifications',
+      notification_thread_id: 'thread-3',
+    },
+  });
+});
