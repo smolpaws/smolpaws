@@ -45,7 +45,10 @@ if [[ -z "${LLM_PROFILE_ID:-}" ]] && [[ -f "${SMOLPAWS_VSCODE_SETTINGS_PATH}" ]]
           ? settings["openhands.llm.profileId"].trim()
           : "";
         if (value) process.stdout.write(value);
-      } catch {}
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[run-local] Warning: Could not read profile from ${file}: ${message}`);
+      }
     ' "${SMOLPAWS_VSCODE_SETTINGS_PATH}"
   )"
   if [[ -n "${detected_profile_id}" ]]; then

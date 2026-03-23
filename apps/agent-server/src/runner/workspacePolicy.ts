@@ -79,7 +79,12 @@ export function getConfiguredLlmProfileId(env: RunnerEnv): string | undefined {
       ? parsed['openhands.llm.profileId'].trim()
       : '';
     return profileId || undefined;
-  } catch {
+  } catch (error) {
+    console.warn(
+      `[agent-server] Failed to read LLM profile from VS Code settings: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
     return undefined;
   }
 }
