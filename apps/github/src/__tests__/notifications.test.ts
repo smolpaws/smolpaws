@@ -268,6 +268,43 @@ test('webhook mentions fail closed when ALLOWED_ACTORS is missing', async () => 
   assert.equal(sent.length, 0);
 });
 
+test('webhook mentions fail closed when ALLOWED_ACTORS is empty', async () => {
+  const sent: SmolpawsQueueMessage[] = [];
+  const env: TestEnv = {
+    GITHUB_WEBHOOK_SECRET: 'secret',
+    GITHUB_APP_ID: '1',
+    GITHUB_APP_PRIVATE_KEY: 'pem',
+    ALLOWED_ACTORS: '',
+    SMOLPAWS_QUEUE: {
+      async send(message: SmolpawsQueueMessage): Promise<void> {
+        sent.push(message);
+      },
+    },
+  };
+
+  const request = await createSignedWebhookRequest(
+    {
+      action: 'created',
+      sender: { login: 'enyst', id: 1 },
+      comment: { body: '@smolpaws test the webhook path', id: 42 },
+      repository: {
+        full_name: 'enyst/.openhands',
+        owner: { login: 'enyst' },
+      },
+      issue: { number: 4 },
+      installation: { id: 99 },
+    },
+    env.GITHUB_WEBHOOK_SECRET,
+  );
+
+  const response = await worker.fetch?.(request, env as never);
+
+  assert(response);
+  assert.equal(response.status, 500);
+  assert.equal(await response.text(), 'ALLOWED_ACTORS not configured');
+  assert.equal(sent.length, 0);
+});
+
 test('scheduled notifications still queue comment mentions from latest_comment_url', async () => {
   const commentUrl = 'https://api.github.com/repos/enyst/OpenHands-Tab/issues/comments/55';
   const { sent, fetchCalls } = await runScheduled({
@@ -501,6 +538,19 @@ test('scheduled notifications fail closed when ALLOWED_ACTORS is missing', async
     },
     env: {
       ALLOWED_ACTORS: undefined,
+    },
+  });
+
+  assert.equal(sent.length, 0);
+  assert.deepEqual(fetchCalls, []);
+});
+
+test('scheduled notifications fail closed when ALLOWED_ACTORS is empty', async () => {
+  const { sent, fetchCalls } = await runScheduled({
+    notifications: [],
+    responses: {},
+    env: {
+      ALLOWED_ACTORS: '',
     },
   });
 
