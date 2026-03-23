@@ -194,7 +194,7 @@ function isAllowed(payload: GithubEventPayload, env: Env): boolean {
   const repo = payload.repository?.full_name?.toLowerCase();
   const installationId = payload.installation?.id?.toString();
 
-  if (allowedActors.size && (!actor || !allowedActors.has(actor))) {
+  if (!actor || !allowedActors.has(actor)) {
     return false;
   }
 
