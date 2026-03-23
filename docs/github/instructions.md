@@ -146,6 +146,21 @@ At minimum:
 
 The checked-in launcher also auto-loads `~/.smolpaws/.env` if present. That is the preferred local place for provider API keys and a stable `GITHUB_TOKEN` for the `smolpaws` runtime identity. The launcher will also reuse the active VS Code profile selection from user `settings.json` unless you explicitly override it with `LLM_PROFILE_ID`.
 
+For GitHub-triggered runs, the agent-server resolves the local working directory like this:
+
+1. explicit `workspace.working_dir` from the request, if provided
+2. `~/.smolpaws/repo-map.json` for mismatched local clone names
+3. a local clone under `SMOLPAWS_WORKSPACE_ROOT` whose directory name matches the GitHub repo name
+4. the configured default working dir
+
+`~/.smolpaws/repo-map.json` is a simple JSON object mapping GitHub `owner/repo` to a local directory name or path:
+
+```json
+{
+  "OpenHands/OpenHands-Tab": "oh-tab"
+}
+```
+
 ## 5) Operational notes
 
 - The notifications path marks threads as read after enqueueing. If a queue job fails and retries, it will not be re-enqueued by polling (but the queued message will still retry).

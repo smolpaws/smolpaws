@@ -100,6 +100,21 @@ npm run runner:local
 
 The local launcher now binds to `127.0.0.1` by default. If `~/.smolpaws/.env` exists, it is loaded automatically before startup. The active LLM profile is resolved from `LLM_PROFILE_ID` first, then from the VS Code user setting `openhands.llm.profileId` in the configured user `settings.json`. Use `~/.smolpaws/.env` for local runtime secrets such as provider API keys and `GITHUB_TOKEN`. If you override `RUNNER_HOST` to a non-localhost address, you must also set `SMOLPAWS_RUNNER_TOKEN`.
 
+For GitHub-triggered runs, the agent-server now resolves the local repo workspace automatically:
+
+- first, for mismatched local clone names, by `~/.smolpaws/repo-map.json`
+- then by a local clone under `SMOLPAWS_WORKSPACE_ROOT` whose directory name matches the GitHub repo name
+- otherwise by the configured default working dir
+
+Example `~/.smolpaws/repo-map.json`:
+
+```json
+{
+  "OpenHands/OpenHands-Tab": "oh-tab",
+  "OpenHands/software-agent-sdk": "agent-sdk"
+}
+```
+
 ### Agent-server runtime tests
 
 ```bash
@@ -130,6 +145,7 @@ This includes the Worker -> agent-server contract test and notifications-path co
 - `SMOLPAWS_RUNNER_TOKEN` (required for non-localhost binds; optional for localhost-only use)
 - `RUNNER_HOST` (optional listen host; defaults to `127.0.0.1`)
 - `SMOLPAWS_WORKSPACE_ROOT` (optional workspace path)
+- `SMOLPAWS_REPO_MAP_PATH` (optional override for `~/.smolpaws/repo-map.json`)
 - `SMOLPAWS_PERSISTENCE_DIR` (optional persistence root; defaults to `~/.openhands/conversations`)
 - `SMOLPAWS_VSCODE_SETTINGS_PATH` (optional override for the VS Code user settings file used to resolve `openhands.llm.profileId`)
 - `OPENHANDS_CONVERSATIONS_DIR` (optional alias for persistence root)
@@ -162,6 +178,5 @@ Daytona is currently deferred as a workspace-level follow-up, not an active requ
 
 ## Remaining work
 
-- Implement repo checkout / workspace resolution for non-Daytona runs so GitHub mentions are not limited to one ambient runner root.
 - Decide whether any deeper persisted-conversation resume/rehydration behavior is worth supporting beyond the current explicit conflict responses for non-live control routes.
 - Reintroduce Daytona later as a real workspace backend instead of a request-path special case.

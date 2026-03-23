@@ -318,7 +318,7 @@ test('POST /api/conversations sends repo skills, user skills, tools, and environ
     assert.match(systemPrompt, /Default conversation working_dir within that root: smolpaws/);
     assert.match(
       systemPrompt,
-      new RegExp(`Current resolved working directory for this conversation: ${fixture.defaultRepoRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+      new RegExp(`Current resolved working directory for this conversation: ${fixture.targetRepoRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
     );
     assert.match(
       systemPrompt,

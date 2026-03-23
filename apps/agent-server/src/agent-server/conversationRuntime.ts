@@ -34,7 +34,6 @@ import {
   getDefaultWorkingDir,
   resolveAbsolutePersistenceRoot,
   resolvePersistenceDir,
-  resolveWorkspaceRoot,
   type RunnerEnv,
 } from "../runner/workspacePolicy.js";
 import {
@@ -51,6 +50,7 @@ import {
   loadProjectSkills,
   resolveProjectSkillsRoot,
 } from "./projectSkills.js";
+import { resolveConversationWorkspaceRoot } from './repoWorkspace.js';
 import type {
   SmolpawsGithubContext,
   SmolpawsConversationConfigValue,
@@ -538,7 +538,11 @@ export function createConversationRuntime({
 
     const registry = new SecretRegistry();
     const settings = buildSettingsFromRequest(request, registry, env);
-    const workspaceRoot = resolveWorkspaceRoot(request.workspace?.working_dir, env);
+    const workspaceRoot = resolveConversationWorkspaceRoot({
+      requestedWorkingDir: request.workspace?.working_dir,
+      env,
+      smolpawsConfig,
+    });
     const workspace = Workspace({ kind: "local", root: workspaceRoot });
     const projectSkillsRoot = resolveProjectSkillsRoot({
       workspaceRoot,

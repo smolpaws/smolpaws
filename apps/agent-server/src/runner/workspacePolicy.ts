@@ -14,6 +14,7 @@ export type RunnerEnv = {
   SMOLPAWS_DEFAULT_WORKING_DIR?: string;
   SMOLPAWS_PERSISTENCE_DIR?: string;
   SMOLPAWS_VSCODE_SETTINGS_PATH?: string;
+  SMOLPAWS_REPO_MAP_PATH?: string;
 };
 
 export type AuthResult = {
@@ -39,6 +40,7 @@ export function getEnv(): RunnerEnv {
     SMOLPAWS_DEFAULT_WORKING_DIR: process.env.SMOLPAWS_DEFAULT_WORKING_DIR,
     SMOLPAWS_PERSISTENCE_DIR: process.env.SMOLPAWS_PERSISTENCE_DIR,
     SMOLPAWS_VSCODE_SETTINGS_PATH: process.env.SMOLPAWS_VSCODE_SETTINGS_PATH,
+    SMOLPAWS_REPO_MAP_PATH: process.env.SMOLPAWS_REPO_MAP_PATH,
   };
 }
 
@@ -60,6 +62,14 @@ export function resolveVscodeSettingsPath(env: RunnerEnv): string {
     return path.join(os.homedir(), 'AppData', 'Roaming', 'Code', 'User', 'settings.json');
   }
   return path.join(os.homedir(), '.config', 'Code', 'User', 'settings.json');
+}
+
+export function resolveRepoMapPath(env: RunnerEnv): string {
+  const configured = env.SMOLPAWS_REPO_MAP_PATH?.trim();
+  if (configured) {
+    return path.resolve(expandHomeDir(configured));
+  }
+  return path.join(os.homedir(), '.smolpaws', 'repo-map.json');
 }
 
 export function getConfiguredLlmProfileId(env: RunnerEnv): string | undefined {

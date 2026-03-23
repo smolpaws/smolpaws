@@ -6,10 +6,10 @@ import {
 } from '@smolpaws/agent-sdk';
 import type { SmolpawsConversationConfigValue } from '../shared/runner.js';
 import {
-  getConfiguredWorkspaceRoot,
   getDefaultWorkingDir,
   type RunnerEnv,
 } from '../runner/workspacePolicy.js';
+import { resolveGithubRepoWorkspaceRoot } from './repoWorkspace.js';
 
 const PROJECT_SKILL_DIRS = [
   ['.agents', 'skills'],
@@ -79,30 +79,20 @@ export function loadProjectSkills(projectRoot: string): Skill[] {
   return allSkills;
 }
 
-function parseGithubRepoName(
-  config?: SmolpawsConversationConfigValue,
-): string | undefined {
-  const fullName = config?.github?.repository_full_name?.trim();
-  if (!fullName) {
-    return undefined;
-  }
-  const repoName = fullName.substring(fullName.lastIndexOf('/') + 1).trim();
-  return repoName || undefined;
-}
-
 export function resolveProjectSkillsRoot(params: {
   workspaceRoot: string;
   env: RunnerEnv;
   smolpawsConfig?: SmolpawsConversationConfigValue;
 }): string {
   const fallbackRoot = getDefaultWorkingDir(params.env);
-  const repoName = parseGithubRepoName(params.smolpawsConfig);
-  const configuredWorkspaceRoot = getConfiguredWorkspaceRoot(params.env);
   const candidates = [
-    ...(repoName ? [path.join(configuredWorkspaceRoot, repoName)] : []),
+    resolveGithubRepoWorkspaceRoot({
+      env: params.env,
+      smolpawsConfig: params.smolpawsConfig,
+    }),
     params.workspaceRoot,
     fallbackRoot,
-  ];
+  ].filter((candidate): candidate is string => Boolean(candidate));
 
   const seen = new Set<string>();
   for (const candidate of candidates) {
