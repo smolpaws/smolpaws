@@ -27,6 +27,7 @@ import {
 } from './control-scope.js';
 import { scopeFromRegisteredGroup } from './scope.js';
 import { loadJson, saveJson } from './utils.js';
+import { collapseMessagesToLatestPerChat } from './message-loop.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -131,16 +132,18 @@ async function processMessage(msg: NewMessage): Promise<void> {
   logger.info({ group: group.name, messageCount: missedMessages.length }, 'Processing message');
 
   await setTyping(msg.chat_jid, true);
-  const response = await runAgent(group, prompt, msg.chat_jid);
+  const output = await runAgent(group, prompt, msg.chat_jid);
   await setTyping(msg.chat_jid, false);
 
-  if (response) {
+  if (output.status === 'success') {
     lastAgentTimestamp[msg.chat_jid] = msg.timestamp;
-    await sendMessage(msg.chat_jid, `${ASSISTANT_NAME}: ${response}`);
+    if (output.result) {
+      await sendMessage(msg.chat_jid, `${ASSISTANT_NAME}: ${output.result}`);
+    }
   }
 }
 
-async function runAgent(group: RegisteredGroup, prompt: string, chatJid: string): Promise<string | null> {
+async function runAgent(group: RegisteredGroup, prompt: string, chatJid: string) {
   const scope = scopeFromRegisteredGroup(chatJid, group);
   const conversationId = sessions[scope.scopeId];
 
@@ -164,7 +167,7 @@ async function runAgent(group: RegisteredGroup, prompt: string, chatJid: string)
 
     if (output.status === 'error') {
       logger.error({ group: group.name, error: output.error }, 'Agent runtime error');
-      return null;
+      return output;
     }
 
     if (output.outboundMessages?.length) {
@@ -175,13 +178,18 @@ async function runAgent(group: RegisteredGroup, prompt: string, chatJid: string)
         }
         await sendMessage(chatJid, `${ASSISTANT_NAME}: ${outbound.text}`);
       }
-      return null;
+      return output;
     }
 
-    return output.result;
+    return output;
   } catch (err) {
     logger.error({ group: group.name, err }, 'Agent error');
-    return null;
+    return {
+      status: 'error' as const,
+      result: null,
+      error: err instanceof Error ? err.message : String(err),
+      conversationId,
+    };
   }
 }
 
@@ -277,8 +285,11 @@ async function startMessageLoop(): Promise<void> {
       const jids = Object.keys(registeredGroups);
       const { messages } = getNewMessages(jids, lastTimestamp, ASSISTANT_NAME);
 
-      if (messages.length > 0) logger.info({ count: messages.length }, 'New messages');
-      for (const msg of messages) {
+      const pendingMessages = collapseMessagesToLatestPerChat(messages);
+      if (pendingMessages.length > 0) {
+        logger.info({ count: pendingMessages.length }, 'New messages');
+      }
+      for (const msg of pendingMessages) {
         try {
           await processMessage(msg);
           // Only advance timestamp after successful processing for at-least-once delivery

@@ -32,6 +32,10 @@ type RunnerOutboundMessage = {
   text: string;
 };
 
+type LocalRunnerAttemptResult = AgentRuntimeOutput & {
+  errorCode?: string;
+};
+
 const DEFAULT_AGENT_TOOLS = [
   { name: 'terminal' },
   { name: 'file_editor' },
@@ -190,6 +194,51 @@ async function loadConversationResult(
   return extractConversationResult(page);
 }
 
+async function executeConversationAttempt(
+  baseUrl: string,
+  scope: ExecutionScope,
+  input: AgentRuntimeInput,
+  options?: { registeredGroups?: Record<string, RegisteredGroup> },
+): Promise<LocalRunnerAttemptResult> {
+  const conversation = await createOrContinueConversation(baseUrl, scope, input);
+  const taskCommands = await claimConversationTaskCommands(baseUrl, conversation.id);
+  for (const command of taskCommands) {
+    processSharedRunnerTaskCommand(
+      command,
+      scope.scopeId,
+      options?.registeredGroups ?? {},
+      logger,
+    );
+  }
+
+  const outboundMessages = await claimConversationOutbox(baseUrl, conversation.id);
+  if (outboundMessages.length > 0) {
+    return {
+      status: 'success',
+      conversationId: conversation.id,
+      result: null,
+      outboundMessages,
+    };
+  }
+
+  const result = await loadConversationResult(baseUrl, conversation.id);
+  if (result.errorCode) {
+    return {
+      status: 'error',
+      result: null,
+      conversationId: conversation.id,
+      error: result.errorDetail ?? result.errorCode,
+      errorCode: result.errorCode,
+    };
+  }
+
+  return {
+    status: 'success',
+    result: result.reply,
+    conversationId: conversation.id,
+  };
+}
+
 export async function runLocalAgentServerAgent(
   scope: ExecutionScope,
   input: AgentRuntimeInput,
@@ -197,42 +246,21 @@ export async function runLocalAgentServerAgent(
 ): Promise<AgentRuntimeOutput> {
   try {
     const baseUrl = await ensureLocalRunnerReady();
-    const conversation = await createOrContinueConversation(baseUrl, scope, input);
-    const taskCommands = await claimConversationTaskCommands(baseUrl, conversation.id);
-    for (const command of taskCommands) {
-      processSharedRunnerTaskCommand(
-        command,
-        scope.scopeId,
-        options?.registeredGroups ?? {},
-        logger,
+    const firstAttempt = await executeConversationAttempt(baseUrl, scope, input, options);
+    if (firstAttempt.status === 'error'
+      && input.conversationId
+      && firstAttempt.errorCode === 'max_iterations_exceeded') {
+      logger.warn(
+        { scopeId: scope.scopeId, conversationId: input.conversationId },
+        'Reused conversation hit max iterations; starting a fresh conversation',
       );
+      return await executeConversationAttempt(baseUrl, scope, {
+        ...input,
+        conversationId: undefined,
+      }, options);
     }
 
-    const outboundMessages = await claimConversationOutbox(baseUrl, conversation.id);
-    if (outboundMessages.length > 0) {
-      return {
-        status: 'success',
-        conversationId: conversation.id,
-        result: null,
-        outboundMessages,
-      };
-    }
-
-    const result = await loadConversationResult(baseUrl, conversation.id);
-    if (result.errorCode) {
-      return {
-        status: 'error',
-        result: null,
-        conversationId: conversation.id,
-        error: result.errorDetail ?? result.errorCode,
-      };
-    }
-
-    return {
-      status: 'success',
-      result: result.reply,
-      conversationId: conversation.id,
-    };
+    return firstAttempt;
   } catch (error) {
     return {
       status: 'error',

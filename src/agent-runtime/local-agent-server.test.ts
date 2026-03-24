@@ -289,3 +289,110 @@ test('runLocalAgentServerAgent passes the provided conversation id through to th
     delete process.env.SMOLPAWS_RUNNER_URL;
   }
 });
+
+test('runLocalAgentServerAgent starts fresh after max_iterations_exceeded on a reused conversation', async () => {
+  initDatabase();
+  process.env.SMOLPAWS_RUNNER_URL = 'http://127.0.0.1:8788';
+
+  const conversationBodies: Array<{ conversation_id?: string; max_iterations: number }> = [];
+  let createCount = 0;
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    if (url.endsWith('/ready')) {
+      return new Response(JSON.stringify({ status: 'ready' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.endsWith('/api/conversations')) {
+      const body = JSON.parse(String(init?.body)) as { conversation_id?: string; max_iterations: number };
+      conversationBodies.push(body);
+      createCount += 1;
+      return new Response(JSON.stringify({ id: createCount === 1 ? 'reused-conv' : 'fresh-conv' }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.endsWith('/task_commands/claim')) {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.includes('/reused-conv/outbound_messages/claim')) {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.includes('/fresh-conv/outbound_messages/claim')) {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.includes('/reused-conv/events/search?')) {
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              kind: 'ConversationErrorEvent',
+              code: 'max_iterations_exceeded',
+              detail: 'Agent hit the iteration cap',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }
+    if (url.includes('/fresh-conv/events/search?')) {
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              kind: 'MessageEvent',
+              llm_message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'fresh reply' }],
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+
+  try {
+    const result = await runLocalAgentServerAgent(TEST_SCOPE, {
+      prompt: 'continue please',
+      conversationId: 'reused-conv',
+      scopeId: TEST_SCOPE.scopeId,
+      chatJid: TEST_SCOPE.chatJid,
+      isControlScope: TEST_SCOPE.isControlScope,
+    });
+
+    assert.deepEqual(result, {
+      status: 'success',
+      result: 'fresh reply',
+      conversationId: 'fresh-conv',
+    });
+    assert.equal(conversationBodies.length, 2);
+    assert.equal(conversationBodies[0]?.conversation_id, 'reused-conv');
+    assert.equal(conversationBodies[0]?.max_iterations, 5000);
+    assert.equal(conversationBodies[1]?.conversation_id, undefined);
+    assert.equal(conversationBodies[1]?.max_iterations, 5000);
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.SMOLPAWS_RUNNER_URL;
+  }
+});
