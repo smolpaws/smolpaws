@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import {
   loadSkillsFromDir,
@@ -17,12 +17,7 @@ const PROJECT_SKILL_DIRS = [
   ['.openhands', 'microagents'],
 ] as const;
 
-const SMOLPAWS_CONTEXT_DOCS = [
-  ['docs', 'smolpaws', 'AGENTS.md', 'smolpaws-agents'],
-  ['docs', 'smolpaws', 'IDENTITY.md', 'smolpaws-identity'],
-  ['docs', 'smolpaws', 'USER.md', 'smolpaws-user'],
-  ['docs', 'smolpaws', 'TOOLS.md', 'smolpaws-tools'],
-] as const;
+const SMOLPAWS_CONTEXT_DOCS_DIR = ['docs', 'smolpaws'] as const;
 
 function isDirectory(dirPath: string): boolean {
   return existsSync(dirPath) && statSync(dirPath).isDirectory();
@@ -88,15 +83,19 @@ export function loadProjectSkills(projectRoot: string): Skill[] {
 
 export function loadSmolpawsContextDocs(env: RunnerEnv): Skill[] {
   const repoRoot = path.resolve(getDefaultWorkingDir(env));
+  const docsRoot = path.join(repoRoot, ...SMOLPAWS_CONTEXT_DOCS_DIR);
   const docs: Skill[] = [];
 
-  for (const contextDoc of SMOLPAWS_CONTEXT_DOCS) {
-    const skillName = contextDoc[contextDoc.length - 1];
-    const filePath = path.join(repoRoot, ...contextDoc.slice(0, -1));
-    if (!existsSync(filePath)) {
+  if (!isDirectory(docsRoot)) {
+    return docs;
+  }
+
+  for (const entry of readdirSync(docsRoot, { withFileTypes: true })) {
+    if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== '.md') {
       continue;
     }
-
+    const filePath = path.join(docsRoot, entry.name);
+    const skillName = `smolpaws-${path.basename(entry.name, '.md').toLowerCase()}`;
     docs.push(
       new Skill({
         name: skillName,
@@ -107,7 +106,7 @@ export function loadSmolpawsContextDocs(env: RunnerEnv): Skill[] {
     );
   }
 
-  return docs;
+  return docs.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function resolveProjectSkillsRoot(params: {

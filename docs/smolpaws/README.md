@@ -2,29 +2,32 @@
 
 This directory adapts the OpenClaw template family for SmolPaws.
 
-These files are meant to shape how SmolPaws behaves, but not all of them are live in the runtime yet.
+SmolPaws should treat this directory as the canonical local source of self/context:
+
+- identity
+- soul
+- user
+- tool and machine layout
+- long-term memory
+- daily memory
 
 ## Live Today
 
-The canonical local SmolPaws repo now loads these files into the agent context on every run:
+All root markdown files in this directory are loaded into the live SmolPaws context on every run.
+
+That includes:
 
 - `AGENTS.md`
 - `IDENTITY.md`
 - `USER.md`
 - `TOOLS.md`
+- `SOUL.md`
+- `MEMORY.md`
+- `HEARTBEAT.md`
+- `BOOT.md`
+- `BOOTSTRAP.md`
 
-The canonical SmolPaws soul still lives at `../../SOUL.md`, and the agent-server turns that into the first-turn identity prefix.
-
-## Reference Only For Now
-
-These files are present because they are part of the OpenClaw-style workspace model, but SmolPaws does not fully execute them yet:
-
-- `SOUL.md` - mirror and companion to the canonical root soul
-- `HEARTBEAT.md` - needs proactive heartbeat ingress before it becomes operational
-- `BOOT.md` - needs a startup hook before it becomes operational
-- `BOOTSTRAP.md` - useful for first-run rituals, but not auto-invoked today
-
-Heartbeat follow-up is tracked in Beads as `smolpaws-cdb`.
+Daily memory files live under `memory/`. They are not auto-injected, but SmolPaws is explicitly pointed at them and should read them when needed.
 
 ## Why This Exists
 

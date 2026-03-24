@@ -103,8 +103,16 @@ function ensureSharedFixture(): TestFixture {
     '# SmolPaws Workspace\nThis repository is SmolPaws home den.\n',
   );
   writeFileSync(
+    path.join(defaultRepoRoot, 'docs', 'smolpaws', 'README.md'),
+    '# SmolPaws Context Files\nUse this directory to remember who you are.\n',
+  );
+  writeFileSync(
     path.join(defaultRepoRoot, 'docs', 'smolpaws', 'IDENTITY.md'),
     '# IDENTITY.md - Who SmolPaws Is\n- **Name:** `smolpaws`\n- **Creature:** tiny cat agent based on OpenHands\n',
+  );
+  writeFileSync(
+    path.join(defaultRepoRoot, 'docs', 'smolpaws', 'MEMORY.md'),
+    '# MEMORY.md\n- Stable memory lives here.\n',
   );
   writeFileSync(
     path.join(defaultRepoRoot, 'docs', 'smolpaws', 'USER.md'),
@@ -113,6 +121,13 @@ function ensureSharedFixture(): TestFixture {
   writeFileSync(
     path.join(defaultRepoRoot, 'docs', 'smolpaws', 'TOOLS.md'),
     '# TOOLS.md - Local Notes\n- Main repos root: ~/repos\n- Conversation logs: ~/.openhands/conversations\n',
+  );
+  mkdirSync(path.join(defaultRepoRoot, 'docs', 'smolpaws', 'memory'), {
+    recursive: true,
+  });
+  writeFileSync(
+    path.join(defaultRepoRoot, 'docs', 'smolpaws', 'memory', '2026-03-24.md'),
+    '# 2026-03-24\n- Daily note.\n',
   );
   writeFileSync(
     path.join(homeDir, '.openhands', 'skills', 'user-guidance', 'SKILL.md'),
@@ -331,6 +346,10 @@ test('POST /api/conversations sends repo skills, user skills, tools, and environ
     assert.match(systemPrompt, /<smolpaws_identity>/);
     assert.match(
       systemPrompt,
+      new RegExp(`Your canonical self/context docs live in: ${path.join(fixture.defaultRepoRoot, 'docs', 'smolpaws').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+    );
+    assert.match(
+      systemPrompt,
       new RegExp(`Repositories on this machine are typically cloned under: ${fixture.reposRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
     );
     assert.match(
@@ -354,7 +373,9 @@ test('POST /api/conversations sends repo skills, user skills, tools, and environ
     assert.match(systemPrompt, /This repository is SmolPaws home den\./);
     assert.match(systemPrompt, /\*\*Name:\*\* `smolpaws`/);
     assert.match(systemPrompt, /\*\*What to call them:\*\* Engel/);
+    assert.match(systemPrompt, /Stable memory lives here\./);
     assert.match(systemPrompt, /Conversation logs: ~\/\.openhands\/conversations/);
+    assert.doesNotMatch(systemPrompt, /Daily note\./);
     assert.match(systemPrompt, /<name>demo-skill<\/name>/);
     assert.match(systemPrompt, /<name>user-guidance<\/name>/);
 

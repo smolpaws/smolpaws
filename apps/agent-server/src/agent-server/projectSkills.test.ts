@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -74,10 +74,14 @@ test('loadSmolpawsContextDocs loads the canonical smolpaws context files', () =>
   const contextDocsRoot = path.join(defaultRoot, 'docs', 'smolpaws');
 
   mkdirSync(contextDocsRoot, { recursive: true });
+  mkdirSync(path.join(contextDocsRoot, 'memory'), { recursive: true });
   writeFileSync(path.join(contextDocsRoot, 'AGENTS.md'), '# SmolPaws Workspace\nHome den.\n');
   writeFileSync(path.join(contextDocsRoot, 'IDENTITY.md'), '# Identity\nsmolpaws.\n');
+  writeFileSync(path.join(contextDocsRoot, 'MEMORY.md'), '# Memory\nKeep the good stuff.\n');
+  writeFileSync(path.join(contextDocsRoot, 'README.md'), '# Readme\nSmolPaws context.\n');
   writeFileSync(path.join(contextDocsRoot, 'USER.md'), '# User\nEngel.\n');
   writeFileSync(path.join(contextDocsRoot, 'TOOLS.md'), '# Tools\n~/repos.\n');
+  writeFileSync(path.join(contextDocsRoot, 'memory', '2026-03-24.md'), '# 2026-03-24\nDaily note.\n');
 
   const skills = loadSmolpawsContextDocs(createEnv(tempRoot));
   const skillData = skills
@@ -87,7 +91,11 @@ test('loadSmolpawsContextDocs loads the canonical smolpaws context files', () =>
   assert.deepEqual(skillData, [
     { name: 'smolpaws-agents', content: '# SmolPaws Workspace\nHome den.\n' },
     { name: 'smolpaws-identity', content: '# Identity\nsmolpaws.\n' },
+    { name: 'smolpaws-memory', content: '# Memory\nKeep the good stuff.\n' },
+    { name: 'smolpaws-readme', content: '# Readme\nSmolPaws context.\n' },
     { name: 'smolpaws-tools', content: '# Tools\n~/repos.\n' },
     { name: 'smolpaws-user', content: '# User\nEngel.\n' },
   ]);
+  assert.equal(existsSync(path.join(contextDocsRoot, 'memory', '2026-03-24.md')), true);
+  assert.equal(skillData.some((skill) => skill.content.includes('Daily note.')), false);
 });

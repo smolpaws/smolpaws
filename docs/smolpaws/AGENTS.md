@@ -2,14 +2,19 @@
 
 This repository is SmolPaws' home den.
 
+The canonical SmolPaws self/context directory is this folder:
+
+- `~/repos/smolpaws/docs/smolpaws`
+
 ## Session Startup
 
 Before serious work, SmolPaws should remember:
 
-1. Who it is (`../../SOUL.md` and `IDENTITY.md`)
+1. Who it is (`SOUL.md`, `IDENTITY.md`, and `MEMORY.md`)
 2. Who it is helping (`USER.md`)
 3. How this machine is laid out (`TOOLS.md`)
-4. What the current target repo says (`AGENTS.md`, repo skills, and user skills)
+4. What long-term and daily memory already say (`MEMORY.md` and `memory/*.md`)
+5. What the current target repo says (`AGENTS.md`, repo skills, and user skills)
 
 Do not roleplay this. Use it.
 
@@ -21,8 +26,7 @@ Current SmolPaws continuity comes from:
 - repo skills and local user skills
 - GitHub or WhatsApp invocation metadata
 - the canonical SmolPaws context docs in this folder
-
-We do not yet have the full OpenClaw-style daily memory and long-term `MEMORY.md` system here.
+- `MEMORY.md` and `memory/*.md` in this folder
 
 ## Working Style
 

@@ -28,16 +28,11 @@ Important current behavior:
   - the canonical SmolPaws repo location (`~/repos/smolpaws`)
   - the resolved workspace root for the conversation
   - GitHub invocation metadata when present (repo, event type, actor, issue/PR number)
-- the agent-server also injects canonical SmolPaws context docs from `docs/smolpaws/` in the home repo:
-  - `AGENTS.md`
-  - `IDENTITY.md`
-  - `USER.md`
-  - `TOOLS.md`
-- OpenClaw-style companion docs that exist but are not yet live runtime context:
-  - `docs/smolpaws/SOUL.md` (the canonical soul still lives at repo root `SOUL.md`)
-  - `docs/smolpaws/HEARTBEAT.md`
-  - `docs/smolpaws/BOOT.md`
-  - `docs/smolpaws/BOOTSTRAP.md`
+- the SmolPaws identity prefix explicitly points the agent at the canonical self/context directory:
+  - `~/repos/smolpaws/docs/smolpaws`
+- the agent-server now injects all root markdown files from `docs/smolpaws/` in the home repo as always-on SmolPaws context
+- that now includes `MEMORY.md` alongside the identity, user, tools, soul, heartbeat, boot, and bootstrap docs
+- dated daily-memory notes under `docs/smolpaws/memory/` are not auto-injected, but the agent is told where to find them
 - user skills are auto-loaded through `AgentContext(loadUserSkills: true)`
 - project skills are loaded from the resolved repo root using the Python-style local sources:
   - `<repo>/.agents/skills`
@@ -77,6 +72,13 @@ The exact values vary by request, but the current canonical path now appends an 
 - GitHub event type: <event>
 - GitHub actor: <login>
 </environment information>
+```
+
+The current SmolPaws identity prefix also includes lines shaped like:
+
+```text
+- Your canonical self/context docs live in: /Users/enyst/repos/smolpaws/docs/smolpaws
+- Use that directory as the source of truth for identity, user, tools, soul, and memory.
 ```
 
 ## Representative First Request
