@@ -37,6 +37,12 @@ const ALLOWED_GUILDS = new Set(
 const ALLOWED_CHANNELS = new Set(
   (process.env.DISCORD_ALLOWED_CHANNELS || '').split(',').map((s) => s.trim()).filter(Boolean),
 );
+const ALLOWED_USERS = new Set(
+  (process.env.DISCORD_ALLOWED_USERS || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
+);
 
 // Discord message limit
 const DISCORD_MAX_LENGTH = 2000;
@@ -44,6 +50,14 @@ const DISCORD_MAX_LENGTH = 2000;
 // --- Helpers ---
 
 function isAllowed(message: Message): boolean {
+  if (ALLOWED_USERS.size > 0) {
+    const authorKeys = [message.author.username, message.author.tag]
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+    if (!authorKeys.some((value) => ALLOWED_USERS.has(value))) {
+      return false;
+    }
+  }
   if (message.channel.type === ChannelType.DM) {
     return true;
   }

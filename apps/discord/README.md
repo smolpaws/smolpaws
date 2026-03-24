@@ -26,6 +26,7 @@ DISCORD_BOT_TOKEN=your-bot-token-here
 # Optional: restrict to specific servers/channels (comma-separated IDs)
 # DISCORD_ALLOWED_GUILDS=123456789012345678
 # DISCORD_ALLOWED_CHANNELS=123456789012345678
+# DISCORD_ALLOWED_USERS=enyst_13,mamoodi_32973,pierrunoyt,inthiseconomy,gneubig
 
 # Agent server (defaults to local)
 # SMOLPAWS_RUNNER_URL=http://127.0.0.1:8788
@@ -67,6 +68,7 @@ npm run discord:start  # Production
 | `DISCORD_TRIGGER` | — | `@smolpaws` | Text trigger pattern |
 | `DISCORD_ALLOWED_GUILDS` | — | (all) | Comma-separated guild IDs to respond in |
 | `DISCORD_ALLOWED_CHANNELS` | — | (all) | Comma-separated channel IDs to respond in |
+| `DISCORD_ALLOWED_USERS` | — | (all) | Comma-separated Discord usernames or tags allowed to trigger the bot |
 | `SMOLPAWS_RUNNER_URL` | — | `http://127.0.0.1:8788` | Agent server URL |
 | `SMOLPAWS_RUNNER_TOKEN` | — | — | Agent server auth token |
 | `LOG_LEVEL` | — | `info` | Log level (debug, info, warn, error) |
