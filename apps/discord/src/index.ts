@@ -51,10 +51,9 @@ const DISCORD_MAX_LENGTH = 2000;
 
 function isAllowed(message: Message): boolean {
   if (ALLOWED_USERS.size > 0) {
-    const authorKeys = [message.author.username, message.author.tag]
-      .map((value) => value.trim().toLowerCase())
-      .filter(Boolean);
-    if (!authorKeys.some((value) => ALLOWED_USERS.has(value))) {
+    const username = message.author.username.trim().toLowerCase();
+    const tag = message.author.tag.trim().toLowerCase();
+    if (!ALLOWED_USERS.has(username) && !ALLOWED_USERS.has(tag)) {
       return false;
     }
   }
