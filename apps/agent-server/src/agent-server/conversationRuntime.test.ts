@@ -526,6 +526,47 @@ test('request llm.profile_id overrides the VS Code-selected default profile', as
   }
 });
 
+test('heartbeat ingress adds heartbeat-specific environment context', async () => {
+  const fakeLlm = await startFakeLlmServer('heartbeat meow');
+  const { app, fixture } = await createTestApp(fakeLlm.baseUrl);
+  writeVscodeProfileSelection(fixture, 'gpt-5');
+  await saveDefaultProfile('gpt-5', fakeLlm.baseUrl);
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/conversations',
+      payload: {
+        agent: { llm: {} },
+        secrets: {
+          OPENAI_API_KEY: 'test-api-key',
+        },
+        max_iterations: 1,
+        conversation_id: 'heartbeat-smolpaws-2026-03-24',
+        initial_message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'heartbeat turn' }],
+        },
+        smolpaws: {
+          ingress: 'heartbeat',
+          enable_send_message: false,
+          enable_task_tools: false,
+        },
+      },
+    });
+
+    assert.equal(response.statusCode, 201);
+    assert.equal(fakeLlm.requests.length, 1);
+    assert.match(
+      getSystemPrompt(fakeLlm.requests[0]!),
+      /This run was triggered by the local heartbeat ingress\./,
+    );
+  } finally {
+    await app.close();
+    await fakeLlm.close();
+  }
+});
+
 test.after(() => {
   process.env.HOME = originalHome;
   process.env.USERPROFILE = originalUserProfile;

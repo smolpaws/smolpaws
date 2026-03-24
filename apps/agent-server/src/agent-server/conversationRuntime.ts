@@ -207,6 +207,7 @@ function buildEnvironmentInformationBlock(params: {
   ];
 
   const github = params.smolpawsConfig?.github;
+  const ingress = toOptionalTrimmedString(params.smolpawsConfig?.ingress);
   const repoFullName = toOptionalTrimmedString(github?.repository_full_name);
   const actorLogin = toOptionalTrimmedString(github?.actor_login);
   const eventName = toOptionalTrimmedString(github?.event);
@@ -226,6 +227,10 @@ function buildEnvironmentInformationBlock(params: {
     if (actorLogin) {
       lines.push(`- GitHub actor: ${actorLogin}`);
     }
+  }
+
+  if (ingress === 'heartbeat') {
+    lines.push('- This run was triggered by the local heartbeat ingress.');
   }
 
   lines.push("</environment information>");

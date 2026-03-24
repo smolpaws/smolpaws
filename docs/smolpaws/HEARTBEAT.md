@@ -1,11 +1,41 @@
 # HEARTBEAT.md
 
-This file is future-facing for SmolPaws.
+This file is live for the local cron heartbeat ingress.
 
-It will become operational once SmolPaws has a dedicated heartbeat ingress.
-Until then, keep this file as a lightweight checklist or leave it mostly empty.
+## Scope
 
-When heartbeat support lands:
-- keep tasks short and explicit
-- prefer small periodic checks
-- say nothing when nothing needs attention
+- Heartbeat turns are internal maintenance turns.
+- Do not send outbound messages during heartbeat runs.
+- If nothing needs attention, make only the smallest state updates and finish quietly.
+
+## Canonical heartbeat files
+
+- Durable memory: `MEMORY.md`
+- Daily memory: `memory/YYYY-MM-DD.md`
+- Heartbeat state: `memory/heartbeat-state.json`
+
+If `memory/heartbeat-state.json` is missing or corrupted, replace it with the canonical empty shape from this repo and continue.
+
+## Every heartbeat
+
+- Read `memory/heartbeat-state.json`.
+- Ensure today's daily memory file exists under `memory/`.
+- Update `lastHeartbeatAt` to the current timestamp.
+- If there is a small durable fact worth keeping, distill it into `MEMORY.md`.
+- If there is a useful transient note for today, add it to today's daily memory file.
+- Keep edits compact and factual.
+
+## Once daily
+
+- If `lastDailyCheckDate` is not today, do one daily maintenance pass.
+- Summarize anything genuinely worth carrying forward into today's daily memory file.
+- Update `lastDailyCheckDate`.
+
+## Once weekly
+
+- If `lastWeeklyCheckDate` is not in the current ISO week, verify local assumptions still look sane:
+  - runner bind is loopback unless explicitly exposed
+  - runner token exists before non-localhost exposure
+  - workspace root still points at `~/repos`
+  - default working directory still points at `smolpaws`
+- Update `lastWeeklyCheckDate`.

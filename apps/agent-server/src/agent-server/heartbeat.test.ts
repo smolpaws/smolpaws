@@ -1,0 +1,55 @@
+import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import {
+  buildHeartbeatConversationId,
+  buildHeartbeatPaths,
+  buildHeartbeatPrompt,
+  buildHeartbeatRequest,
+  DEFAULT_HEARTBEAT_RUNNER_HOST,
+  DEFAULT_HEARTBEAT_RUNNER_PORT,
+  resolveHeartbeatRunnerBaseUrl,
+} from './heartbeat.js';
+
+test('buildHeartbeatConversationId groups heartbeats by local day', () => {
+  assert.equal(
+    buildHeartbeatConversationId(new Date('2026-03-24T15:16:00')),
+    'heartbeat-smolpaws-2026-03-24',
+  );
+});
+
+test('buildHeartbeatRequest uses the canonical conversation path without outbound messaging', () => {
+  process.env.SMOLPAWS_DEFAULT_WORKING_DIR = 'smolpaws';
+  const request = buildHeartbeatRequest(new Date('2026-03-24T15:16:00'));
+  const initialText = request.initial_message?.content?.[0];
+
+  assert.equal(request.conversation_id, 'heartbeat-smolpaws-2026-03-24');
+  assert.equal(request.workspace?.working_dir, 'smolpaws');
+  assert.equal(request.smolpaws?.ingress, 'heartbeat');
+  assert.equal(request.smolpaws?.enable_send_message, false);
+  assert.equal(request.smolpaws?.enable_task_tools, false);
+  assert.equal(initialText?.type, 'text');
+  assert.match((initialText as { text: string }).text, /Carry out the heartbeat checklist quietly\./);
+});
+
+test('buildHeartbeatPrompt points the agent at the canonical docs and state files', () => {
+  const paths = buildHeartbeatPaths('/Users/enyst');
+  const prompt = buildHeartbeatPrompt(paths, new Date('2026-03-24T15:16:00'));
+
+  assert.match(prompt, /\/Users\/enyst\/repos\/smolpaws\/docs\/smolpaws/);
+  assert.match(prompt, /MEMORY\.md/);
+  assert.match(prompt, /heartbeat-state\.json/);
+  assert.match(prompt, /Do not send outbound messages\./);
+});
+
+test('resolveHeartbeatRunnerBaseUrl prefers explicit runner url and otherwise uses local defaults', () => {
+  assert.equal(
+    resolveHeartbeatRunnerBaseUrl({ SMOLPAWS_RUNNER_URL: 'https://runner.example.com/' } as NodeJS.ProcessEnv),
+    'https://runner.example.com',
+  );
+  assert.equal(
+    resolveHeartbeatRunnerBaseUrl({} as NodeJS.ProcessEnv),
+    `http://${DEFAULT_HEARTBEAT_RUNNER_HOST}:${DEFAULT_HEARTBEAT_RUNNER_PORT}`,
+  );
+});
