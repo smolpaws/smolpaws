@@ -124,6 +124,18 @@ async function sendReply(message: Message, text: string): Promise<void> {
   }
 }
 
+async function trySendTyping(message: Message): Promise<void> {
+  const channel = message.channel;
+  if (!('sendTyping' in channel)) {
+    return;
+  }
+  try {
+    await channel.sendTyping();
+  } catch (error) {
+    logger.warn({ error, channelId: message.channelId }, 'Discord typing indicator failed');
+  }
+}
+
 async function deliverOutboundMessages(
   message: Message,
   outbound: SmolpawsOutboundMessage[],
@@ -158,15 +170,11 @@ async function handleMessage(message: Message, botUserId: string): Promise<void>
   activeConversations.add(conversationId);
 
   try {
-    // Show typing indicator
+    // Best-effort typing indicator only; missing permission should not block dispatch.
     const channel = message.channel;
-    if ('sendTyping' in channel) {
-      await channel.sendTyping();
-    }
+    await trySendTyping(message);
     const typingInterval = setInterval(() => {
-      if ('sendTyping' in channel) {
-        channel.sendTyping().catch(() => {});
-      }
+      void trySendTyping(message);
     }, 8000);
 
     logger.info(
