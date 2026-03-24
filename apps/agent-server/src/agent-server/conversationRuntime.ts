@@ -290,6 +290,33 @@ function buildAgentContext(
   });
 }
 
+function getLatestConversationErrorCode(events: Event[]): string | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index] as { kind?: unknown; code?: unknown };
+    if (
+      event?.kind === "ConversationErrorEvent" &&
+      typeof event.code === "string" &&
+      event.code.trim()
+    ) {
+      return event.code.trim();
+    }
+  }
+  return undefined;
+}
+
+function shouldRecoverStaleSmolpawsConversation(
+  request: StartConversationRequest,
+): boolean {
+  return Boolean(request.smolpaws && request.initial_message);
+}
+
+function isRecoverableStaleConversation(events: Event[]): boolean {
+  if (deriveExecutionStatusFromEvents(events) === "waiting_for_confirmation") {
+    return true;
+  }
+  return getLatestConversationErrorCode(events) === "max_iterations_exceeded";
+}
+
 function registerSecrets(
   secrets: Record<string, unknown> | undefined,
   registry: SecretRegistry,
@@ -562,6 +589,36 @@ export function createConversationRuntime({
     if (requestedId && !isSafeConversationId(requestedId)) {
       throw new Error("invalid_conversation_id");
     }
+
+    let wasPersisted = requestedId
+      ? hasPersistedConversation(requestedId, persistenceRoot)
+      : false;
+
+    if (requestedId && shouldRecoverStaleSmolpawsConversation(request)) {
+      const existing = conversations.get(requestedId);
+      if (existing && isRecoverableStaleConversation(existing.events)) {
+        await deleteConversation(requestedId);
+        wasPersisted = false;
+      } else if (!existing && wasPersisted) {
+        const persistedEvents = await readPersistedEventsOrThrow(
+          requestedId,
+          persistenceRoot,
+        ).catch((error) => {
+          if (
+            error instanceof Error &&
+            error.message === "conversation_not_found"
+          ) {
+            return null;
+          }
+          throw error;
+        });
+        if (persistedEvents && isRecoverableStaleConversation(persistedEvents)) {
+          await deleteConversation(requestedId);
+          wasPersisted = false;
+        }
+      }
+    }
+
     if (requestedId) {
       const existing = conversations.get(requestedId);
       if (existing) {
@@ -569,9 +626,7 @@ export function createConversationRuntime({
         return { record: existing, isNew: false };
       }
     }
-    const wasPersisted = requestedId
-      ? hasPersistedConversation(requestedId, persistenceRoot)
-      : false;
+
     const persistedMeta = requestedId && wasPersisted
       ? await readPersistedConversationMeta(requestedId, persistenceRoot)
       : {};

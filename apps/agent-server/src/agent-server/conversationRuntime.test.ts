@@ -251,10 +251,10 @@ async function createTestApp(fakeLlmBaseUrl: string) {
   const deps = createAgentServerDeps({
     SMOLPAWS_WORKSPACE_ROOT: fixture.reposRoot,
     SMOLPAWS_DEFAULT_WORKING_DIR: 'smolpaws',
-    SMOLPAWS_PERSISTENCE_DIR: persistenceDir,
+      SMOLPAWS_PERSISTENCE_DIR: persistenceDir,
   });
   const { app } = await createAgentServerApp(deps);
-  return { app, fixture };
+  return { app, fixture, deps };
 }
 
 function parseJson<T>(body: string): T {
@@ -281,6 +281,7 @@ function buildCreateConversationBody(params: {
   tools?: Array<{ name: string }>;
   enableSendMessage?: boolean;
   profileId?: string;
+  conversationId?: string;
 }) {
   return {
     agent: {
@@ -296,6 +297,7 @@ function buildCreateConversationBody(params: {
       content: [{ type: 'text', text: params.initialMessage }],
       ...(params.run === false ? { run: false } : {}),
     },
+    ...(params.conversationId ? { conversation_id: params.conversationId } : {}),
     smolpaws: {
       enable_send_message: params.enableSendMessage ?? false,
       github: {
@@ -306,6 +308,30 @@ function buildCreateConversationBody(params: {
       },
     },
   };
+}
+
+function getUserMessageTexts(
+  events: Array<{
+    kind?: string;
+    source?: string;
+    llm_message?: {
+      role?: string;
+      content?: Array<{ type?: string; text?: string }>;
+    };
+  }>,
+): string[] {
+  return events
+    .filter(
+      (event) => event.kind === 'MessageEvent' && event.source === 'user' && event.llm_message?.role === 'user',
+    )
+    .map((event) =>
+      (event.llm_message?.content ?? [])
+        .filter((part) => part.type === 'text' && typeof part.text === 'string')
+        .map((part) => part.text?.trim() ?? '')
+        .filter(Boolean)
+        .join('\n'),
+    )
+    .filter(Boolean);
 }
 
 test('POST /api/conversations sends repo skills, user skills, tools, and environment info on the first LLM request', async () => {
@@ -561,6 +587,122 @@ test('heartbeat ingress adds heartbeat-specific environment context', async () =
       getSystemPrompt(fakeLlm.requests[0]!),
       /This run was triggered by the local heartbeat ingress\./,
     );
+  } finally {
+    await app.close();
+    await fakeLlm.close();
+  }
+});
+
+test('POST /api/conversations resets a reused smolpaws conversation stuck waiting for confirmation', async () => {
+  const fakeLlm = await startFakeLlmServer('stale confirmation recovery');
+  const { app, fixture, deps } = await createTestApp(fakeLlm.baseUrl);
+  writeVscodeProfileSelection(fixture, 'gpt-5');
+  await saveDefaultProfile('gpt-5', fakeLlm.baseUrl);
+
+  try {
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/conversations',
+      payload: buildCreateConversationBody({
+        conversationId: 'stale-confirmation',
+        initialMessage: 'first message',
+        run: false,
+      }),
+    });
+    assert.equal(createResponse.statusCode, 201);
+
+    const record = deps.conversationRuntime.conversations.get('stale-confirmation');
+    assert(record);
+    const staleConversation = record.conversation;
+    record.events.push({
+      kind: 'ConversationStateUpdateEvent',
+      source: 'agent',
+      agent_status: 'WAITING_FOR_CONFIRMATION',
+      id: 'pause-1',
+      timestamp: new Date().toISOString(),
+    } as never);
+
+    const retryResponse = await app.inject({
+      method: 'POST',
+      url: '/api/conversations',
+      payload: buildCreateConversationBody({
+        conversationId: 'stale-confirmation',
+        initialMessage: 'fresh retry',
+        run: false,
+      }),
+    });
+    assert.equal(retryResponse.statusCode, 201);
+
+    const nextRecord = deps.conversationRuntime.conversations.get('stale-confirmation');
+    assert(nextRecord);
+    assert.notEqual(nextRecord.conversation, staleConversation);
+    assert.equal(
+      nextRecord.events.some(
+        (event) =>
+          event.kind === 'ConversationStateUpdateEvent' &&
+          event.source === 'agent' &&
+          event.agent_status === 'WAITING_FOR_CONFIRMATION',
+      ),
+      false,
+    );
+    assert.deepEqual(getUserMessageTexts(nextRecord.events), ['fresh retry']);
+  } finally {
+    await app.close();
+    await fakeLlm.close();
+  }
+});
+
+test('POST /api/conversations resets a reused smolpaws conversation exhausted by max iterations', async () => {
+  const fakeLlm = await startFakeLlmServer('stale max-iterations recovery');
+  const { app, fixture, deps } = await createTestApp(fakeLlm.baseUrl);
+  writeVscodeProfileSelection(fixture, 'gpt-5');
+  await saveDefaultProfile('gpt-5', fakeLlm.baseUrl);
+
+  try {
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/conversations',
+      payload: buildCreateConversationBody({
+        conversationId: 'stale-max-iterations',
+        initialMessage: 'first message',
+        run: false,
+      }),
+    });
+    assert.equal(createResponse.statusCode, 201);
+
+    const record = deps.conversationRuntime.conversations.get('stale-max-iterations');
+    assert(record);
+    const staleConversation = record.conversation;
+    record.events.push({
+      kind: 'ConversationErrorEvent',
+      source: 'agent',
+      code: 'max_iterations_exceeded',
+      detail: 'too many iterations',
+      id: 'error-1',
+      timestamp: new Date().toISOString(),
+    } as never);
+
+    const retryResponse = await app.inject({
+      method: 'POST',
+      url: '/api/conversations',
+      payload: buildCreateConversationBody({
+        conversationId: 'stale-max-iterations',
+        initialMessage: 'fresh retry',
+        run: false,
+      }),
+    });
+    assert.equal(retryResponse.statusCode, 201);
+
+    const nextRecord = deps.conversationRuntime.conversations.get('stale-max-iterations');
+    assert(nextRecord);
+    assert.notEqual(nextRecord.conversation, staleConversation);
+    assert.equal(
+      nextRecord.events.some(
+        (event) => event.kind === 'ConversationErrorEvent' && event.code === 'max_iterations_exceeded',
+      ),
+      false,
+    );
+    assert.deepEqual(getUserMessageTexts(nextRecord.events), ['fresh retry']);
   } finally {
     await app.close();
     await fakeLlm.close();

@@ -13,7 +13,6 @@ import { ensureLocalRunnerReady } from './local-runner.js';
 
 type RunnerConversationInfo = {
   id: string;
-  execution_status?: string;
 };
 
 type RunnerEventPage = {
@@ -39,7 +38,6 @@ const DEFAULT_AGENT_TOOLS = [
   { name: 'task_tracker' },
 ] as const;
 const WHATSAPP_MAX_ITERATIONS = 5000;
-const MAX_ITERATIONS_EXCEEDED = 'max_iterations_exceeded';
 
 const logger = pino({
   level: process.env.LOG_LEVEL || 'info',
@@ -152,20 +150,6 @@ async function createOrContinueConversation(
   });
 }
 
-async function loadConversationInfo(
-  baseUrl: string,
-  conversationId: string,
-): Promise<RunnerConversationInfo | null> {
-  const infos = await fetchJson<Array<RunnerConversationInfo | null>>(
-    baseUrl,
-    `/api/conversations?ids=${encodeURIComponent(conversationId)}`,
-    {
-      method: 'GET',
-    },
-  );
-  return infos[0] ?? null;
-}
-
 async function claimConversationOutbox(
   baseUrl: string,
   conversationId: string,
@@ -213,76 +197,41 @@ export async function runLocalAgentServerAgent(
 ): Promise<AgentRuntimeOutput> {
   try {
     const baseUrl = await ensureLocalRunnerReady();
-    if (input.conversationId) {
-      try {
-        const existing = await loadConversationInfo(baseUrl, input.conversationId);
-        if (existing?.execution_status === 'waiting_for_confirmation') {
-          logger.warn(
-            { scopeId: scope.scopeId, conversationId: input.conversationId },
-            'Local WhatsApp conversation is waiting for confirmation; starting a fresh conversation',
-          );
-          input = { ...input, conversationId: undefined };
-        }
-      } catch (error) {
-        logger.warn(
-          { scopeId: scope.scopeId, conversationId: input.conversationId, error },
-          'Failed to inspect conversation status; continuing with provided conversationId',
-        );
-      }
+    const conversation = await createOrContinueConversation(baseUrl, scope, input);
+    const taskCommands = await claimConversationTaskCommands(baseUrl, conversation.id);
+    for (const command of taskCommands) {
+      processSharedRunnerTaskCommand(
+        command,
+        scope.scopeId,
+        options?.registeredGroups ?? {},
+        logger,
+      );
     }
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const conversation = await createOrContinueConversation(baseUrl, scope, input);
-      const taskCommands = await claimConversationTaskCommands(baseUrl, conversation.id);
-      for (const command of taskCommands) {
-        processSharedRunnerTaskCommand(
-          command,
-          scope.scopeId,
-          options?.registeredGroups ?? {},
-          logger,
-        );
-      }
 
-      const outboundMessages = await claimConversationOutbox(baseUrl, conversation.id);
-      if (outboundMessages.length > 0) {
-        return {
-          status: 'success',
-          result: null,
-          conversationId: conversation.id,
-          outboundMessages,
-        };
-      }
-
-      const result = await loadConversationResult(baseUrl, conversation.id);
-      if (result.errorCode === MAX_ITERATIONS_EXCEEDED && input.conversationId && attempt === 0) {
-        logger.warn(
-          { scopeId: scope.scopeId, conversationId: input.conversationId },
-          'Local WhatsApp conversation exhausted; starting a fresh conversation',
-        );
-        input = { ...input, conversationId: undefined };
-        continue;
-      }
-
-      if (result.errorCode) {
-        return {
-          status: 'error',
-          result: null,
-          conversationId: conversation.id,
-          error: result.errorDetail ?? result.errorCode,
-        };
-      }
-
+    const outboundMessages = await claimConversationOutbox(baseUrl, conversation.id);
+    if (outboundMessages.length > 0) {
       return {
         status: 'success',
-        result: result.reply,
         conversationId: conversation.id,
+        result: null,
+        outboundMessages,
+      };
+    }
+
+    const result = await loadConversationResult(baseUrl, conversation.id);
+    if (result.errorCode) {
+      return {
+        status: 'error',
+        result: null,
+        conversationId: conversation.id,
+        error: result.errorDetail ?? result.errorCode,
       };
     }
 
     return {
-      status: 'error',
-      result: null,
-      conversationId: input.conversationId,
-      error: 'Unable to continue or restart the local WhatsApp conversation.',
+      status: 'success',
+      result: result.reply,
+      conversationId: conversation.id,
     };
   } catch (error) {
     return {
