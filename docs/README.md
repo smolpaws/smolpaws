@@ -2,6 +2,7 @@
 
 Current docs:
 
+- [`../SOUL.md`](../SOUL.md) - canonical SmolPaws personality, voice, and behavioral design
 - [`SPEC.md`](SPEC.md) - current system shape and runtime model
 - [`REQUIREMENTS.md`](REQUIREMENTS.md) - architecture decisions and constraints
 - [`SECURITY.md`](SECURITY.md) - security model

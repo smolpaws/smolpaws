@@ -304,9 +304,12 @@ test('POST /api/conversations sends repo skills, user skills, tools, and environ
       content: 'please inspect repo-a',
     });
 
+    assert.match(systemPrompt, /^You are smolpaws, the tiny cat agent based on OpenHands\./);
+    assert.doesNotMatch(systemPrompt, /^You are OpenHands agent/);
     assert.match(systemPrompt, /<REPO_CONTEXT>/);
     assert.match(systemPrompt, /<SKILLS>/);
     assert.match(systemPrompt, /<environment information>/);
+    assert.match(systemPrompt, /<smolpaws_identity>/);
     assert.match(
       systemPrompt,
       new RegExp(`Repositories on this machine are typically cloned under: ${fixture.reposRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
