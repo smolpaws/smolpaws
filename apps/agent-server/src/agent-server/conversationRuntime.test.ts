@@ -70,6 +70,9 @@ function ensureSharedFixture(): TestFixture {
   mkdirSync(path.join(targetRepoRoot, '.agents', 'skills', 'demo-skill'), {
     recursive: true,
   });
+  mkdirSync(path.join(defaultRepoRoot, 'docs', 'smolpaws'), {
+    recursive: true,
+  });
   mkdirSync(path.join(homeDir, '.openhands', 'skills', 'user-guidance'), {
     recursive: true,
   });
@@ -94,6 +97,22 @@ function ensureSharedFixture(): TestFixture {
       'Use this skill when exploring repo-a test fixtures.',
       '',
     ].join('\n'),
+  );
+  writeFileSync(
+    path.join(defaultRepoRoot, 'docs', 'smolpaws', 'AGENTS.md'),
+    '# SmolPaws Workspace\nThis repository is SmolPaws home den.\n',
+  );
+  writeFileSync(
+    path.join(defaultRepoRoot, 'docs', 'smolpaws', 'IDENTITY.md'),
+    '# IDENTITY.md - Who SmolPaws Is\n- **Name:** `smolpaws`\n- **Creature:** tiny cat agent based on OpenHands\n',
+  );
+  writeFileSync(
+    path.join(defaultRepoRoot, 'docs', 'smolpaws', 'USER.md'),
+    '# USER.md - About Your Human\n- **Name:** Engel Nyst\n- **What to call them:** Engel\n',
+  );
+  writeFileSync(
+    path.join(defaultRepoRoot, 'docs', 'smolpaws', 'TOOLS.md'),
+    '# TOOLS.md - Local Notes\n- Main repos root: ~/repos\n- Conversation logs: ~/.openhands/conversations\n',
   );
   writeFileSync(
     path.join(homeDir, '.openhands', 'skills', 'user-guidance', 'SKILL.md'),
@@ -332,6 +351,10 @@ test('POST /api/conversations sends repo skills, user skills, tools, and environ
     assert.match(systemPrompt, /GitHub actor: enyst/);
     assert.match(systemPrompt, /Repo A Guidance/);
     assert.match(systemPrompt, /Always inspect repo-a fixtures before changing code\./);
+    assert.match(systemPrompt, /This repository is SmolPaws home den\./);
+    assert.match(systemPrompt, /\*\*Name:\*\* `smolpaws`/);
+    assert.match(systemPrompt, /\*\*What to call them:\*\* Engel/);
+    assert.match(systemPrompt, /Conversation logs: ~\/\.openhands\/conversations/);
     assert.match(systemPrompt, /<name>demo-skill<\/name>/);
     assert.match(systemPrompt, /<name>user-guidance<\/name>/);
 

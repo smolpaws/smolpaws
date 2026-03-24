@@ -5,7 +5,11 @@ import path from 'node:path';
 import test from 'node:test';
 import type { RunnerEnv } from '../runner/workspacePolicy.js';
 import type { SmolpawsConversationConfigValue } from '../shared/runner.js';
-import { loadProjectSkills, resolveProjectSkillsRoot } from './projectSkills.js';
+import {
+  loadProjectSkills,
+  loadSmolpawsContextDocs,
+  resolveProjectSkillsRoot,
+} from './projectSkills.js';
 
 function createEnv(rootDir: string, defaultWorkingDir = 'smolpaws'): RunnerEnv {
   return {
@@ -62,4 +66,30 @@ test('loadProjectSkills loads repo files and AgentSkills-format skills', () => {
 
   assert.deepEqual(skillNames, ['agents', 'demo-skill']);
   assert.equal(skills.find((skill) => skill.name === 'demo-skill')?.isAgentSkillsFormat, true);
+});
+
+test('loadSmolpawsContextDocs loads the canonical smolpaws context files', () => {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'smolpaws-context-docs-'));
+  const defaultRoot = path.join(tempRoot, 'smolpaws');
+  const contextDocsRoot = path.join(defaultRoot, 'docs', 'smolpaws');
+
+  mkdirSync(contextDocsRoot, { recursive: true });
+  writeFileSync(path.join(contextDocsRoot, 'AGENTS.md'), '# SmolPaws Workspace\nHome den.\n');
+  writeFileSync(path.join(contextDocsRoot, 'IDENTITY.md'), '# Identity\nsmolpaws.\n');
+  writeFileSync(path.join(contextDocsRoot, 'USER.md'), '# User\nEngel.\n');
+  writeFileSync(path.join(contextDocsRoot, 'TOOLS.md'), '# Tools\n~/repos.\n');
+
+  const skills = loadSmolpawsContextDocs(createEnv(tempRoot));
+  const skillNames = skills.map((skill) => skill.name).sort();
+
+  assert.deepEqual(skillNames, [
+    'smolpaws-agents',
+    'smolpaws-identity',
+    'smolpaws-tools',
+    'smolpaws-user',
+  ]);
+  assert.match(
+    skills.find((skill) => skill.name === 'smolpaws-agents')?.content ?? '',
+    /Home den\./,
+  );
 });

@@ -1,8 +1,8 @@
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import {
   loadSkillsFromDir,
-  type Skill,
+  Skill,
 } from '@smolpaws/agent-sdk';
 import type { SmolpawsConversationConfigValue } from '../shared/runner.js';
 import {
@@ -15,6 +15,13 @@ const PROJECT_SKILL_DIRS = [
   ['.agents', 'skills'],
   ['.openhands', 'skills'],
   ['.openhands', 'microagents'],
+] as const;
+
+const SMOLPAWS_CONTEXT_DOCS = [
+  ['docs', 'smolpaws', 'AGENTS.md', 'smolpaws-agents'],
+  ['docs', 'smolpaws', 'IDENTITY.md', 'smolpaws-identity'],
+  ['docs', 'smolpaws', 'USER.md', 'smolpaws-user'],
+  ['docs', 'smolpaws', 'TOOLS.md', 'smolpaws-tools'],
 ] as const;
 
 function isDirectory(dirPath: string): boolean {
@@ -77,6 +84,29 @@ export function loadProjectSkills(projectRoot: string): Skill[] {
     }
   }
   return allSkills;
+}
+
+export function loadSmolpawsContextDocs(env: RunnerEnv): Skill[] {
+  const repoRoot = path.resolve(getDefaultWorkingDir(env));
+  const docs: Skill[] = [];
+
+  for (const [first, second, third, skillName] of SMOLPAWS_CONTEXT_DOCS) {
+    const filePath = path.join(repoRoot, first, second, third);
+    if (!existsSync(filePath)) {
+      continue;
+    }
+
+    docs.push(
+      new Skill({
+        name: skillName,
+        content: readFileSync(filePath, 'utf-8'),
+        trigger: null,
+        source: filePath,
+      }),
+    );
+  }
+
+  return docs;
 }
 
 export function resolveProjectSkillsRoot(params: {

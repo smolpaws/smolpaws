@@ -28,6 +28,16 @@ Important current behavior:
   - the canonical SmolPaws repo location (`~/repos/smolpaws`)
   - the resolved workspace root for the conversation
   - GitHub invocation metadata when present (repo, event type, actor, issue/PR number)
+- the agent-server also injects canonical SmolPaws context docs from `docs/smolpaws/` in the home repo:
+  - `AGENTS.md`
+  - `IDENTITY.md`
+  - `USER.md`
+  - `TOOLS.md`
+- OpenClaw-style companion docs that exist but are not yet live runtime context:
+  - `docs/smolpaws/SOUL.md` (the canonical soul still lives at repo root `SOUL.md`)
+  - `docs/smolpaws/HEARTBEAT.md`
+  - `docs/smolpaws/BOOT.md`
+  - `docs/smolpaws/BOOTSTRAP.md`
 - user skills are auto-loaded through `AgentContext(loadUserSkills: true)`
 - project skills are loaded from the resolved repo root using the Python-style local sources:
   - `<repo>/.agents/skills`

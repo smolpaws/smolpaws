@@ -47,6 +47,7 @@ import {
 import { appendOutboundMessage, appendTaskCommand } from "../runner/outbox.js";
 import { createTaskTools } from "../runner/taskCommands.js";
 import {
+  loadSmolpawsContextDocs,
   loadProjectSkills,
   resolveProjectSkillsRoot,
 } from "./projectSkills.js";
@@ -253,7 +254,10 @@ function buildAgentContext(
 ): AgentContext {
   return new AgentContext({
     systemMessagePrefix: buildSmolpawsIdentityPrefix(),
-    skills: loadProjectSkills(projectSkillsRoot),
+    skills: [
+      ...loadSmolpawsContextDocs(env),
+      ...loadProjectSkills(projectSkillsRoot),
+    ],
     loadUserSkills: true,
     systemMessageSuffix: buildEnvironmentInformationBlock({
       workspaceRoot,

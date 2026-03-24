@@ -5,6 +5,7 @@ Your smart cat. Lightweight, secure, customizable. Based on [NanoClaw](https://g
 See [README.md](README.md) for philosophy and setup. See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) for architecture decisions.
 See [docs/README.md](docs/README.md) for the current doc index, including GitHub ingress ops notes and archived convergence context.
 See [SOUL.md](SOUL.md) for the canonical SmolPaws personality and voice design.
+See [docs/smolpaws/README.md](docs/smolpaws/README.md) for the OpenClaw-style SmolPaws context-file set.
 
 ## Quick Context
 
