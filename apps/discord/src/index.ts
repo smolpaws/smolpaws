@@ -266,7 +266,14 @@ client.once(Events.ClientReady, (readyClient) => {
 client.on(Events.MessageCreate, async (message) => {
   if (!client.user) return;
   if (!shouldRespond(message, client.user.id)) return;
-  if (!isAllowed(message)) return;
+  if (!isAllowed(message)) {
+    await message.reply({
+      content:
+        "smolpaws: sorry, these paws only answer a small trusted circle. Ask Engel to add you, or set up your own little cat agent 🐾",
+      allowedMentions: { parse: [] },
+    }).catch(() => {});
+    return;
+  }
 
   await handleMessage(message, client.user.id);
 });
