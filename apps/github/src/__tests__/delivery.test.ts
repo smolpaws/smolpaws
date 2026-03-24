@@ -19,3 +19,16 @@ test('shouldPostReplyAfterOutbound suppresses duplicate final replies', () => {
     false,
   );
 });
+
+
+test('shouldPostReplyAfterOutbound suppresses short lead-in replies when outbound already contains the real answer', () => {
+  assert.equal(
+    shouldPostReplyAfterOutbound("Yes, I can see this PR! Here's my summary:", [
+      {
+        kind: 'current_thread_message',
+        text: '**PR #42**\n\nFull summary follows in detail here.',
+      },
+    ]),
+    false,
+  );
+});

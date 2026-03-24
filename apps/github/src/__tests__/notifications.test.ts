@@ -628,3 +628,86 @@ test('scheduled notifications fail closed when ALLOWED_ACTORS is empty', async (
   assert.equal(sent.length, 0);
   assert.deepEqual(fetchCalls, []);
 });
+
+
+test('scheduled notifications skip mentions already queued by webhook ingress', async () => {
+  const cache = createMockCache();
+  const originalCaches = globalThis.caches;
+  const commentUrl = 'https://api.github.com/repos/smolpaws/smolpaws/issues/comments/55';
+  const payload = {
+    action: 'created',
+    sender: { login: 'enyst', id: 8 },
+    comment: { body: '@smolpaws same mention twice', id: 55 },
+    repository: {
+      full_name: 'smolpaws/smolpaws',
+      owner: { login: 'smolpaws' },
+    },
+    issue: { number: 42 },
+    installation: { id: 3148864 },
+  };
+
+  globalThis.caches = {
+    open: async () => cache,
+    delete: async () => false,
+    has: async () => true,
+    keys: async () => ['smolpaws-github-mention-dedupe'],
+    match: async () => undefined,
+  } as CacheStorage;
+
+  try {
+    const env: TestEnv = {
+      GITHUB_WEBHOOK_SECRET: 'secret',
+      GITHUB_APP_ID: '1',
+      GITHUB_APP_PRIVATE_KEY: 'pem',
+      ALLOWED_ACTORS: 'enyst',
+      SMOLPAWS_QUEUE: {
+        async send(): Promise<void> {},
+      },
+    };
+
+    const request = await createSignedWebhookRequest(payload, env.GITHUB_WEBHOOK_SECRET);
+    const webhookResponse = await worker.fetch?.(request, env as never);
+    assert(webhookResponse);
+    assert.equal(webhookResponse.status, 202);
+
+    const { sent } = await runScheduled({
+      cache,
+      notifications: [
+        {
+          id: 'thread-webhook-1',
+          reason: 'mention',
+          subject: {
+            url: 'https://api.github.com/repos/smolpaws/smolpaws/issues/42',
+            latest_comment_url: commentUrl,
+            type: 'Issue',
+          },
+          repository: {
+            full_name: 'smolpaws/smolpaws',
+            owner: { login: 'smolpaws' },
+          },
+        },
+      ],
+      responses: {
+        [commentUrl]: {
+          body: {
+            id: 55,
+            body: '@smolpaws same mention twice',
+            user: { login: 'enyst', id: 8 },
+            issue_url: 'https://api.github.com/repos/smolpaws/smolpaws/issues/42',
+          },
+        },
+        'https://api.github.com/notifications/threads/thread-webhook-1': {
+          body: {},
+        },
+      },
+      env: {
+        ALLOWED_ACTORS: 'enyst',
+        ALLOWED_OWNERS: 'smolpaws',
+      },
+    });
+
+    assert.equal(sent.length, 0);
+  } finally {
+    globalThis.caches = originalCaches;
+  }
+});

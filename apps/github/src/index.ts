@@ -112,6 +112,11 @@ export default {
       return new Response("Missing repository context", { status: 400 });
     }
 
+    const mentionIdentity = githubMentionIdentity(payload, event);
+    if (mentionIdentity && await wasGithubMentionEnqueued(mentionIdentity)) {
+      return new Response("Ignored duplicate", { status: 200 });
+    }
+
     const queueMessage: SmolpawsQueueMessage = {
       event,
       payload,
@@ -120,6 +125,9 @@ export default {
     };
 
     await env.SMOLPAWS_QUEUE.send(queueMessage);
+    if (mentionIdentity) {
+      await markGithubMentionEnqueued(mentionIdentity);
+    }
 
     return new Response("Queued", { status: 202 });
   },
@@ -342,7 +350,8 @@ export function shouldPostReplyAfterOutbound(
   reply: string,
   outboundMessages: SmolpawsOutboundMessage[],
 ): boolean {
-  if (!reply.trim()) {
+  const normalizedReply = normalizeComparableMessageText(reply);
+  if (!normalizedReply) {
     return false;
   }
   if (outboundMessages.length === 0) {
@@ -352,10 +361,24 @@ export function shouldPostReplyAfterOutbound(
   if (!lastOutbound || lastOutbound.kind !== "current_thread_message") {
     return true;
   }
-  return (
-    normalizeComparableMessageText(lastOutbound.text) !==
-    normalizeComparableMessageText(reply)
-  );
+  const normalizedOutbound = normalizeComparableMessageText(lastOutbound.text);
+  if (!normalizedOutbound) {
+    return true;
+  }
+  if (normalizedOutbound.includes(normalizedReply)) {
+    return false;
+  }
+
+  const replyWords = normalizedReply.split(/\s+/).filter(Boolean);
+  const looksLikeShortLeadIn =
+    replyWords.length <= 12 &&
+    normalizedReply.endsWith(':') &&
+    normalizedOutbound.length >= normalizedReply.length;
+  if (looksLikeShortLeadIn) {
+    return false;
+  }
+
+  return true;
 }
 
 async function githubApiFetch(
@@ -568,8 +591,49 @@ async function markNotificationThreadRead(
   }
 }
 
+function githubMentionIdentity(payload: GithubEventPayload, event: SmolpawsEvent): string | null {
+  const repo = payload.repository?.full_name?.toLowerCase();
+  const issueNumber = payload.issue?.number ?? payload.pull_request?.number;
+  if (!repo || !issueNumber) {
+    return null;
+  }
+  const commentId = payload.comment?.id;
+  if (typeof commentId === "number") {
+    return `${event}:${repo}:comment:${commentId}`;
+  }
+  return `${event}:${repo}:issue:${issueNumber}`;
+}
+
+function githubMentionDedupeKey(identity: string): Request {
+  return new Request(
+    `https://smolpaws.internal/dedupe/github-mentions/${encodeURIComponent(identity)}`,
+  );
+}
+
+async function getGithubMentionDedupeCache(): Promise<Cache> {
+  return caches.open(GITHUB_MENTION_DEDUPE_CACHE);
+}
+
+async function wasGithubMentionEnqueued(identity: string): Promise<boolean> {
+  const cache = await getGithubMentionDedupeCache();
+  const cached = await cache.match(githubMentionDedupeKey(identity));
+  return Boolean(cached);
+}
+
+async function markGithubMentionEnqueued(identity: string): Promise<void> {
+  const cache = await getGithubMentionDedupeCache();
+  const response = new Response("1", {
+    headers: {
+      "Cache-Control": `max-age=${GITHUB_MENTION_DEDUPE_TTL_SECONDS}`,
+    },
+  });
+  await cache.put(githubMentionDedupeKey(identity), response);
+}
+
 const NOTIFICATION_POLL_CONCURRENCY = 5;
 const NOTIFICATION_DEDUPE_TTL_SECONDS = 60 * 60 * 24;
+const GITHUB_MENTION_DEDUPE_CACHE = "smolpaws-github-mention-dedupe";
+const GITHUB_MENTION_DEDUPE_TTL_SECONDS = 60 * 60 * 24;
 
 function isTrustedGithubApiUrl(raw: string): boolean {
   try {
@@ -727,6 +791,13 @@ async function handleNotification(
     return;
   }
 
+  const mentionIdentity = githubMentionIdentity(payload, mention.event);
+  if (mentionIdentity && await wasGithubMentionEnqueued(mentionIdentity)) {
+    await markNotificationEnqueued(dedupeIdentity);
+    await markNotificationThreadRead(threadId, token);
+    return;
+  }
+
   const queueMessage: SmolpawsQueueMessage = {
     event: mention.event,
     payload,
@@ -737,6 +808,9 @@ async function handleNotification(
   };
 
   await env.SMOLPAWS_QUEUE.send(queueMessage);
+  if (mentionIdentity) {
+    await markGithubMentionEnqueued(mentionIdentity);
+  }
   await markNotificationEnqueued(dedupeIdentity);
   await markNotificationThreadRead(threadId, token);
 }
