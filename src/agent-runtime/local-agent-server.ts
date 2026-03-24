@@ -214,13 +214,20 @@ export async function runLocalAgentServerAgent(
   try {
     const baseUrl = await ensureLocalRunnerReady();
     if (input.conversationId) {
-      const existing = await loadConversationInfo(baseUrl, input.conversationId);
-      if (existing?.execution_status === 'waiting_for_confirmation') {
+      try {
+        const existing = await loadConversationInfo(baseUrl, input.conversationId);
+        if (existing?.execution_status === 'waiting_for_confirmation') {
+          logger.warn(
+            { scopeId: scope.scopeId, conversationId: input.conversationId },
+            'Local WhatsApp conversation is waiting for confirmation; starting a fresh conversation',
+          );
+          input = { ...input, conversationId: undefined };
+        }
+      } catch (error) {
         logger.warn(
-          { scopeId: scope.scopeId, conversationId: input.conversationId },
-          'Local WhatsApp conversation is waiting for confirmation; starting a fresh conversation',
+          { scopeId: scope.scopeId, conversationId: input.conversationId, error },
+          'Failed to inspect conversation status; continuing with provided conversationId',
         );
-        input = { ...input, conversationId: undefined };
       }
     }
     for (let attempt = 0; attempt < 2; attempt += 1) {

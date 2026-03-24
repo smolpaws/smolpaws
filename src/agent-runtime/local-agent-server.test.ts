@@ -398,3 +398,86 @@ test('runLocalAgentServerAgent starts a fresh conversation when the previous one
     delete process.env.SMOLPAWS_RUNNER_URL;
   }
 });
+
+test('runLocalAgentServerAgent continues with the provided conversation when status lookup fails', async () => {
+  initDatabase();
+  process.env.SMOLPAWS_RUNNER_URL = 'http://127.0.0.1:8788';
+
+  const conversationBodies: Array<{ conversation_id?: string; max_iterations: number }> = [];
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    if (url.endsWith('/ready')) {
+      return new Response(JSON.stringify({ status: 'ready' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.includes('/api/conversations?ids=')) {
+      return new Response('temporary failure', { status: 500 });
+    }
+    if (url.endsWith('/api/conversations')) {
+      const body = JSON.parse(String(init?.body)) as { conversation_id?: string; max_iterations: number };
+      conversationBodies.push(body);
+      return new Response(JSON.stringify({ id: 'reused-conv' }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.endsWith('/task_commands/claim')) {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.endsWith('/outbound_messages/claim')) {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.includes('/events/search?')) {
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              kind: 'MessageEvent',
+              llm_message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'continued after lookup failure' }],
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+
+  try {
+    const result = await runLocalAgentServerAgent(TEST_SCOPE, {
+      prompt: 'continue please',
+      conversationId: 'reused-conv',
+      scopeId: TEST_SCOPE.scopeId,
+      chatJid: TEST_SCOPE.chatJid,
+      isControlScope: TEST_SCOPE.isControlScope,
+    });
+
+    assert.deepEqual(result, {
+      status: 'success',
+      result: 'continued after lookup failure',
+      conversationId: 'reused-conv',
+    });
+    assert.equal(conversationBodies.length, 1);
+    assert.equal(conversationBodies[0]?.conversation_id, 'reused-conv');
+    assert.equal(conversationBodies[0]?.max_iterations, 5000);
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.SMOLPAWS_RUNNER_URL;
+  }
+});
