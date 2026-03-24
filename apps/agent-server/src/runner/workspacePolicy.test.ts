@@ -3,11 +3,11 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import type { RunnerEnv } from '../runner/workspacePolicy.js';
+import type { RunnerEnv } from './workspacePolicy.js';
 import {
   isAllowedWorkspacePath,
   listAllowedWorkspaceRoots,
-} from '../runner/workspacePolicy.js';
+} from './workspacePolicy.js';
 
 const tempRoots: string[] = [];
 
