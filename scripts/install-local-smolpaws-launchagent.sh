@@ -3,9 +3,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SMOLPAWS_HOME_DIR="${SMOLPAWS_HOME_DIR:-$HOME/.smolpaws}"
-LAUNCH_AGENTS_DIR="${HOME}/Library/LaunchAgents"
-TARGET_PLIST="${LAUNCH_AGENTS_DIR}/com.smolpaws.plist"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/smolpaws-launchagent-vars.sh"
 TEMPLATE_PLIST="${ROOT_DIR}/launchd/com.smolpaws.plist"
 LOG_DIR="${SMOLPAWS_HOME_DIR}/logs"
 PATH_VALUE="${PATH:-/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin}"

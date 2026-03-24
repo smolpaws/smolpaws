@@ -7,6 +7,9 @@
     <key>ProgramArguments</key>
     <array>
         <string>{{PROJECT_ROOT}}/scripts/run-local-smolpaws.sh</string>
+        <string>npm</string>
+        <string>run</string>
+        <string>dev:start</string>
     </array>
     <key>WorkingDirectory</key>
     <string>{{PROJECT_ROOT}}</string>
