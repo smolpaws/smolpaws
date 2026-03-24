@@ -168,12 +168,12 @@ async function handleMessage(message: Message, botUserId: string): Promise<void>
   }
 
   activeConversations.add(conversationId);
+  let typingInterval: ReturnType<typeof setInterval> | undefined;
 
   try {
     // Best-effort typing indicator only; missing permission should not block dispatch.
-    const channel = message.channel;
     await trySendTyping(message);
-    const typingInterval = setInterval(() => {
+    typingInterval = setInterval(() => {
       void trySendTyping(message);
     }, 8000);
 
@@ -218,6 +218,9 @@ async function handleMessage(message: Message, botUserId: string): Promise<void>
       allowedMentions: { parse: [] },
     }).catch(() => {});
   } finally {
+    if (typingInterval) {
+      clearInterval(typingInterval);
+    }
     activeConversations.delete(conversationId);
   }
 }
