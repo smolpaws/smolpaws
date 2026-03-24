@@ -12,10 +12,10 @@ import {
   resolveHeartbeatRunnerBaseUrl,
 } from './heartbeat.js';
 
-test('buildHeartbeatConversationId groups heartbeats by local day', () => {
+test('buildHeartbeatConversationId creates a unique conversation per heartbeat run', () => {
   assert.equal(
     buildHeartbeatConversationId(new Date('2026-03-24T15:16:00')),
-    'heartbeat-smolpaws-2026-03-24',
+    'heartbeat-smolpaws-2026-03-24-15-16-00',
   );
 });
 
@@ -24,8 +24,9 @@ test('buildHeartbeatRequest uses the canonical conversation path without outboun
   const request = buildHeartbeatRequest(new Date('2026-03-24T15:16:00'));
   const initialText = request.initial_message?.content?.[0];
 
-  assert.equal(request.conversation_id, 'heartbeat-smolpaws-2026-03-24');
+  assert.equal(request.conversation_id, 'heartbeat-smolpaws-2026-03-24-15-16-00');
   assert.equal(request.workspace?.working_dir, 'smolpaws');
+  assert.equal(request.max_iterations, 500);
   assert.equal(request.smolpaws?.ingress, 'heartbeat');
   assert.equal(request.smolpaws?.enable_send_message, false);
   assert.equal(request.smolpaws?.enable_task_tools, false);

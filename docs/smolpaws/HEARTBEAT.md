@@ -4,6 +4,8 @@ This file is live for the local LaunchAgent heartbeat ingress.
 
 Heartbeat runs should go through the normal local agent-server. If the local loopback agent-server is not already running, the launcher may start it first and then queue this heartbeat as a normal conversation.
 
+Default schedule on this machine is hourly. Each heartbeat should start a fresh conversation rather than appending forever to one long daily thread.
+
 ## Scope
 
 - Heartbeat turns are internal maintenance turns.
