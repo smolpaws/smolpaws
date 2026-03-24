@@ -202,8 +202,6 @@ async function handleMessage(message: Message, botUserId: string): Promise<void>
       logger,
     });
 
-    clearInterval(typingInterval);
-
     if (result.outboundMessages.length > 0) {
       await deliverOutboundMessages(message, result.outboundMessages);
     } else if (result.reply) {
