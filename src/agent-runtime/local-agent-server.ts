@@ -18,6 +18,8 @@ type RunnerConversationInfo = {
 type RunnerEventPage = {
   items: Array<{
     kind?: string;
+    code?: string;
+    detail?: string;
     llm_message?: {
       role?: string;
       content?: Array<{ type?: string; text?: string }>;
@@ -35,6 +37,8 @@ const DEFAULT_AGENT_TOOLS = [
   { name: 'file_editor' },
   { name: 'task_tracker' },
 ] as const;
+const WHATSAPP_MAX_ITERATIONS = 5000;
+const MAX_ITERATIONS_EXCEEDED = 'max_iterations_exceeded';
 
 const logger = pino({
   level: process.env.LOG_LEVEL || 'info',
@@ -86,8 +90,19 @@ async function fetchJson<T>(baseUrl: string, pathname: string, init: RequestInit
   return await response.json() as T;
 }
 
-function extractLatestAssistantReply(page: RunnerEventPage): string | null {
+function extractConversationResult(page: RunnerEventPage): {
+  reply: string | null;
+  errorCode?: string;
+  errorDetail?: string;
+} {
   for (const event of page.items) {
+    if (event.kind === 'ConversationErrorEvent') {
+      return {
+        reply: null,
+        errorCode: event.code,
+        errorDetail: event.detail,
+      };
+    }
     if (event.kind !== 'MessageEvent' || event.llm_message?.role !== 'assistant') {
       continue;
     }
@@ -98,10 +113,10 @@ function extractLatestAssistantReply(page: RunnerEventPage): string | null {
       .join('\n')
       .trim();
     if (text) {
-      return text;
+      return { reply: text };
     }
   }
-  return null;
+  return { reply: null };
 }
 
 async function createOrContinueConversation(
@@ -121,7 +136,7 @@ async function createOrContinueConversation(
         kind: 'local',
         working_dir: buildConversationWorkingDir(scope),
       },
-      max_iterations: 100,
+      max_iterations: WHATSAPP_MAX_ITERATIONS,
       conversation_id: input.conversationId,
       initial_message: {
         role: 'user',
@@ -159,7 +174,10 @@ async function claimConversationTaskCommands(
   );
 }
 
-async function loadLatestAssistantReply(baseUrl: string, conversationId: string): Promise<string | null> {
+async function loadConversationResult(
+  baseUrl: string,
+  conversationId: string,
+): Promise<{ reply: string | null; errorCode?: string; errorDetail?: string }> {
   const page = await fetchJson<RunnerEventPage>(
     baseUrl,
     `/api/conversations/${conversationId}/events/search?source=agent&sort_order=TIMESTAMP_DESC&limit=20`,
@@ -167,7 +185,7 @@ async function loadLatestAssistantReply(baseUrl: string, conversationId: string)
       method: 'GET',
     },
   );
-  return extractLatestAssistantReply(page);
+  return extractConversationResult(page);
 }
 
 export async function runLocalAgentServerAgent(
@@ -177,32 +195,59 @@ export async function runLocalAgentServerAgent(
 ): Promise<AgentRuntimeOutput> {
   try {
     const baseUrl = await ensureLocalRunnerReady();
-    const conversation = await createOrContinueConversation(baseUrl, scope, input);
-    const taskCommands = await claimConversationTaskCommands(baseUrl, conversation.id);
-    for (const command of taskCommands) {
-      processSharedRunnerTaskCommand(
-        command,
-        scope.scopeId,
-        options?.registeredGroups ?? {},
-        logger,
-      );
-    }
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const conversation = await createOrContinueConversation(baseUrl, scope, input);
+      const taskCommands = await claimConversationTaskCommands(baseUrl, conversation.id);
+      for (const command of taskCommands) {
+        processSharedRunnerTaskCommand(
+          command,
+          scope.scopeId,
+          options?.registeredGroups ?? {},
+          logger,
+        );
+      }
 
-    const outboundMessages = await claimConversationOutbox(baseUrl, conversation.id);
-    if (outboundMessages.length > 0) {
+      const outboundMessages = await claimConversationOutbox(baseUrl, conversation.id);
+      if (outboundMessages.length > 0) {
+        return {
+          status: 'success',
+          result: null,
+          conversationId: conversation.id,
+          outboundMessages,
+        };
+      }
+
+      const result = await loadConversationResult(baseUrl, conversation.id);
+      if (result.errorCode === MAX_ITERATIONS_EXCEEDED && input.conversationId && attempt === 0) {
+        logger.warn(
+          { scopeId: scope.scopeId, conversationId: input.conversationId },
+          'Local WhatsApp conversation exhausted; starting a fresh conversation',
+        );
+        input = { ...input, conversationId: undefined };
+        continue;
+      }
+
+      if (result.errorCode) {
+        return {
+          status: 'error',
+          result: null,
+          conversationId: conversation.id,
+          error: result.errorDetail ?? result.errorCode,
+        };
+      }
+
       return {
         status: 'success',
-        result: null,
+        result: result.reply,
         conversationId: conversation.id,
-        outboundMessages,
       };
     }
 
-    const reply = await loadLatestAssistantReply(baseUrl, conversation.id);
     return {
-      status: 'success',
-      result: reply,
-      conversationId: conversation.id,
+      status: 'error',
+      result: null,
+      conversationId: input.conversationId,
+      error: 'Unable to continue or restart the local WhatsApp conversation.',
     };
   } catch (error) {
     return {
