@@ -90,8 +90,9 @@ export function loadSmolpawsContextDocs(env: RunnerEnv): Skill[] {
   const repoRoot = path.resolve(getDefaultWorkingDir(env));
   const docs: Skill[] = [];
 
-  for (const [first, second, third, skillName] of SMOLPAWS_CONTEXT_DOCS) {
-    const filePath = path.join(repoRoot, first, second, third);
+  for (const contextDoc of SMOLPAWS_CONTEXT_DOCS) {
+    const skillName = contextDoc[contextDoc.length - 1];
+    const filePath = path.join(repoRoot, ...contextDoc.slice(0, -1));
     if (!existsSync(filePath)) {
       continue;
     }

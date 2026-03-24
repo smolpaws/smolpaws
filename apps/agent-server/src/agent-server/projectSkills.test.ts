@@ -80,16 +80,14 @@ test('loadSmolpawsContextDocs loads the canonical smolpaws context files', () =>
   writeFileSync(path.join(contextDocsRoot, 'TOOLS.md'), '# Tools\n~/repos.\n');
 
   const skills = loadSmolpawsContextDocs(createEnv(tempRoot));
-  const skillNames = skills.map((skill) => skill.name).sort();
+  const skillData = skills
+    .map((skill) => ({ name: skill.name, content: skill.content }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
-  assert.deepEqual(skillNames, [
-    'smolpaws-agents',
-    'smolpaws-identity',
-    'smolpaws-tools',
-    'smolpaws-user',
+  assert.deepEqual(skillData, [
+    { name: 'smolpaws-agents', content: '# SmolPaws Workspace\nHome den.\n' },
+    { name: 'smolpaws-identity', content: '# Identity\nsmolpaws.\n' },
+    { name: 'smolpaws-tools', content: '# Tools\n~/repos.\n' },
+    { name: 'smolpaws-user', content: '# User\nEngel.\n' },
   ]);
-  assert.match(
-    skills.find((skill) => skill.name === 'smolpaws-agents')?.content ?? '',
-    /Home den\./,
-  );
 });
