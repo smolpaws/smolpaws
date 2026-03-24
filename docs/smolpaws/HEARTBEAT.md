@@ -15,10 +15,10 @@ Default schedule on this machine is hourly. Each heartbeat should start a fresh 
 ## Canonical heartbeat files
 
 - Durable memory: `MEMORY.md`
-- Daily memory: `~/.smolpaws/memory/YYYY-MM-DD.md`
-- Heartbeat state: `~/.smolpaws/memory/heartbeat-state.json`
+- Daily memory: `${SMOLPAWS_HOME_DIR:-~/.smolpaws}/memory/YYYY-MM-DD.md`
+- Heartbeat state: `${SMOLPAWS_HOME_DIR:-~/.smolpaws}/memory/heartbeat-state.json`
 
-If `~/.smolpaws/memory/heartbeat-state.json` is missing or corrupted, replace it with:
+If `${SMOLPAWS_HOME_DIR:-~/.smolpaws}/memory/heartbeat-state.json` is missing or corrupted, replace it with:
 
 ```json
 {
@@ -32,8 +32,8 @@ and continue.
 
 ## Every heartbeat
 
-- Read `~/.smolpaws/memory/heartbeat-state.json`.
-- Ensure today's daily memory file exists under `~/.smolpaws/memory/`.
+- Read `${SMOLPAWS_HOME_DIR:-~/.smolpaws}/memory/heartbeat-state.json`.
+- Ensure today's daily memory file exists under `${SMOLPAWS_HOME_DIR:-~/.smolpaws}/memory/`.
 - Update `lastHeartbeatAt` to the current timestamp.
 - If there is a small durable fact worth keeping, distill it into `MEMORY.md`.
 - If there is a useful transient note for today, add it to today's daily memory file.
