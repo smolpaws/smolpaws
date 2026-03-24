@@ -15,7 +15,7 @@ export const WHATSAPP_DIR = path.join(SMOLPAWS_HOME, 'whatsapp');
 export const MOUNT_ALLOWLIST_PATH = path.join(HOME_DIR, '.config', 'smolpaws', 'mount-allowlist.json');
 
 // Host-only WhatsApp persistence (not mounted into containers)
-export const STORE_DIR = WHATSAPP_DIR;
+// Stored under ~/.smolpaws/whatsapp
 
 export const GROUPS_DIR = path.resolve(PROJECT_ROOT, 'groups');
 export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');

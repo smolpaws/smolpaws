@@ -171,9 +171,14 @@ export const ASSISTANT_NAME = process.env.ASSISTANT_NAME || 'Andy';
 export const POLL_INTERVAL = 2000;
 export const SCHEDULER_POLL_INTERVAL = 60000;
 
-// Paths are absolute (required for container mounts)
 const PROJECT_ROOT = process.cwd();
-export const STORE_DIR = path.resolve(PROJECT_ROOT, 'store');
+const HOME_DIR = process.env.HOME || '/Users/user';
+
+// Host-only WhatsApp persistence (outside the repo, not mounted into containers)
+export const SMOLPAWS_HOME = path.join(HOME_DIR, '.smolpaws');
+export const WHATSAPP_DIR = path.join(SMOLPAWS_HOME, 'whatsapp');
+
+// Repo-relative paths (mounted into containers)
 export const GROUPS_DIR = path.resolve(PROJECT_ROOT, 'groups');
 export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');
 

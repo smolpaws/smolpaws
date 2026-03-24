@@ -12,9 +12,9 @@ import path from 'path';
 import {
   ASSISTANT_NAME,
   POLL_INTERVAL,
-  STORE_DIR,
+  WHATSAPP_DIR,
   DATA_DIR,
-  TRIGGER_PATTERN
+  TRIGGER_PATTERN,
 } from './config.js';
 import { RegisteredGroup, Session, NewMessage } from './types.js';
 import { initDatabase, storeMessage, storeChatMetadata, getNewMessages, getMessagesSince, updateChatName, getLastGroupSync, setLastGroupSync } from './db.js';
@@ -194,7 +194,7 @@ async function sendMessage(jid: string, text: string): Promise<void> {
 }
 
 async function connectWhatsApp(): Promise<void> {
-  const authDir = path.join(STORE_DIR, 'auth');
+  const authDir = path.join(WHATSAPP_DIR, 'auth');
   fs.mkdirSync(authDir, { recursive: true });
 
   const { state, saveCreds } = await useMultiFileAuthState(authDir);

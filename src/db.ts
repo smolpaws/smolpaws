@@ -3,12 +3,12 @@ import fs from 'fs';
 import path from 'path';
 import { proto } from '@whiskeysockets/baileys';
 import { NewMessage, ScheduledTask, TaskRunLog } from './types.js';
-import { STORE_DIR } from './config.js';
+import { WHATSAPP_DIR } from './config.js';
 
 let db: Database.Database;
 
 export function initDatabase(): void {
-  const dbPath = path.join(STORE_DIR, 'messages.db');
+  const dbPath = path.join(WHATSAPP_DIR, 'messages.db');
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
   db = new Database(dbPath);

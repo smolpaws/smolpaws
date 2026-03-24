@@ -117,7 +117,8 @@ Fields:
 
 ### Adding a Group
 
-1. Query the database to find the group's JID
+1. Query the database to find the group's JID (**host-only**; the agent container cannot access `~/.smolpaws/whatsapp/messages.db`)
+   - Ask the user/admin to run the sqlite3 command on their machine and paste the JID, or add a host-side command in SmolPaws later.
 2. Read `/workspace/project/data/registered_groups.json`
 3. Add the new group entry with `containerConfig` if needed
 4. Write the updated JSON back
