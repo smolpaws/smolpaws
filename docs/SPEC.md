@@ -31,7 +31,7 @@ A personal Claude assistant accessible via WhatsApp, with persistent memory per 
 │  ┌──────────────┐                     ┌────────────────────┐        │
 │  │  WhatsApp    │────────────────────▶│   SQLite Database  │        │
 │  │  (baileys)   │◀────────────────────│   (messages.db)    │        │
-│  └──────────────┘   store/send        └─────────┬──────────┘        │
+│  └──────────────┘   ~/.smolpaws/whatsapp/      └─────────┬──────────┘        │
 │                                                  │                   │
 │         ┌────────────────────────────────────────┘                   │
 │         │                                                            │
@@ -139,7 +139,7 @@ smolpaws/
 │       ├── logs/                  # Task logs for this group
 │       └── *.md                   # Files created by the agent
 │
-├── store/                         # Local data (gitignored)
+├── ~/.smolpaws/whatsapp/          # Host-only WhatsApp persistence (outside repo)
 │   ├── auth/                      # WhatsApp authentication state
 │   └── messages.db                # SQLite database (messages, scheduled_tasks, task_run_logs)
 │
@@ -313,7 +313,7 @@ Sessions enable conversation continuity - Claude remembers what you talked about
 2. Baileys receives message via WhatsApp Web protocol
    │
    ▼
-3. Message stored in SQLite (store/messages.db)
+3. Message stored in SQLite (~/.smolpaws/whatsapp/messages.db)
    │
    ▼
 4. Message loop polls SQLite (every 2 seconds)
@@ -578,7 +578,7 @@ WhatsApp messages could contain malicious instructions attempting to manipulate 
 | Credential | Storage Location | Notes |
 |------------|------------------|-------|
 | Claude CLI Auth | data/sessions/{group}/.claude/ | Per-group isolation, mounted to /home/node/.claude/ |
-| WhatsApp Session | store/auth/ | Auto-created, persists ~20 days |
+| WhatsApp Session | ~/.smolpaws/whatsapp/auth/ | Auto-created, persists ~20 days |
 
 ### File Permissions
 
@@ -600,7 +600,7 @@ chmod 700 groups/
 | "Claude Code process exited with code 1" | Session mount path wrong | Ensure mount is to `/home/node/.claude/` not `/root/.claude/` |
 | Session not continuing | Session ID not saved | Check `data/sessions.json` |
 | Session not continuing | Mount path mismatch | Container user is `node` with HOME=/home/node; sessions must be at `/home/node/.claude/` |
-| "QR code expired" | WhatsApp session expired | Delete store/auth/ and restart |
+| "QR code expired" | WhatsApp session expired | Delete ~/.smolpaws/whatsapp/auth/ and restart |
 | "No groups registered" | Haven't added groups | Use `@smolpaws add group "Name"` in main |
 
 ### Log Location

@@ -210,7 +210,7 @@ async function connectWhatsApp(): Promise<void> {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      const msg = 'WhatsApp authentication required. Run /setup in Claude Code.';
+      const msg = 'WhatsApp authentication required. Run: npm run auth';
       logger.error(msg);
       exec(`osascript -e 'display notification "${msg}" with title "SmolPaws" sound name "Basso"'`);
       setTimeout(() => process.exit(1), 1000);

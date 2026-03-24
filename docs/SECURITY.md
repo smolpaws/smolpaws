@@ -66,7 +66,7 @@ Messages and task operations are verified against scope identity. Today the cont
 - Claude auth tokens (filtered from `.env`, read-only)
 
 **NOT Mounted:**
-- WhatsApp session (`store/auth/`) - host only
+- WhatsApp session (`~/.smolpaws/whatsapp/auth/`) - host only
 - Mount allowlist - external, never mounted
 - Any credentials matching blocked patterns
 

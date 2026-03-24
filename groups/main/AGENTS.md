@@ -70,8 +70,8 @@ Main has access to the entire project:
 | `/workspace/project` | Project root | read-write |
 | `/workspace/group` | `groups/main/` | read-write |
 
-Key paths inside the container:
-- `/workspace/project/store/messages.db` - SQLite database
+Key paths:
+- Host-only WhatsApp DB: `~/.smolpaws/whatsapp/messages.db` (not mounted into containers)
 - `/workspace/project/data/registered_groups.json` - Group config
 - `/workspace/project/groups/` - All group folders
 
@@ -81,10 +81,10 @@ Key paths inside the container:
 
 ### Finding Available Groups
 
-Query the SQLite database directly:
+On the host (outside the agent container), query the SQLite database directly:
 
 ```bash
-sqlite3 /workspace/project/store/messages.db "
+sqlite3 ~/.smolpaws/whatsapp/messages.db "
   SELECT jid, name, last_message_time
   FROM chats
   WHERE jid LIKE '%@g.us' AND jid != '__group_sync__'
