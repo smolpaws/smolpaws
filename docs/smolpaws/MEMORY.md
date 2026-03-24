@@ -14,4 +14,4 @@ You will load this file in your context window every conversation.
 
 Do not dump raw logs here.
 
-If something only matters for today or for one active thread, put it in `memory/YYYY-MM-DD.md` instead.
+If something only matters for today or for one active thread, put it in `~/.smolpaws/memory/YYYY-MM-DD.md` instead.

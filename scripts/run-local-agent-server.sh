@@ -67,6 +67,8 @@ export SMOLPAWS_WORKSPACE_ROOT="${SMOLPAWS_WORKSPACE_ROOT:-$HOME/repos}"
 export SMOLPAWS_DEFAULT_WORKING_DIR="${SMOLPAWS_DEFAULT_WORKING_DIR:-smolpaws}"
 export SMOLPAWS_VSCODE_SETTINGS_PATH
 
+mkdir -p "${SMOLPAWS_HOME_DIR}/logs" "${SMOLPAWS_HOME_DIR}/memory"
+
 runner_host_lc="$(printf '%s' "${RUNNER_HOST}" | tr '[:upper:]' '[:lower:]')"
 if [[ -z "${SMOLPAWS_RUNNER_TOKEN:-}" ]] && [[ "${runner_host_lc}" != "127.0.0.1" ]] && [[ "${runner_host_lc}" != "localhost" ]] && [[ "${runner_host_lc}" != "::1" ]]; then
   echo "SMOLPAWS_RUNNER_TOKEN is required when RUNNER_HOST is non-localhost (${RUNNER_HOST})." >&2

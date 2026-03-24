@@ -30,11 +30,13 @@ function formatLocalTime(now: Date): string {
 
 export function buildHeartbeatPaths(homeDir = os.homedir()): HeartbeatPaths {
   const docsDir = path.join(homeDir, 'repos', 'smolpaws', 'docs', 'smolpaws');
+  const smolpawsHomeDir =
+    process.env.SMOLPAWS_HOME_DIR?.trim() || path.join(homeDir, '.smolpaws');
   return {
     docsDir,
     memoryFile: path.join(docsDir, 'MEMORY.md'),
-    dailyMemoryDir: path.join(docsDir, 'memory'),
-    heartbeatStateFile: path.join(docsDir, 'memory', 'heartbeat-state.json'),
+    dailyMemoryDir: path.join(smolpawsHomeDir, 'memory'),
+    heartbeatStateFile: path.join(smolpawsHomeDir, 'memory', 'heartbeat-state.json'),
   };
 }
 

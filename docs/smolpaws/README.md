@@ -27,7 +27,7 @@ That includes:
 - `BOOT.md`
 - `BOOTSTRAP.md`
 
-Daily memory files live under `memory/`. They are not auto-injected, but SmolPaws is explicitly pointed at them and should read them when needed.
+Daily memory files and heartbeat state live under `~/.smolpaws/memory/`. They are private, not auto-injected, and SmolPaws is explicitly pointed at them when needed.
 
 Heartbeat is now available as a local LaunchAgent-backed ingress. The canonical local commands are:
 

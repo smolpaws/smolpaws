@@ -24,6 +24,8 @@ export SMOLPAWS_WORKSPACE_ROOT="${SMOLPAWS_WORKSPACE_ROOT:-$HOME/repos}"
 export SMOLPAWS_DEFAULT_WORKING_DIR="${SMOLPAWS_DEFAULT_WORKING_DIR:-smolpaws}"
 LOG_DIR="${SMOLPAWS_HOME_DIR}/logs"
 
+mkdir -p "${LOG_DIR}" "${SMOLPAWS_HOME_DIR}/memory"
+
 resolve_runner_base_url() {
   if [[ -n "${SMOLPAWS_RUNNER_URL:-}" ]]; then
     printf '%s\n' "${SMOLPAWS_RUNNER_URL%/}"
@@ -58,7 +60,6 @@ start_local_runner_if_needed() {
     return 1
   fi
 
-  mkdir -p "${LOG_DIR}"
   python3 - "${ROOT_DIR}" "${LOG_DIR}" <<'PY'
 from pathlib import Path
 import subprocess

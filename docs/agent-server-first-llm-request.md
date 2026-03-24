@@ -32,7 +32,7 @@ Important current behavior:
   - `~/repos/smolpaws/docs/smolpaws`
 - the agent-server now injects all root markdown files from `docs/smolpaws/` in the home repo as always-on SmolPaws context
 - that now includes `MEMORY.md` alongside the identity, user, tools, soul, heartbeat, boot, and bootstrap docs
-- dated daily-memory notes under `docs/smolpaws/memory/` are not auto-injected, but the agent is told where to find them
+- dated daily-memory notes under `~/.smolpaws/memory/` are not auto-injected, but the agent is told where to find them
 - user skills are auto-loaded through `AgentContext(loadUserSkills: true)`
 - project skills are loaded from the resolved repo root using the Python-style local sources:
   - `<repo>/.agents/skills`
