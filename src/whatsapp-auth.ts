@@ -11,6 +11,7 @@ import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
   makeCacheableSignalKeyStore,
+  fetchLatestWaWebVersion,
 } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
@@ -31,6 +32,7 @@ async function authenticate(): Promise<void> {
   fs.mkdirSync(AUTH_DIR, { recursive: true });
 
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+  let completed = false;
 
   if (state.creds.registered) {
     console.log('✓ Already authenticated with WhatsApp');
@@ -39,6 +41,7 @@ async function authenticate(): Promise<void> {
   }
 
   console.log('Starting WhatsApp authentication...\n');
+  const { version } = await fetchLatestWaWebVersion();
 
   const sock = makeWASocket({
     auth: {
@@ -48,6 +51,7 @@ async function authenticate(): Promise<void> {
     printQRInTerminal: false,
     logger,
     browser: ['SmolPaws', 'Chrome', '1.0.0'],
+    version,
   });
 
   sock.ev.on('connection.update', (update) => {
@@ -67,6 +71,12 @@ async function authenticate(): Promise<void> {
       if (reason === DisconnectReason.loggedOut) {
         console.log(`\n✗ Logged out. Delete ${formatHomePath(AUTH_DIR)}/ and try again.`);
         process.exit(1);
+      } else if (reason === DisconnectReason.restartRequired) {
+        console.log('\n↻ WhatsApp requested a reconnect to finish linking. Reconnecting...');
+        setTimeout(() => {
+          void authenticate();
+        }, 500);
+        return;
       } else {
         console.log('\n✗ Connection failed. Please try again.');
         process.exit(1);
@@ -74,16 +84,28 @@ async function authenticate(): Promise<void> {
     }
 
     if (connection === 'open') {
-      console.log('\n✓ Successfully authenticated with WhatsApp!');
-      console.log(`  Credentials saved to ${formatHomePath(AUTH_DIR)}/`);
-      console.log('  You can now start SmolPaws.\n');
-
-      // Give it a moment to save credentials, then exit
-      setTimeout(() => process.exit(0), 1000);
+      if (state.creds.registered && !completed) {
+        completed = true;
+        console.log('\n✓ Successfully authenticated with WhatsApp!');
+        console.log(`  Credentials saved to ${formatHomePath(AUTH_DIR)}/`);
+        console.log('  You can now start SmolPaws.\n');
+        setTimeout(() => process.exit(0), 1000);
+      } else if (!state.creds.registered) {
+        console.log('\nConnected to WhatsApp, waiting for registration to finish...');
+      }
     }
   });
 
-  sock.ev.on('creds.update', saveCreds);
+  sock.ev.on('creds.update', () => {
+    saveCreds();
+    if (state.creds.registered && !completed) {
+      completed = true;
+      console.log('\n✓ Successfully authenticated with WhatsApp!');
+      console.log(`  Credentials saved to ${formatHomePath(AUTH_DIR)}/`);
+      console.log('  You can now start SmolPaws.\n');
+      setTimeout(() => process.exit(0), 1000);
+    }
+  });
 }
 
 authenticate().catch((err) => {

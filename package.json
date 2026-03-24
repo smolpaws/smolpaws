@@ -6,8 +6,10 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "tsx src/index.ts",
+    "start": "./scripts/run-local-smolpaws.sh npm run start:node",
+    "start:node": "node dist/index.js",
+    "dev": "./scripts/run-local-smolpaws.sh npm run dev:start",
+    "dev:start": "tsx src/index.ts",
     "auth": "tsx src/whatsapp-auth.ts",
     "github:dev": "npm --prefix apps/github run dev",
     "github:deploy": "npm --prefix apps/github run deploy",
