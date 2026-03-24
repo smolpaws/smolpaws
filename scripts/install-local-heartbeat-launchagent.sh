@@ -7,7 +7,7 @@ SMOLPAWS_HOME_DIR="${SMOLPAWS_HOME_DIR:-$HOME/.smolpaws}"
 LAUNCH_AGENTS_DIR="${HOME}/Library/LaunchAgents"
 TARGET_PLIST="${LAUNCH_AGENTS_DIR}/com.smolpaws.heartbeat.plist"
 TEMPLATE_PLIST="${ROOT_DIR}/launchd/com.smolpaws.heartbeat.plist"
-START_INTERVAL_SECONDS="${SMOLPAWS_HEARTBEAT_INTERVAL_SECONDS:-3600}"
+START_INTERVAL_SECONDS="${SMOLPAWS_HEARTBEAT_INTERVAL_SECONDS:-900}"
 LOG_DIR="${SMOLPAWS_HOME_DIR}/logs"
 PATH_VALUE="${PATH:-/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin}"
 

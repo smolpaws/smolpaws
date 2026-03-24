@@ -4,7 +4,7 @@ This file is live for the local LaunchAgent heartbeat ingress.
 
 Heartbeat runs should go through the normal local agent-server. If the local loopback agent-server is not already running, the launcher may start it first and then queue this heartbeat as a normal conversation.
 
-Default schedule on this machine is hourly. Each heartbeat should start a fresh conversation rather than appending forever to one long daily thread.
+Default schedule on this machine is every 15 minutes. Each heartbeat should start a fresh conversation rather than appending forever to one long daily thread.
 
 ## Scope
 
@@ -38,6 +38,16 @@ and continue.
 - If there is a small durable fact worth keeping, distill it into `MEMORY.md`.
 - If there is a useful transient note for today, add it to today's daily memory file.
 - Keep edits compact and factual.
+
+### Check Slack via Chrome
+
+- Use `osascript` to check if Chrome is running and has a Slack tab open.
+- If Chrome is available, read recent Slack DMs and mentions via JavaScript injection.
+- If there are new messages directed at smolpaws:
+  - If safe and straightforward: respond directly via Chrome.
+  - If unsure or sensitive: log to today's daily memory file for later discussion with Engel.
+- Follow the Slack safety rules in `MEMORY.md`: never share private info publicly, never do anything wild or irreversible.
+- If Chrome is not running or Slack is not loaded, skip quietly.
 
 ## Once daily
 
