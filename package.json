@@ -19,6 +19,8 @@
     "runner:dev": "npm --prefix apps/agent-server run dev",
     "runner:start": "npm --prefix apps/agent-server run start",
     "runner:local": "./scripts/run-local-agent-server.sh",
+    "smolpaws:launchagent:install": "./scripts/install-local-smolpaws-launchagent.sh",
+    "smolpaws:launchagent:remove": "./scripts/remove-local-smolpaws-launchagent.sh",
     "heartbeat:local": "./scripts/run-local-heartbeat.sh",
     "heartbeat:launchagent:install": "./scripts/install-local-heartbeat-launchagent.sh",
     "heartbeat:launchagent:remove": "./scripts/remove-local-heartbeat-launchagent.sh",

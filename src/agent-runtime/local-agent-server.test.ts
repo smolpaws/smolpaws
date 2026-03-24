@@ -39,6 +39,12 @@ test('runLocalAgentServerAgent creates a conversation rooted in the scope group 
   globalThis.fetch = async (input, init) => {
     const url = typeof input === 'string' ? input : input.toString();
     calls.push({ url, init });
+    if (url.endsWith('/ready')) {
+      return new Response(JSON.stringify({ status: 'ready' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
     if (url.endsWith('/api/conversations')) {
       return new Response(JSON.stringify({ id: 'wa-main-conv' }), {
         status: 201,
@@ -94,9 +100,9 @@ test('runLocalAgentServerAgent creates a conversation rooted in the scope group 
       conversationId: 'wa-main-conv',
     });
 
-    const createCall = calls[0];
+    assert.equal(calls[0]?.url, 'http://127.0.0.1:8788/ready');
+    const createCall = calls.find((call) => call.url.endsWith('/api/conversations'));
     assert.ok(createCall);
-    assert.equal(createCall.url, 'http://127.0.0.1:8788/api/conversations');
     const body = JSON.parse(String(createCall.init?.body)) as {
       workspace: { kind: string; working_dir: string };
       smolpaws: { ingress: string; scope_id: string; enable_send_message: boolean; enable_task_tools: boolean };
@@ -127,6 +133,11 @@ test('runLocalAgentServerAgent returns outbound messages without forcing a final
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = buildFetchStub({
+    '/ready': () =>
+      new Response(JSON.stringify({ status: 'ready' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     '/api/conversations': () =>
       new Response(JSON.stringify({ id: 'wa-outbound-conv' }), {
         status: 201,

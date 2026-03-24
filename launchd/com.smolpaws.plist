@@ -6,8 +6,7 @@
     <string>com.smolpaws</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{{NODE_PATH}}</string>
-        <string>{{PROJECT_ROOT}}/dist/index.js</string>
+        <string>{{PROJECT_ROOT}}/scripts/run-local-smolpaws.sh</string>
     </array>
     <key>WorkingDirectory</key>
     <string>{{PROJECT_ROOT}}</string>
@@ -18,15 +17,15 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>{{HOME}}/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>{{PATH}}</string>
         <key>HOME</key>
         <string>{{HOME}}</string>
-        <key>ASSISTANT_NAME</key>
-        <string>Andy</string>
+        <key>SMOLPAWS_HOME_DIR</key>
+        <string>{{SMOLPAWS_HOME_DIR}}</string>
     </dict>
     <key>StandardOutPath</key>
-    <string>{{PROJECT_ROOT}}/logs/smolpaws.log</string>
+    <string>{{LOG_DIR}}/smolpaws.launchagent.log</string>
     <key>StandardErrorPath</key>
-    <string>{{PROJECT_ROOT}}/logs/smolpaws.error.log</string>
+    <string>{{LOG_DIR}}/smolpaws.launchagent.error.log</string>
 </dict>
 </plist>

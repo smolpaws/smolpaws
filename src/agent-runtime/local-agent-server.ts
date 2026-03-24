@@ -9,6 +9,7 @@ import {
   processSharedRunnerTaskCommand,
   type SharedRunnerTaskCommand,
 } from '../task-commands.js';
+import { ensureLocalRunnerReady } from './local-runner.js';
 
 type RunnerConversationInfo = {
   id: string;
@@ -35,38 +36,10 @@ const DEFAULT_AGENT_TOOLS = [
   { name: 'task_tracker' },
 ] as const;
 
-const DEFAULT_RUNNER_HOST = '127.0.0.1';
-const DEFAULT_RUNNER_PORT = '8788';
-
 const logger = pino({
   level: process.env.LOG_LEVEL || 'info',
   transport: { target: 'pino-pretty', options: { colorize: true } },
 });
-
-function normalizeValue(value?: string): string | null {
-  if (!value) {
-    return null;
-  }
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-}
-
-function resolveRunnerBaseUrl(): string {
-  const explicit = normalizeValue(process.env.SMOLPAWS_RUNNER_URL);
-  if (explicit) {
-    const normalized = explicit.replace(/\/+$/, '');
-    if (normalized.endsWith('/run')) {
-      throw new Error(
-        'SMOLPAWS_RUNNER_URL must be the agent-server base URL and must not end with /run',
-      );
-    }
-    return normalized;
-  }
-
-  const host = normalizeValue(process.env.RUNNER_HOST) ?? DEFAULT_RUNNER_HOST;
-  const port = normalizeValue(process.env.PORT) ?? DEFAULT_RUNNER_PORT;
-  return `http://${host}:${port}`;
-}
 
 function buildPrompt(input: AgentRuntimeInput): string {
   if (!input.isScheduledTask) {
@@ -92,15 +65,14 @@ function buildSmolpawsConfig(scope: ExecutionScope) {
 
 function buildHeaders(additional: Record<string, string> = {}): Record<string, string> {
   const headers: Record<string, string> = { ...additional };
-  const token = normalizeValue(process.env.SMOLPAWS_RUNNER_TOKEN);
+  const token = process.env.SMOLPAWS_RUNNER_TOKEN?.trim();
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
   return headers;
 }
 
-async function fetchJson<T>(pathname: string, init: RequestInit): Promise<T> {
-  const baseUrl = resolveRunnerBaseUrl();
+async function fetchJson<T>(baseUrl: string, pathname: string, init: RequestInit): Promise<T> {
   const response = await fetch(new URL(pathname, baseUrl), {
     ...init,
     headers: buildHeaders((init.headers as Record<string, string> | undefined) ?? {}),
@@ -133,10 +105,11 @@ function extractLatestAssistantReply(page: RunnerEventPage): string | null {
 }
 
 async function createOrContinueConversation(
+  baseUrl: string,
   scope: ExecutionScope,
   input: AgentRuntimeInput,
 ): Promise<RunnerConversationInfo> {
-  return await fetchJson<RunnerConversationInfo>('/api/conversations', {
+  return await fetchJson<RunnerConversationInfo>(baseUrl, '/api/conversations', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -161,9 +134,11 @@ async function createOrContinueConversation(
 }
 
 async function claimConversationOutbox(
+  baseUrl: string,
   conversationId: string,
 ): Promise<RunnerOutboundMessage[]> {
   return await fetchJson<RunnerOutboundMessage[]>(
+    baseUrl,
     `/api/conversations/${conversationId}/outbound_messages/claim`,
     {
       method: 'POST',
@@ -172,9 +147,11 @@ async function claimConversationOutbox(
 }
 
 async function claimConversationTaskCommands(
+  baseUrl: string,
   conversationId: string,
 ): Promise<SharedRunnerTaskCommand[]> {
   return await fetchJson<SharedRunnerTaskCommand[]>(
+    baseUrl,
     `/api/conversations/${conversationId}/task_commands/claim`,
     {
       method: 'POST',
@@ -182,8 +159,9 @@ async function claimConversationTaskCommands(
   );
 }
 
-async function loadLatestAssistantReply(conversationId: string): Promise<string | null> {
+async function loadLatestAssistantReply(baseUrl: string, conversationId: string): Promise<string | null> {
   const page = await fetchJson<RunnerEventPage>(
+    baseUrl,
     `/api/conversations/${conversationId}/events/search?source=agent&sort_order=TIMESTAMP_DESC&limit=20`,
     {
       method: 'GET',
@@ -198,8 +176,9 @@ export async function runLocalAgentServerAgent(
   options?: { registeredGroups?: Record<string, RegisteredGroup> },
 ): Promise<AgentRuntimeOutput> {
   try {
-    const conversation = await createOrContinueConversation(scope, input);
-    const taskCommands = await claimConversationTaskCommands(conversation.id);
+    const baseUrl = await ensureLocalRunnerReady();
+    const conversation = await createOrContinueConversation(baseUrl, scope, input);
+    const taskCommands = await claimConversationTaskCommands(baseUrl, conversation.id);
     for (const command of taskCommands) {
       processSharedRunnerTaskCommand(
         command,
@@ -209,7 +188,7 @@ export async function runLocalAgentServerAgent(
       );
     }
 
-    const outboundMessages = await claimConversationOutbox(conversation.id);
+    const outboundMessages = await claimConversationOutbox(baseUrl, conversation.id);
     if (outboundMessages.length > 0) {
       return {
         status: 'success',
@@ -219,7 +198,7 @@ export async function runLocalAgentServerAgent(
       };
     }
 
-    const reply = await loadLatestAssistantReply(conversation.id);
+    const reply = await loadLatestAssistantReply(baseUrl, conversation.id);
     return {
       status: 'success',
       result: reply,
