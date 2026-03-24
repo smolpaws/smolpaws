@@ -12,6 +12,7 @@ export type RunnerEnv = {
   LLM_PROFILE_ID?: string;
   SMOLPAWS_WORKSPACE_ROOT?: string;
   SMOLPAWS_DEFAULT_WORKING_DIR?: string;
+  SMOLPAWS_ALLOWED_WRITE_ROOTS?: string;
   SMOLPAWS_PERSISTENCE_DIR?: string;
   SMOLPAWS_VSCODE_SETTINGS_PATH?: string;
   SMOLPAWS_REPO_MAP_PATH?: string;
@@ -38,6 +39,7 @@ export function getEnv(): RunnerEnv {
     LLM_PROFILE_ID: process.env.LLM_PROFILE_ID,
     SMOLPAWS_WORKSPACE_ROOT: process.env.SMOLPAWS_WORKSPACE_ROOT,
     SMOLPAWS_DEFAULT_WORKING_DIR: process.env.SMOLPAWS_DEFAULT_WORKING_DIR,
+    SMOLPAWS_ALLOWED_WRITE_ROOTS: process.env.SMOLPAWS_ALLOWED_WRITE_ROOTS,
     SMOLPAWS_PERSISTENCE_DIR: process.env.SMOLPAWS_PERSISTENCE_DIR,
     SMOLPAWS_VSCODE_SETTINGS_PATH: process.env.SMOLPAWS_VSCODE_SETTINGS_PATH,
     SMOLPAWS_REPO_MAP_PATH: process.env.SMOLPAWS_REPO_MAP_PATH,
@@ -206,7 +208,21 @@ export function getDefaultWorkingDir(env: RunnerEnv): string {
 }
 
 export function listAllowedWorkspaceRoots(env: RunnerEnv): string[] {
-  return [getConfiguredWorkspaceRoot(env)];
+  const roots = new Set<string>([getConfiguredWorkspaceRoot(env)]);
+  const configuredExtraRoots = env.SMOLPAWS_ALLOWED_WRITE_ROOTS?.trim() ?? '';
+  if (!configuredExtraRoots) {
+    return [...roots];
+  }
+
+  for (const rawRoot of configuredExtraRoots.split(path.delimiter)) {
+    const trimmed = rawRoot.trim();
+    if (!trimmed) {
+      continue;
+    }
+    roots.add(path.resolve(expandHomeDir(trimmed)));
+  }
+
+  return [...roots];
 }
 
 export function resolveRequestedAbsolutePath(rawPath: string): string {

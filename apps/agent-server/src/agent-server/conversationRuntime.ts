@@ -32,6 +32,7 @@ import {
   getConfiguredWorkspaceRoot,
   getConfiguredLlmProfileId,
   getDefaultWorkingDir,
+  listAllowedWorkspaceRoots,
   resolveAbsolutePersistenceRoot,
   resolvePersistenceDir,
   type RunnerEnv,
@@ -82,6 +83,19 @@ type ConversationToolProfile = {
   includeDefaultTools: boolean | string[];
   tools: ToolDefinition<unknown, unknown>[];
 };
+
+function allowConfiguredWorkspaceRoots(
+  workspace: { allowPath(targetPath: string): void; root: string },
+  env: RunnerEnv,
+): void {
+  for (const allowedRoot of listAllowedWorkspaceRoots(env)) {
+    const resolved = path.resolve(allowedRoot);
+    if (resolved === workspace.root) {
+      continue;
+    }
+    workspace.allowPath(resolved);
+  }
+}
 
 function normalizeSecretValue(value: unknown): string | undefined {
   if (typeof value === "string") {
@@ -571,6 +585,7 @@ export function createConversationRuntime({
       smolpawsConfig,
     });
     const workspace = Workspace({ kind: "local", root: workspaceRoot });
+    allowConfiguredWorkspaceRoots(workspace, env);
     const projectSkillsRoot = resolveProjectSkillsRoot({
       workspaceRoot,
       env,

@@ -65,6 +65,7 @@ export PORT="${PORT:-8788}"
 export RUNNER_HOST="${RUNNER_HOST:-127.0.0.1}"
 export SMOLPAWS_WORKSPACE_ROOT="${SMOLPAWS_WORKSPACE_ROOT:-$HOME/repos}"
 export SMOLPAWS_DEFAULT_WORKING_DIR="${SMOLPAWS_DEFAULT_WORKING_DIR:-smolpaws}"
+export SMOLPAWS_ALLOWED_WRITE_ROOTS="${SMOLPAWS_ALLOWED_WRITE_ROOTS:-$HOME/repos}"
 export SMOLPAWS_VSCODE_SETTINGS_PATH
 
 mkdir -p "${SMOLPAWS_HOME_DIR}/logs" "${SMOLPAWS_HOME_DIR}/memory"
@@ -80,6 +81,7 @@ echo "Health: curl http://${RUNNER_HOST}:${PORT}/health"
 echo "Active LLM profile: ${LLM_PROFILE_ID}"
 echo "Allowed workspace root: ${SMOLPAWS_WORKSPACE_ROOT}"
 echo "Default startup working directory: ${SMOLPAWS_DEFAULT_WORKING_DIR}"
+echo "Additional allowed write roots: ${SMOLPAWS_ALLOWED_WRITE_ROOTS}"
 echo "VS Code settings path: ${SMOLPAWS_VSCODE_SETTINGS_PATH}"
 if [[ -f "${SMOLPAWS_ENV_FILE}" ]]; then
   echo "Loaded env file: ${SMOLPAWS_ENV_FILE}"
