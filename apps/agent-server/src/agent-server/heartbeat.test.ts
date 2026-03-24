@@ -36,17 +36,22 @@ test('buildHeartbeatRequest uses the canonical conversation path without outboun
 
 test('buildHeartbeatPrompt points the agent at the canonical docs and state files', () => {
   const previousSmolpawsHomeDir = process.env.SMOLPAWS_HOME_DIR;
-  delete process.env.SMOLPAWS_HOME_DIR;
-  const paths = buildHeartbeatPaths('/Users/enyst');
-  const prompt = buildHeartbeatPrompt(paths, new Date('2026-03-24T15:16:00'));
+  try {
+    delete process.env.SMOLPAWS_HOME_DIR;
+    const paths = buildHeartbeatPaths('/Users/enyst');
+    const prompt = buildHeartbeatPrompt(paths, new Date('2026-03-24T15:16:00'));
 
-  assert.match(prompt, /\/Users\/enyst\/repos\/smolpaws\/docs\/smolpaws/);
-  assert.match(prompt, /\/Users\/enyst\/\.smolpaws\/memory/);
-  assert.match(prompt, /MEMORY\.md/);
-  assert.match(prompt, /heartbeat-state\.json/);
-  assert.match(prompt, /Do not send outbound messages\./);
-  if (previousSmolpawsHomeDir) {
-    process.env.SMOLPAWS_HOME_DIR = previousSmolpawsHomeDir;
+    assert.match(prompt, /\/Users\/enyst\/repos\/smolpaws\/docs\/smolpaws/);
+    assert.match(prompt, /\/Users\/enyst\/\.smolpaws\/memory/);
+    assert.match(prompt, /MEMORY\.md/);
+    assert.match(prompt, /heartbeat-state\.json/);
+    assert.match(prompt, /Do not send outbound messages\./);
+  } finally {
+    if (previousSmolpawsHomeDir) {
+      process.env.SMOLPAWS_HOME_DIR = previousSmolpawsHomeDir;
+    } else {
+      delete process.env.SMOLPAWS_HOME_DIR;
+    }
   }
 });
 
