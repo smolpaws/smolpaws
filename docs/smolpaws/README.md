@@ -29,11 +29,11 @@ That includes:
 
 Daily memory files live under `memory/`. They are not auto-injected, but SmolPaws is explicitly pointed at them and should read them when needed.
 
-Heartbeat is now available as a local cron-backed ingress. The canonical local commands are:
+Heartbeat is now available as a local LaunchAgent-backed ingress. The canonical local commands are:
 
 - `npm run heartbeat:local`
-- `npm run heartbeat:cron:install`
-- `npm run heartbeat:cron:remove`
+- `npm run heartbeat:launchagent:install`
+- `npm run heartbeat:launchagent:remove`
 
 ## Why This Exists
 

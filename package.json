@@ -18,8 +18,8 @@
     "runner:start": "npm --prefix apps/agent-server run start",
     "runner:local": "./scripts/run-local-agent-server.sh",
     "heartbeat:local": "./scripts/run-local-heartbeat.sh",
-    "heartbeat:cron:install": "./scripts/install-local-heartbeat-cron.sh",
-    "heartbeat:cron:remove": "./scripts/remove-local-heartbeat-cron.sh",
+    "heartbeat:launchagent:install": "./scripts/install-local-heartbeat-launchagent.sh",
+    "heartbeat:launchagent:remove": "./scripts/remove-local-heartbeat-launchagent.sh",
     "runner:image:build": "container build -t smolpaws-runner:latest apps/agent-server",
     "typecheck": "tsc --noEmit"
   },

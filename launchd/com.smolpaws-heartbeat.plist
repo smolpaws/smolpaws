@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.smolpaws.heartbeat</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{PROJECT_ROOT}}/scripts/run-local-heartbeat.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>{{PROJECT_ROOT}}</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StartInterval</key>
+    <integer>{{START_INTERVAL_SECONDS}}</integer>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>{{PATH}}</string>
+        <key>HOME</key>
+        <string>{{HOME}}</string>
+        <key>SMOLPAWS_HOME_DIR</key>
+        <string>{{SMOLPAWS_HOME_DIR}}</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>{{LOG_DIR}}/heartbeat.launchagent.log</string>
+    <key>StandardErrorPath</key>
+    <string>{{LOG_DIR}}/heartbeat.launchagent.error.log</string>
+</dict>
+</plist>

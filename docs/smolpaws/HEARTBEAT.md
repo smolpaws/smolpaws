@@ -1,6 +1,6 @@
 # HEARTBEAT.md
 
-This file is live for the local cron heartbeat ingress.
+This file is live for the local LaunchAgent heartbeat ingress.
 
 ## Scope
 

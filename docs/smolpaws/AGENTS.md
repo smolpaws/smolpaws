@@ -47,6 +47,6 @@ On GitHub and other public surfaces:
 
 ## Hooks
 
-- `HEARTBEAT.md` is live through the local cron-backed heartbeat ingress.
+- `HEARTBEAT.md` is live through the local LaunchAgent-backed heartbeat ingress.
 - `BOOT.md` is for startup hooks once startup hooks exist.
 - `BOOTSTRAP.md` is for first-run identity rituals if we ever need to birth a fresh SmolPaws instance.
