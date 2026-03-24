@@ -13,6 +13,7 @@ import { ensureLocalRunnerReady } from './local-runner.js';
 
 type RunnerConversationInfo = {
   id: string;
+  execution_status?: string;
 };
 
 type RunnerEventPage = {
@@ -132,6 +133,9 @@ async function createOrContinueConversation(
         llm: {},
         tools: DEFAULT_AGENT_TOOLS,
       },
+      confirmation_policy: {
+        kind: 'NeverConfirm',
+      },
       workspace: {
         kind: 'local',
         working_dir: buildConversationWorkingDir(scope),
@@ -146,6 +150,20 @@ async function createOrContinueConversation(
       smolpaws: buildSmolpawsConfig(scope),
     }),
   });
+}
+
+async function loadConversationInfo(
+  baseUrl: string,
+  conversationId: string,
+): Promise<RunnerConversationInfo | null> {
+  const infos = await fetchJson<Array<RunnerConversationInfo | null>>(
+    baseUrl,
+    `/api/conversations?ids=${encodeURIComponent(conversationId)}`,
+    {
+      method: 'GET',
+    },
+  );
+  return infos[0] ?? null;
 }
 
 async function claimConversationOutbox(
@@ -195,6 +213,16 @@ export async function runLocalAgentServerAgent(
 ): Promise<AgentRuntimeOutput> {
   try {
     const baseUrl = await ensureLocalRunnerReady();
+    if (input.conversationId) {
+      const existing = await loadConversationInfo(baseUrl, input.conversationId);
+      if (existing?.execution_status === 'waiting_for_confirmation') {
+        logger.warn(
+          { scopeId: scope.scopeId, conversationId: input.conversationId },
+          'Local WhatsApp conversation is waiting for confirmation; starting a fresh conversation',
+        );
+        input = { ...input, conversationId: undefined };
+      }
+    }
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const conversation = await createOrContinueConversation(baseUrl, scope, input);
       const taskCommands = await claimConversationTaskCommands(baseUrl, conversation.id);

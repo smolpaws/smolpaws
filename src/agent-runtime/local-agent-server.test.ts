@@ -45,6 +45,12 @@ test('runLocalAgentServerAgent creates a conversation rooted in the scope group 
         headers: { 'Content-Type': 'application/json' },
       });
     }
+    if (url.includes('/api/conversations?ids=')) {
+      return new Response(JSON.stringify([{ id: 'wa-main-conv', execution_status: 'idle' }]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
     if (url.endsWith('/api/conversations')) {
       return new Response(JSON.stringify({ id: 'wa-main-conv' }), {
         status: 201,
@@ -107,6 +113,7 @@ test('runLocalAgentServerAgent creates a conversation rooted in the scope group 
       workspace: { kind: string; working_dir: string };
       smolpaws: { ingress: string; scope_id: string; enable_send_message: boolean; enable_task_tools: boolean };
       agent: { tools: Array<{ name: string }> };
+      confirmation_policy: { kind: string };
       conversation_id: string;
       max_iterations: number;
     };
@@ -117,6 +124,7 @@ test('runLocalAgentServerAgent creates a conversation rooted in the scope group 
     assert.equal(body.smolpaws.scope_id, 'main');
     assert.equal(body.smolpaws.enable_send_message, true);
     assert.equal(body.smolpaws.enable_task_tools, true);
+    assert.equal(body.confirmation_policy.kind, 'NeverConfirm');
     assert.deepEqual(body.agent.tools.map((tool) => tool.name), [
       'terminal',
       'file_editor',
@@ -137,6 +145,11 @@ test('runLocalAgentServerAgent returns outbound messages without forcing a final
   globalThis.fetch = buildFetchStub({
     '/ready': () =>
       new Response(JSON.stringify({ status: 'ready' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    '/api/conversations?ids=': () =>
+      new Response(JSON.stringify([null]), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
@@ -235,6 +248,12 @@ test('runLocalAgentServerAgent starts a fresh conversation when the previous one
         headers: { 'Content-Type': 'application/json' },
       });
     }
+    if (url.includes('/api/conversations?ids=')) {
+      return new Response(JSON.stringify([{ id: 'stale-conv', execution_status: 'idle' }]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
     if (url.endsWith('/api/conversations')) {
       const body = JSON.parse(String(init?.body)) as { conversation_id?: string; max_iterations: number };
       conversationBodies.push(body);
@@ -288,6 +307,92 @@ test('runLocalAgentServerAgent starts a fresh conversation when the previous one
     assert.equal(conversationBodies[1]?.conversation_id, undefined);
     assert.equal(conversationBodies[0]?.max_iterations, 5000);
     assert.equal(conversationBodies[1]?.max_iterations, 5000);
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.SMOLPAWS_RUNNER_URL;
+  }
+});
+
+test('runLocalAgentServerAgent starts a fresh conversation when the previous one is waiting for confirmation', async () => {
+  initDatabase();
+  process.env.SMOLPAWS_RUNNER_URL = 'http://127.0.0.1:8788';
+
+  const conversationBodies: Array<{ conversation_id?: string; max_iterations: number }> = [];
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    if (url.endsWith('/ready')) {
+      return new Response(JSON.stringify({ status: 'ready' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.includes('/api/conversations?ids=')) {
+      return new Response(JSON.stringify([{ id: 'stale-conv', execution_status: 'waiting_for_confirmation' }]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.endsWith('/api/conversations')) {
+      const body = JSON.parse(String(init?.body)) as { conversation_id?: string; max_iterations: number };
+      conversationBodies.push(body);
+      return new Response(JSON.stringify({ id: 'fresh-conv' }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.endsWith('/task_commands/claim')) {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.endsWith('/outbound_messages/claim')) {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.includes('/events/search?')) {
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              kind: 'MessageEvent',
+              llm_message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'fresh after confirmation stall' }],
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+
+  try {
+    const result = await runLocalAgentServerAgent(TEST_SCOPE, {
+      prompt: 'continue please',
+      conversationId: 'stale-conv',
+      scopeId: TEST_SCOPE.scopeId,
+      chatJid: TEST_SCOPE.chatJid,
+      isControlScope: TEST_SCOPE.isControlScope,
+    });
+
+    assert.deepEqual(result, {
+      status: 'success',
+      result: 'fresh after confirmation stall',
+      conversationId: 'fresh-conv',
+    });
+    assert.equal(conversationBodies.length, 1);
+    assert.equal(conversationBodies[0]?.conversation_id, undefined);
+    assert.equal(conversationBodies[0]?.max_iterations, 5000);
   } finally {
     globalThis.fetch = originalFetch;
     delete process.env.SMOLPAWS_RUNNER_URL;
