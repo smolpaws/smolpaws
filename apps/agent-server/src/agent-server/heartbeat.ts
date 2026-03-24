@@ -5,6 +5,7 @@ import type { StartConversationRequest } from './models.js';
 export const DEFAULT_HEARTBEAT_RUNNER_HOST = '127.0.0.1';
 export const DEFAULT_HEARTBEAT_RUNNER_PORT = '8788';
 export const DEFAULT_HEARTBEAT_CRON = '0 * * * *';
+export const DEFAULT_HEARTBEAT_MAX_ITERATIONS = 500;
 
 type HeartbeatPaths = {
   docsDir: string;
@@ -66,7 +67,7 @@ export function buildHeartbeatRequest(now: Date): StartConversationRequest {
       kind: 'local',
       working_dir: process.env.SMOLPAWS_DEFAULT_WORKING_DIR?.trim() || 'smolpaws',
     },
-    max_iterations: 500,
+    max_iterations: DEFAULT_HEARTBEAT_MAX_ITERATIONS,
     initial_message: {
       role: 'user',
       content: [
