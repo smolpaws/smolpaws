@@ -28,6 +28,7 @@ import {
 import { scopeFromRegisteredGroup } from './scope.js';
 import { loadJson, saveJson } from './utils.js';
 import { collapseMessagesToLatestPerChat } from './message-loop.js';
+import { ConnectionGuards } from './connection-guards.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -42,12 +43,7 @@ let sessions: Session = {};
 let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
 
-// Guards against duplicate loops spawned by WhatsApp reconnections.
-// Each reconnection fires `connection === 'open'` again; without these guards,
-// startMessageLoop / startSchedulerLoop / setInterval calls accumulate.
-let messageLoopRunning = false;
-let schedulerStarted = false;
-let groupSyncTimerId: ReturnType<typeof setInterval> | undefined;
+const guards = new ConnectionGuards();
 
 async function setTyping(jid: string, isTyping: boolean): Promise<void> {
   try {
@@ -250,20 +246,18 @@ async function connectWhatsApp(): Promise<void> {
       logger.info('Connected to WhatsApp');
       // Sync group metadata on startup (respects 24h cache)
       syncGroupMetadata().catch(err => logger.error({ err }, 'Initial group sync failed'));
-      // Set up daily sync timer (only once — clear previous on reconnect)
-      if (groupSyncTimerId) clearInterval(groupSyncTimerId);
-      groupSyncTimerId = setInterval(() => {
+      // Set up daily sync timer (replaces previous on reconnect)
+      guards.replaceGroupSyncInterval(() => {
         syncGroupMetadata().catch(err => logger.error({ err }, 'Periodic group sync failed'));
       }, GROUP_SYNC_INTERVAL_MS);
-      if (!schedulerStarted) {
-        schedulerStarted = true;
+      if (guards.tryStartScheduler()) {
         startSchedulerLoop({
           sendMessage,
           registeredGroups: () => registeredGroups,
           getSessions: () => sessions
         });
       }
-      if (!messageLoopRunning) {
+      if (guards.tryStartMessageLoop()) {
         startMessageLoop();
       }
     }
@@ -291,7 +285,6 @@ async function connectWhatsApp(): Promise<void> {
 }
 
 async function startMessageLoop(): Promise<void> {
-  messageLoopRunning = true;
   logger.info(`SmolPaws running (trigger: @${ASSISTANT_NAME})`);
 
   while (true) {
