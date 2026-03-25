@@ -42,6 +42,13 @@ let sessions: Session = {};
 let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
 
+// Guards against duplicate loops spawned by WhatsApp reconnections.
+// Each reconnection fires `connection === 'open'` again; without these guards,
+// startMessageLoop / startSchedulerLoop / setInterval calls accumulate.
+let messageLoopRunning = false;
+let schedulerStarted = false;
+let groupSyncTimerId: ReturnType<typeof setInterval> | undefined;
+
 async function setTyping(jid: string, isTyping: boolean): Promise<void> {
   try {
     await sock.sendPresenceUpdate(isTyping ? 'composing' : 'paused', jid);
@@ -243,16 +250,22 @@ async function connectWhatsApp(): Promise<void> {
       logger.info('Connected to WhatsApp');
       // Sync group metadata on startup (respects 24h cache)
       syncGroupMetadata().catch(err => logger.error({ err }, 'Initial group sync failed'));
-      // Set up daily sync timer
-      setInterval(() => {
+      // Set up daily sync timer (only once — clear previous on reconnect)
+      if (groupSyncTimerId) clearInterval(groupSyncTimerId);
+      groupSyncTimerId = setInterval(() => {
         syncGroupMetadata().catch(err => logger.error({ err }, 'Periodic group sync failed'));
       }, GROUP_SYNC_INTERVAL_MS);
-      startSchedulerLoop({
-        sendMessage,
-        registeredGroups: () => registeredGroups,
-        getSessions: () => sessions
-      });
-      startMessageLoop();
+      if (!schedulerStarted) {
+        schedulerStarted = true;
+        startSchedulerLoop({
+          sendMessage,
+          registeredGroups: () => registeredGroups,
+          getSessions: () => sessions
+        });
+      }
+      if (!messageLoopRunning) {
+        startMessageLoop();
+      }
     }
   });
 
@@ -278,6 +291,7 @@ async function connectWhatsApp(): Promise<void> {
 }
 
 async function startMessageLoop(): Promise<void> {
+  messageLoopRunning = true;
   logger.info(`SmolPaws running (trigger: @${ASSISTANT_NAME})`);
 
   while (true) {
