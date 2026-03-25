@@ -7,6 +7,7 @@ export type SmolpawsOutboundMessage = {
 
 type ConversationResponse = {
   id: string;
+  execution_status?: string;
 };
 
 type EventPage = {
@@ -26,6 +27,11 @@ const DEFAULT_AGENT_TOOLS = [
   { name: 'file_editor' },
   { name: 'task_tracker' },
 ] as const;
+
+const POLL_INTERVAL_MS = 2000;
+const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+const TERMINAL_STATUSES = new Set(['idle', 'finished', 'error', 'stuck', 'paused']);
 
 function buildHeaders(token?: string): Record<string, string> {
   const headers: Record<string, string> = {};
@@ -50,6 +56,42 @@ function extractAssistantReply(page: EventPage): string | null {
   return null;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForCompletion(
+  baseUrl: string,
+  conversationId: string,
+  token: string | undefined,
+  logger: Logger,
+): Promise<void> {
+  const deadline = Date.now() + POLL_TIMEOUT_MS;
+
+  while (Date.now() < deadline) {
+    await sleep(POLL_INTERVAL_MS);
+
+    const res = await fetch(
+      `${baseUrl}/api/conversations/${encodeURIComponent(conversationId)}`,
+      { headers: buildHeaders(token) },
+    );
+    if (!res.ok) {
+      logger.warn({ status: res.status, conversationId }, 'Failed to poll conversation status');
+      break;
+    }
+
+    const data = (await res.json()) as ConversationResponse;
+    const status = data.execution_status ?? 'unknown';
+    logger.debug({ conversationId, execution_status: status }, 'Polling conversation');
+
+    if (TERMINAL_STATUSES.has(status)) {
+      return;
+    }
+  }
+
+  logger.warn({ conversationId }, 'Timed out waiting for agent to finish');
+}
+
 export type DispatchResult = {
   reply?: string;
   outboundMessages: SmolpawsOutboundMessage[];
@@ -71,7 +113,7 @@ export async function dispatchToAgentServer(options: {
 }): Promise<DispatchResult> {
   const { baseUrl, token, conversationId, prompt, discord, logger } = options;
 
-  // Create or continue conversation
+  // Try to create or continue conversation
   const convResponse = await fetch(`${baseUrl}/api/conversations`, {
     method: 'POST',
     headers: {
@@ -102,12 +144,47 @@ export async function dispatchToAgentServer(options: {
     throw new Error(`Agent-server error (${convResponse.status}): ${text}`);
   }
 
+  const isNewConversation = convResponse.status === 201;
   const convData = (await convResponse.json()) as ConversationResponse;
   if (!convData.id) {
     throw new Error('Agent-server response missing conversation id');
   }
 
-  logger.debug({ conversationId: convData.id }, 'Conversation created/continued');
+  // If the conversation already existed, the agent-server returns 200 and
+  // silently ignores the initial_message. Send it explicitly via the events
+  // endpoint and trigger a run.
+  if (!isNewConversation) {
+    logger.debug({ conversationId: convData.id }, 'Conversation already exists; sending message via events endpoint');
+
+    const msgResponse = await fetch(
+      `${baseUrl}/api/conversations/${encodeURIComponent(convData.id)}/events`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...buildHeaders(token),
+        },
+        body: JSON.stringify({
+          role: 'user',
+          content: [{ type: 'text', text: prompt }],
+          run: true,
+        }),
+      },
+    );
+
+    if (!msgResponse.ok) {
+      const text = await msgResponse.text();
+      throw new Error(`Failed to send message to existing conversation (${msgResponse.status}): ${text}`);
+    }
+  }
+
+  logger.debug(
+    { conversationId: convData.id, isNew: isNewConversation },
+    'Conversation dispatched',
+  );
+
+  // Wait for the agent to finish processing
+  await waitForCompletion(baseUrl, convData.id, token, logger);
 
   // Claim outbound messages
   const outboundResponse = await fetch(
