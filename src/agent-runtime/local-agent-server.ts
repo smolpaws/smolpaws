@@ -97,6 +97,13 @@ function isRetryableRunnerFetchError(error: unknown): boolean {
   return error instanceof Error && error.message.includes('fetch failed');
 }
 
+function formatRetryableRunnerFetchError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
 async function retryPostRunFetch<T>(
   baseUrl: string,
   operation: string,
@@ -108,7 +115,10 @@ async function retryPostRunFetch<T>(
     if (!isRetryableRunnerFetchError(error)) {
       throw error;
     }
-    logger.warn({ baseUrl, operation, error: error.message }, 'Transient runner fetch failed; retrying once');
+    logger.warn(
+      { baseUrl, operation, error: formatRetryableRunnerFetchError(error) },
+      'Transient runner fetch failed; retrying once',
+    );
     await ensureLocalRunnerReady();
     return await action();
   }
