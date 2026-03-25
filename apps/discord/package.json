@@ -5,6 +5,7 @@
   "scripts": {
     "start": "node --import tsx/esm src/index.ts",
     "dev": "node --import tsx/esm --watch src/index.ts",
+    "test": "tsx --test src/__tests__/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

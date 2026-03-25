@@ -44,6 +44,8 @@ npm run build        # Compile TypeScript
 npm run github:dev   # Run the GitHub Worker locally
 npm run runner:dev   # Run the shared agent-server locally
 npm run runner:image:build
+npm --prefix apps/discord run test  # Run Discord ingress regression tests
+
 ```
 
 Service management:

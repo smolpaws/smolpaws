@@ -33,6 +33,13 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 const TERMINAL_STATUSES = new Set(['idle', 'finished', 'error', 'stuck', 'paused']);
 
+type WaitForCompletionOptions = {
+  fetchImpl?: typeof fetch;
+  sleepImpl?: typeof sleep;
+  pollIntervalMs?: number;
+  pollTimeoutMs?: number;
+};
+
 function buildHeaders(token?: string): Record<string, string> {
   const headers: Record<string, string> = {};
   if (token) {
@@ -65,27 +72,38 @@ async function waitForCompletion(
   conversationId: string,
   token: string | undefined,
   logger: Logger,
+  options: WaitForCompletionOptions = {},
 ): Promise<void> {
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
+  const {
+    fetchImpl = fetch,
+    sleepImpl = sleep,
+    pollIntervalMs = POLL_INTERVAL_MS,
+    pollTimeoutMs = POLL_TIMEOUT_MS,
+  } = options;
+  const deadline = Date.now() + pollTimeoutMs;
 
   while (Date.now() < deadline) {
-    await sleep(POLL_INTERVAL_MS);
+    await sleepImpl(pollIntervalMs);
 
-    const res = await fetch(
-      `${baseUrl}/api/conversations/${encodeURIComponent(conversationId)}`,
-      { headers: buildHeaders(token) },
-    );
-    if (!res.ok) {
-      logger.warn({ status: res.status, conversationId }, 'Failed to poll conversation status');
-      break;
-    }
+    try {
+      const res = await fetchImpl(
+        `${baseUrl}/api/conversations/${encodeURIComponent(conversationId)}`,
+        { headers: buildHeaders(token) },
+      );
+      if (!res.ok) {
+        logger.warn({ status: res.status, conversationId }, 'Failed to poll conversation status');
+        continue;
+      }
 
-    const data = (await res.json()) as ConversationResponse;
-    const status = data.execution_status ?? 'unknown';
-    logger.debug({ conversationId, execution_status: status }, 'Polling conversation');
+      const data = (await res.json()) as ConversationResponse;
+      const status = data.execution_status ?? 'unknown';
+      logger.debug({ conversationId, execution_status: status }, 'Polling conversation');
 
-    if (TERMINAL_STATUSES.has(status)) {
-      return;
+      if (TERMINAL_STATUSES.has(status)) {
+        return;
+      }
+    } catch (error) {
+      logger.warn({ err: error, conversationId }, 'Failed to poll conversation status');
     }
   }
 
@@ -110,11 +128,22 @@ export async function dispatchToAgentServer(options: {
     author_name: string;
   };
   logger: Logger;
+  fetchImpl?: typeof fetch;
+  sleepImpl?: typeof sleep;
 }): Promise<DispatchResult> {
-  const { baseUrl, token, conversationId, prompt, discord, logger } = options;
+  const {
+    baseUrl,
+    token,
+    conversationId,
+    prompt,
+    discord,
+    logger,
+    fetchImpl = fetch,
+    sleepImpl = sleep,
+  } = options;
 
   // Try to create or continue conversation
-  const convResponse = await fetch(`${baseUrl}/api/conversations`, {
+  const convResponse = await fetchImpl(`${baseUrl}/api/conversations`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -156,7 +185,7 @@ export async function dispatchToAgentServer(options: {
   if (!isNewConversation) {
     logger.debug({ conversationId: convData.id }, 'Conversation already exists; sending message via events endpoint');
 
-    const msgResponse = await fetch(
+    const msgResponse = await fetchImpl(
       `${baseUrl}/api/conversations/${encodeURIComponent(convData.id)}/events`,
       {
         method: 'POST',
@@ -184,10 +213,13 @@ export async function dispatchToAgentServer(options: {
   );
 
   // Wait for the agent to finish processing
-  await waitForCompletion(baseUrl, convData.id, token, logger);
+  await waitForCompletion(baseUrl, convData.id, token, logger, {
+    fetchImpl,
+    sleepImpl,
+  });
 
   // Claim outbound messages
-  const outboundResponse = await fetch(
+  const outboundResponse = await fetchImpl(
     `${baseUrl}/api/conversations/${encodeURIComponent(convData.id)}/outbound_messages/claim`,
     {
       method: 'POST',
@@ -205,7 +237,7 @@ export async function dispatchToAgentServer(options: {
   }
 
   // Fall back to reading the last assistant message from events
-  const eventsResponse = await fetch(
+  const eventsResponse = await fetchImpl(
     `${baseUrl}/api/conversations/${encodeURIComponent(convData.id)}/events/search?kind=MessageEvent&source=agent&sort_order=TIMESTAMP_DESC&limit=20`,
     {
       headers: buildHeaders(token),
