@@ -193,6 +193,65 @@ test('runLocalAgentServerAgent returns outbound messages without forcing a final
   }
 });
 
+test('runLocalAgentServerAgent retries a transient fetch failure when claiming outbound messages', async () => {
+  initDatabase();
+  process.env.SMOLPAWS_RUNNER_URL = 'http://127.0.0.1:8788';
+
+  let outboundClaimAttempts = 0;
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = buildFetchStub({
+    '/ready': () =>
+      new Response(JSON.stringify({ status: 'ready' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    '/api/conversations': () =>
+      new Response(JSON.stringify({ id: 'wa-retry-conv' }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    '/task_commands/claim': () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    '/outbound_messages/claim': () => {
+      outboundClaimAttempts += 1;
+      if (outboundClaimAttempts === 1) {
+        throw new Error('fetch failed');
+      }
+      return new Response(
+        JSON.stringify([{ kind: 'current_thread_message', text: 'recovered after retry' }]),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  });
+
+  try {
+    const result = await runLocalAgentServerAgent(TEST_SCOPE, {
+      prompt: 'say hello',
+      scopeId: TEST_SCOPE.scopeId,
+      chatJid: TEST_SCOPE.chatJid,
+      isControlScope: TEST_SCOPE.isControlScope,
+    });
+
+    assert.deepEqual(result, {
+      status: 'success',
+      result: null,
+      conversationId: 'wa-retry-conv',
+      outboundMessages: [{ kind: 'current_thread_message', text: 'recovered after retry' }],
+    });
+    assert.equal(outboundClaimAttempts, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.SMOLPAWS_RUNNER_URL;
+  }
+});
+
 test('runLocalAgentServerAgent fails fast on a legacy /run runner url', async () => {
   initDatabase();
   process.env.SMOLPAWS_RUNNER_URL = 'https://runner.example.com/run/';

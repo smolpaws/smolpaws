@@ -93,6 +93,27 @@ async function fetchJson<T>(baseUrl: string, pathname: string, init: RequestInit
   return await response.json() as T;
 }
 
+function isRetryableRunnerFetchError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('fetch failed');
+}
+
+async function retryPostRunFetch<T>(
+  baseUrl: string,
+  operation: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await action();
+  } catch (error) {
+    if (!isRetryableRunnerFetchError(error)) {
+      throw error;
+    }
+    logger.warn({ baseUrl, operation, error: error.message }, 'Transient runner fetch failed; retrying once');
+    await ensureLocalRunnerReady();
+    return await action();
+  }
+}
+
 function extractConversationResult(page: RunnerEventPage): {
   reply: string | null;
   errorCode?: string;
@@ -201,7 +222,11 @@ async function executeConversationAttempt(
   options?: { registeredGroups?: Record<string, RegisteredGroup> },
 ): Promise<LocalRunnerAttemptResult> {
   const conversation = await createOrContinueConversation(baseUrl, scope, input);
-  const taskCommands = await claimConversationTaskCommands(baseUrl, conversation.id);
+  const taskCommands = await retryPostRunFetch(
+    baseUrl,
+    'claim task commands',
+    async () => await claimConversationTaskCommands(baseUrl, conversation.id),
+  );
   for (const command of taskCommands) {
     processSharedRunnerTaskCommand(
       command,
@@ -211,7 +236,11 @@ async function executeConversationAttempt(
     );
   }
 
-  const outboundMessages = await claimConversationOutbox(baseUrl, conversation.id);
+  const outboundMessages = await retryPostRunFetch(
+    baseUrl,
+    'claim outbound messages',
+    async () => await claimConversationOutbox(baseUrl, conversation.id),
+  );
   if (outboundMessages.length > 0) {
     return {
       status: 'success',
@@ -221,7 +250,11 @@ async function executeConversationAttempt(
     };
   }
 
-  const result = await loadConversationResult(baseUrl, conversation.id);
+  const result = await retryPostRunFetch(
+    baseUrl,
+    'load conversation result',
+    async () => await loadConversationResult(baseUrl, conversation.id),
+  );
   if (result.errorCode) {
     return {
       status: 'error',
