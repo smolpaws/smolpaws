@@ -39,15 +39,26 @@ and continue.
 - If there is a useful transient note for today, add it to today's daily memory file.
 - Keep edits compact and factual.
 
+### Check beads for urgent items
+
+- Run `bd list --status open --json` in the smolpaws repo.
+- Scan for any issue that is P0 or P1, or has a deadline approaching within 48 hours (check descriptions for date references).
+- If something looks urgent enough that Engel should know now, note it in today's daily memory file and — only for genuinely time-sensitive items — send a short WhatsApp message to Engel with the issue ID and why it's urgent.
+- If nothing is urgent, skip quietly.
+
 ### Check Slack via Chrome
 
-- Use `osascript` to check if Chrome is running and has a Slack tab open.
-- If Chrome is available, read recent Slack DMs and mentions via JavaScript injection.
+- Always use the dedicated Chrome at `/Applications/Google Chrome.app`, not Dia. In AppleScript, always address it as `application id "com.google.Chrome"`.
+- If Chrome is not running, launch it by path and give it a moment to settle.
+- If no Slack tab exists, open `https://openhands-ai.slack.com/` in Chrome and wait briefly for it to load instead of skipping immediately.
+- Focus the Slack tab/window before trying JavaScript injection. If the first JS read fails, reload once and try again.
+- Do not just inspect whichever Slack channel tab happens to be visible. Prefer unread DMs and direct mentions first.
+- Specifically check whether there are unread DMs or mentions directed at smolpaws. Only if none exist should you look at the current visible conversation.
 - If there are new messages directed at smolpaws:
   - If safe and straightforward: respond directly via Chrome.
-  - If unsure or sensitive: log to today's daily memory file for later discussion with Engel.
+  - If unsure or sensitive: log the message and concern in today's daily memory file for later discussion with Engel.
 - Follow the Slack safety rules in `MEMORY.md`: never share private info publicly, never do anything wild or irreversible.
-- If Chrome is not running or Slack is not loaded, skip quietly.
+- Only skip quietly after you have tried the dedicated Chrome path, focused/opened Slack, and retried one JS read.
 
 ## Once daily
 
