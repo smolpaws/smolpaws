@@ -235,7 +235,7 @@ async function executeConversationAttempt(
   const taskCommands = await retryPostRunFetch(
     baseUrl,
     'claim task commands',
-    async () => await claimConversationTaskCommands(baseUrl, conversation.id),
+    () => claimConversationTaskCommands(baseUrl, conversation.id),
   );
   for (const command of taskCommands) {
     processSharedRunnerTaskCommand(
@@ -249,7 +249,7 @@ async function executeConversationAttempt(
   const outboundMessages = await retryPostRunFetch(
     baseUrl,
     'claim outbound messages',
-    async () => await claimConversationOutbox(baseUrl, conversation.id),
+    () => claimConversationOutbox(baseUrl, conversation.id),
   );
   if (outboundMessages.length > 0) {
     return {
@@ -263,7 +263,7 @@ async function executeConversationAttempt(
   const result = await retryPostRunFetch(
     baseUrl,
     'load conversation result',
-    async () => await loadConversationResult(baseUrl, conversation.id),
+    () => loadConversationResult(baseUrl, conversation.id),
   );
   if (result.errorCode) {
     return {
