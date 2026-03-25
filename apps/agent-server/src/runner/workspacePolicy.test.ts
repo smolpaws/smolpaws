@@ -50,6 +50,26 @@ test('isAllowedWorkspacePath allows writes under extra allowed roots', async () 
   assert.equal(await isAllowedWorkspacePath(memoryFile, expandedEnv, 'write'), true);
 });
 
+test('isAllowedWorkspacePath allows writes under private smolpaws home roots when configured', async () => {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'smolpaws-private-write-'));
+  tempRoots.push(tempRoot);
+  const workspaceRoot = path.join(tempRoot, 'repos', 'smolpaws');
+  const smolpawsHome = path.join(tempRoot, '.smolpaws');
+  const repoMapPath = path.join(smolpawsHome, 'repo-map.json');
+  mkdirSync(workspaceRoot, { recursive: true });
+  mkdirSync(path.dirname(repoMapPath), { recursive: true });
+  writeFileSync(repoMapPath, '{}\n');
+
+  const baseEnv = createEnv(workspaceRoot, workspaceRoot);
+  const expandedEnv = createEnv(
+    workspaceRoot,
+    `${workspaceRoot}${path.delimiter}${smolpawsHome}`,
+  );
+
+  assert.equal(await isAllowedWorkspacePath(repoMapPath, baseEnv, 'write'), false);
+  assert.equal(await isAllowedWorkspacePath(repoMapPath, expandedEnv, 'write'), true);
+});
+
 test.after(() => {
   for (const tempRoot of tempRoots) {
     rmSync(tempRoot, { recursive: true, force: true });
