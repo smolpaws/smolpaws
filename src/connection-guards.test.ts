@@ -31,30 +31,32 @@ test('simulated reconnections do not spawn duplicate loops', () => {
   assert.equal(schedulerStarts, 1, 'scheduler should start exactly once');
 });
 
-test('replaceGroupSyncInterval replaces the previous timer', (t) => {
+test('replaceGroupSyncInterval stops the previous timer', async () => {
   const guards = new ConnectionGuards();
   let callCountA = 0;
   let callCountB = 0;
 
-  // First interval
   guards.replaceGroupSyncInterval(() => { callCountA++; }, 10);
-  const firstTimerId = guards.groupSyncTimerId;
-  assert.ok(firstTimerId !== undefined, 'timer should be set');
-
-  // Replace with second interval
+  // Replace before A fires
   guards.replaceGroupSyncInterval(() => { callCountB++; }, 10);
-  const secondTimerId = guards.groupSyncTimerId;
-  assert.ok(secondTimerId !== undefined, 'timer should still be set');
-  assert.notEqual(firstTimerId, secondTimerId, 'timer ID should change');
+
+  // Wait enough for several ticks
+  await new Promise((resolve) => setTimeout(resolve, 60));
 
   guards.dispose();
+
+  assert.equal(callCountA, 0, 'old timer callback should never fire after replacement');
+  assert.ok(callCountB > 0, 'new timer callback should have fired');
 });
 
-test('dispose clears the group sync interval', () => {
+test('dispose stops the timer callback from firing', async () => {
   const guards = new ConnectionGuards();
-  guards.replaceGroupSyncInterval(() => {}, 10);
-  assert.ok(guards.groupSyncTimerId !== undefined);
+  let callCount = 0;
 
+  guards.replaceGroupSyncInterval(() => { callCount++; }, 10);
   guards.dispose();
-  assert.equal(guards.groupSyncTimerId, undefined);
+
+  // Wait and verify no further calls
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.equal(callCount, 0, 'callback should not fire after dispose');
 });
