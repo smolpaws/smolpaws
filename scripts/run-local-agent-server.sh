@@ -63,6 +63,7 @@ fi
 
 export PORT="${PORT:-8788}"
 export RUNNER_HOST="${RUNNER_HOST:-127.0.0.1}"
+export SMOLPAWS_HOME_DIR
 export SMOLPAWS_WORKSPACE_ROOT="${SMOLPAWS_WORKSPACE_ROOT:-$HOME/repos}"
 export SMOLPAWS_DEFAULT_WORKING_DIR="${SMOLPAWS_DEFAULT_WORKING_DIR:-smolpaws}"
 PATH_DELIMITER="$(node -p 'require("node:path").delimiter')"
