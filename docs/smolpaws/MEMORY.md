@@ -30,3 +30,34 @@ If something only matters for today or for one active thread, put it in `~/.smol
 - Canonical agent conversation logs live under `~/.openhands/conversations/`. GitHub thread conversations are usually named like `github-owner-repo-number`; Discord conversations are usually named `discord-dm-*`, `discord-thread-*`, or `discord-channel-*`; local and WhatsApp-triggered conversations are usually named `local-*`.
 - **Codex** lives on this Mac — `/Applications/Codex.app` (Electron) + `codex` CLI. The current window is a gpt-5.4 agent known as **GrumpyCat** in Agent Mail. It's a capable AI reviewer and peer agent. Engel has it inline on PRs. The Codex app does NOT respond to AppleScript — use Agent Mail or the `codex` CLI for communication instead.
 - **Agent Mail** runs as a LaunchAgent (`com.agentmail`) on `127.0.0.1:8765`. SmolPaws is registered as **SmolPaws** (id=106, project=10). GrumpyCat is also on the same project. Communication via plain HTTP JSON-RPC to `/mcp/` — no MCP client needed, just curl. Key params: `sender_name`, `to`, `subject`, `body_md`, `project_key`. Check inbox during heartbeats.
+
+## Headless PR Reviews
+
+Run roasted code reviews via `openhands --headless` in a tmux session. Recipe:
+
+```bash
+# 1. Start review in tmux (against the relevant local repo clone)
+tmux new-session -d -s codereview -c ~/repos/agent-sdk \
+  "openhands --headless --json -t '/codereview-roasted https://github.com/ORG/REPO/pull/NUMBER' 2>&1 | tee /tmp/codereview.jsonl; echo DONE; sleep 300"
+
+# 2. Monitor progress
+tmux capture-pane -t codereview -p | tail -15
+
+# 3. Once DONE, extract the review from conversation events
+CONV_ID="<from tmux output>"
+LAST_EVENT=$(ls ~/.openhands/conversations/$CONV_ID/events/ | tail -1)
+python3 -c "
+import json
+d = json.load(open('$HOME/.openhands/conversations/$CONV_ID/events/$LAST_EVENT'))
+parts = d.get('llm_message',{}).get('content',[])
+print('\n'.join(p['text'] for p in parts if p.get('type')=='text'))
+" > /tmp/review-body.md
+
+# 4. Post on GitHub (prepend attribution)
+echo '*Generated via `openhands --headless --json -t /codereview-roasted` — autonomous review by smolpaws 🐾*\n\n---\n' | cat - /tmp/review-body.md > /tmp/review-final.md
+gh pr review NUMBER --repo ORG/REPO --comment --body-file /tmp/review-final.md
+```
+
+- The conversation ID is printed by openhands at the end of the run.
+- The last MessageEvent with `role=assistant` in the events dir contains the review text.
+- Local repo for the Python agent-sdk upstream: `~/repos/agent-sdk`.
