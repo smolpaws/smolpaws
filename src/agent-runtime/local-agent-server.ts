@@ -13,6 +13,7 @@ import { ensureLocalRunnerReady } from './local-runner.js';
 
 type RunnerConversationInfo = {
   id: string;
+  execution_status?: string;
 };
 
 type RunnerEventPage = {
@@ -185,6 +186,27 @@ async function createOrContinueConversation(
   });
 }
 
+async function loadConversationInfo(
+  baseUrl: string,
+  conversationId: string,
+): Promise<RunnerConversationInfo | null> {
+  const response = await fetch(new URL(`/api/conversations/${conversationId}`, baseUrl), {
+    method: 'GET',
+    headers: buildHeaders(),
+  });
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Runner request failed (${response.status}): ${text}`);
+  }
+
+  return await response.json() as RunnerConversationInfo;
+}
+
 async function claimConversationOutbox(
   baseUrl: string,
   conversationId: string,
@@ -225,17 +247,16 @@ async function loadConversationResult(
   return extractConversationResult(page);
 }
 
-async function executeConversationAttempt(
+async function finalizeConversationAttempt(
   baseUrl: string,
+  conversationId: string,
   scope: ExecutionScope,
-  input: AgentRuntimeInput,
   options?: { registeredGroups?: Record<string, RegisteredGroup> },
 ): Promise<LocalRunnerAttemptResult> {
-  const conversation = await createOrContinueConversation(baseUrl, scope, input);
   const taskCommands = await retryPostRunFetch(
     baseUrl,
     'claim task commands',
-    () => claimConversationTaskCommands(baseUrl, conversation.id),
+    () => claimConversationTaskCommands(baseUrl, conversationId),
   );
   for (const command of taskCommands) {
     processSharedRunnerTaskCommand(
@@ -249,12 +270,12 @@ async function executeConversationAttempt(
   const outboundMessages = await retryPostRunFetch(
     baseUrl,
     'claim outbound messages',
-    () => claimConversationOutbox(baseUrl, conversation.id),
+    () => claimConversationOutbox(baseUrl, conversationId),
   );
   if (outboundMessages.length > 0) {
     return {
       status: 'success',
-      conversationId: conversation.id,
+      conversationId,
       result: null,
       outboundMessages,
     };
@@ -263,13 +284,13 @@ async function executeConversationAttempt(
   const result = await retryPostRunFetch(
     baseUrl,
     'load conversation result',
-    () => loadConversationResult(baseUrl, conversation.id),
+    () => loadConversationResult(baseUrl, conversationId),
   );
   if (result.errorCode) {
     return {
       status: 'error',
       result: null,
-      conversationId: conversation.id,
+      conversationId,
       error: result.errorDetail ?? result.errorCode,
       errorCode: result.errorCode,
     };
@@ -278,8 +299,50 @@ async function executeConversationAttempt(
   return {
     status: 'success',
     result: result.reply,
-    conversationId: conversation.id,
+    conversationId,
   };
+}
+
+async function recoverConversationAfterDroppedCreate(
+  baseUrl: string,
+  conversationId: string,
+  scope: ExecutionScope,
+  options?: { registeredGroups?: Record<string, RegisteredGroup> },
+): Promise<LocalRunnerAttemptResult | null> {
+  const deadline = Date.now() + 30_000;
+  const pollIntervalMs = 250;
+
+  while (Date.now() < deadline) {
+    const info = await retryPostRunFetch(
+      baseUrl,
+      'load conversation info',
+      () => loadConversationInfo(baseUrl, conversationId),
+    );
+    if (!info) {
+      return null;
+    }
+    if ((info.execution_status ?? '').trim().toLowerCase() === 'running') {
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      continue;
+    }
+    return await finalizeConversationAttempt(baseUrl, conversationId, scope, options);
+  }
+
+  logger.warn(
+    { conversationId, scopeId: scope.scopeId },
+    'Timed out waiting to recover conversation after dropped create request',
+  );
+  return null;
+}
+
+async function executeConversationAttempt(
+  baseUrl: string,
+  scope: ExecutionScope,
+  input: AgentRuntimeInput,
+  options?: { registeredGroups?: Record<string, RegisteredGroup> },
+): Promise<LocalRunnerAttemptResult> {
+  const conversation = await createOrContinueConversation(baseUrl, scope, input);
+  return await finalizeConversationAttempt(baseUrl, conversation.id, scope, options);
 }
 
 export async function runLocalAgentServerAgent(
@@ -289,7 +352,33 @@ export async function runLocalAgentServerAgent(
 ): Promise<AgentRuntimeOutput> {
   try {
     const baseUrl = await ensureLocalRunnerReady();
-    const firstAttempt = await executeConversationAttempt(baseUrl, scope, input, options);
+    let firstAttempt: LocalRunnerAttemptResult;
+    try {
+      firstAttempt = await executeConversationAttempt(baseUrl, scope, input, options);
+    } catch (error) {
+      if (!input.conversationId || !isRetryableRunnerFetchError(error)) {
+        throw error;
+      }
+      logger.warn(
+        {
+          scopeId: scope.scopeId,
+          conversationId: input.conversationId,
+          error: formatRetryableRunnerFetchError(error),
+        },
+        'Create/continue request lost; attempting conversation recovery',
+      );
+      await ensureLocalRunnerReady();
+      const recoveredAttempt = await recoverConversationAfterDroppedCreate(
+        baseUrl,
+        input.conversationId,
+        scope,
+        options,
+      );
+      if (!recoveredAttempt) {
+        throw error;
+      }
+      firstAttempt = recoveredAttempt;
+    }
     if (firstAttempt.status === 'error'
       && input.conversationId
       && firstAttempt.errorCode === 'max_iterations_exceeded') {
