@@ -47,6 +47,7 @@ import {
 } from "../runner/outboundMessaging.js";
 import { appendOutboundMessage, appendTaskCommand } from "../runner/outbox.js";
 import { createTaskTools } from "../runner/taskCommands.js";
+import { createTrackerSummaryHook } from '../runner/trackerSummary.js';
 import {
   loadSmolpawsContextDocs,
   loadProjectSkills,
@@ -658,6 +659,23 @@ export function createConversationRuntime({
       smolpawsConfig,
       () => activeConversationId,
     );
+    const trackerSummaryHook = shouldEnableTaskTools(smolpawsConfig)
+      ? createTrackerSummaryHook({
+          persistenceRoot,
+          getConversationId: () => activeConversationId,
+          secrets: registry,
+          onSummary: shouldEnableSendMessage(smolpawsConfig)
+            ? async (entry) => {
+                await appendOutboundMessage(entry.conversation_id, persistenceRoot, {
+                  kind: 'current_thread_message',
+                  text: entry.summary,
+                });
+              }
+            : undefined,
+          debug: settings.agent.debug === true,
+          seedCursorAtCurrentEvents: Boolean(requestedId && wasPersisted),
+        })
+      : undefined;
     const conversation = new LocalConversation({
       settings,
       workspace,
@@ -666,6 +684,7 @@ export function createConversationRuntime({
       includeDefaultTools: toolProfile.includeDefaultTools,
       persistenceDir,
       agentContext,
+      hooks: trackerSummaryHook,
     });
 
     const id = requestedId || (await conversation.startNewConversation());
