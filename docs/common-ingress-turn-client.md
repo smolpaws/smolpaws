@@ -4,19 +4,20 @@
 
 SmolPaws should move to a **server-owned, first-class turn API** for WhatsApp, Discord, and GitHub.
 
-The clean boundary is not “one more shared client library over the current conversation routes.” The clean boundary is:
+The clean boundary is:
 
 - **agent-server owns conversation state and turn state**
-- **a shared ingress turn client consumes that turn API**
-- **channel adapters only deliver outbound messages and final replies**
+- **a shared ingress turn client consumes that API**
+- **channel adapters only deliver outbound thread messages and final replies**
 - **host-runtime control-plane work stays outside the ingress client**
 
-That gives us the behavior we want:
+That gives us the behavior we actually want:
 
 - in-flight tracker summaries can go out while the agent keeps running
 - other `send_message` notifications can also go out during the same turn
 - the final assistant reply still arrives at the end
-- retries and overlapping starts can be reasoned about with turn-scoped ids instead of conversation-wide guesswork
+- additional user messages for the same conversation can be accepted during the active turn
+- retries and overlapping message submissions can be reasoned about with server-owned ids instead of conversation-wide guesswork
 
 ## Why this doc exists
 
@@ -34,9 +35,23 @@ The underlying problem is broader than any one ingress:
 - turn ownership is implicit instead of first-class
 - current clients operate on conversation-wide status and reply lookup
 - destructive claim endpoints are not scoped to a specific turn
-- retry and duplicate-start behavior is not defined by a turn token or idempotency key
+- retry and duplicate-start behavior is not defined by server-owned turn and message identities
 
 If we want a clean ingress foundation, the server has to own turns explicitly.
+
+## Turn definition
+
+A **turn** is a server-owned execution span on a single conversation.
+
+For the first pass:
+
+- if the conversation is **not running**, an accepted user message starts a new turn
+- while that turn is active, additional user messages for the same conversation may still be accepted
+- those additional user messages belong to the same active turn
+- once the turn reaches a terminal state, the next accepted user message starts the next turn on that same conversation id
+
+So a turn is **not** “exactly one user message.”
+It is an execution span that starts from a user message on an idle conversation and runs until the agent reaches a terminal state for that span.
 
 ## Current state
 
@@ -70,9 +85,9 @@ The current design works at the conversation level, not the turn level.
 
 That means a client cannot prove that:
 
-- a claimed outbound message belongs to the turn it just started
-- a fetched reply belongs to the same turn
-- a retry did not start the same turn twice
+- a claimed outbound message belongs to the active turn it cares about
+- a fetched reply belongs to that same turn
+- a retry did not submit the same user message twice
 - an undrained stale artifact is not being misattributed to the current request
 
 #### 3. Control-plane artifacts are mixed into ingress design
@@ -94,21 +109,23 @@ That makes future ingresses depend on server-app internals instead of a neutral 
 ## Goals
 
 1. **Turn-scoped semantics**
-   - each user request that starts agent work becomes a first-class turn
-   - turn status, outbound artifacts, and final result are all scoped to that turn
+   - turn status, outbound artifacts, and final result are all scoped to a server-owned turn id
 
 2. **Additive delivery**
    - outbound thread messages do not suppress the final assistant reply
 
-3. **One shared ingress turn client**
-   - shared orchestration for WhatsApp, Discord, and GitHub
-   - channel-specific delivery stays in thin adapters
+3. **Chat-native message acceptance**
+   - additional user messages for the same conversation are accepted while a turn is active
+   - they are attached to the active turn instead of starting a parallel one
 
-4. **Clear separation of delivery vs control plane**
+4. **One active executor per conversation**
+   - there is never more than one active agent run loop for a conversation at a time
+
+5. **Clear separation of delivery vs control plane**
    - ingress client handles outbound thread artifacts and final reply
    - host-runtime adapters handle scheduler/database/task-command concerns
 
-5. **Remote-friendly server boundary**
+6. **Remote-friendly server boundary**
    - ingresses can keep talking to agent-server over HTTP/WS later
    - agent-server can keep running `LocalConversation` wherever it lives
 
@@ -126,7 +143,7 @@ That makes future ingresses depend on server-app internals instead of a neutral 
 The server, not the client, should define:
 
 - when a turn starts
-- which artifacts belong to that turn
+- which messages and artifacts belong to that turn
 - what terminal state that turn reached
 - what the final reply for that turn is
 
@@ -167,7 +184,8 @@ This is the channel-neutral client used by WhatsApp, Discord, and GitHub.
 
 It owns:
 
-- dispatching a turn
+- submitting user messages to the conversation
+- learning which turn those messages belong to
 - polling turn status
 - claiming turn-scoped outbound thread messages
 - loading the final turn result
@@ -176,7 +194,7 @@ It owns:
 Suggested shape:
 
 ```ts
-interface DispatchTurnOptions {
+interface SubmitConversationMessageOptions {
   baseUrl: string;
   authToken?: string;
   conversationId: string;
@@ -188,9 +206,10 @@ interface DispatchTurnOptions {
   onOutboundMessage?: (msg: SmolpawsOutboundMessage) => Promise<void> | void;
 }
 
-interface DispatchTurnResult {
+interface SubmitConversationMessageResult {
   conversationId: string;
   turnId: string;
+  startedNewTurn: boolean;
   status: 'completed' | 'waiting_for_confirmation' | 'paused' | 'error' | 'stuck';
   reply?: string;
   deliveredOutboundCount: number;
@@ -221,7 +240,7 @@ Exact naming can change, but the semantics should look like this.
 
 ### 1. Ensure conversation exists
 
-Keep conversation creation separate and side-effect light.
+Keep conversation creation separate and side-effect-light.
 
 Example:
 
@@ -233,14 +252,17 @@ Responsibilities:
 - persist any conversation-level metadata/config
 - do **not** implicitly define turn ownership
 
-### 2. Dispatch a turn asynchronously
+### 2. Submit a user message to the conversation
 
-Add a turn dispatch route.
+Add a user-message submission route that returns turn information.
 
 Examples:
 
 - `POST /api/conversations/:conversationId/turns`
+- `POST /api/conversations/:conversationId/messages`
 - or `POST /api/turns`
+
+The exact route name matters less than the contract.
 
 Suggested request fields:
 
@@ -252,11 +274,19 @@ Suggested response:
 
 - `conversation_id`
 - `turn_id`
-- `status` (initial state, typically `running`)
+- `message_event_id`
+- `status` (initial state; typically `running` for an active turn)
+- `started_new_turn`
 - `accepted_at`
-- optional `start_event_id` or `start_cursor`
+- optional `safe_after_event_id` or equivalent cursor metadata
 
-Dispatch must return immediately after the server has durably accepted the turn. The response should include the initial turn status so the client can begin polling and draining immediately after dispatch succeeds.
+Submission must return immediately after the server has durably accepted the user message.
+
+Server behavior:
+
+- if the conversation is idle, accept the message, start a new turn, and return its `turn_id`
+- if the conversation already has an active turn, accept the message into that active turn and return the existing `turn_id`
+- if the same `(conversation_id, idempotency_key)` arrives again, return the same accepted message/turn binding instead of duplicating the message
 
 ### 3. Query turn status
 
@@ -277,8 +307,8 @@ Status semantics for the first pass:
 
 - `running`: turn is actively being processed
 - `completed`: turn finished successfully and the final result is available
-- `waiting_for_confirmation`: turn is blocked on user confirmation and counts as an active turn for concurrency purposes
-- `paused`: turn is suspended and counts as an active turn for concurrency purposes
+- `waiting_for_confirmation`: turn is blocked on user confirmation and is terminal for this turn until a confirmation response arrives
+- `paused`: turn is suspended and is terminal for this turn until a resume arrives
 - `error`: turn failed and the result endpoint should expose error details if available
 - `stuck`: turn hit runner-level stuck detection and should be treated as terminal for this turn; callers should not assume the same idempotency key can restart useful work
 
@@ -314,30 +344,43 @@ Examples:
 
 But this should be documented as a **host-runtime adapter** concern, not an ingress turn client concern.
 
-## Per-conversation concurrency policy
+## Active-turn message acceptance policy
 
-For the first pass, the server should own a simple rule:
+For the first pass, the server should own these rules:
 
-- **one active turn per conversation**
+- **one active executing turn per conversation**
+- **additional user messages for that conversation are still accepted while that turn is active**
+- those messages are attached to the active turn instead of creating a parallel one
+- once the turn reaches a terminal state, the next accepted user message starts the next turn
 
-Dispatch behavior:
+This is the important distinction:
 
-- if a dispatch arrives with the same `(conversation_id, idempotency_key)` as an already accepted turn, return the same accepted turn
-- if a dispatch arrives with a different `idempotency_key` while another turn is `running`, `waiting_for_confirmation`, or `paused`, return `409` with at least:
-  - `active_turn_id`
-  - `status`
-- if a turn is `completed`, `error`, or `stuck`, a new dispatch may create a new turn normally
+- one active **turn/executor** per conversation
+- not one active **user message** per conversation
 
-If queued turns are wanted later, they should be added as an explicit **server-owned queue**, not as client behavior.
+If explicit server-owned turn queues are wanted later, they can be added as a follow-up. They should not be simulated by ingress code.
+
+## Safe insertion boundary for user messages
+
+User messages accepted during an active turn should be reflected in the conversation event log at the time they were accepted, but only at a safe boundary.
+
+For the first pass, the rule should be:
+
+- persist the acceptance time immediately
+- append the resulting `MessageEvent(source="user")` at the next safe boundary in the execution loop
+- **never** splice a new user message between an `ActionEvent` and its matching `ObservationEvent`
+- insert after the current step closes, which in practice means after the current observation/result and before the next tool call or next agent step
+
+This preserves the integrity of action/observation pairs while still giving the conversation history the right arrival order.
 
 ## Canonical ingress turn lifecycle
 
 With the turn API above, the shared client becomes straightforward.
 
 1. ensure the conversation exists
-2. dispatch the turn with an `idempotency_key`
-3. receive `turn_id`
-4. while turn status is `running`:
+2. submit the user message with an `idempotency_key`
+3. receive `turn_id`, `message_event_id`, and whether a new turn was started
+4. while that turn status is `running`:
    - poll `GET /api/conversations/:conversationId/turns/:turnId`
    - claim `POST /api/conversations/:conversationId/turns/:turnId/outbound_messages/claim`
    - deliver outbound messages immediately via `onOutboundMessage`
@@ -346,7 +389,7 @@ With the turn API above, the shared client becomes straightforward.
    - fetch `GET /api/conversations/:conversationId/turns/:turnId/result`
    - return the final reply and final status
 
-That is enough for in-flight summaries and additive final replies.
+Additional user messages accepted during that time may return the same `turn_id`, because they belong to the already active turn.
 
 ## Retry and idempotency rules
 
@@ -360,9 +403,9 @@ The shared client should document retry behavior explicitly.
 
 ### Safe to retry with the same idempotency key
 
-- turn dispatch
+- user-message submission
 
-The server must guarantee that the same `(conversation_id, idempotency_key)` pair resolves to the same accepted turn instead of starting a duplicate turn.
+The server must guarantee that the same `(conversation_id, idempotency_key)` pair resolves to the same accepted message/turn binding instead of duplicating the user message.
 
 ### Not safe to retry blindly
 
@@ -414,7 +457,7 @@ The important constraint is directional:
 
 WebSocket event streaming stays optional.
 
-For ingress turns, REST is enough if the server exposes a proper asynchronous turn API.
+For ingress turns, REST is enough if the server exposes the asynchronous submission and turn-status API above.
 
 A later optimization could add:
 
@@ -427,11 +470,11 @@ But that is an optimization, not the core abstraction.
 
 ### Step 1
 
-Update the design target from “shared client over conversation routes” to “shared client over a first-class turn API.”
+Keep the target as a first-class turn API, but refine the turn definition to match chat reality: one active turn may contain multiple user messages.
 
 ### Step 2
 
-Add server-owned turn routes and turn ids while keeping existing conversation routes working.
+Add server-owned turn routes, turn ids, and message-submission ids while keeping existing conversation routes working.
 
 ### Step 3
 
@@ -469,6 +512,7 @@ That includes:
 After this work:
 
 - WhatsApp can send tracker summaries and other `send_message` output during a turn and still send the final answer afterward
+- WhatsApp can also accept another user message mid-turn without starting a parallel executor
 - Discord follows the same turn contract
 - GitHub uses the same shared turn client even if its posting policy stays quieter
 - ingress code does not guess at turn boundaries from conversation history
@@ -477,11 +521,13 @@ After this work:
 
 ## Recommendation
 
-Be bolder at the server boundary.
+Keep the server-owned turn boundary, but define turns the way chat systems actually behave.
 
 The clean abstraction is:
 
 - **first-class server-owned turns**
+- **one active executing turn per conversation**
+- **additional user messages may still be accepted into that active turn**
 - **one shared ingress turn client over that API**
 - **a separate host-runtime adapter for task commands and other local control-plane effects**
 
