@@ -53,6 +53,54 @@ For the first pass:
 So a turn is **not** “exactly one user message.”
 It is an execution span that starts from a user message on an idle conversation and runs until the agent reaches a terminal state for that span.
 
+## Core invariants
+
+### Transcript invariants
+
+- The persisted conversation transcript is the durable source of truth for what happened.
+- Accepted user messages, assistant messages, tool actions/results, and terminal events all belong to that one transcript.
+- A turn is metadata over a span of that transcript; it is not a separate shadow history.
+- Restore/reconnect may rebuild state from `conversation_id` plus transcript history alone.
+- UI presentation may collapse or summarize parts of history, but it must not invent a different ordering than the persisted event log.
+
+### Turn invariants
+
+- A turn is server-owned and belongs to exactly one conversation.
+- A turn starts when a user message is accepted on a conversation that was not running.
+- While that turn is active, additional accepted user messages may still belong to that same turn.
+- A turn ends only when the server records a terminal turn state for that execution span.
+- After a turn is terminal, the next accepted user message on that conversation starts the next turn.
+- Turn-scoped outbound artifacts and final result must be attributable to exactly one `turn_id`.
+
+### Delivery-owner invariants
+
+- Message submission and turn delivery are distinct concerns.
+- Many submitters may attach user messages to one active turn.
+- At most one server-recognized delivery owner may claim outbound thread messages and own final-reply delivery for a turn at a time.
+- A caller may submit a message that binds to an existing active turn without becoming that turn's delivery owner.
+- Reading transcript, turn status, or turn result for debugging/recovery does not require delivery ownership; claiming outbound delivery artifacts does.
+- The exact v1 ownership mechanism is intentionally left open here. The invariant matters more than whether v1 uses a simple owner field, a takeover endpoint, or a later lease/token design.
+
+### Recovery invariants
+
+- Watcher death, process restart, server restart, and mid-turn interruption are all normal cases.
+- If an active turn resumes safely after restart, it keeps the same `turn_id`.
+- If an active turn cannot resume safely, the server marks it terminal (`error`, `stuck`, or equivalent interrupted-style status); it must not remain phantom-`running` forever.
+- Once the last turn is terminal, a later caller may reconnect to the same `conversation_id`, submit a new user message, and start the next turn normally.
+- Idempotency applies to message acceptance/binding: retrying the same `(conversation_id, idempotency_key)` must resolve to the same accepted message/turn binding, not duplicate the message.
+
+### Safe-boundary insertion invariant
+
+- User messages accepted during an active turn should enter the transcript as soon as possible, but only at a safe execution boundary.
+- The server must never splice a new user message between an `ActionEvent` and its matching `ObservationEvent`.
+- Transcript ordering should reflect real acceptance order, subject to that safety constraint.
+
+### Product invariant
+
+- In-flight outbound thread messages are additive, not a replacement path.
+- The final assistant reply for a turn remains deliverable after in-flight messages have already been sent.
+- Multiple accepted user messages during one turn may influence that final reply; the final reply is for the execution span of the turn, not necessarily only for the first message that started it.
+
 ## Current state
 
 ### Shared runtime surface
@@ -182,14 +230,12 @@ Introduce two related but separate abstractions.
 
 This is the channel-neutral client used by WhatsApp, Discord, and GitHub.
 
-It owns:
+It has two logical responsibilities:
 
-- submitting user messages to the conversation
-- learning which turn those messages belong to
-- polling turn status
-- claiming turn-scoped outbound thread messages
-- loading the final turn result
-- retry logic for safe operations
+- **submitter**: submit a user message, learn which turn now owns it, and learn whether that message started a new turn
+- **delivery owner**: if this caller is the current server-recognized delivery owner for the turn, poll turn status, claim outbound thread messages, and deliver the final reply
+
+Not every submitter becomes the delivery owner. Many submitters may bind messages to one active turn, but only one caller at a time may own delivery for that turn.
 
 Suggested shape:
 
@@ -201,24 +247,38 @@ interface SubmitConversationMessageOptions {
   createConversation?: StartConversationRequest;
   userMessage: MessagePayload;
   idempotencyKey: string;
-  pollIntervalMs?: number;
-  timeoutMs?: number;
-  onOutboundMessage?: (msg: SmolpawsOutboundMessage) => Promise<void> | void;
 }
 
 interface SubmitConversationMessageResult {
   conversationId: string;
   turnId: string;
+  messageEventId: string;
   startedNewTurn: boolean;
+  status: 'running' | 'completed' | 'waiting_for_confirmation' | 'paused' | 'error' | 'stuck';
+}
+
+interface PumpTurnOptions {
+  baseUrl: string;
+  authToken?: string;
+  conversationId: string;
+  turnId: string;
+  pollIntervalMs?: number;
+  timeoutMs?: number;
+  onOutboundMessage?: (msg: SmolpawsOutboundMessage) => Promise<void> | void;
+}
+
+interface PumpTurnResult {
+  conversationId: string;
+  turnId: string;
   status: 'completed' | 'waiting_for_confirmation' | 'paused' | 'error' | 'stuck';
   reply?: string;
   deliveredOutboundCount: number;
 }
 ```
 
-The final reply stays part of the returned result. Each ingress can then apply its own final-delivery policy.
+The final reply stays part of the returned turn result. Each ingress can then apply its own final-delivery policy.
 
-`onOutboundMessage` failures are client-side delivery failures. They should fail the current ingress attempt and be surfaced to the caller, but they should not rewrite server-owned turn state.
+`onOutboundMessage` failures are client-side delivery failures. They should fail the current delivery-owner attempt and be surfaced to the caller, but they should not rewrite server-owned turn state.
 
 ### B. Local runtime host adapter
 
@@ -344,6 +404,20 @@ Examples:
 
 But this should be documented as a **host-runtime adapter** concern, not an ingress turn client concern.
 
+### 7. Delivery ownership
+
+The server must expose enough information for callers to avoid competing delivery ownership for one turn.
+
+For the first pass, this doc requires the invariant, not a specific mechanism:
+
+- many callers may submit messages that bind to one active turn
+- at most one caller at a time may be recognized as the delivery owner for that turn
+- only that delivery owner may claim outbound thread messages for delivery
+- final-reply delivery for that turn belongs to that same delivery owner
+- a later caller may become the delivery owner during recovery after restart or lost ownership
+
+That ownership signal may be exposed in the submission response, in turn status, or through a separate takeover API. The exact v1 mechanism is intentionally left open here.
+
 ## Active-turn message acceptance policy
 
 For the first pass, the server should own these rules:
@@ -379,15 +453,16 @@ With the turn API above, the shared client becomes straightforward.
 
 1. ensure the conversation exists
 2. submit the user message with an `idempotency_key`
-3. receive `turn_id`, `message_event_id`, and whether a new turn was started
-4. while that turn status is `running`:
+3. receive `turn_id`, `message_event_id`, whether a new turn was started, and enough server-owned information to know whether this caller is the current delivery owner
+4. if this caller is the current delivery owner for that turn:
    - poll `GET /api/conversations/:conversationId/turns/:turnId`
    - claim `POST /api/conversations/:conversationId/turns/:turnId/outbound_messages/claim`
    - deliver outbound messages immediately via `onOutboundMessage`
-5. once the turn is terminal:
+5. once the turn is terminal and this caller is still the delivery owner:
    - do one final outbound drain
    - fetch `GET /api/conversations/:conversationId/turns/:turnId/result`
    - return the final reply and final status
+6. if this caller is not the delivery owner, return the message-submission acknowledgment only and do not compete for delivery
 
 Additional user messages accepted during that time may return the same `turn_id`, because they belong to the already active turn.
 
