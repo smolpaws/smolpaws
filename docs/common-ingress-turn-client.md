@@ -252,10 +252,11 @@ Suggested response:
 
 - `conversation_id`
 - `turn_id`
+- `status` (initial state, typically `running`)
 - `accepted_at`
 - optional `start_event_id` or `start_cursor`
 
-Dispatch must return immediately after the server has durably accepted the turn.
+Dispatch must return immediately after the server has durably accepted the turn. The response should include the initial turn status so the client can begin polling and draining immediately after dispatch succeeds.
 
 ### 3. Query turn status
 
@@ -272,6 +273,15 @@ Suggested status values:
 - `error`
 - `stuck`
 
+Status semantics for the first pass:
+
+- `running`: turn is actively being processed
+- `completed`: turn finished successfully and the final result is available
+- `waiting_for_confirmation`: turn is blocked on user confirmation and counts as an active turn for concurrency purposes
+- `paused`: turn is suspended and counts as an active turn for concurrency purposes
+- `error`: turn failed and the result endpoint should expose error details if available
+- `stuck`: turn hit runner-level stuck detection and should be treated as terminal for this turn; callers should not assume the same idempotency key can restart useful work
+
 ### 4. Claim turn-scoped outbound thread messages
 
 Examples:
@@ -279,6 +289,8 @@ Examples:
 - `POST /api/conversations/:conversationId/turns/:turnId/outbound_messages/claim`
 
 These artifacts are ingress-delivery artifacts only.
+
+Turn-scoped means the claimed artifacts belong to that turn, not to the whole conversation history. It does **not** imply idempotent re-reads in v1.
 
 ### 5. Load turn result
 
@@ -301,6 +313,22 @@ Examples:
 - `POST /api/conversations/:conversationId/turns/:turnId/task_commands/claim`
 
 But this should be documented as a **host-runtime adapter** concern, not an ingress turn client concern.
+
+## Per-conversation concurrency policy
+
+For the first pass, the server should own a simple rule:
+
+- **one active turn per conversation**
+
+Dispatch behavior:
+
+- if a dispatch arrives with the same `(conversation_id, idempotency_key)` as an already accepted turn, return the same accepted turn
+- if a dispatch arrives with a different `idempotency_key` while another turn is `running`, `waiting_for_confirmation`, or `paused`, return `409` with at least:
+  - `active_turn_id`
+  - `status`
+- if a turn is `completed`, `error`, or `stuck`, a new dispatch may create a new turn normally
+
+If queued turns are wanted later, they should be added as an explicit **server-owned queue**, not as client behavior.
 
 ## Canonical ingress turn lifecycle
 
@@ -347,7 +375,14 @@ Those routes do not give the client enough turn identity to retry without ambigu
 
 For a first pass, turn-scoped outbound claims may remain destructive and best-effort.
 
-That is acceptable if documented clearly. If stronger guarantees become necessary later, we can add lease/ack semantics without changing the basic turn boundary.
+That means:
+
+- the endpoint is still scoped to `turn_id`, so it cannot mix artifacts from another turn
+- a successful claim may remove those artifacts from future reads
+- a retry after a successful claim may legitimately return `[]`
+- if an ingress crashes after claim and before delivery, those artifacts may be lost in v1
+
+That limitation is acceptable for the first pass if it is explicit. If stronger guarantees become necessary later, we can add lease/ack semantics without changing the basic turn boundary.
 
 ## Relationship to existing routes
 
@@ -369,7 +404,7 @@ A clean direction would be:
 
 - dedicated shared module/package for runner wire types and turn client
 - `apps/agent-server` depends on the shared wire types
-- WhatsApp / Discord / GitHub depend on the shared turn client
+- WhatsApp, Discord, and GitHub depend on the shared turn client
 
 The important constraint is directional:
 
