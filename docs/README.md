@@ -9,6 +9,7 @@ Current docs:
 - [`SECURITY.md`](SECURITY.md) - security model
 - [`agent-server-testing.md`](agent-server-testing.md) - agent-server runtime test harness, commands, and coverage boundaries
 - [`agent-server-first-llm-request.md`](agent-server-first-llm-request.md) - human-readable first-request capture aligned with the runtime tests
+- [`common-ingress-turn-client.md`](common-ingress-turn-client.md) - design for one shared ingress turn client with in-flight outbound delivery and additive final replies
 - [`smolpaws/HEARTBEAT.md`](smolpaws/HEARTBEAT.md) - local LaunchAgent heartbeat checklist and state-file contract
 - [`github/README.md`](github/README.md) - GitHub ingress and runner ops notes
 - [`github/instructions.md`](github/instructions.md) - GitHub mention intake details
