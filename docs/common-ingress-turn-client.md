@@ -174,7 +174,8 @@ Channel adapters should only provide callbacks such as:
 
 - `onOutboundMessage`
 - `onTaskCommand`
-- `onFinalReply`
+
+The final reply should stay part of the orchestrator result, so each ingress can apply its own final-delivery policy after the turn finishes.
 
 ### 3. Prefer protocol reuse over transport cleverness
 
@@ -302,8 +303,8 @@ Because the current route is synchronous, the common client should keep explicit
 In a loop:
 
 - `GET /api/conversations/:id`
-- `POST /outbound_messages/claim`
-- `POST /task_commands/claim`
+- `POST /api/conversations/:id/outbound_messages/claim`
+- `POST /api/conversations/:id/task_commands/claim`
 
 Deliver artifacts immediately through the supplied callbacks.
 
@@ -312,7 +313,7 @@ Deliver artifacts immediately through the supplied callbacks.
 After the turn reaches a terminal state:
 
 - perform one last drain of both claim endpoints
-- fetch the final assistant reply via `GET /events/search`
+- fetch the final assistant reply via `GET /api/conversations/:id/events/search`
 - return the reply and final status
 
 ### Why this lifecycle
