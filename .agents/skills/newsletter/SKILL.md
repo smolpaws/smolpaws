@@ -54,7 +54,7 @@ gh run list --status failure --limit 5 --json databaseId,name,headBranch,conclus
 gh pr list --state open --json number,title,reviewDecision,reviewRequests,additions,deletions,changedFiles,updatedAt
 
 # Recent review activity
-gh api repos/{owner}/{repo}/pulls/comments?sort=created&direction=desc --jq '.[0:10] | .[] | {pr: .pull_request_url, author: .user.login, body: .body[0:80], created: .created_at}'
+gh api repos/{owner}/{repo}/pulls/comments?sort=created&direction=desc&per_page=10 --jq '.[] | {pr: .pull_request_url, author: .user.login, body: .body[0:80], created: .created_at}'
 ```
 
 ### 4. Merge Queue
