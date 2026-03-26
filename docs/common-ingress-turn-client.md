@@ -1,51 +1,50 @@
-# Common ingress turn client
+# Common ingress turn contract
 
 ## Summary
 
-SmolPaws should use one shared ingress-facing turn client for WhatsApp, Discord, and GitHub.
+SmolPaws should move to a **server-owned, first-class turn API** for WhatsApp, Discord, and GitHub.
 
-That client should treat outbound artifacts (`send_message`, tracker summaries, future in-flight notifications) and the final assistant reply as **additive**, not mutually exclusive. It should speak to `apps/agent-server` over the existing API surface, keep all workspace and persistence ownership inside the agent-server, and leave only the final delivery step channel-specific.
+The clean boundary is not “one more shared client library over the current conversation routes.” The clean boundary is:
 
-The first implementation should stay simple:
+- **agent-server owns conversation state and turn state**
+- **a shared ingress turn client consumes that turn API**
+- **channel adapters only deliver outbound messages and final replies**
+- **host-runtime control-plane work stays outside the ingress client**
 
-- keep agent-server as the only owner of `LocalConversation`, workspace access, persistence, outbox, and task-command files
-- use one shared polling/draining orchestration for ingress turns
-- deliver outbound messages via callbacks while the turn is active
-- fetch the final assistant reply after the turn finishes
-- avoid ingress-specific file watching and avoid adding a second half-shared client layer
+That gives us the behavior we want:
 
-A small follow-up agent-server API cleanup may still be worthwhile, but the main problem is duplicated client orchestration, not missing persistence features.
+- in-flight tracker summaries can go out while the agent keeps running
+- other `send_message` notifications can also go out during the same turn
+- the final assistant reply still arrives at the end
+- retries and overlapping starts can be reasoned about with turn-scoped ids instead of conversation-wide guesswork
 
 ## Why this doc exists
 
-The tracker-summary work exposed a real contract mismatch:
+The tracker-summary work exposed a real gap in the current design.
 
-- `apps/agent-server/src/agent-server/conversationRuntime.ts` can enqueue current-thread outbound messages during a turn
-- `src/agent-runtime/local-agent-server.ts` currently treats any outbound message as a replacement for the final reply
-- `src/index.ts` then sends those outbound messages to WhatsApp and stops
+Today:
 
-That replacement contract blocks the product direction we actually want:
+- `apps/agent-server` can enqueue outbound current-thread messages during a conversation
+- WhatsApp/local treats outbound messages as a replacement for the final reply
+- Discord has similar replacement-style behavior
+- GitHub already returns both outbound messages and final reply, but only by stitching together conversation-wide artifacts after the fact
 
-- in-flight summaries may go out while the agent continues
-- other `send_message` notifications may also go out mid-turn
-- the final assistant answer should still arrive at the end
+The underlying problem is broader than any one ingress:
 
-At the same time, the repo already has several different client implementations over the same agent-server shape:
+- turn ownership is implicit instead of first-class
+- current clients operate on conversation-wide status and reply lookup
+- destructive claim endpoints are not scoped to a specific turn
+- retry and duplicate-start behavior is not defined by a turn token or idempotency key
 
-- `src/agent-runtime/local-agent-server.ts`
-- `apps/discord/src/agentServerClient.ts`
-- `apps/github/src/agentServerClient.ts`
-- `src/agent-runtime/shared-runner.ts` as an older partial convergence path
-
-They do similar work, but they do not share one contract.
+If we want a clean ingress foundation, the server has to own turns explicitly.
 
 ## Current state
 
-### What is already common
+### Shared runtime surface
 
 `apps/agent-server` is already the shared runtime surface for ingresses.
 
-Current capabilities:
+Relevant routes today:
 
 - `POST /api/conversations`
 - `GET /api/conversations/:conversationId`
@@ -56,494 +55,399 @@ Current capabilities:
 - `GET /api/conversations/:conversationId/events/search`
 - `GET /sockets/events/:conversationId`
 
-The current ingress clients use REST only. None of them should read outbox files directly.
+Current ingress clients use REST only. They should continue to treat agent-server as the only owner of workspace, persistence, and outbox state.
 
-### What is not common today
+### Current problems
 
-Each ingress still owns its own turn orchestration logic.
+#### 1. Outbound delivery is not consistently additive
 
-#### WhatsApp
+- WhatsApp/local and Discord currently return outbound messages **instead of** the final reply.
+- GitHub is closer to the desired model, but only because it assembles outbound messages and reply from separate conversation-wide reads.
 
-`src/agent-runtime/local-agent-server.ts`:
+#### 2. Turn identity is missing
 
-- creates or continues a conversation
-- waits for execution to stop running
-- claims task commands
-- claims outbound messages
-- if any outbound messages exist, returns early with `result: null`
-- otherwise loads the latest assistant reply from events
+The current design works at the conversation level, not the turn level.
 
-This makes outbound delivery a **replacement path**.
+That means a client cannot prove that:
 
-#### Discord
+- a claimed outbound message belongs to the turn it just started
+- a fetched reply belongs to the same turn
+- a retry did not start the same turn twice
+- an undrained stale artifact is not being misattributed to the current request
 
-`apps/discord/src/agentServerClient.ts`:
+#### 3. Control-plane artifacts are mixed into ingress design
 
-- waits for completion by polling `/api/conversations/:id`
-- claims outbound messages once
-- if outbound messages exist, returns them and omits the reply
-- otherwise loads the latest assistant reply
+`task_commands/claim` is not a channel delivery concern. It is a SmolPaws host-runtime concern:
 
-This also behaves as a replacement path.
+- scheduler changes
+- database updates
+- local authority decisions
 
-#### GitHub
+Those operations should not be baked into the core ingress-facing turn client.
 
-`apps/github/src/agentServerClient.ts`:
+#### 4. Dependency direction is backwards
 
-- posts the conversation request
-- claims outbound messages
-- separately fetches the latest assistant reply from events
-- returns both to the worker
+A shared client should not live under `apps/agent-server/src/shared/*`.
 
-GitHub is already closer to the desired additive model, but only **after** the turn has finished.
-
-#### `shared-runner.ts`
-
-`src/agent-runtime/shared-runner.ts` also returns both outbound messages and final reply, but it is not the runtime path currently selected by `src/agent-runtime/index.ts` and it does not provide the common abstraction we need for in-flight delivery.
+That makes future ingresses depend on server-app internals instead of a neutral shared module.
 
 ## Goals
 
-1. **One turn contract for ingresses**
-   - start a turn
-   - observe progress
-   - drain outbound artifacts
-   - process task commands
-   - return the final assistant reply
+1. **Turn-scoped semantics**
+   - each user request that starts agent work becomes a first-class turn
+   - turn status, outbound artifacts, and final result are all scoped to that turn
 
-2. **Additive semantics**
-   - outbound messages do not suppress the final reply
-   - the final reply remains durable via conversation events
+2. **Additive delivery**
+   - outbound thread messages do not suppress the final assistant reply
 
-3. **In-flight delivery for chat-like ingresses**
-   - WhatsApp and Discord should be able to send tracker summaries and other `send_message` output while the agent is still running
+3. **One shared ingress turn client**
+   - shared orchestration for WhatsApp, Discord, and GitHub
+   - channel-specific delivery stays in thin adapters
 
-4. **No ingress access to runner internals**
-   - no directory watching
-   - no JSONL file reads from ingress code
-   - no channel-specific persistence logic
+4. **Clear separation of delivery vs control plane**
+   - ingress client handles outbound thread artifacts and final reply
+   - host-runtime adapters handle scheduler/database/task-command concerns
 
-5. **Keep remote migration straightforward**
-   - the whole agent-server can later move to a remote machine and keep running `LocalConversation` there
-   - ingresses should still work by talking to it over HTTP and, where useful, WebSocket
-
-6. **Do not break the existing UI/client surface**
-   - `RemoteConversation` and other synchronous/UI-oriented agent-server routes should keep working
+5. **Remote-friendly server boundary**
+   - ingresses can keep talking to agent-server over HTTP/WS later
+   - agent-server can keep running `LocalConversation` wherever it lives
 
 ## Non-goals
 
 - redesign `LocalConversation`
-- redesign the outbox persistence format in this first pass
-- make GitHub stream comments in real time immediately
-- replace every existing route with a brand-new API before proving the common client
-- solve stronger-than-current delivery guarantees for transient outbound messages
+- redesign agent-server file/git/bash ownership
+- require WebSocket streaming for ingress turns in the first pass
+- solve exactly-once delivery for every transient artifact before we fix turn ownership
 
 ## Design principles
 
-### 1. Agent-server owns state; ingresses own delivery
+### 1. Agent-server owns turns
 
-The agent-server remains responsible for:
+The server, not the client, should define:
 
-- `LocalConversation`
-- workspace and repo access
-- bash/file/git execution on the runner host
-- conversation persistence
-- outbound message persistence
-- task-command persistence
+- when a turn starts
+- which artifacts belong to that turn
+- what terminal state that turn reached
+- what the final reply for that turn is
 
-Ingresses remain responsible only for:
+### 2. Shared client consumes a turn contract; it does not invent one
 
-- turning a user request into a conversation turn request
-- delivering claimed outbound artifacts to the channel
-- delivering the final reply to the channel
-- channel-local niceties like typing indicators or duplicate suppression
+The shared client should be simple because the server contract is simple.
 
-### 2. One shared client, thin channel adapters
+It should not reconstruct turn semantics from:
 
-We should have exactly one ingress-facing turn client abstraction.
+- conversation-wide status
+- destructive claim endpoints with no turn id
+- event searches over mixed history
+- “last assistant reply” heuristics
 
-That shared client should own:
+### 3. Keep channel delivery thin
 
-- conversation start/continue semantics
-- turn start semantics
-- status polling
-- artifact draining
-- final reply loading
-- timeout and retry policy
+WhatsApp, Discord, and GitHub should differ only in how they deliver artifacts:
 
-Channel adapters should only provide callbacks such as:
+- WhatsApp sends chat messages
+- Discord replies in-channel
+- GitHub posts comments and may keep duplicate-suppression policy
 
-- `onOutboundMessage`
-- `onTaskCommand`
+They should not each own their own runner orchestration rules.
 
-The final reply should stay part of the orchestrator result, so each ingress can apply its own final-delivery policy after the turn finishes.
+### 4. Keep host-runtime control plane separate
 
-### 3. Prefer protocol reuse over transport cleverness
+Task commands belong in a separate host-runtime layer.
 
-The first version should use the existing REST surface.
+That layer may share low-level protocol code with the ingress turn client, but it is not the same abstraction.
 
-WebSocket event streaming can remain available for UI clients and may later reduce polling cost, but it should not be required to land the common ingress abstraction.
+## Proposed boundary
 
-### 4. Keep the common layer channel-neutral
+Introduce two related but separate abstractions.
 
-The common client should not know about:
+### A. Shared ingress turn client
 
-- WhatsApp JIDs
-- Discord message objects
-- GitHub issue comments
-- worker retry APIs
+This is the channel-neutral client used by WhatsApp, Discord, and GitHub.
 
-It should only know about runner requests, runner statuses, runner outbound messages, task commands, and final reply text.
+It owns:
 
-## Proposed abstraction
-
-Introduce a shared ingress turn client with two layers.
-
-### Layer 1: agent-server turn primitives
-
-A fetch-only helper over the agent-server HTTP surface.
-
-Suggested responsibilities:
-
-- `createOrContinueConversation(...)`
-- `enqueueUserMessage(...)`
-- `startQueuedRun(...)`
-- `getConversationInfo(...)`
-- `claimOutboundMessages(...)`
-- `claimTaskCommands(...)`
-- `loadLatestAssistantReply(...)`
-
-Important constraints:
-
-- no Node-only APIs in this layer
-- no channel-specific behavior
-- no workspace provisioning logic
-
-This layer can live in a repo-local shared module for now. Since multiple packages already import shared types from `apps/agent-server/src/shared/*`, the first cut can colocate here if needed, but it should be treated as a transitional location, not a final architectural destination.
-
-### Layer 2: ingress turn orchestrator
-
-A higher-level helper that uses the primitives above to run one ingress turn.
+- dispatching a turn
+- polling turn status
+- claiming turn-scoped outbound thread messages
+- loading the final turn result
+- retry logic for safe operations
 
 Suggested shape:
 
 ```ts
-interface RunIngressTurnOptions {
+interface DispatchTurnOptions {
   baseUrl: string;
   authToken?: string;
   conversationId: string;
-  createRequest: StartConversationRequest;
+  createConversation?: StartConversationRequest;
   userMessage: MessagePayload;
+  idempotencyKey: string;
   pollIntervalMs?: number;
   timeoutMs?: number;
   onOutboundMessage?: (msg: SmolpawsOutboundMessage) => Promise<void> | void;
-  onTaskCommand?: (cmd: SmolpawsTaskCommand) => Promise<void> | void;
 }
 
-interface RunIngressTurnResult {
+interface DispatchTurnResult {
   conversationId: string;
-  executionStatus: string;
+  turnId: string;
+  status: 'completed' | 'waiting_for_confirmation' | 'paused' | 'error' | 'stuck';
   reply?: string;
   deliveredOutboundCount: number;
-  claimedTaskCommandCount: number;
 }
 ```
 
-Core behavior:
+The final reply stays part of the returned result. Each ingress can then apply its own final-delivery policy.
 
-1. ensure the conversation exists
-2. enqueue the user message for the turn
-3. start the run
-4. while the conversation is active:
-   - poll status
-   - claim outbound messages and deliver them through callbacks
-   - claim task commands and hand them off through callbacks
-5. once the conversation reaches a terminal turn state:
-   - do one final drain of outbound messages and task commands
-   - load the latest assistant reply from events
-   - return both the final status and final reply
+`onOutboundMessage` failures are client-side delivery failures. They should fail the current ingress attempt and be surfaced to the caller, but they should not rewrite server-owned turn state.
 
-The orchestrator is where we make outbound and final reply additive by design.
+### B. Local runtime host adapter
 
-## Canonical turn lifecycle
+This is a separate local-runtime abstraction for SmolPaws host concerns.
 
-### Recommended first-cut lifecycle
+It may additionally handle:
 
-The common client should use the canonical conversation path, not runner-local shortcuts.
+- task-command draining
+- scheduler/database mutations
+- local authorization checks around task effects
 
-#### 1. Ensure the conversation exists
+That adapter can be used by WhatsApp/local host code and scheduled-task runtime code, but it should not be part of the core ingress-facing client contract.
 
-Use `POST /api/conversations` with a caller-selected stable `conversation_id`.
+## Proposed server API
 
-For the first cut, keep this explicit and non-magical:
+The target design should add a first-class turn API.
 
-- if the ingress already has a stable conversation id, reuse it
-- otherwise generate one before the request
-- keep the create request free of side effects where possible
+Exact naming can change, but the semantics should look like this.
 
-#### 2. Queue the user message without running immediately
+### 1. Ensure conversation exists
 
-Use `POST /api/conversations/:id/events` with:
+Keep conversation creation separate and side-effect light.
 
-- `role: "user"`
-- `content: [...]`
-- `run: false`
+Example:
 
-This gives the common client an explicit queued-turn boundary.
+- `POST /api/conversations`
 
-#### 3. Start the turn
+Responsibilities:
 
-Use `POST /api/conversations/:id/run`.
+- create or continue the conversation shell
+- persist any conversation-level metadata/config
+- do **not** implicitly define turn ownership
 
-For the first version, the orchestrator can treat this as the run-start request even if the current server implementation waits for the run to complete before returning.
+### 2. Dispatch a turn asynchronously
 
-Because the current route is synchronous, the common client should keep explicit turn-start state and must not treat an initial `idle` poll result as turn completion before the queued run request has been accepted.
+Add a turn dispatch route.
 
-#### 4. Pump artifacts while the turn is active
+Examples:
 
-In a loop:
+- `POST /api/conversations/:conversationId/turns`
+- or `POST /api/turns`
 
-- `GET /api/conversations/:id`
-- `POST /api/conversations/:id/outbound_messages/claim`
-- `POST /api/conversations/:id/task_commands/claim`
+Suggested request fields:
 
-Deliver artifacts immediately through the supplied callbacks.
+- user message payload
+- `idempotency_key`
+- optional ingress metadata
 
-#### 5. Finish cleanly
+Suggested response:
 
-After the turn reaches a terminal state:
+- `conversation_id`
+- `turn_id`
+- `accepted_at`
+- optional `start_event_id` or `start_cursor`
 
-- perform one last drain of both claim endpoints
-- fetch the final assistant reply via `GET /api/conversations/:id/events/search`
-- return the reply and final status
+Dispatch must return immediately after the server has durably accepted the turn.
 
-### Why this lifecycle
+### 3. Query turn status
 
-This form keeps the abstraction simple:
+Examples:
 
-- one durable conversation id
-- one queued user message per turn
-- one explicit run boundary
-- one common pump loop for outbound artifacts and task commands
+- `GET /api/conversations/:conversationId/turns/:turnId`
 
-It also avoids encoding channel-specific assumptions into the start step.
-
-## Recommended agent-server cleanup
-
-The common client can be built over the current routes, but one small API cleanup would make it cleaner.
-
-### Add a non-blocking turn-dispatch route
-
-Current `POST /api/conversations` and `POST /api/conversations/:id/run` are synchronous from the client's point of view. That forces ingress clients to either:
-
-- wait for the whole run before doing anything else, or
-- keep a long-lived request open while separately polling the same conversation
-
-A cleaner runner contract would add a non-blocking dispatch route, for example:
-
-- `POST /api/conversations/dispatch`
-
-Suggested behavior:
-
-- create or continue a conversation
-- accept a user message for the turn
-- start the run asynchronously
-- return immediately with conversation info and a 202-style success response
-
-This would let the common client start a turn without long-lived background requests.
-
-### Why this is optional, not blocking
-
-We do not need a new route to unify the clients. The shared polling/draining orchestration is the real missing abstraction.
-
-The new route is a cleanup that makes the common implementation easier and cheaper, especially for remote or worker-style ingresses.
-
-## Status model for the common client
-
-The common client should define a turn-terminal status set and stop special-casing by ingress.
-
-### Active states
+Suggested status values:
 
 - `running`
-
-### Turn-terminal states
-
-- `idle`
-- `finished`
+- `completed`
+- `waiting_for_confirmation`
+- `paused`
 - `error`
 - `stuck`
-- `paused`
-- `waiting_for_confirmation`
 
-`waiting_for_confirmation` should be treated as terminal for the current turn pump. The turn has stopped making forward progress and now requires a follow-up action.
+### 4. Claim turn-scoped outbound thread messages
 
-## Outbound artifact semantics
+Examples:
 
-### Current contract
+- `POST /api/conversations/:conversationId/turns/:turnId/outbound_messages/claim`
 
-`outbound_messages/claim` and `task_commands/claim` are destructive claims.
+These artifacts are ingress-delivery artifacts only.
 
-That means the current delivery model is best-effort:
+### 5. Load turn result
 
-- once claimed, the runner considers the artifact handed off
-- if the ingress crashes after claiming but before delivering, the artifact may be lost
+Examples:
 
-### Recommendation for this design
+- `GET /api/conversations/:conversationId/turns/:turnId/result`
 
-Do not change that contract in the first pass.
+Suggested result:
 
-Rationale:
+- terminal status
+- final assistant reply, if any
+- optional metadata like finish timestamp
 
-- the main product problem is inconsistent client orchestration
-- final assistant replies are already durable in conversation events
-- tracker summaries and `send_message` notifications are useful, but they do not need a full lease/ack protocol before we can unify the ingress design
+### 6. Optional host-runtime artifacts
 
-### Explicit limitation
+If task commands need the same turn scoping, expose them separately from the ingress contract.
 
-In-flight outbound delivery remains best-effort until we add a lease/ack artifact protocol. That is acceptable for the first pass and should be documented, not hidden.
+Examples:
 
-## Delivery policies per ingress
+- `POST /api/conversations/:conversationId/turns/:turnId/task_commands/claim`
 
-The common client should expose one delivery contract while allowing light channel policy differences.
+But this should be documented as a **host-runtime adapter** concern, not an ingress turn client concern.
 
-### WhatsApp
+## Canonical ingress turn lifecycle
 
-Desired behavior:
+With the turn API above, the shared client becomes straightforward.
 
-- send outbound messages as they are claimed
-- continue pumping while the agent runs
-- send the final reply when the turn ends
+1. ensure the conversation exists
+2. dispatch the turn with an `idempotency_key`
+3. receive `turn_id`
+4. while turn status is `running`:
+   - poll `GET /api/conversations/:conversationId/turns/:turnId`
+   - claim `POST /api/conversations/:conversationId/turns/:turnId/outbound_messages/claim`
+   - deliver outbound messages immediately via `onOutboundMessage`
+5. once the turn is terminal:
+   - do one final outbound drain
+   - fetch `GET /api/conversations/:conversationId/turns/:turnId/result`
+   - return the final reply and final status
 
-### Discord
+That is enough for in-flight summaries and additive final replies.
 
-Desired behavior:
+## Retry and idempotency rules
 
-- same model as WhatsApp
-- outbound messages are sent immediately
-- final reply still goes out at the end
+The shared client should document retry behavior explicitly.
 
-### GitHub
+### Safe to retry
 
-Desired behavior for the first pass:
+- `GET` turn status
+- `GET` turn result
+- conversation lookup/read endpoints
 
-- still use the same common turn client
-- allow the worker to choose whether to post outbound messages immediately or buffer them until completion
-- keep duplicate-suppression logic for the final reply in the GitHub delivery layer
+### Safe to retry with the same idempotency key
 
-This means the common client is shared even if the posting policy differs.
+- turn dispatch
 
-## Relation to WebSocket events
+The server must guarantee that the same `(conversation_id, idempotency_key)` pair resolves to the same accepted turn instead of starting a duplicate turn.
 
-The server already exposes `/sockets/events/:conversationId` and UI clients use it for event streaming.
+### Not safe to retry blindly
 
-For ingress turns, WebSocket should stay optional.
+- legacy `POST /api/conversations/:id/events`
+- legacy `POST /api/conversations/:id/run`
 
-### First pass
+Those routes do not give the client enough turn identity to retry without ambiguity.
 
-- use REST polling for status and artifact drains
-- keep the turn client simple and uniform across host and worker environments
+### Artifact claim retries
 
-### Later optimization
+For a first pass, turn-scoped outbound claims may remain destructive and best-effort.
 
-A later version could use WebSocket events to reduce status polling or to observe assistant events more quickly, while still using REST claims for outbound artifacts.
+That is acceptable if documented clearly. If stronger guarantees become necessary later, we can add lease/ack semantics without changing the basic turn boundary.
 
-That optimization should not change the turn contract.
+## Relationship to existing routes
 
-## Proposed code movement
+The current conversation-scoped routes are still useful for:
 
-### Introduce one shared turn client
+- UI clients
+- compatibility during migration
+- ad hoc inspection and debugging
 
-Add a new shared module for ingress turn orchestration and move logic into it from:
+But they should not remain the long-term ingress foundation for in-flight delivery.
 
-- `src/agent-runtime/local-agent-server.ts`
-- `apps/discord/src/agentServerClient.ts`
-- `apps/github/src/agentServerClient.ts`
-- selective reusable pieces from `src/agent-runtime/shared-runner.ts`
+If needed, they can support a transitional adapter. The target design should still be the first-class turn API above.
 
-### Keep runner bootstrap separate
+## Module and dependency direction
 
-`src/agent-runtime/local-runner.ts` should stay focused on locating or starting the local agent-server.
+The new shared client should live in a channel-neutral home, not under `apps/agent-server`.
 
-It should not own turn orchestration.
+A clean direction would be:
 
-### Retire the misleading partial abstraction
+- dedicated shared module/package for runner wire types and turn client
+- `apps/agent-server` depends on the shared wire types
+- WhatsApp / Discord / GitHub depend on the shared turn client
 
-`src/agent-runtime/shared-runner.ts` should not become the long-term common turn client.
+The important constraint is directional:
 
-It mixes:
+- ingresses should not import client abstractions from inside the server app they are consuming
 
-- workspace provisioning
-- runner bootstrapping
-- turn orchestration
-- a now-unused runtime path
+## WebSocket
 
-Useful code can be moved out, but the file itself should be reduced or removed rather than expanded.
+WebSocket event streaming stays optional.
+
+For ingress turns, REST is enough if the server exposes a proper asynchronous turn API.
+
+A later optimization could add:
+
+- turn-specific event streaming
+- lower-latency status updates
+
+But that is an optimization, not the core abstraction.
 
 ## Migration plan
 
-### Step 1: land the shared primitives and orchestrator
+### Step 1
 
-No behavior change yet.
+Update the design target from “shared client over conversation routes” to “shared client over a first-class turn API.”
 
-### Step 2: migrate WhatsApp to the common turn client
+### Step 2
 
-This is the highest-value migration because it unlocks:
+Add server-owned turn routes and turn ids while keeping existing conversation routes working.
 
-- in-flight tracker summaries
-- in-flight `send_message` delivery
-- preserved final replies
+### Step 3
 
-### Step 3: migrate Discord to the same client
+Implement a channel-neutral shared ingress turn client in its own shared module/package.
 
-This removes another replacement-style client.
+### Step 4
 
-### Step 4: migrate GitHub to the same client
+Move WhatsApp to the new shared client for outbound in-flight delivery plus final reply.
 
-GitHub can keep its channel-specific reply suppression, but it should stop owning its own runner orchestration.
+### Step 5
 
-### Step 5: remove or shrink obsolete paths
+Move Discord to the same client.
 
-At that point:
+### Step 6
 
-- `local-agent-server.ts` becomes a thin adapter around runner bootstrap + shared turn client
-- `shared-runner.ts` can be retired or reduced to pure workspace provisioning helpers if still needed elsewhere
+Move GitHub to the same client, keeping any GitHub-specific duplicate suppression in the delivery layer.
 
-## Risks and tradeoffs
+### Step 7
 
-### Polling cost
+Keep task-command draining in a local runtime adapter and remove task-command handling from the ingress client surface.
 
-A shared pump loop means more deliberate polling.
+### Step 8
 
-This is acceptable because:
+Retire the misleading partial abstractions and duplicated per-ingress orchestration.
 
-- the same work is already duplicated across clients today
-- polling intervals can stay modest
-- WebSocket remains a later optimization
+That includes:
 
-### Best-effort outbound delivery
-
-Destructive claims remain best-effort for transient artifacts.
-
-This is acceptable for the first pass, but the limitation should remain visible in the design.
-
-### Server-route overlap during migration
-
-The common client may temporarily coexist with the existing per-ingress clients and with the current synchronous routes.
-
-That is fine as long as the direction is clear: one shared client should replace the per-ingress turn orchestration, not join it as another special case.
+- most of `src/agent-runtime/local-agent-server.ts` as a custom turn client
+- `apps/discord/src/agentServerClient.ts` as an independent orchestration layer
+- `apps/github/src/agentServerClient.ts` as an independent orchestration layer
+- `src/agent-runtime/shared-runner.ts` as a would-be shared client foundation
 
 ## What success looks like
 
 After this work:
 
-- WhatsApp can send tracker summaries or other `send_message` output during a turn and still deliver the final answer afterward
-- Discord follows the same additive contract
-- GitHub uses the same runner turn client, even if it chooses a quieter posting policy
-- ingress code never reads runner outbox files directly
-- agent-server remains free to run `LocalConversation` locally today or on a remote runner later
-- SmolPaws has one clear ingress-turn abstraction instead of several almost-the-same clients
+- WhatsApp can send tracker summaries and other `send_message` output during a turn and still send the final answer afterward
+- Discord follows the same turn contract
+- GitHub uses the same shared turn client even if its posting policy stays quieter
+- ingress code does not guess at turn boundaries from conversation history
+- host-runtime control-plane work stays outside the ingress client contract
+- agent-server remains free to run `LocalConversation` wherever it lives
 
 ## Recommendation
 
-Build one common ingress turn client now.
+Be bolder at the server boundary.
 
-Use the existing agent-server REST surface for the first pass, keep WebSocket optional, keep outbound delivery additive with the final reply, and remove duplicated ingress orchestration instead of adding another partial abstraction.
+The clean abstraction is:
+
+- **first-class server-owned turns**
+- **one shared ingress turn client over that API**
+- **a separate host-runtime adapter for task commands and other local control-plane effects**
+
+Anything weaker still simplifies some code, but it leaves the hardest semantic problem unsolved.
