@@ -801,6 +801,7 @@ async function handleNotification(
   const queueMessage: SmolpawsQueueMessage = {
     event: mention.event,
     payload,
+    delivery_id: mentionIdentity ?? dedupeIdentity,
     meta: {
       ingress: "github_notifications",
       notification_thread_id: threadId,

@@ -62,13 +62,14 @@ async function withQueueLock<T>(
   const current = new Promise<void>((resolve) => {
     release = resolve;
   });
-  queueLocks.set(filePath, prior.then(() => current));
+  const chain = prior.then(() => current);
+  queueLocks.set(filePath, chain);
   await prior;
   try {
     return await action();
   } finally {
     release();
-    if (queueLocks.get(filePath) === current) {
+    if (queueLocks.get(filePath) === chain) {
       queueLocks.delete(filePath);
     }
   }

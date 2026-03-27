@@ -206,6 +206,7 @@ test('scheduled notifications queue issue-body mentions when latest_comment_url 
   assert.equal(sent.length, 1);
   assert.deepEqual(sent[0], {
     event: 'issues',
+    delivery_id: 'issues:enyst/openhands-tab:issue:123',
     payload: {
       action: 'opened',
       sender: { login: 'enyst', id: 7 },
@@ -280,6 +281,7 @@ test('scheduled notifications still queue recent mention notifications that are 
   assert.deepEqual(sent, [
     {
       event: 'issue_comment',
+      delivery_id: 'issue_comment:enyst/llm-playground:comment:77',
       payload: {
         action: 'created',
         sender: { login: 'enyst', id: 8 },
@@ -412,6 +414,7 @@ test('scheduled notifications still queue comment mentions from latest_comment_u
   assert.equal(sent.length, 1);
   assert.deepEqual(sent[0], {
     event: 'issue_comment',
+    delivery_id: 'issue_comment:enyst/openhands-tab:comment:55',
     payload: {
       action: 'created',
       sender: { login: 'enyst', id: 8 },
@@ -478,6 +481,7 @@ test('scheduled notifications queue pull request review-comment mentions with pu
   assert.equal(sent.length, 1);
   assert.deepEqual(sent[0], {
     event: 'pull_request_review_comment',
+    delivery_id: 'pull_request_review_comment:enyst/openhands-tab:comment:99',
     payload: {
       action: 'created',
       sender: { login: 'enyst', id: 9 },
