@@ -867,6 +867,125 @@ test('turn submission is idempotent for the same conversation and idempotency ke
   }
 });
 
+test('turn status only reports ownership for the matching caller and keeps owner ids server-side', async () => {
+  const fakeLlm = await startFakeLlmServer('owner status result');
+  const { app, fixture } = await createTestApp(fakeLlm.baseUrl);
+  writeVscodeProfileSelection(fixture, 'gpt-5');
+  await saveDefaultProfile('gpt-5', fakeLlm.baseUrl);
+
+  try {
+    const submit = await app.inject({
+      method: 'POST',
+      url: '/api/conversations/turn-owner-status-test/turns',
+      payload: {
+        idempotency_key: 'owner-status-key',
+        delivery_owner_id: 'owner-1',
+        user_message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'owner status request' }],
+          run: false,
+        },
+        create_conversation: {
+          agent: { llm: {} },
+          secrets: { OPENAI_API_KEY: 'test-api-key' },
+          max_iterations: 1,
+        },
+      },
+    });
+    assert.equal(submit.statusCode, 201);
+    const created = parseJson<{ turn_id: string }>(submit.body);
+
+    const anonymousStatus = await app.inject({
+      method: 'GET',
+      url: `/api/conversations/turn-owner-status-test/turns/${created.turn_id}`,
+    });
+    assert.equal(anonymousStatus.statusCode, 200);
+    const anonymous = parseJson<Record<string, unknown>>(anonymousStatus.body);
+    assert.equal(anonymous.is_delivery_owner, false);
+    assert.equal('delivery_owner_id' in anonymous, false);
+
+    const ownerStatus = await app.inject({
+      method: 'GET',
+      url: `/api/conversations/turn-owner-status-test/turns/${created.turn_id}?delivery_owner_id=owner-1`,
+    });
+    assert.equal(ownerStatus.statusCode, 200);
+    assert.equal(parseJson<{ is_delivery_owner: boolean }>(ownerStatus.body).is_delivery_owner, true);
+
+    const otherStatus = await app.inject({
+      method: 'GET',
+      url: `/api/conversations/turn-owner-status-test/turns/${created.turn_id}?delivery_owner_id=owner-2`,
+    });
+    assert.equal(otherStatus.statusCode, 200);
+    assert.equal(parseJson<{ is_delivery_owner: boolean }>(otherStatus.body).is_delivery_owner, false);
+  } finally {
+    await app.close();
+    await fakeLlm.close();
+  }
+});
+
+test('turn-scoped claims reject other delivery owners and allow the recorded owner', async () => {
+  const fakeLlm = await startFakeLlmServer('owner claim result');
+  const { app, fixture } = await createTestApp(fakeLlm.baseUrl);
+  writeVscodeProfileSelection(fixture, 'gpt-5');
+  await saveDefaultProfile('gpt-5', fakeLlm.baseUrl);
+
+  try {
+    const submit = await app.inject({
+      method: 'POST',
+      url: '/api/conversations/turn-owner-claim-test/turns',
+      payload: {
+        idempotency_key: 'owner-claim-key',
+        delivery_owner_id: 'owner-1',
+        user_message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'owner claim request' }],
+          run: false,
+        },
+        create_conversation: {
+          agent: { llm: {} },
+          secrets: { OPENAI_API_KEY: 'test-api-key' },
+          max_iterations: 1,
+        },
+      },
+    });
+    assert.equal(submit.statusCode, 201);
+    const created = parseJson<{ turn_id: string }>(submit.body);
+
+    const wrongOwnerOutbound = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/turn-owner-claim-test/turns/${created.turn_id}/outbound_messages/claim`,
+      payload: { delivery_owner_id: 'owner-2' },
+    });
+    assert.equal(wrongOwnerOutbound.statusCode, 409);
+
+    const rightOwnerOutbound = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/turn-owner-claim-test/turns/${created.turn_id}/outbound_messages/claim`,
+      payload: { delivery_owner_id: 'owner-1' },
+    });
+    assert.equal(rightOwnerOutbound.statusCode, 200);
+    assert.deepEqual(parseJson<unknown[]>(rightOwnerOutbound.body), []);
+
+    const wrongOwnerTasks = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/turn-owner-claim-test/turns/${created.turn_id}/task_commands/claim`,
+      payload: { delivery_owner_id: 'owner-2' },
+    });
+    assert.equal(wrongOwnerTasks.statusCode, 409);
+
+    const rightOwnerTasks = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/turn-owner-claim-test/turns/${created.turn_id}/task_commands/claim`,
+      payload: { delivery_owner_id: 'owner-1' },
+    });
+    assert.equal(rightOwnerTasks.statusCode, 200);
+    assert.deepEqual(parseJson<unknown[]>(rightOwnerTasks.body), []);
+  } finally {
+    await app.close();
+    await fakeLlm.close();
+  }
+});
+
 test.after(() => {
   process.env.HOME = originalHome;
   process.env.USERPROFILE = originalUserProfile;

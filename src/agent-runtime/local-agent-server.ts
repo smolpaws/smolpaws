@@ -170,7 +170,7 @@ async function monitorConversationTurn(options: {
     );
     outboundMessages.push(...outbound);
 
-    if (status.status !== 'running' && TERMINAL_STATUSES.has(status.status)) {
+    if (TERMINAL_STATUSES.has(status.status as TurnTerminalStatus)) {
       const result = await retryRunnerOperation(baseUrl, 'load turn result', () =>
         getTurnResult({
           baseUrl,
@@ -215,7 +215,7 @@ async function executeConversationAttempt(
   options?: { registeredGroups?: Record<string, RegisteredGroup> },
 ): Promise<LocalRunnerAttemptResult> {
   const deliveryOwnerId = createDeliveryOwnerId();
-  const idempotencyKey = createDeliveryOwnerId();
+  const idempotencyKey = input.messageId ?? createDeliveryOwnerId();
   const createConversation = {
     agent: {
       llm: {},

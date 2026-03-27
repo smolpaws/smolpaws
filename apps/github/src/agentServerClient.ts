@@ -161,7 +161,9 @@ export async function dispatchToAgentServer(
   return {
     reply:
       monitored.reply ??
-      (outboundMessages.length > 0 ? undefined : buildFallbackReply(message)),
+      (!submitResult.is_delivery_owner || outboundMessages.length > 0
+        ? undefined
+        : buildFallbackReply(message)),
     outbound_messages:
       outboundMessages.length > 0
         ? collapseOutboundMessages(outboundMessages)

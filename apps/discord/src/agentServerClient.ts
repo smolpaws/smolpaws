@@ -24,6 +24,7 @@ export async function dispatchToAgentServer(options: {
   baseUrl: string;
   token?: string;
   conversationId: string;
+  messageId?: string;
   prompt: string;
   discord: {
     guild_id?: string;
@@ -39,6 +40,7 @@ export async function dispatchToAgentServer(options: {
     baseUrl,
     token,
     conversationId,
+    messageId,
     prompt,
     discord,
     logger,
@@ -51,7 +53,7 @@ export async function dispatchToAgentServer(options: {
     baseUrl,
     authToken: token,
     conversationId,
-    idempotencyKey: createDeliveryOwnerId(),
+    idempotencyKey: messageId ?? createDeliveryOwnerId(),
     deliveryOwnerId,
     fetchImpl,
     userMessage: {

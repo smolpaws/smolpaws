@@ -126,6 +126,7 @@ test('runLocalAgentServerAgent submits a turn rooted in the scope group director
   try {
     const result = await runLocalAgentServerAgent(TEST_SCOPE, {
       prompt: '<messages><message>hi</message></messages>',
+      messageId: 'wa-msg-1',
       conversationId: 'wa-main-conv',
       scopeId: TEST_SCOPE.scopeId,
       chatJid: TEST_SCOPE.chatJid,
@@ -144,6 +145,7 @@ test('runLocalAgentServerAgent submits a turn rooted in the scope group director
     );
     assert.ok(submitCall);
     const body = JSON.parse(String(submitCall.init?.body)) as {
+      idempotency_key: string;
       user_message: { content: Array<{ text?: string }> };
       create_conversation: {
         workspace: { kind: string; working_dir: string };
@@ -160,6 +162,7 @@ test('runLocalAgentServerAgent submits a turn rooted in the scope group director
       };
     };
 
+    assert.equal(body.idempotency_key, 'wa-msg-1');
     assert.equal(body.create_conversation.workspace.kind, 'local');
     assert.equal(
       body.create_conversation.workspace.working_dir,

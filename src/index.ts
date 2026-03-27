@@ -218,7 +218,13 @@ async function processMessage(msg: NewMessage): Promise<void> {
   logger.info({ group: group.name, messageCount: missedMessages.length, imageCount: imageUrls.length }, 'Processing message');
 
   await setTyping(msg.chat_jid, true);
-  const output = await runAgent(group, prompt, msg.chat_jid, imageUrls.length > 0 ? imageUrls : undefined);
+  const output = await runAgent(
+    group,
+    prompt,
+    msg.chat_jid,
+    imageUrls.length > 0 ? imageUrls : undefined,
+    msg.id,
+  );
   await setTyping(msg.chat_jid, false);
 
   if (output.status === 'success') {
@@ -229,13 +235,20 @@ async function processMessage(msg: NewMessage): Promise<void> {
   }
 }
 
-async function runAgent(group: RegisteredGroup, prompt: string, chatJid: string, imageUrls?: string[]) {
+async function runAgent(
+  group: RegisteredGroup,
+  prompt: string,
+  chatJid: string,
+  imageUrls?: string[],
+  messageId?: string,
+) {
   const scope = scopeFromRegisteredGroup(chatJid, group);
   const conversationId = sessions[scope.scopeId];
 
   try {
     const output = await runAgentRuntime(scope, {
       prompt,
+      messageId,
       conversationId,
       scopeId: scope.scopeId,
       groupFolder: scope.scopeId,

@@ -1,5 +1,6 @@
 export interface AgentRuntimeInput {
   prompt: string;
+  messageId?: string;
   conversationId?: string;
   scopeId: string;
   groupFolder?: string;

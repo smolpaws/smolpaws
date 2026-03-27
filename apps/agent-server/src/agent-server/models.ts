@@ -163,7 +163,6 @@ export const TurnInfoSchema = Type.Object({
   started_at: Type.String(),
   updated_at: Type.String(),
   completed_at: Type.Optional(Type.String()),
-  delivery_owner_id: Type.Optional(Type.String()),
   is_delivery_owner: Type.Boolean(),
 });
 

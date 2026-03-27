@@ -308,10 +308,8 @@ export function registerConversationRoutes(
         started_at: turn.started_at,
         updated_at: turn.updated_at,
         ...(turn.completed_at ? { completed_at: turn.completed_at } : {}),
-        ...(turn.delivery_owner_id
-          ? { delivery_owner_id: turn.delivery_owner_id }
-          : {}),
         is_delivery_owner:
+          Boolean(request.query.delivery_owner_id) &&
           turn.delivery_owner_id === request.query.delivery_owner_id,
       };
     },
@@ -379,17 +377,10 @@ export function registerConversationRoutes(
         reply.status(401);
         return { error: auth.reason ?? "Unauthorized" };
       }
-      const turn = await deps.conversationRuntime.getTurnOrThrow(
-        request.params.conversationId,
-        request.params.turnId,
-      );
-      if (turn.delivery_owner_id && turn.delivery_owner_id !== request.body.delivery_owner_id) {
-        reply.status(409);
-        return { error: "Turn delivery is owned by another caller." };
-      }
       return await deps.conversationRuntime.claimTurnOutboundMessages(
         request.params.conversationId,
         request.params.turnId,
+        request.body.delivery_owner_id,
       );
     },
   );
@@ -417,17 +408,10 @@ export function registerConversationRoutes(
         reply.status(401);
         return { error: auth.reason ?? "Unauthorized" };
       }
-      const turn = await deps.conversationRuntime.getTurnOrThrow(
-        request.params.conversationId,
-        request.params.turnId,
-      );
-      if (turn.delivery_owner_id && turn.delivery_owner_id !== request.body.delivery_owner_id) {
-        reply.status(409);
-        return { error: "Turn delivery is owned by another caller." };
-      }
       return await deps.conversationRuntime.claimTurnTaskCommands(
         request.params.conversationId,
         request.params.turnId,
+        request.body.delivery_owner_id,
       );
     },
   );

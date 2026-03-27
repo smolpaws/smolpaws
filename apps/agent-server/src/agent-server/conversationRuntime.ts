@@ -1264,6 +1264,10 @@ export function createConversationRuntime({
   }
 
   async function runQueuedConversation(record: ConversationRecord): Promise<void> {
+    if (!getActiveTurn(await loadTurnStateIfNeeded(record.id))) {
+      await record.conversation.runPending();
+      return;
+    }
     await ensureTurnProcessor(record.id, { waitForKickoff: true });
     await waitForTurnProcessor(record.id);
   }
@@ -1368,6 +1372,20 @@ export function createConversationRuntime({
     return turn;
   }
 
+  async function claimTurnArtifacts<T>(
+    conversationId: string,
+    turnId: string,
+    deliveryOwnerId: string,
+    claim: () => Promise<T>,
+  ): Promise<T> {
+    const turn = await getTurnOrThrow(conversationId, turnId);
+    if (!assignDeliveryOwner(turn, deliveryOwnerId, new Date().toISOString())) {
+      throw new Error('delivery_owner_conflict');
+    }
+    await persistTurnState(conversationId);
+    return await claim();
+  }
+
   return {
     conversations,
     turnStates,
@@ -1390,17 +1408,31 @@ export function createConversationRuntime({
     claimTurnOutboundMessages: async (
       conversationId: string,
       turnId: string,
+      deliveryOwnerId: string,
     ) =>
-      await claimOutboundMessages(conversationId, persistenceRoot, {
+      await claimTurnArtifacts(
+        conversationId,
         turnId,
-      }),
+        deliveryOwnerId,
+        async () =>
+          await claimOutboundMessages(conversationId, persistenceRoot, {
+            turnId,
+          }),
+      ),
     claimTurnTaskCommands: async (
       conversationId: string,
       turnId: string,
+      deliveryOwnerId: string,
     ) =>
-      await claimTaskCommands(conversationId, persistenceRoot, {
+      await claimTurnArtifacts(
+        conversationId,
         turnId,
-      }),
+        deliveryOwnerId,
+        async () =>
+          await claimTaskCommands(conversationId, persistenceRoot, {
+            turnId,
+          }),
+      ),
     getTurnResult: async (
       conversationId: string,
       turnId: string,

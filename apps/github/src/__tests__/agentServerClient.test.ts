@@ -6,6 +6,7 @@ import { dispatchToAgentServer } from '../agentServerClient.js';
 function buildMessage(body: string): SmolpawsQueueMessage {
   return {
     event: 'issue_comment',
+    delivery_id: 'delivery-123',
     payload: {
       action: 'created',
       sender: { login: 'enyst', id: 1 },
@@ -119,7 +120,7 @@ test('dispatchToAgentServer submits a turn and reads the final result from the t
       };
     };
   };
-  assert.equal(typeof submitBody.idempotency_key, 'string');
+  assert.equal(submitBody.idempotency_key, 'delivery-123');
   assert.equal(typeof submitBody.delivery_owner_id, 'string');
   assert.equal(submitBody.user_message.content[0]?.text, 'fix the bug');
   assert.equal(submitBody.create_conversation.max_iterations, 1000);
@@ -214,6 +215,56 @@ test('dispatchToAgentServer returns collapsed outbound messages and the final as
     outbound_messages: [
       { kind: 'current_thread_message', text: 'first\n\nsecond' },
     ],
+  });
+});
+
+test('dispatchToAgentServer does not post a warm-up fallback for non-owner retries', async () => {
+  const fetchStub: typeof fetch = async (input) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    if (url.endsWith('/api/conversations/github-smolpaws-smolpaws-20/turns')) {
+      return new Response(
+        JSON.stringify({
+          conversation_id: 'github-smolpaws-smolpaws-20',
+          turn_id: 'turn-3',
+          message_event_id: 'msg-3',
+          started_new_turn: false,
+          status: 'running',
+          is_delivery_owner: false,
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }
+    if (url.includes('/turns/turn-3?delivery_owner_id=')) {
+      return new Response(
+        JSON.stringify({
+          conversation_id: 'github-smolpaws-smolpaws-20',
+          turn_id: 'turn-3',
+          status: 'running',
+          started_at: '2026-03-27T00:00:00.000Z',
+          updated_at: '2026-03-27T00:00:01.000Z',
+          is_delivery_owner: false,
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+
+  const result = await dispatchToAgentServer(
+    buildMessage('@smolpaws answer here'),
+    { SMOLPAWS_RUNNER_URL: 'https://runner.example.com' },
+    fetchStub,
+  );
+
+  assert.deepEqual(result, {
+    reply: undefined,
+    outbound_messages: undefined,
   });
 });
 

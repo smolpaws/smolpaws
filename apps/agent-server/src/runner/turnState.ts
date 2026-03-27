@@ -348,5 +348,5 @@ export function assignDeliveryOwner(
     turn.updated_at = now;
     return true;
   }
-  return turn.delivery_owner_id === ownerId;
+  return false;
 }

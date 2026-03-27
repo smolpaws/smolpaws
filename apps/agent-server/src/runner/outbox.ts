@@ -11,6 +11,13 @@ type QueueEnvelope<T> = {
   payload: T;
 };
 
+type ClaimQueueOptions = {
+  turnId?: string;
+  claimAll?: boolean;
+};
+
+const queueLocks = new Map<string, Promise<void>>();
+
 function buildQueueFilePath(
   conversationId: string,
   persistenceDir: string,
@@ -40,54 +47,104 @@ async function appendQueueItem<T>(
   filePath: string,
   item: QueueEnvelope<T>,
 ): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.appendFile(filePath, `${JSON.stringify(item)}\n`, 'utf8');
+  await withQueueLock(filePath, async () => {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.appendFile(filePath, `${JSON.stringify(item)}\n`, 'utf8');
+  });
+}
+
+async function withQueueLock<T>(
+  filePath: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  const prior = queueLocks.get(filePath) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  queueLocks.set(filePath, prior.then(() => current));
+  await prior;
+  try {
+    return await action();
+  } finally {
+    release();
+    if (queueLocks.get(filePath) === current) {
+      queueLocks.delete(filePath);
+    }
+  }
+}
+
+function parseQueueEnvelope<T>(line: string): QueueEnvelope<T> {
+  const parsed = JSON.parse(line) as QueueEnvelope<T> | T;
+  if (
+    parsed &&
+    typeof parsed === 'object' &&
+    'payload' in parsed
+  ) {
+    return parsed as QueueEnvelope<T>;
+  }
+  return { payload: parsed as T };
+}
+
+function shouldClaimEnvelope<T>(
+  envelope: QueueEnvelope<T>,
+  options?: ClaimQueueOptions,
+): boolean {
+  if (options?.claimAll) {
+    return true;
+  }
+  if (options?.turnId) {
+    return envelope.turn_id === options.turnId;
+  }
+  return envelope.turn_id === undefined;
 }
 
 async function claimQueueItems<T>(
   filePath: string,
-  options?: { turnId?: string },
+  options?: ClaimQueueOptions,
 ): Promise<T[]> {
-  const processingPath = `${filePath}.${Date.now()}.processing`;
-  try {
-    await fs.rename(filePath, processingPath);
-  } catch (error) {
-    const err = error as NodeJS.ErrnoException;
-    if (err.code === 'ENOENT') {
-      return [];
-    }
-    throw error;
-  }
-
-  try {
-    const raw = await fs.readFile(processingPath, 'utf8');
-    const envelopes = raw
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as QueueEnvelope<T>);
-    const claimed: T[] = [];
-    const remaining: QueueEnvelope<T>[] = [];
-    for (const envelope of envelopes) {
-      if (!options?.turnId || envelope.turn_id === options.turnId) {
-        claimed.push(envelope.payload);
-        continue;
+  return await withQueueLock(filePath, async () => {
+    const processingPath = `${filePath}.${Date.now()}.processing`;
+    try {
+      await fs.rename(filePath, processingPath);
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === 'ENOENT') {
+        return [];
       }
-      remaining.push(envelope);
+      throw error;
     }
-    if (remaining.length > 0) {
-      await fs.writeFile(
-        filePath,
-        `${remaining.map((item) => JSON.stringify(item)).join('\n')}\n`,
-        'utf8',
-      );
+
+    try {
+      const raw = await fs.readFile(processingPath, 'utf8');
+      const envelopes = raw
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => parseQueueEnvelope<T>(line));
+      const claimed: T[] = [];
+      const remaining: QueueEnvelope<T>[] = [];
+      for (const envelope of envelopes) {
+        if (shouldClaimEnvelope(envelope, options)) {
+          claimed.push(envelope.payload);
+          continue;
+        }
+        remaining.push(envelope);
+      }
+      if (remaining.length > 0) {
+        await fs.writeFile(
+          filePath,
+          `${remaining.map((item) => JSON.stringify(item)).join('\n')}\n`,
+          'utf8',
+        );
+      }
+      await fs.unlink(processingPath);
+      return claimed;
+    } catch (error) {
+      await fs.rename(processingPath, filePath).catch(() => undefined);
+      throw error;
     }
-    await fs.unlink(processingPath);
-    return claimed;
-  } catch (error) {
-    await fs.rename(processingPath, filePath).catch(() => undefined);
-    throw error;
-  }
+  });
 }
 
 export async function appendOutboundMessage(
@@ -108,7 +165,7 @@ export async function appendOutboundMessage(
 export async function claimOutboundMessages(
   conversationId: string,
   persistenceDir: string,
-  options?: { turnId?: string },
+  options?: ClaimQueueOptions,
 ): Promise<SmolpawsOutboundMessage[]> {
   return await claimQueueItems<SmolpawsOutboundMessage>(
     buildOutboxFilePath(conversationId, persistenceDir),
@@ -134,7 +191,7 @@ export async function appendTaskCommand(
 export async function claimTaskCommands(
   conversationId: string,
   persistenceDir: string,
-  options?: { turnId?: string },
+  options?: ClaimQueueOptions,
 ): Promise<SmolpawsTaskCommand[]> {
   return await claimQueueItems<SmolpawsTaskCommand>(
     buildTaskCommandFilePath(conversationId, persistenceDir),

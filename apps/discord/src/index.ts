@@ -199,6 +199,7 @@ async function handleMessage(message: Message, botUserId: string): Promise<void>
       baseUrl: RUNNER_URL,
       token: RUNNER_TOKEN,
       conversationId,
+      messageId: message.id,
       prompt,
       discord: {
         guild_id: message.guildId ?? undefined,
