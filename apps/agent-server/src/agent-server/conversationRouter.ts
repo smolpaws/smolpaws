@@ -36,7 +36,11 @@ import {
   SmolpawsOutboundMessageListSchema,
   SmolpawsTaskCommandListSchema,
   StartConversationRequestSchema,
+  SubmitTurnMessageRequestSchema,
+  SubmitTurnMessageResponseSchema,
   SuccessSchema,
+  TurnInfoSchema,
+  TurnResultSchema,
   UpdateConversationRequestSchema,
   type AskAgentResponse,
   type ConversationBatch,
@@ -45,6 +49,9 @@ import {
   type ConversationPage,
   type ErrorResponse,
   type GenerateTitleResponse,
+  type SubmitTurnMessageResponse,
+  type TurnInfo,
+  type TurnResult,
 } from "./models.js";
 
 export function registerConversationRoutes(
@@ -201,19 +208,227 @@ export function registerConversationRoutes(
         request.body,
       );
       if (request.body.initial_message) {
-        const messageText = deps.conversationRuntime.extractTextFromMessageRequest(
-          request.body.initial_message,
-        );
-        if (messageText) {
-          await record.conversation.sendUserMessage(messageText, {
-            run: request.body.initial_message.run !== false,
-            extendedContent: request.body.initial_message
-              .extended_content as TextContent[] | undefined,
-          });
+        await deps.conversationRuntime.submitTurnMessage({
+          conversationId: record.id,
+          userMessage: {
+            content: request.body.initial_message.content as TextContent[],
+            extended_content:
+              request.body.initial_message.extended_content as TextContent[] | undefined,
+            run: request.body.initial_message.run,
+          },
+          idempotencyKey:
+            `legacy-create-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          createConversation: request.body,
+        });
+        if (request.body.initial_message.run !== false) {
+          await deps.conversationRuntime.waitForTurnProcessor(record.id);
         }
       }
       reply.status(isNew ? 201 : 200);
       return buildConversationInfo(record, deriveExecutionStatusFromEvents);
+    },
+  );
+
+  app.post<{
+    Params: { conversationId: string };
+    Body: Static<typeof SubmitTurnMessageRequestSchema>;
+    Reply: SubmitTurnMessageResponse | ErrorResponse;
+  }>(
+    "/api/conversations/:conversationId/turns",
+    {
+      schema: {
+        body: SubmitTurnMessageRequestSchema,
+        response: {
+          200: SubmitTurnMessageResponseSchema,
+          201: SubmitTurnMessageResponseSchema,
+          401: ErrorSchema,
+          404: ErrorSchema,
+        },
+      },
+    },
+    async (request, reply): Promise<SubmitTurnMessageResponse | ErrorResponse> => {
+      const auth = isAuthorized(request, deps.env);
+      if (!auth.allowed) {
+        reply.status(401);
+        return { error: auth.reason ?? "Unauthorized" };
+      }
+      const result = await deps.conversationRuntime.submitTurnMessage({
+        conversationId: request.params.conversationId,
+        userMessage: {
+          content: request.body.user_message.content as TextContent[],
+          extended_content:
+            request.body.user_message.extended_content as TextContent[] | undefined,
+          run: request.body.user_message.run,
+        },
+        idempotencyKey: request.body.idempotency_key,
+        createConversation: request.body.create_conversation,
+        deliveryOwnerId: request.body.delivery_owner_id,
+      });
+      reply.status(result.startedNewTurn ? 201 : 200);
+      return {
+        conversation_id: result.conversationId,
+        turn_id: result.turnId,
+        message_event_id: result.messageEventId,
+        started_new_turn: result.startedNewTurn,
+        status: result.status,
+        is_delivery_owner: result.isDeliveryOwner,
+      };
+    },
+  );
+
+  app.get<{
+    Params: { conversationId: string; turnId: string };
+    Querystring: { delivery_owner_id?: string };
+    Reply: TurnInfo | ErrorResponse;
+  }>(
+    "/api/conversations/:conversationId/turns/:turnId",
+    {
+      schema: {
+        response: {
+          200: TurnInfoSchema,
+          401: ErrorSchema,
+          404: ErrorSchema,
+        },
+      },
+    },
+    async (request, reply): Promise<TurnInfo | ErrorResponse> => {
+      const auth = isAuthorized(request, deps.env);
+      if (!auth.allowed) {
+        reply.status(401);
+        return { error: auth.reason ?? "Unauthorized" };
+      }
+      const turn = await deps.conversationRuntime.getTurnOrThrow(
+        request.params.conversationId,
+        request.params.turnId,
+      );
+      return {
+        conversation_id: request.params.conversationId,
+        turn_id: turn.id,
+        status: turn.status,
+        started_at: turn.started_at,
+        updated_at: turn.updated_at,
+        ...(turn.completed_at ? { completed_at: turn.completed_at } : {}),
+        ...(turn.delivery_owner_id
+          ? { delivery_owner_id: turn.delivery_owner_id }
+          : {}),
+        is_delivery_owner:
+          turn.delivery_owner_id === request.query.delivery_owner_id,
+      };
+    },
+  );
+
+  app.get<{
+    Params: { conversationId: string; turnId: string };
+    Reply: TurnResult | ErrorResponse;
+  }>(
+    "/api/conversations/:conversationId/turns/:turnId/result",
+    {
+      schema: {
+        response: {
+          200: TurnResultSchema,
+          401: ErrorSchema,
+          404: ErrorSchema,
+        },
+      },
+    },
+    async (request, reply): Promise<TurnResult | ErrorResponse> => {
+      const auth = isAuthorized(request, deps.env);
+      if (!auth.allowed) {
+        reply.status(401);
+        return { error: auth.reason ?? "Unauthorized" };
+      }
+      const turn = await deps.conversationRuntime.getTurnOrThrow(
+        request.params.conversationId,
+        request.params.turnId,
+      );
+      const result = await deps.conversationRuntime.getTurnResult(
+        request.params.conversationId,
+        request.params.turnId,
+      );
+      return {
+        conversation_id: request.params.conversationId,
+        turn_id: turn.id,
+        status: turn.status,
+        ...(result.reply ? { reply: result.reply } : {}),
+        ...(result.errorCode ? { error_code: result.errorCode } : {}),
+        ...(result.errorDetail ? { error_detail: result.errorDetail } : {}),
+      };
+    },
+  );
+
+  app.post<{
+    Params: { conversationId: string; turnId: string };
+    Body: { delivery_owner_id: string };
+    Reply: Static<typeof SmolpawsOutboundMessageListSchema> | ErrorResponse;
+  }>(
+    "/api/conversations/:conversationId/turns/:turnId/outbound_messages/claim",
+    {
+      schema: {
+        body: Type.Object({ delivery_owner_id: Type.String({ minLength: 1 }) }),
+        response: {
+          200: SmolpawsOutboundMessageListSchema,
+          401: ErrorSchema,
+          404: ErrorSchema,
+          409: ErrorSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const auth = isAuthorized(request, deps.env);
+      if (!auth.allowed) {
+        reply.status(401);
+        return { error: auth.reason ?? "Unauthorized" };
+      }
+      const turn = await deps.conversationRuntime.getTurnOrThrow(
+        request.params.conversationId,
+        request.params.turnId,
+      );
+      if (turn.delivery_owner_id && turn.delivery_owner_id !== request.body.delivery_owner_id) {
+        reply.status(409);
+        return { error: "Turn delivery is owned by another caller." };
+      }
+      return await deps.conversationRuntime.claimTurnOutboundMessages(
+        request.params.conversationId,
+        request.params.turnId,
+      );
+    },
+  );
+
+  app.post<{
+    Params: { conversationId: string; turnId: string };
+    Body: { delivery_owner_id: string };
+    Reply: Static<typeof SmolpawsTaskCommandListSchema> | ErrorResponse;
+  }>(
+    "/api/conversations/:conversationId/turns/:turnId/task_commands/claim",
+    {
+      schema: {
+        body: Type.Object({ delivery_owner_id: Type.String({ minLength: 1 }) }),
+        response: {
+          200: SmolpawsTaskCommandListSchema,
+          401: ErrorSchema,
+          404: ErrorSchema,
+          409: ErrorSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const auth = isAuthorized(request, deps.env);
+      if (!auth.allowed) {
+        reply.status(401);
+        return { error: auth.reason ?? "Unauthorized" };
+      }
+      const turn = await deps.conversationRuntime.getTurnOrThrow(
+        request.params.conversationId,
+        request.params.turnId,
+      );
+      if (turn.delivery_owner_id && turn.delivery_owner_id !== request.body.delivery_owner_id) {
+        reply.status(409);
+        return { error: "Turn delivery is owned by another caller." };
+      }
+      return await deps.conversationRuntime.claimTurnTaskCommands(
+        request.params.conversationId,
+        request.params.turnId,
+      );
     },
   );
 

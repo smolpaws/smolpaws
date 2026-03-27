@@ -35,6 +35,10 @@ function registerErrorHandler(
       });
       return;
     }
+    if (error instanceof Error && error.message === "turn_not_found") {
+      reply.status(404).send({ error: "Turn not found" });
+      return;
+    }
     if (error instanceof Error && error.message === "only_user_messages_supported") {
       reply.status(400).send({ error: "Only user messages are supported" });
       return;

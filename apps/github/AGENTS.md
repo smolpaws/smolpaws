@@ -12,7 +12,7 @@ This app validates GitHub events, queues work, forwards prompts to the shared Sm
 |------|---------|
 | `src/index.ts` | Worker entrypoint, queue consumer, GitHub API helpers |
 | `wrangler.toml` | Cloudflare Worker/Queues configuration |
-| `../../apps/agent-server/src/shared/runner.ts` | Shared runner protocol types |
+| `../../src/shared/runner.ts` | Shared runner protocol types |
 
 ## Development
 

@@ -83,13 +83,16 @@ export function registerEventRoutes(
       if (request.body.role !== "user") {
         throw new Error("only_user_messages_supported");
       }
-      const content = request.body.content as TextContent[];
-      const messageText = deps.conversationRuntime.extractTextFromMessageRequest(
-        request.body,
-      );
-      await record.conversation.sendUserMessage(messageText, {
-        run: request.body.run !== false,
-        extendedContent: request.body.extended_content as TextContent[] | undefined,
+      await deps.conversationRuntime.submitTurnMessage({
+        conversationId: record.id,
+        userMessage: {
+          content: request.body.content as TextContent[],
+          extended_content:
+            request.body.extended_content as TextContent[] | undefined,
+          run: request.body.run,
+        },
+        idempotencyKey:
+          `legacy-event-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       });
       return { success: true };
     },

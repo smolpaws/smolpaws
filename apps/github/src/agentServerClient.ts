@@ -1,10 +1,15 @@
 import type {
   GithubEventPayload,
   SmolpawsQueueMessage,
-} from '../../agent-server/src/shared/github.js';
+} from '../../../src/shared/github.js';
 import type {
   SmolpawsOutboundMessage,
-} from '../../agent-server/src/shared/runner.js';
+} from '../../../src/shared/runner.js';
+import {
+  createDeliveryOwnerId,
+  monitorTurn,
+  submitConversationMessage,
+} from '../../../src/shared/turnClient.js';
 
 export type AgentServerEnv = {
   SMOLPAWS_RUNNER_URL?: string;
@@ -67,40 +72,6 @@ function buildFallbackReply(message: SmolpawsQueueMessage): string {
   return `🐾 Hey ${actor}! smolpaws is warming up in ${repo}.\n${requestLine}`;
 }
 
-function extractAssistantReplyFromEventPage(data: unknown): string | null {
-  if (
-    !data ||
-    typeof data !== 'object' ||
-    !Array.isArray((data as { items?: unknown[] }).items)
-  ) {
-    return null;
-  }
-  for (const item of (data as { items: unknown[] }).items) {
-    if (!item || typeof item !== 'object') {
-      continue;
-    }
-    const event = item as {
-      kind?: unknown;
-      llm_message?: {
-        role?: unknown;
-        content?: Array<{ type?: unknown; text?: unknown }>;
-      };
-    };
-    if (event.kind !== 'MessageEvent' || event.llm_message?.role !== 'assistant') {
-      continue;
-    }
-    const text = (event.llm_message.content ?? [])
-      .filter((part) => part?.type === 'text' && typeof part.text === 'string')
-      .map((part) => (part.text as string).trim())
-      .filter(Boolean)
-      .join('\n');
-    if (text) {
-      return text;
-    }
-  }
-  return null;
-}
-
 function collapseOutboundMessages(
   outboundMessages: SmolpawsOutboundMessage[],
 ): SmolpawsOutboundMessage[] {
@@ -140,24 +111,23 @@ export async function dispatchToAgentServer(
   }
 
   const conversationId = buildConversationId(message);
-  const response = await fetchImpl(`${agentServerBaseUrl}/api/conversations`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(env.SMOLPAWS_RUNNER_TOKEN
-        ? { Authorization: `Bearer ${env.SMOLPAWS_RUNNER_TOKEN}` }
-        : {}),
+  const deliveryOwnerId = createDeliveryOwnerId();
+  const submitResult = await submitConversationMessage({
+    baseUrl: agentServerBaseUrl,
+    authToken: env.SMOLPAWS_RUNNER_TOKEN,
+    conversationId,
+    idempotencyKey: message.delivery_id ?? createDeliveryOwnerId(),
+    deliveryOwnerId,
+    fetchImpl,
+    userMessage: {
+      role: 'user',
+      content: [{ type: 'text', text: prompt }],
+      run: true,
     },
-    body: JSON.stringify({
+    createConversation: {
       agent: {
         llm: {},
         tools: DEFAULT_AGENT_TOOLS,
-      },
-      conversation_id: conversationId,
-      initial_message: {
-        role: 'user',
-        content: [{ type: 'text', text: prompt }],
-        run: true,
       },
       max_iterations: GITHUB_MAX_ITERATIONS,
       smolpaws: {
@@ -172,50 +142,26 @@ export async function dispatchToAgentServer(
           pull_request_number: message.payload.pull_request?.number,
         },
       },
-    }),
+    },
   });
 
-  if (!response.ok) {
-    const responseText = await response.text();
-    throw new Error(`Agent-server error: ${responseText}`);
-  }
-
-  const data = (await response.json()) as { id?: unknown };
-  if (typeof data.id !== 'string' || !data.id.trim()) {
-    throw new Error('Agent-server response missing conversation id');
-  }
-
-  const claimedMessagesResponse = await fetchImpl(
-    `${agentServerBaseUrl}/api/conversations/${encodeURIComponent(data.id)}/outbound_messages/claim`,
-    {
-      method: 'POST',
-      headers: env.SMOLPAWS_RUNNER_TOKEN
-        ? { Authorization: `Bearer ${env.SMOLPAWS_RUNNER_TOKEN}` }
-        : {},
+  const outboundMessages: SmolpawsOutboundMessage[] = [];
+  const monitored = await monitorTurn({
+    baseUrl: agentServerBaseUrl,
+    authToken: env.SMOLPAWS_RUNNER_TOKEN,
+    conversationId: submitResult.conversation_id,
+    turnId: submitResult.turn_id,
+    deliveryOwnerId,
+    isDeliveryOwner: submitResult.is_delivery_owner,
+    fetchImpl,
+    onOutboundMessage: async (outboundMessage) => {
+      outboundMessages.push(outboundMessage);
     },
-  );
-  if (!claimedMessagesResponse.ok) {
-    const responseText = await claimedMessagesResponse.text();
-    throw new Error(`Agent-server outbound claim error: ${responseText}`);
-  }
-  const outboundMessages =
-    (await claimedMessagesResponse.json()) as SmolpawsOutboundMessage[];
-
-  const eventsResponse = await fetchImpl(
-    `${agentServerBaseUrl}/api/conversations/${encodeURIComponent(data.id)}/events/search?kind=MessageEvent&source=agent&sort_order=TIMESTAMP_DESC&limit=20`,
-    {
-      headers: env.SMOLPAWS_RUNNER_TOKEN
-        ? { Authorization: `Bearer ${env.SMOLPAWS_RUNNER_TOKEN}` }
-        : {},
-    },
-  );
-  if (!eventsResponse.ok) {
-    const responseText = await eventsResponse.text();
-    throw new Error(`Agent-server events search error: ${responseText}`);
-  }
-  const reply = extractAssistantReplyFromEventPage(await eventsResponse.json());
+  });
   return {
-    reply: reply ?? (outboundMessages.length > 0 ? undefined : buildFallbackReply(message)),
+    reply:
+      monitored.reply ??
+      (outboundMessages.length > 0 ? undefined : buildFallbackReply(message)),
     outbound_messages:
       outboundMessages.length > 0
         ? collapseOutboundMessages(outboundMessages)

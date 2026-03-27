@@ -7,31 +7,19 @@ import { GROUPS_DIR } from '../config.js';
 import {
   buildVisibleTaskSnapshot,
   processSharedRunnerTaskCommand,
-  type SharedRunnerTaskCommand,
 } from '../task-commands.js';
 import { ensureLocalRunnerReady } from './local-runner.js';
-
-type RunnerConversationInfo = {
-  id: string;
-  execution_status?: string;
-};
-
-type RunnerEventPage = {
-  items: Array<{
-    kind?: string;
-    code?: string;
-    detail?: string;
-    llm_message?: {
-      role?: string;
-      content?: Array<{ type?: string; text?: string }>;
-    };
-  }>;
-};
-
-type RunnerOutboundMessage = {
-  kind: 'current_thread_message';
-  text: string;
-};
+import type { SmolpawsTaskCommand } from '../shared/runner.js';
+import {
+  claimTurnOutboundMessages,
+  claimTurnTaskCommands,
+  createDeliveryOwnerId,
+  getTurnResult,
+  getTurnStatus,
+  submitConversationMessage,
+  type SubmitConversationMessageResult,
+  type TurnTerminalStatus,
+} from '../shared/turnClient.js';
 
 type LocalRunnerAttemptResult = AgentRuntimeOutput & {
   errorCode?: string;
@@ -43,6 +31,15 @@ const DEFAULT_AGENT_TOOLS = [
   { name: 'task_tracker' },
 ] as const;
 const WHATSAPP_MAX_ITERATIONS = 5000;
+const TURN_POLL_INTERVAL_MS = 2_000;
+const TURN_TIMEOUT_MS = 5 * 60 * 1000;
+const TERMINAL_STATUSES = new Set<TurnTerminalStatus>([
+  'completed',
+  'waiting_for_confirmation',
+  'paused',
+  'error',
+  'stuck',
+]);
 
 const logger = pino({
   level: process.env.LOG_LEVEL || 'info',
@@ -83,29 +80,6 @@ function buildSmolpawsConfig(scope: ExecutionScope) {
   };
 }
 
-function buildHeaders(additional: Record<string, string> = {}): Record<string, string> {
-  const headers: Record<string, string> = { ...additional };
-  const token = process.env.SMOLPAWS_RUNNER_TOKEN?.trim();
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-  return headers;
-}
-
-async function fetchJson<T>(baseUrl: string, pathname: string, init: RequestInit): Promise<T> {
-  const response = await fetch(new URL(pathname, baseUrl), {
-    ...init,
-    headers: buildHeaders((init.headers as Record<string, string> | undefined) ?? {}),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Runner request failed (${response.status}): ${text}`);
-  }
-
-  return await response.json() as T;
-}
-
 function isRetryableRunnerFetchError(error: unknown): boolean {
   return error instanceof Error && error.message.includes('fetch failed');
 }
@@ -117,7 +91,7 @@ function formatRetryableRunnerFetchError(error: unknown): string {
   return String(error);
 }
 
-async function retryPostRunFetch<T>(
+async function retryRunnerOperation<T>(
   baseUrl: string,
   operation: string,
   action: () => Promise<T>,
@@ -137,214 +111,101 @@ async function retryPostRunFetch<T>(
   }
 }
 
-function extractConversationResult(page: RunnerEventPage): {
-  reply: string | null;
-  errorCode?: string;
-  errorDetail?: string;
-} {
-  for (const event of page.items) {
-    if (event.kind === 'ConversationErrorEvent') {
-      return {
-        reply: null,
-        errorCode: event.code,
-        errorDetail: event.detail,
-      };
-    }
-    if (event.kind !== 'MessageEvent' || event.llm_message?.role !== 'assistant') {
-      continue;
-    }
-    const text = (event.llm_message.content ?? [])
-      .filter((item) => item.type === 'text' && typeof item.text === 'string')
-      .map((item) => item.text?.trim() ?? '')
-      .filter(Boolean)
-      .join('\n')
-      .trim();
-    if (text) {
-      return { reply: text };
-    }
-  }
-  return { reply: null };
-}
+async function monitorConversationTurn(options: {
+  baseUrl: string;
+  deliveryOwnerId: string;
+  submitResult: SubmitConversationMessageResult;
+  scope: ExecutionScope;
+  registeredGroups?: Record<string, RegisteredGroup>;
+}): Promise<LocalRunnerAttemptResult> {
+  const { baseUrl, deliveryOwnerId, submitResult, scope } = options;
+  const outboundMessages: AgentRuntimeOutput['outboundMessages'] = [];
+  const deadline = Date.now() + TURN_TIMEOUT_MS;
 
-async function createOrContinueConversation(
-  baseUrl: string,
-  scope: ExecutionScope,
-  input: AgentRuntimeInput,
-): Promise<RunnerConversationInfo> {
-  return await fetchJson<RunnerConversationInfo>(baseUrl, '/api/conversations', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      agent: {
-        llm: {},
-        tools: DEFAULT_AGENT_TOOLS,
-      },
-      confirmation_policy: {
-        kind: 'NeverConfirm',
-      },
-      workspace: {
-        kind: 'local',
-        working_dir: buildConversationWorkingDir(scope),
-      },
-      max_iterations: WHATSAPP_MAX_ITERATIONS,
-      conversation_id: input.conversationId,
-      initial_message: {
-        role: 'user',
-        content: buildMessageContent(input),
-        run: true,
-      },
-      smolpaws: buildSmolpawsConfig(scope),
-    }),
-  });
-}
-
-async function loadConversationInfo(
-  baseUrl: string,
-  conversationId: string,
-): Promise<RunnerConversationInfo | null> {
-  const response = await fetch(new URL(`/api/conversations/${conversationId}`, baseUrl), {
-    method: 'GET',
-    headers: buildHeaders(),
-  });
-
-  if (response.status === 404) {
-    return null;
-  }
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Runner request failed (${response.status}): ${text}`);
-  }
-
-  return await response.json() as RunnerConversationInfo;
-}
-
-async function claimConversationOutbox(
-  baseUrl: string,
-  conversationId: string,
-): Promise<RunnerOutboundMessage[]> {
-  return await fetchJson<RunnerOutboundMessage[]>(
-    baseUrl,
-    `/api/conversations/${conversationId}/outbound_messages/claim`,
-    {
-      method: 'POST',
-    },
-  );
-}
-
-async function claimConversationTaskCommands(
-  baseUrl: string,
-  conversationId: string,
-): Promise<SharedRunnerTaskCommand[]> {
-  return await fetchJson<SharedRunnerTaskCommand[]>(
-    baseUrl,
-    `/api/conversations/${conversationId}/task_commands/claim`,
-    {
-      method: 'POST',
-    },
-  );
-}
-
-async function loadConversationResult(
-  baseUrl: string,
-  conversationId: string,
-): Promise<{ reply: string | null; errorCode?: string; errorDetail?: string }> {
-  const page = await fetchJson<RunnerEventPage>(
-    baseUrl,
-    `/api/conversations/${conversationId}/events/search?source=agent&sort_order=TIMESTAMP_DESC&limit=20`,
-    {
-      method: 'GET',
-    },
-  );
-  return extractConversationResult(page);
-}
-
-async function finalizeConversationAttempt(
-  baseUrl: string,
-  conversationId: string,
-  scope: ExecutionScope,
-  options?: { registeredGroups?: Record<string, RegisteredGroup> },
-): Promise<LocalRunnerAttemptResult> {
-  const taskCommands = await retryPostRunFetch(
-    baseUrl,
-    'claim task commands',
-    () => claimConversationTaskCommands(baseUrl, conversationId),
-  );
-  for (const command of taskCommands) {
-    processSharedRunnerTaskCommand(
-      command,
-      scope.scopeId,
-      options?.registeredGroups ?? {},
-      logger,
-    );
-  }
-
-  const outboundMessages = await retryPostRunFetch(
-    baseUrl,
-    'claim outbound messages',
-    () => claimConversationOutbox(baseUrl, conversationId),
-  );
-  if (outboundMessages.length > 0) {
+  if (!submitResult.is_delivery_owner) {
     return {
       status: 'success',
-      conversationId,
       result: null,
-      outboundMessages,
+      conversationId: submitResult.conversation_id,
     };
   }
 
-  const result = await retryPostRunFetch(
-    baseUrl,
-    'load conversation result',
-    () => loadConversationResult(baseUrl, conversationId),
-  );
-  if (result.errorCode) {
-    return {
-      status: 'error',
-      result: null,
-      conversationId,
-      error: result.errorDetail ?? result.errorCode,
-      errorCode: result.errorCode,
-    };
+  while (Date.now() < deadline) {
+    const status = await retryRunnerOperation(baseUrl, 'load turn status', () =>
+      getTurnStatus({
+        baseUrl,
+        authToken: process.env.SMOLPAWS_RUNNER_TOKEN?.trim(),
+        conversationId: submitResult.conversation_id,
+        turnId: submitResult.turn_id,
+        deliveryOwnerId,
+      }),
+    );
+
+    const taskCommands = await retryRunnerOperation(baseUrl, 'claim turn task commands', () =>
+      claimTurnTaskCommands({
+        baseUrl,
+        authToken: process.env.SMOLPAWS_RUNNER_TOKEN?.trim(),
+        conversationId: submitResult.conversation_id,
+        turnId: submitResult.turn_id,
+        deliveryOwnerId,
+      }),
+    );
+    for (const command of taskCommands as SmolpawsTaskCommand[]) {
+      processSharedRunnerTaskCommand(
+        command,
+        scope.scopeId,
+        options.registeredGroups ?? {},
+        logger,
+      );
+    }
+
+    const outbound = await retryRunnerOperation(baseUrl, 'claim turn outbound messages', () =>
+      claimTurnOutboundMessages({
+        baseUrl,
+        authToken: process.env.SMOLPAWS_RUNNER_TOKEN?.trim(),
+        conversationId: submitResult.conversation_id,
+        turnId: submitResult.turn_id,
+        deliveryOwnerId,
+      }),
+    );
+    outboundMessages.push(...outbound);
+
+    if (status.status !== 'running' && TERMINAL_STATUSES.has(status.status)) {
+      const result = await retryRunnerOperation(baseUrl, 'load turn result', () =>
+        getTurnResult({
+          baseUrl,
+          authToken: process.env.SMOLPAWS_RUNNER_TOKEN?.trim(),
+          conversationId: submitResult.conversation_id,
+          turnId: submitResult.turn_id,
+        }),
+      );
+      if (result.error_code) {
+        return {
+          status: 'error',
+          result: null,
+          conversationId: submitResult.conversation_id,
+          error: result.error_detail ?? result.error_code,
+          errorCode: result.error_code,
+          ...(outboundMessages.length ? { outboundMessages } : {}),
+        };
+      }
+      return {
+        status: 'success',
+        result: result.reply ?? null,
+        conversationId: submitResult.conversation_id,
+        ...(outboundMessages.length ? { outboundMessages } : {}),
+      };
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, TURN_POLL_INTERVAL_MS));
   }
 
   return {
-    status: 'success',
-    result: result.reply,
-    conversationId,
+    status: 'error',
+    result: null,
+    conversationId: submitResult.conversation_id,
+    error: 'Timed out waiting for turn to finish',
   };
-}
-
-async function recoverConversationAfterDroppedCreate(
-  baseUrl: string,
-  conversationId: string,
-  scope: ExecutionScope,
-  options?: { registeredGroups?: Record<string, RegisteredGroup> },
-): Promise<LocalRunnerAttemptResult | null> {
-  const deadline = Date.now() + 30_000;
-  const pollIntervalMs = 250;
-
-  while (Date.now() < deadline) {
-    const info = await retryPostRunFetch(
-      baseUrl,
-      'load conversation info',
-      () => loadConversationInfo(baseUrl, conversationId),
-    );
-    if (!info) {
-      return null;
-    }
-    if ((info.execution_status ?? '').trim().toLowerCase() === 'running') {
-      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-      continue;
-    }
-    return await finalizeConversationAttempt(baseUrl, conversationId, scope, options);
-  }
-
-  logger.warn(
-    { conversationId, scopeId: scope.scopeId },
-    'Timed out waiting to recover conversation after dropped create request',
-  );
-  return null;
 }
 
 async function executeConversationAttempt(
@@ -353,8 +214,55 @@ async function executeConversationAttempt(
   input: AgentRuntimeInput,
   options?: { registeredGroups?: Record<string, RegisteredGroup> },
 ): Promise<LocalRunnerAttemptResult> {
-  const conversation = await createOrContinueConversation(baseUrl, scope, input);
-  return await finalizeConversationAttempt(baseUrl, conversation.id, scope, options);
+  const deliveryOwnerId = createDeliveryOwnerId();
+  const idempotencyKey = createDeliveryOwnerId();
+  const createConversation = {
+    agent: {
+      llm: {},
+      tools: DEFAULT_AGENT_TOOLS,
+    },
+    confirmation_policy: {
+      kind: 'NeverConfirm',
+    },
+    workspace: {
+      kind: 'local',
+      working_dir: buildConversationWorkingDir(scope),
+    },
+    max_iterations: WHATSAPP_MAX_ITERATIONS,
+    smolpaws: buildSmolpawsConfig(scope),
+  };
+
+  const submit = async () =>
+    await submitConversationMessage({
+      baseUrl,
+      authToken: process.env.SMOLPAWS_RUNNER_TOKEN?.trim(),
+      conversationId: input.conversationId ?? `${scope.scopeId}-${Date.now().toString(36)}`,
+      idempotencyKey,
+      deliveryOwnerId,
+      userMessage: {
+        role: 'user',
+        content: buildMessageContent(input),
+        run: true,
+      },
+      createConversation: {
+        ...createConversation,
+        ...(input.conversationId ? { conversation_id: input.conversationId } : {}),
+      },
+    });
+
+  const submitResult = await retryRunnerOperation(
+    baseUrl,
+    'submit turn message',
+    submit,
+  );
+
+  return await monitorConversationTurn({
+    baseUrl,
+    deliveryOwnerId,
+    submitResult,
+    scope,
+    registeredGroups: options?.registeredGroups,
+  });
 }
 
 export async function runLocalAgentServerAgent(
@@ -364,46 +272,26 @@ export async function runLocalAgentServerAgent(
 ): Promise<AgentRuntimeOutput> {
   try {
     const baseUrl = await ensureLocalRunnerReady();
-    let firstAttempt: LocalRunnerAttemptResult;
-    try {
-      firstAttempt = await executeConversationAttempt(baseUrl, scope, input, options);
-    } catch (error) {
-      if (!input.conversationId || !isRetryableRunnerFetchError(error)) {
-        throw error;
-      }
-      logger.warn(
-        {
-          scopeId: scope.scopeId,
-          conversationId: input.conversationId,
-          error: formatRetryableRunnerFetchError(error),
-        },
-        'Create/continue request lost; attempting conversation recovery',
-      );
-      await ensureLocalRunnerReady();
-      const recoveredAttempt = await recoverConversationAfterDroppedCreate(
-        baseUrl,
-        input.conversationId,
-        scope,
-        options,
-      );
-      if (!recoveredAttempt) {
-        throw error;
-      }
-      firstAttempt = recoveredAttempt;
-    }
-    if (firstAttempt.status === 'error'
-      && input.conversationId
-      && firstAttempt.errorCode === 'max_iterations_exceeded') {
+    const firstAttempt = await executeConversationAttempt(baseUrl, scope, input, options);
+    if (
+      firstAttempt.status === 'error' &&
+      input.conversationId &&
+      firstAttempt.errorCode === 'max_iterations_exceeded'
+    ) {
       logger.warn(
         { scopeId: scope.scopeId, conversationId: input.conversationId },
         'Reused conversation hit max iterations; starting a fresh conversation',
       );
-      return await executeConversationAttempt(baseUrl, scope, {
-        ...input,
-        conversationId: undefined,
-      }, options);
+      return await executeConversationAttempt(
+        baseUrl,
+        scope,
+        {
+          ...input,
+          conversationId: undefined,
+        },
+        options,
+      );
     }
-
     return firstAttempt;
   } catch (error) {
     return {

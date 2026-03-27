@@ -15,20 +15,36 @@ const TEST_SCOPE: ExecutionScope = {
   isControlScope: true,
 };
 
-function buildFetchStub(handlers: Record<string, () => Response | Promise<Response>>): typeof fetch {
+function buildFetchStub(
+  handlers: Record<string, (url: string, init?: RequestInit) => Response | Promise<Response>>,
+): typeof fetch {
   return async (input, init) => {
     const url = typeof input === 'string' ? input : input.toString();
-    const matchingEntry = Object.entries(handlers)
-      .sort((left, right) => right[0].length - left[0].length)
-      .find(([key]) => url.includes(key));
+    const entries = Object.entries(handlers).sort((left, right) => right[0].length - left[0].length);
+    const exactOrSuffixMatch = entries.find(([key]) => url === key || url.endsWith(key));
+    if (exactOrSuffixMatch) {
+      return await exactOrSuffixMatch[1](url, init);
+    }
+
+    const substringMatches = entries
+      .map(([key, handler]) => ({ key, handler, index: url.indexOf(key) }))
+      .filter((match) => match.index !== -1)
+      .sort((left, right) => {
+        if (right.index !== left.index) {
+          return right.index - left.index;
+        }
+        return right.key.length - left.key.length;
+      });
+
+    const matchingEntry = substringMatches[0];
     if (!matchingEntry) {
       throw new Error(`unexpected fetch ${url} (${init?.method ?? 'GET'})`);
     }
-    return await matchingEntry[1]();
+    return await matchingEntry.handler(url, init);
   };
 }
 
-test('runLocalAgentServerAgent creates a conversation rooted in the scope group directory', async () => {
+test('runLocalAgentServerAgent submits a turn rooted in the scope group directory', async () => {
   initDatabase();
   process.env.RUNNER_HOST = '127.0.0.1';
   process.env.PORT = '8788';
@@ -45,42 +61,58 @@ test('runLocalAgentServerAgent creates a conversation rooted in the scope group 
         headers: { 'Content-Type': 'application/json' },
       });
     }
-    if (url.includes('/api/conversations?ids=')) {
-      return new Response(JSON.stringify([{ id: 'wa-main-conv', execution_status: 'idle' }]), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.endsWith('/api/conversations')) {
-      return new Response(JSON.stringify({ id: 'wa-main-conv' }), {
-        status: 201,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.endsWith('/task_commands/claim')) {
-      return new Response(JSON.stringify([]), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.endsWith('/outbound_messages/claim')) {
-      return new Response(JSON.stringify([]), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.includes('/events/search?')) {
+    if (url.endsWith('/api/conversations/wa-main-conv/turns')) {
       return new Response(
         JSON.stringify({
-          items: [
-            {
-              kind: 'MessageEvent',
-              llm_message: {
-                role: 'assistant',
-                content: [{ type: 'text', text: 'meow from local runner' }],
-              },
-            },
-          ],
+          conversation_id: 'wa-main-conv',
+          turn_id: 'turn-1',
+          message_event_id: 'msg-1',
+          started_new_turn: true,
+          status: 'running',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }
+    if (url.includes('/turns/turn-1?delivery_owner_id=')) {
+      return new Response(
+        JSON.stringify({
+          conversation_id: 'wa-main-conv',
+          turn_id: 'turn-1',
+          status: 'completed',
+          started_at: '2026-03-27T00:00:00.000Z',
+          updated_at: '2026-03-27T00:00:01.000Z',
+          completed_at: '2026-03-27T00:00:01.000Z',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }
+    if (url.endsWith('/turns/turn-1/task_commands/claim')) {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.endsWith('/turns/turn-1/outbound_messages/claim')) {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.endsWith('/turns/turn-1/result')) {
+      return new Response(
+        JSON.stringify({
+          conversation_id: 'wa-main-conv',
+          turn_id: 'turn-1',
+          status: 'completed',
+          reply: 'meow from local runner',
         }),
         {
           status: 200,
@@ -107,37 +139,53 @@ test('runLocalAgentServerAgent creates a conversation rooted in the scope group 
     });
 
     assert.equal(calls[0]?.url, 'http://127.0.0.1:8788/ready');
-    const createCall = calls.find((call) => call.url.endsWith('/api/conversations'));
-    assert.ok(createCall);
-    const body = JSON.parse(String(createCall.init?.body)) as {
-      workspace: { kind: string; working_dir: string };
-      smolpaws: { ingress: string; scope_id: string; enable_send_message: boolean; enable_task_tools: boolean };
-      agent: { tools: Array<{ name: string }> };
-      confirmation_policy: { kind: string };
-      conversation_id: string;
-      max_iterations: number;
+    const submitCall = calls.find((call) =>
+      call.url.endsWith('/api/conversations/wa-main-conv/turns'),
+    );
+    assert.ok(submitCall);
+    const body = JSON.parse(String(submitCall.init?.body)) as {
+      user_message: { content: Array<{ text?: string }> };
+      create_conversation: {
+        workspace: { kind: string; working_dir: string };
+        smolpaws: {
+          ingress: string;
+          scope_id: string;
+          enable_send_message: boolean;
+          enable_task_tools: boolean;
+        };
+        agent: { tools: Array<{ name: string }> };
+        confirmation_policy: { kind: string };
+        conversation_id: string;
+        max_iterations: number;
+      };
     };
 
-    assert.equal(body.workspace.kind, 'local');
-    assert.equal(body.workspace.working_dir, path.join(process.cwd(), 'groups', 'main'));
-    assert.equal(body.smolpaws.ingress, 'whatsapp');
-    assert.equal(body.smolpaws.scope_id, 'main');
-    assert.equal(body.smolpaws.enable_send_message, true);
-    assert.equal(body.smolpaws.enable_task_tools, true);
-    assert.equal(body.confirmation_policy.kind, 'NeverConfirm');
-    assert.deepEqual(body.agent.tools.map((tool) => tool.name), [
-      'terminal',
-      'file_editor',
-      'task_tracker',
-    ]);
-    assert.equal(body.conversation_id, 'wa-main-conv');
-    assert.equal(body.max_iterations, 5000);
+    assert.equal(body.create_conversation.workspace.kind, 'local');
+    assert.equal(
+      body.create_conversation.workspace.working_dir,
+      path.join(process.cwd(), 'groups', 'main'),
+    );
+    assert.equal(body.create_conversation.smolpaws.ingress, 'whatsapp');
+    assert.equal(body.create_conversation.smolpaws.scope_id, 'main');
+    assert.equal(body.create_conversation.smolpaws.enable_send_message, true);
+    assert.equal(body.create_conversation.smolpaws.enable_task_tools, true);
+    assert.equal(body.create_conversation.confirmation_policy.kind, 'NeverConfirm');
+    assert.deepEqual(
+      body.create_conversation.agent.tools.map((tool) => tool.name),
+      ['terminal', 'file_editor', 'task_tracker'],
+    );
+    assert.equal(body.create_conversation.conversation_id, 'wa-main-conv');
+    assert.equal(body.create_conversation.max_iterations, 5000);
+    assert.equal(
+      body.user_message.content[0]?.text,
+      '<messages><message>hi</message></messages>',
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test('runLocalAgentServerAgent returns outbound messages without forcing a final reply', async () => {
+test('runLocalAgentServerAgent preserves outbound messages alongside the final reply', async () => {
   initDatabase();
   process.env.SMOLPAWS_RUNNER_URL = 'http://127.0.0.1:8788';
 
@@ -148,24 +196,58 @@ test('runLocalAgentServerAgent returns outbound messages without forcing a final
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
-    '/api/conversations?ids=': () =>
-      new Response(JSON.stringify([null]), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    '/api/conversations': () =>
-      new Response(JSON.stringify({ id: 'wa-outbound-conv' }), {
-        status: 201,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    '/task_commands/claim': () =>
+    '/api/conversations/main-': () =>
+      new Response(
+        JSON.stringify({
+          conversation_id: 'wa-outbound-conv',
+          turn_id: 'turn-2',
+          message_event_id: 'msg-2',
+          started_new_turn: true,
+          status: 'running',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    '/turns/turn-2?delivery_owner_id=': () =>
+      new Response(
+        JSON.stringify({
+          conversation_id: 'wa-outbound-conv',
+          turn_id: 'turn-2',
+          status: 'completed',
+          started_at: '2026-03-27T00:00:00.000Z',
+          updated_at: '2026-03-27T00:00:01.000Z',
+          completed_at: '2026-03-27T00:00:01.000Z',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    '/turns/turn-2/task_commands/claim': () =>
       new Response(JSON.stringify([]), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
-    '/outbound_messages/claim': () =>
+    '/turns/turn-2/outbound_messages/claim': () =>
       new Response(
         JSON.stringify([{ kind: 'current_thread_message', text: 'hello from send_message' }]),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    '/turns/turn-2/result': () =>
+      new Response(
+        JSON.stringify({
+          conversation_id: 'wa-outbound-conv',
+          turn_id: 'turn-2',
+          status: 'completed',
+          reply: 'final reply',
+        }),
         {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -183,7 +265,7 @@ test('runLocalAgentServerAgent returns outbound messages without forcing a final
 
     assert.deepEqual(result, {
       status: 'success',
-      result: null,
+      result: 'final reply',
       conversationId: 'wa-outbound-conv',
       outboundMessages: [{ kind: 'current_thread_message', text: 'hello from send_message' }],
     });
@@ -206,17 +288,43 @@ test('runLocalAgentServerAgent retries a transient fetch failure when claiming o
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
-    '/api/conversations': () =>
-      new Response(JSON.stringify({ id: 'wa-retry-conv' }), {
-        status: 201,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    '/task_commands/claim': () =>
+    '/api/conversations/main-': () =>
+      new Response(
+        JSON.stringify({
+          conversation_id: 'wa-retry-conv',
+          turn_id: 'turn-3',
+          message_event_id: 'msg-3',
+          started_new_turn: true,
+          status: 'running',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    '/turns/turn-3?delivery_owner_id=': () =>
+      new Response(
+        JSON.stringify({
+          conversation_id: 'wa-retry-conv',
+          turn_id: 'turn-3',
+          status: 'completed',
+          started_at: '2026-03-27T00:00:00.000Z',
+          updated_at: '2026-03-27T00:00:01.000Z',
+          completed_at: '2026-03-27T00:00:01.000Z',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    '/turns/turn-3/task_commands/claim': () =>
       new Response(JSON.stringify([]), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
-    '/outbound_messages/claim': () => {
+    '/turns/turn-3/outbound_messages/claim': () => {
       outboundClaimAttempts += 1;
       if (outboundClaimAttempts === 1) {
         throw new Error('fetch failed');
@@ -229,6 +337,18 @@ test('runLocalAgentServerAgent retries a transient fetch failure when claiming o
         },
       );
     },
+    '/turns/turn-3/result': () =>
+      new Response(
+        JSON.stringify({
+          conversation_id: 'wa-retry-conv',
+          turn_id: 'turn-3',
+          status: 'completed',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
   });
 
   try {
@@ -269,167 +389,136 @@ test('runLocalAgentServerAgent fails fast on a legacy /run runner url', async ()
   delete process.env.SMOLPAWS_RUNNER_URL;
 });
 
-test('runLocalAgentServerAgent passes the provided conversation id through to the shared agent-server', async () => {
-  initDatabase();
-  process.env.SMOLPAWS_RUNNER_URL = 'http://127.0.0.1:8788';
-
-  const conversationBodies: Array<{ conversation_id?: string; max_iterations: number }> = [];
-
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (input, init) => {
-    const url = typeof input === 'string' ? input : input.toString();
-    if (url.endsWith('/ready')) {
-      return new Response(JSON.stringify({ status: 'ready' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.endsWith('/api/conversations')) {
-      const body = JSON.parse(String(init?.body)) as { conversation_id?: string; max_iterations: number };
-      conversationBodies.push(body);
-      return new Response(JSON.stringify({ id: 'reused-conv' }), {
-        status: 201,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.endsWith('/task_commands/claim')) {
-      return new Response(JSON.stringify([]), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.endsWith('/outbound_messages/claim')) {
-      return new Response(JSON.stringify([]), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.includes('/events/search?')) {
-      return new Response(
-        JSON.stringify({
-          items: [
-            {
-              kind: 'MessageEvent',
-              llm_message: {
-                role: 'assistant',
-                content: [{ type: 'text', text: 'continued after lookup failure' }],
-              },
-            },
-          ],
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      );
-    }
-    throw new Error(`unexpected fetch ${url}`);
-  };
-
-  try {
-    const result = await runLocalAgentServerAgent(TEST_SCOPE, {
-      prompt: 'continue please',
-      conversationId: 'reused-conv',
-      scopeId: TEST_SCOPE.scopeId,
-      chatJid: TEST_SCOPE.chatJid,
-      isControlScope: TEST_SCOPE.isControlScope,
-    });
-
-    assert.deepEqual(result, {
-      status: 'success',
-      result: 'continued after lookup failure',
-      conversationId: 'reused-conv',
-    });
-    assert.equal(conversationBodies.length, 1);
-    assert.equal(conversationBodies[0]?.conversation_id, 'reused-conv');
-    assert.equal(conversationBodies[0]?.max_iterations, 5000);
-  } finally {
-    globalThis.fetch = originalFetch;
-    delete process.env.SMOLPAWS_RUNNER_URL;
-  }
-});
-
 test('runLocalAgentServerAgent starts fresh after max_iterations_exceeded on a reused conversation', async () => {
   initDatabase();
   process.env.SMOLPAWS_RUNNER_URL = 'http://127.0.0.1:8788';
 
-  const conversationBodies: Array<{ conversation_id?: string; max_iterations: number }> = [];
-  let createCount = 0;
+  const submitBodies: Array<{ create_conversation: { conversation_id?: string } }> = [];
+  let submitCount = 0;
 
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (input, init) => {
-    const url = typeof input === 'string' ? input : input.toString();
-    if (url.endsWith('/ready')) {
-      return new Response(JSON.stringify({ status: 'ready' }), {
+  globalThis.fetch = buildFetchStub({
+    '/ready': () =>
+      new Response(JSON.stringify({ status: 'ready' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.endsWith('/api/conversations')) {
-      const body = JSON.parse(String(init?.body)) as { conversation_id?: string; max_iterations: number };
-      conversationBodies.push(body);
-      createCount += 1;
-      return new Response(JSON.stringify({ id: createCount === 1 ? 'reused-conv' : 'fresh-conv' }), {
-        status: 201,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.endsWith('/task_commands/claim')) {
-      return new Response(JSON.stringify([]), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.includes('/reused-conv/outbound_messages/claim')) {
-      return new Response(JSON.stringify([]), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.includes('/fresh-conv/outbound_messages/claim')) {
-      return new Response(JSON.stringify([]), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.includes('/reused-conv/events/search?')) {
+      }),
+    '/api/conversations/reused-conv/turns': (_url, init) => {
+      submitBodies.push(JSON.parse(String(init?.body)));
+      submitCount += 1;
       return new Response(
         JSON.stringify({
-          items: [
-            {
-              kind: 'ConversationErrorEvent',
-              code: 'max_iterations_exceeded',
-              detail: 'Agent hit the iteration cap',
-            },
-          ],
+          conversation_id: 'reused-conv',
+          turn_id: 'turn-4',
+          message_event_id: 'msg-4',
+          started_new_turn: true,
+          status: 'running',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+    '/api/conversations/main-': (_url, init) => {
+      submitBodies.push(JSON.parse(String(init?.body)));
+      submitCount += 1;
+      return new Response(
+        JSON.stringify({
+          conversation_id: 'fresh-conv',
+          turn_id: 'turn-5',
+          message_event_id: 'msg-5',
+          started_new_turn: true,
+          status: 'running',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+    '/turns/turn-4?delivery_owner_id=': () =>
+      new Response(
+        JSON.stringify({
+          conversation_id: 'reused-conv',
+          turn_id: 'turn-4',
+          status: 'error',
+          started_at: '2026-03-27T00:00:00.000Z',
+          updated_at: '2026-03-27T00:00:01.000Z',
+          completed_at: '2026-03-27T00:00:01.000Z',
+          is_delivery_owner: true,
         }),
         {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         },
-      );
-    }
-    if (url.includes('/fresh-conv/events/search?')) {
-      return new Response(
+      ),
+    '/turns/turn-4/task_commands/claim': () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    '/turns/turn-4/outbound_messages/claim': () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    '/turns/turn-4/result': () =>
+      new Response(
         JSON.stringify({
-          items: [
-            {
-              kind: 'MessageEvent',
-              llm_message: {
-                role: 'assistant',
-                content: [{ type: 'text', text: 'fresh reply' }],
-              },
-            },
-          ],
+          conversation_id: 'reused-conv',
+          turn_id: 'turn-4',
+          status: 'error',
+          error_code: 'max_iterations_exceeded',
+          error_detail: 'Agent hit the iteration cap',
         }),
         {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         },
-      );
-    }
-    throw new Error(`unexpected fetch ${url}`);
-  };
+      ),
+    '/turns/turn-5?delivery_owner_id=': () =>
+      new Response(
+        JSON.stringify({
+          conversation_id: 'fresh-conv',
+          turn_id: 'turn-5',
+          status: 'completed',
+          started_at: '2026-03-27T00:00:02.000Z',
+          updated_at: '2026-03-27T00:00:03.000Z',
+          completed_at: '2026-03-27T00:00:03.000Z',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    '/turns/turn-5/task_commands/claim': () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    '/turns/turn-5/outbound_messages/claim': () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    '/turns/turn-5/result': () =>
+      new Response(
+        JSON.stringify({
+          conversation_id: 'fresh-conv',
+          turn_id: 'turn-5',
+          status: 'completed',
+          reply: 'fresh reply',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+  });
 
   try {
     const result = await runLocalAgentServerAgent(TEST_SCOPE, {
@@ -445,100 +534,9 @@ test('runLocalAgentServerAgent starts fresh after max_iterations_exceeded on a r
       result: 'fresh reply',
       conversationId: 'fresh-conv',
     });
-    assert.equal(conversationBodies.length, 2);
-    assert.equal(conversationBodies[0]?.conversation_id, 'reused-conv');
-    assert.equal(conversationBodies[0]?.max_iterations, 5000);
-    assert.equal(conversationBodies[1]?.conversation_id, undefined);
-    assert.equal(conversationBodies[1]?.max_iterations, 5000);
-  } finally {
-    globalThis.fetch = originalFetch;
-    delete process.env.SMOLPAWS_RUNNER_URL;
-  }
-});
-
-test('runLocalAgentServerAgent recovers a known conversation after a dropped create request', async () => {
-  initDatabase();
-  process.env.SMOLPAWS_RUNNER_URL = 'http://127.0.0.1:8788';
-
-  let infoAttempts = 0;
-  let createAttempts = 0;
-
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (input, init) => {
-    const url = typeof input === 'string' ? input : input.toString();
-    if (url.endsWith('/ready')) {
-      return new Response(JSON.stringify({ status: 'ready' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.endsWith('/api/conversations')) {
-      createAttempts += 1;
-      throw new Error('fetch failed');
-    }
-    if (url.endsWith('/api/conversations/reused-conv')) {
-      infoAttempts += 1;
-      return new Response(
-        JSON.stringify({
-          id: 'reused-conv',
-          execution_status: infoAttempts === 1 ? 'running' : 'idle',
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      );
-    }
-    if (url.endsWith('/task_commands/claim')) {
-      return new Response(JSON.stringify([]), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.endsWith('/outbound_messages/claim')) {
-      return new Response(JSON.stringify([]), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.includes('/events/search?')) {
-      return new Response(
-        JSON.stringify({
-          items: [
-            {
-              kind: 'MessageEvent',
-              llm_message: {
-                role: 'assistant',
-                content: [{ type: 'text', text: 'recovered final reply' }],
-              },
-            },
-          ],
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      );
-    }
-    throw new Error(`unexpected fetch ${url}`);
-  };
-
-  try {
-    const result = await runLocalAgentServerAgent(TEST_SCOPE, {
-      prompt: 'continue please',
-      conversationId: 'reused-conv',
-      scopeId: TEST_SCOPE.scopeId,
-      chatJid: TEST_SCOPE.chatJid,
-      isControlScope: TEST_SCOPE.isControlScope,
-    });
-
-    assert.deepEqual(result, {
-      status: 'success',
-      result: 'recovered final reply',
-      conversationId: 'reused-conv',
-    });
-    assert.equal(createAttempts, 1);
-    assert.equal(infoAttempts, 2);
+    assert.equal(submitCount, 2);
+    assert.equal(submitBodies[0]?.create_conversation.conversation_id, 'reused-conv');
+    assert.equal(submitBodies[1]?.create_conversation.conversation_id, undefined);
   } finally {
     globalThis.fetch = originalFetch;
     delete process.env.SMOLPAWS_RUNNER_URL;

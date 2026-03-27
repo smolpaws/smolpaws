@@ -5,7 +5,7 @@ import worker from '../index.js';
 import type {
   GithubEventPayload,
   SmolpawsQueueMessage,
-} from '../../../agent-server/src/shared/github.js';
+} from '../../../../src/shared/github.js';
 
 type TestEnv = {
   GITHUB_WEBHOOK_SECRET: string;

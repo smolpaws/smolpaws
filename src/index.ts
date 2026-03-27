@@ -265,7 +265,6 @@ async function runAgent(group: RegisteredGroup, prompt: string, chatJid: string,
         }
         await sendMessage(chatJid, `${ASSISTANT_NAME}: ${outbound.text}`);
       }
-      return output;
     }
 
     return output;

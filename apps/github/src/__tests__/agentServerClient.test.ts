@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { SmolpawsQueueMessage } from '../../../agent-server/src/shared/github.js';
+import type { SmolpawsQueueMessage } from '../../../../src/shared/github.js';
 import { dispatchToAgentServer } from '../agentServerClient.js';
 
 function buildMessage(body: string): SmolpawsQueueMessage {
@@ -21,35 +21,58 @@ function buildMessage(body: string): SmolpawsQueueMessage {
   };
 }
 
-test('dispatchToAgentServer creates a conversation, claims outbound messages, then falls back to events search', async () => {
+test('dispatchToAgentServer submits a turn and reads the final result from the turn API', async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const fetchStub: typeof fetch = async (input, init) => {
     const url = typeof input === 'string' ? input : input.toString();
     calls.push({ url, init });
-    if (url.endsWith('/api/conversations')) {
-      return new Response(JSON.stringify({ id: 'github-smolpaws-smolpaws-20' }), {
-        status: 201,
-        headers: { 'Content-Type': 'application/json' },
-      });
+    if (url.endsWith('/api/conversations/github-smolpaws-smolpaws-20/turns')) {
+      return new Response(
+        JSON.stringify({
+          conversation_id: 'github-smolpaws-smolpaws-20',
+          turn_id: 'turn-1',
+          message_event_id: 'msg-1',
+          started_new_turn: true,
+          status: 'running',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
     }
-    if (url.endsWith('/outbound_messages/claim')) {
+    if (url.includes('/turns/turn-1?delivery_owner_id=')) {
+      return new Response(
+        JSON.stringify({
+          conversation_id: 'github-smolpaws-smolpaws-20',
+          turn_id: 'turn-1',
+          status: 'completed',
+          started_at: '2026-03-27T00:00:00.000Z',
+          updated_at: '2026-03-27T00:00:01.000Z',
+          completed_at: '2026-03-27T00:00:01.000Z',
+          delivery_owner_id: 'owner-1',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }
+    if (url.endsWith('/turns/turn-1/outbound_messages/claim')) {
       return new Response(JSON.stringify([]), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
     }
-    if (url.includes('/events/search?')) {
+    if (url.endsWith('/turns/turn-1/result')) {
       return new Response(
         JSON.stringify({
-          items: [
-            {
-              kind: 'MessageEvent',
-              llm_message: {
-                role: 'assistant',
-                content: [{ type: 'text', text: 'meow from events' }],
-              },
-            },
-          ],
+          conversation_id: 'github-smolpaws-smolpaws-20',
+          turn_id: 'turn-1',
+          status: 'completed',
+          reply: 'meow from turn result',
         }),
         {
           status: 200,
@@ -69,73 +92,89 @@ test('dispatchToAgentServer creates a conversation, claims outbound messages, th
     fetchStub,
   );
 
-  assert.deepEqual(result, { reply: 'meow from events', outbound_messages: undefined });
-  assert.equal(calls.length, 3);
-  assert.equal(calls[0]?.url, 'https://runner.example.com/api/conversations');
-  assert.equal(calls[0]?.init?.method, 'POST');
+  assert.deepEqual(result, { reply: 'meow from turn result', outbound_messages: undefined });
+  assert.equal(calls.length, 4);
   assert.equal(
     new Headers(calls[0]?.init?.headers).get('authorization'),
     'Bearer secret-token',
   );
 
-  const createBody = JSON.parse(String(calls[0]?.init?.body)) as {
-    conversation_id: string;
-    max_iterations: number;
-    initial_message: { content: Array<{ text: string }> };
-    agent: { tools: Array<{ name: string }> };
-    smolpaws: {
-      ingress: string;
-      enable_send_message: boolean;
-      github: {
-        event: string;
-        repository_full_name: string;
-        owner_login: string;
-        actor_login: string;
-        issue_number: number;
-        pull_request_number?: number;
+  const submitBody = JSON.parse(String(calls[0]?.init?.body)) as {
+    idempotency_key: string;
+    delivery_owner_id: string;
+    user_message: { content: Array<{ text: string }> };
+    create_conversation: {
+      max_iterations: number;
+      agent: { tools: Array<{ name: string }> };
+      smolpaws: {
+        ingress: string;
+        enable_send_message: boolean;
+        github: {
+          event: string;
+          repository_full_name: string;
+          owner_login: string;
+          actor_login: string;
+          issue_number: number;
+        };
       };
     };
   };
-  assert.equal(createBody.conversation_id, 'github-smolpaws-smolpaws-20');
-  assert.equal(createBody.max_iterations, 1000);
+  assert.equal(typeof submitBody.idempotency_key, 'string');
+  assert.equal(typeof submitBody.delivery_owner_id, 'string');
+  assert.equal(submitBody.user_message.content[0]?.text, 'fix the bug');
+  assert.equal(submitBody.create_conversation.max_iterations, 1000);
   assert.deepEqual(
-    createBody.agent.tools.map((tool) => tool.name),
+    submitBody.create_conversation.agent.tools.map((tool) => tool.name),
     ['terminal', 'file_editor', 'task_tracker'],
   );
-  assert.equal(createBody.initial_message.content[0]?.text, 'fix the bug');
-  assert.equal(createBody.smolpaws.ingress, 'github_webhook');
-  assert.equal(createBody.smolpaws.enable_send_message, true);
-  assert.deepEqual(createBody.smolpaws.github, {
+  assert.equal(submitBody.create_conversation.smolpaws.ingress, 'github_webhook');
+  assert.equal(submitBody.create_conversation.smolpaws.enable_send_message, true);
+  assert.deepEqual(submitBody.create_conversation.smolpaws.github, {
     event: 'issue_comment',
     repository_full_name: 'smolpaws/smolpaws',
     owner_login: 'smolpaws',
     actor_login: 'enyst',
     issue_number: 20,
   });
-
-  assert.equal(
-    calls[1]?.url,
-    'https://runner.example.com/api/conversations/github-smolpaws-smolpaws-20/outbound_messages/claim',
-  );
-  assert.equal(calls[1]?.init?.method, 'POST');
-  assert.equal(
-    calls[2]?.url,
-    'https://runner.example.com/api/conversations/github-smolpaws-smolpaws-20/events/search?kind=MessageEvent&source=agent&sort_order=TIMESTAMP_DESC&limit=20',
-  );
 });
 
 test('dispatchToAgentServer returns collapsed outbound messages and the final assistant reply', async () => {
-  const calls: string[] = [];
   const fetchStub: typeof fetch = async (input) => {
     const url = typeof input === 'string' ? input : input.toString();
-    calls.push(url);
-    if (url.endsWith('/api/conversations')) {
-      return new Response(JSON.stringify({ id: 'conv-1' }), {
-        status: 201,
-        headers: { 'Content-Type': 'application/json' },
-      });
+    if (url.endsWith('/api/conversations/github-smolpaws-smolpaws-20/turns')) {
+      return new Response(
+        JSON.stringify({
+          conversation_id: 'github-smolpaws-smolpaws-20',
+          turn_id: 'turn-2',
+          message_event_id: 'msg-2',
+          started_new_turn: true,
+          status: 'running',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
     }
-    if (url.endsWith('/outbound_messages/claim')) {
+    if (url.includes('/turns/turn-2?delivery_owner_id=')) {
+      return new Response(
+        JSON.stringify({
+          conversation_id: 'github-smolpaws-smolpaws-20',
+          turn_id: 'turn-2',
+          status: 'completed',
+          started_at: '2026-03-27T00:00:00.000Z',
+          updated_at: '2026-03-27T00:00:01.000Z',
+          completed_at: '2026-03-27T00:00:01.000Z',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }
+    if (url.endsWith('/turns/turn-2/outbound_messages/claim')) {
       return new Response(
         JSON.stringify([
           { kind: 'current_thread_message', text: 'first' },
@@ -147,18 +186,13 @@ test('dispatchToAgentServer returns collapsed outbound messages and the final as
         },
       );
     }
-    if (url.includes('/events/search?')) {
+    if (url.endsWith('/turns/turn-2/result')) {
       return new Response(
         JSON.stringify({
-          items: [
-            {
-              kind: 'MessageEvent',
-              llm_message: {
-                role: 'assistant',
-                content: [{ type: 'text', text: 'final answer' }],
-              },
-            },
-          ],
+          conversation_id: 'github-smolpaws-smolpaws-20',
+          turn_id: 'turn-2',
+          status: 'completed',
+          reply: 'final answer',
         }),
         {
           status: 200,
@@ -181,7 +215,6 @@ test('dispatchToAgentServer returns collapsed outbound messages and the final as
       { kind: 'current_thread_message', text: 'first\n\nsecond' },
     ],
   });
-  assert.equal(calls.length, 3);
 });
 
 test('dispatchToAgentServer returns a fallback reply without calling the runner when the mention has no prompt', async () => {

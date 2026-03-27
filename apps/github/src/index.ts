@@ -2,10 +2,10 @@ import type {
   GithubEventPayload,
   SmolpawsEvent,
   SmolpawsQueueMessage,
-} from "../../agent-server/src/shared/github.js";
+} from "../../../src/shared/github.js";
 import type {
   SmolpawsOutboundMessage,
-} from "../../agent-server/src/shared/runner.js";
+} from "../../../src/shared/runner.js";
 import { dispatchToAgentServer } from "./agentServerClient.js";
 
 interface Env {

@@ -133,6 +133,58 @@ export const ConversationInfoSchema = Type.Object({
   title: Type.Optional(Type.String()),
 });
 
+export const DeliveryOwnerSchema = Type.Object({
+  delivery_owner_id: Type.String({ minLength: 1 }),
+});
+
+export const SubmitTurnMessageRequestSchema = Type.Object(
+  {
+    user_message: MessageSchema,
+    idempotency_key: Type.String({ minLength: 1 }),
+    delivery_owner_id: Type.Optional(Type.String({ minLength: 1 })),
+    create_conversation: Type.Optional(StartConversationRequestSchema),
+  },
+  { additionalProperties: true },
+);
+
+export const TurnStatusEnumSchema = Type.Union([
+  Type.Literal('running'),
+  Type.Literal('completed'),
+  Type.Literal('waiting_for_confirmation'),
+  Type.Literal('paused'),
+  Type.Literal('error'),
+  Type.Literal('stuck'),
+]);
+
+export const TurnInfoSchema = Type.Object({
+  conversation_id: Type.String(),
+  turn_id: Type.String(),
+  status: TurnStatusEnumSchema,
+  started_at: Type.String(),
+  updated_at: Type.String(),
+  completed_at: Type.Optional(Type.String()),
+  delivery_owner_id: Type.Optional(Type.String()),
+  is_delivery_owner: Type.Boolean(),
+});
+
+export const SubmitTurnMessageResponseSchema = Type.Object({
+  conversation_id: Type.String(),
+  turn_id: Type.String(),
+  message_event_id: Type.String(),
+  started_new_turn: Type.Boolean(),
+  status: TurnStatusEnumSchema,
+  is_delivery_owner: Type.Boolean(),
+});
+
+export const TurnResultSchema = Type.Object({
+  conversation_id: Type.String(),
+  turn_id: Type.String(),
+  status: TurnStatusEnumSchema,
+  reply: Type.Optional(Type.String()),
+  error_code: Type.Optional(Type.String()),
+  error_detail: Type.Optional(Type.String()),
+});
+
 export const ConversationPageSchema = Type.Object({
   items: Type.Array(ConversationInfoSchema),
   next_page_id: Type.Optional(Type.String()),
@@ -250,6 +302,10 @@ export const ServerInfoSchema = Type.Object({
 
 export type StartConversationRequest = Static<typeof StartConversationRequestSchema>;
 export type ConversationInfo = Static<typeof ConversationInfoSchema>;
+export type SubmitTurnMessageRequest = Static<typeof SubmitTurnMessageRequestSchema>;
+export type SubmitTurnMessageResponse = Static<typeof SubmitTurnMessageResponseSchema>;
+export type TurnInfo = Static<typeof TurnInfoSchema>;
+export type TurnResult = Static<typeof TurnResultSchema>;
 export type ConversationPage = Static<typeof ConversationPageSchema>;
 export type ConversationBatch = Static<typeof ConversationBatchSchema>;
 export type EventPage = Static<typeof EventPageSchema>;

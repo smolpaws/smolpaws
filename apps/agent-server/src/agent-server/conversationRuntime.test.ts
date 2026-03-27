@@ -709,6 +709,164 @@ test('POST /api/conversations resets a reused smolpaws conversation exhausted by
   }
 });
 
+test('turn submission reuses the active turn while it is still queued/running', async () => {
+  const fakeLlm = await startFakeLlmServer('queued turn result');
+  const { app, fixture, deps } = await createTestApp(fakeLlm.baseUrl);
+  writeVscodeProfileSelection(fixture, 'gpt-5');
+  await saveDefaultProfile('gpt-5', fakeLlm.baseUrl);
+
+  try {
+    const firstSubmit = await app.inject({
+      method: 'POST',
+      url: '/api/conversations/turn-queue-test/turns',
+      payload: {
+        idempotency_key: 'msg-1',
+        user_message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'first queued message' }],
+          run: false,
+        },
+        create_conversation: {
+          agent: { llm: {} },
+          secrets: { OPENAI_API_KEY: 'test-api-key' },
+          max_iterations: 1,
+        },
+      },
+    });
+    assert.equal(firstSubmit.statusCode, 201);
+    const first = parseJson<{
+      conversation_id: string;
+      turn_id: string;
+      started_new_turn: boolean;
+      status: string;
+    }>(firstSubmit.body);
+    assert.equal(first.started_new_turn, true);
+    assert.equal(first.status, 'running');
+
+    const secondSubmit = await app.inject({
+      method: 'POST',
+      url: '/api/conversations/turn-queue-test/turns',
+      payload: {
+        idempotency_key: 'msg-2',
+        user_message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'second queued message' }],
+          run: false,
+        },
+      },
+    });
+    assert.equal(secondSubmit.statusCode, 200);
+    const second = parseJson<{
+      conversation_id: string;
+      turn_id: string;
+      started_new_turn: boolean;
+      status: string;
+    }>(secondSubmit.body);
+    assert.equal(second.conversation_id, 'turn-queue-test');
+    assert.equal(second.turn_id, first.turn_id);
+    assert.equal(second.started_new_turn, false);
+    assert.equal(second.status, 'running');
+
+    const runResponse = await app.inject({
+      method: 'POST',
+      url: '/api/conversations/turn-queue-test/run',
+    });
+    assert.equal(runResponse.statusCode, 200);
+    await deps.conversationRuntime.waitForTurnProcessor('turn-queue-test');
+
+    const turnStatus = await app.inject({
+      method: 'GET',
+      url: `/api/conversations/turn-queue-test/turns/${first.turn_id}`,
+    });
+    assert.equal(turnStatus.statusCode, 200);
+    assert.equal(parseJson<{ status: string }>(turnStatus.body).status, 'completed');
+
+    const turnResult = await app.inject({
+      method: 'GET',
+      url: `/api/conversations/turn-queue-test/turns/${first.turn_id}/result`,
+    });
+    assert.equal(turnResult.statusCode, 200);
+    assert.equal(parseJson<{ reply?: string }>(turnResult.body).reply, 'queued turn result');
+
+    const eventsResponse = await app.inject({
+      method: 'GET',
+      url: '/api/conversations/turn-queue-test/events/search?kind=MessageEvent&source=user',
+    });
+    assert.equal(eventsResponse.statusCode, 200);
+    const events = parseJson<{
+      items: Array<{
+        llm_message?: { content?: Array<{ type?: string; text?: string }> };
+      }>;
+    }>(eventsResponse.body);
+    const texts = events.items.map((event) =>
+      (event.llm_message?.content ?? [])
+        .filter((part) => part.type === 'text' && typeof part.text === 'string')
+        .map((part) => part.text)
+        .join('\n'),
+    );
+    assert.deepEqual(texts, ['first queued message', 'second queued message']);
+  } finally {
+    await app.close();
+    await fakeLlm.close();
+  }
+});
+
+test('turn submission is idempotent for the same conversation and idempotency key', async () => {
+  const fakeLlm = await startFakeLlmServer('idempotent turn result');
+  const { app, fixture } = await createTestApp(fakeLlm.baseUrl);
+  writeVscodeProfileSelection(fixture, 'gpt-5');
+  await saveDefaultProfile('gpt-5', fakeLlm.baseUrl);
+
+  try {
+    const payload = {
+      idempotency_key: 'same-key',
+      user_message: {
+        role: 'user',
+        content: [{ type: 'text', text: 'same request' }],
+        run: false,
+      },
+      create_conversation: {
+        agent: { llm: {} },
+        secrets: { OPENAI_API_KEY: 'test-api-key' },
+        max_iterations: 1,
+      },
+    };
+
+    const firstSubmit = await app.inject({
+      method: 'POST',
+      url: '/api/conversations/turn-idempotency-test/turns',
+      payload,
+    });
+    const secondSubmit = await app.inject({
+      method: 'POST',
+      url: '/api/conversations/turn-idempotency-test/turns',
+      payload,
+    });
+
+    assert.equal(firstSubmit.statusCode, 201);
+    assert.equal(secondSubmit.statusCode, 200);
+
+    const first = parseJson<{
+      turn_id: string;
+      message_event_id: string;
+      started_new_turn: boolean;
+    }>(firstSubmit.body);
+    const second = parseJson<{
+      turn_id: string;
+      message_event_id: string;
+      started_new_turn: boolean;
+    }>(secondSubmit.body);
+
+    assert.equal(first.turn_id, second.turn_id);
+    assert.equal(first.message_event_id, second.message_event_id);
+    assert.equal(first.started_new_turn, true);
+    assert.equal(second.started_new_turn, false);
+  } finally {
+    await app.close();
+    await fakeLlm.close();
+  }
+});
+
 test.after(() => {
   process.env.HOME = originalHome;
   process.env.USERPROFILE = originalUserProfile;

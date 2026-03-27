@@ -45,7 +45,30 @@ import {
   createCurrentThreadMessageTool,
   type RunnerOutboundMessage,
 } from "../runner/outboundMessaging.js";
-import { appendOutboundMessage, appendTaskCommand } from "../runner/outbox.js";
+import {
+  appendOutboundMessage,
+  appendTaskCommand,
+  claimOutboundMessages,
+  claimTaskCommands,
+} from "../runner/outbox.js";
+import {
+  appendAcceptedTurnMessage,
+  assignDeliveryOwner,
+  createRunningTurn,
+  findMessageByIdempotencyKey,
+  getActiveTurn,
+  getLatestTurn,
+  getTurnById,
+  isTurnTerminalStatus,
+  readPersistedTurnState,
+  updateTurnStatus,
+  writePersistedTurnState,
+  type ConversationTurn,
+  type ConversationTurnTerminalStatus,
+  type ConversationTurnMessage,
+  type ConversationTurnState,
+  type ConversationTurnStatus,
+} from "../runner/turnState.js";
 import { createTaskTools } from "../runner/taskCommands.js";
 import {
   loadSmolpawsContextDocs,
@@ -67,7 +90,58 @@ import type {
 
 const DEFAULT_REMOTE_TOOL_NAMES = ["terminal", "file_editor", "task_tracker"] as const;
 
+function createDeferred<T>(): Deferred<T> {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function createMessageEventId(): string {
+  return `msg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getConversationEventLog(record: ConversationRecord): {
+  push: (event: Event) => Event;
+} {
+  // The shared SDK does not currently expose a public "append user event with a
+  // server-owned id" API. We reach through the LocalConversation instance so the
+  // server can preserve turn-owned message ids while still persisting via EventLog.
+  return (record.conversation as unknown as { events: { push: (event: Event) => Event } })
+    .events;
+}
+
 export type EventSubscriber = (event: Event) => void;
+
+type Deferred<T> = {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+  reject: (reason?: unknown) => void;
+};
+
+type SubmitTurnMessageArgs = {
+  conversationId: string;
+  userMessage: {
+    content: TextContent[];
+    extended_content?: TextContent[];
+    run?: boolean;
+  };
+  idempotencyKey: string;
+  createConversation?: StartConversationRequest;
+  deliveryOwnerId?: string;
+};
+
+type SubmitTurnMessageResult = {
+  conversationId: string;
+  turnId: string;
+  messageEventId: string;
+  startedNewTurn: boolean;
+  status: ConversationTurnStatus;
+  isDeliveryOwner: boolean;
+};
 
 type ConversationRuntimeArgs = {
   env: RunnerEnv;
@@ -304,6 +378,125 @@ function getLatestConversationErrorCode(events: Event[]): string | undefined {
   return undefined;
 }
 
+function getTurnStartIndex(events: Event[], turn: ConversationTurn): number {
+  const startEventId =
+    turn.start_event_id ??
+    turn.messages.find((message) => message.event_id)?.event_id;
+  if (!startEventId) {
+    return 0;
+  }
+  const index = events.findIndex(
+    (event) => (event as { id?: unknown }).id === startEventId,
+  );
+  return index >= 0 ? index : 0;
+}
+
+function getTurnEventSlice(events: Event[], turn: ConversationTurn): Event[] {
+  const startIndex = getTurnStartIndex(events, turn);
+  if (!turn.end_event_id) {
+    return events.slice(startIndex);
+  }
+  const endIndex = events.findIndex(
+    (event) => (event as { id?: unknown }).id === turn.end_event_id,
+  );
+  if (endIndex < 0) {
+    return events.slice(startIndex);
+  }
+  return events.slice(startIndex, endIndex + 1);
+}
+
+function resolveTurnResult(events: Event[], turn: ConversationTurn): {
+  reply?: string;
+  replyEventId?: string;
+  errorCode?: string;
+  errorDetail?: string;
+} {
+  const slice = getTurnEventSlice(events, turn);
+  for (let index = slice.length - 1; index >= 0; index -= 1) {
+    const event = slice[index] as {
+      kind?: unknown;
+      code?: unknown;
+      detail?: unknown;
+      id?: unknown;
+      llm_message?: {
+        role?: unknown;
+        content?: Array<{ type?: unknown; text?: unknown }>;
+      };
+    };
+    if (
+      event.kind === 'ConversationErrorEvent' &&
+      typeof event.code === 'string'
+    ) {
+      return {
+        errorCode: event.code,
+        ...(typeof event.detail === 'string' ? { errorDetail: event.detail } : {}),
+      };
+    }
+    if (
+      event.kind === 'MessageEvent' &&
+      event.llm_message?.role === 'assistant'
+    ) {
+      const reply = (event.llm_message.content ?? [])
+        .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+        .map((part) => String(part.text).trim())
+        .filter(Boolean)
+        .join('\n')
+        .trim();
+      if (reply) {
+        return {
+          reply,
+          ...(typeof event.id === 'string' ? { replyEventId: event.id } : {}),
+        };
+      }
+    }
+  }
+  return {};
+}
+
+function resolveTurnTerminalStatus(events: Event[], turn: ConversationTurn): {
+  status: ConversationTurnTerminalStatus;
+  endEventId?: string;
+  finalReplyEventId?: string;
+  errorCode?: string;
+  errorDetail?: string;
+} | null {
+  const latestStatus = deriveExecutionStatusFromEvents(events);
+  const lastEvent = events[events.length - 1] as
+    | { id?: unknown; kind?: unknown; code?: unknown; detail?: unknown }
+    | undefined;
+  const endEventId =
+    typeof lastEvent?.id === 'string' ? lastEvent.id : undefined;
+
+  if (latestStatus === 'waiting_for_confirmation') {
+    return { status: 'waiting_for_confirmation', endEventId };
+  }
+  if (latestStatus === 'paused') {
+    return { status: 'paused', endEventId };
+  }
+  if (
+    lastEvent?.kind === 'ConversationErrorEvent' &&
+    typeof lastEvent.code === 'string'
+  ) {
+    return {
+      status: lastEvent.code === 'stuck_detected' ? 'stuck' : 'error',
+      endEventId,
+      errorCode: lastEvent.code,
+      ...(typeof lastEvent.detail === 'string'
+        ? { errorDetail: lastEvent.detail }
+        : {}),
+    };
+  }
+  if (latestStatus === 'idle' && !turn.messages.some((message) => !message.event_id)) {
+    const result = resolveTurnResult(events, turn);
+    return {
+      status: 'completed',
+      endEventId,
+      ...(result.replyEventId ? { finalReplyEventId: result.replyEventId } : {}),
+    };
+  }
+  return null;
+}
+
 function shouldRecoverStaleSmolpawsConversation(
   request: StartConversationRequest,
 ): boolean {
@@ -463,11 +656,199 @@ export function createConversationRuntime({
   persistenceDir,
 }: ConversationRuntimeArgs) {
   const conversations = new Map<string, ConversationRecord>();
+  const turnStates = new Map<string, ConversationTurnState>();
+  const turnProcessors = new Map<string, Promise<void>>();
+  const turnProcessorKickoffs = new Map<string, Deferred<void>>();
   const eventSubscribers = new Map<string, Set<EventSubscriber>>();
   let lastEventAt = Date.now();
 
   function touch(): void {
     lastEventAt = Date.now();
+  }
+
+  function getTurnState(conversationId: string): ConversationTurnState {
+    let turnState = turnStates.get(conversationId);
+    if (!turnState) {
+      turnState = { next_sequence: 1, turns: [] };
+      turnStates.set(conversationId, turnState);
+    }
+    return turnState;
+  }
+
+  async function loadTurnStateIfNeeded(
+    conversationId: string,
+  ): Promise<ConversationTurnState> {
+    const existing = turnStates.get(conversationId);
+    if (existing) {
+      return existing;
+    }
+    const loaded = await readPersistedTurnState(conversationId, persistenceRoot);
+    const activeTurn = getActiveTurn(loaded);
+    if (activeTurn) {
+      updateTurnStatus(activeTurn, 'stuck', new Date().toISOString(), {
+        errorCode: 'interrupted_turn',
+        errorDetail: 'Agent-server restarted before the active turn could finish.',
+      });
+      await writePersistedTurnState(conversationId, persistenceRoot, loaded);
+    }
+    turnStates.set(conversationId, loaded);
+    return loaded;
+  }
+
+  async function persistTurnState(conversationId: string): Promise<void> {
+    await writePersistedTurnState(
+      conversationId,
+      persistenceRoot,
+      getTurnState(conversationId),
+    );
+  }
+
+  function getActiveTurnId(conversationId: string | undefined): string | undefined {
+    if (!conversationId) {
+      return undefined;
+    }
+    return getActiveTurn(getTurnState(conversationId))?.id;
+  }
+
+  function shouldYieldForPendingTurnMessages(conversationId: string | undefined): boolean {
+    const activeTurnId = getActiveTurnId(conversationId);
+    if (!activeTurnId || !conversationId) {
+      return false;
+    }
+    const turn = getTurnById(getTurnState(conversationId), activeTurnId);
+    return Boolean(turn?.messages.some((message) => !message.event_id));
+  }
+
+  async function materializePendingTurnMessages(
+    record: ConversationRecord,
+    turn: ConversationTurn,
+  ): Promise<boolean> {
+    const pendingMessages = turn.messages.filter((message) => !message.event_id);
+    if (!pendingMessages.length) {
+      return false;
+    }
+    const eventLog = getConversationEventLog(record);
+    let wroteAny = false;
+    for (const message of pendingMessages) {
+      const event = eventLog.push({
+        id: message.id,
+        kind: 'MessageEvent',
+        source: 'user',
+        llm_message: {
+          role: 'user',
+          content: message.content,
+        },
+        ...(message.extended_content?.length
+          ? { extended_content: message.extended_content }
+          : {}),
+        accepted_at: message.accepted_at,
+      } as Event);
+      message.event_id = event.id;
+      turn.start_event_id ||= event.id;
+      turn.updated_at = new Date().toISOString();
+      wroteAny = true;
+    }
+    if (wroteAny) {
+      await persistTurnState(record.id);
+    }
+    return wroteAny;
+  }
+
+  async function finalizeTurnIfNeeded(
+    record: ConversationRecord,
+    turn: ConversationTurn,
+  ): Promise<boolean> {
+    if (turn.messages.some((message) => !message.event_id)) {
+      return false;
+    }
+    const terminal = resolveTurnTerminalStatus(record.events, turn);
+    if (!terminal) {
+      return false;
+    }
+    const now = new Date().toISOString();
+    updateTurnStatus(turn, terminal.status, now, {
+      endEventId: terminal.endEventId,
+      finalReplyEventId: terminal.finalReplyEventId,
+      errorCode: terminal.errorCode,
+      errorDetail: terminal.errorDetail,
+    });
+    await persistTurnState(record.id);
+    return true;
+  }
+
+  async function runTurnProcessor(conversationId: string): Promise<void> {
+    const record = conversations.get(conversationId);
+    if (!record) {
+      return;
+    }
+    const kickoff = turnProcessorKickoffs.get(conversationId);
+    kickoff?.resolve();
+
+    while (true) {
+      const turn = getActiveTurn(getTurnState(conversationId));
+      if (!turn) {
+        return;
+      }
+
+      await materializePendingTurnMessages(record, turn);
+
+      if (
+        deriveExecutionStatusFromEvents(record.events) === 'idle' &&
+        hasQueuedUserMessage(record.events)
+      ) {
+        await record.conversation.runPending();
+        continue;
+      }
+
+      if (await finalizeTurnIfNeeded(record, turn)) {
+        continue;
+      }
+
+      return;
+    }
+  }
+
+  async function ensureTurnProcessor(
+    conversationId: string,
+    options?: { waitForKickoff?: boolean },
+  ): Promise<void> {
+    const existing = turnProcessors.get(conversationId);
+    if (existing) {
+      if (options?.waitForKickoff) {
+        await turnProcessorKickoffs.get(conversationId)?.promise;
+      }
+      return;
+    }
+    const kickoff = createDeferred<void>();
+    turnProcessorKickoffs.set(conversationId, kickoff);
+    const processor = runTurnProcessor(conversationId)
+      .catch((error) => {
+        const turn = getActiveTurn(getTurnState(conversationId));
+        if (turn) {
+          updateTurnStatus(turn, 'error', new Date().toISOString(), {
+            errorCode: 'turn_processor_failed',
+            errorDetail: error instanceof Error ? error.message : String(error),
+          });
+          return persistTurnState(conversationId);
+        }
+        return Promise.resolve();
+      })
+      .finally(() => {
+        turnProcessors.delete(conversationId);
+        turnProcessorKickoffs.delete(conversationId);
+        const activeTurn = getActiveTurn(getTurnState(conversationId));
+        if (activeTurn?.messages.some((message) => !message.event_id)) {
+          void ensureTurnProcessor(conversationId);
+        }
+      });
+    turnProcessors.set(conversationId, processor);
+    if (options?.waitForKickoff) {
+      await kickoff.promise;
+    }
+  }
+
+  async function waitForTurnProcessor(conversationId: string): Promise<void> {
+    await turnProcessors.get(conversationId);
   }
 
   function resolveConversationToolProfile(
@@ -495,6 +876,7 @@ export function createConversationRuntime({
                 activeConversationId,
                 persistenceRoot,
                 message,
+                { turnId: getActiveTurnId(activeConversationId) },
               );
             })]
           : []),
@@ -516,6 +898,7 @@ export function createConversationRuntime({
                   activeConversationId,
                   persistenceRoot,
                   command,
+                  { turnId: getActiveTurnId(activeConversationId) },
                 );
               },
             })
@@ -666,6 +1049,9 @@ export function createConversationRuntime({
       includeDefaultTools: toolProfile.includeDefaultTools,
       persistenceDir,
       agentContext,
+      hooks: {
+        shouldStop: () => shouldYieldForPendingTurnMessages(activeConversationId),
+      },
     });
 
     const id = requestedId || (await conversation.startNewConversation());
@@ -710,6 +1096,11 @@ export function createConversationRuntime({
       toolProfile,
     };
 
+    const persistedTurnState = requestedId
+      ? await readPersistedTurnState(id, persistenceRoot)
+      : { next_sequence: 1, turns: [] };
+    turnStates.set(id, persistedTurnState);
+
     if (record.events.length) {
       const firstEvent = record.events[0];
       const lastEvent = record.events[record.events.length - 1];
@@ -721,9 +1112,26 @@ export function createConversationRuntime({
       }
     }
 
+    const activeTurn = getActiveTurn(persistedTurnState);
+    if (activeTurn) {
+      updateTurnStatus(activeTurn, 'stuck', new Date().toISOString(), {
+        endEventId:
+          typeof (record.events[record.events.length - 1] as { id?: unknown })?.id === 'string'
+            ? ((record.events[record.events.length - 1] as { id: string }).id)
+            : undefined,
+        errorCode: 'interrupted_turn',
+        errorDetail: 'Agent-server restarted before the active turn could finish.',
+      });
+      await persistTurnState(id);
+    }
+
     conversation.on("event", (event: Event) => {
       record.events.push(event);
       record.updatedAt = new Date().toISOString();
+      const runningTurn = getActiveTurn(getTurnState(id));
+      if (runningTurn) {
+        runningTurn.updated_at = record.updatedAt;
+      }
       touch();
       broadcastConversationEvent(id, event);
     });
@@ -791,6 +1199,9 @@ export function createConversationRuntime({
       await record.conversation.pause().catch(() => undefined);
       conversations.delete(conversationId);
     }
+    turnStates.delete(conversationId);
+    turnProcessors.delete(conversationId);
+    turnProcessorKickoffs.delete(conversationId);
     eventSubscribers.delete(conversationId);
     const conversationDir = buildConversationDirPath(
       conversationId,
@@ -853,11 +1264,113 @@ export function createConversationRuntime({
   }
 
   async function runQueuedConversation(record: ConversationRecord): Promise<void> {
-    await record.conversation.runPending();
+    await ensureTurnProcessor(record.id, { waitForKickoff: true });
+    await waitForTurnProcessor(record.id);
+  }
+
+  async function getOrCreateRecordForTurnSubmission(
+    args: SubmitTurnMessageArgs,
+  ): Promise<ConversationRecord> {
+    const existing = conversations.get(args.conversationId);
+    if (existing) {
+      return existing;
+    }
+    if (!args.createConversation) {
+      throw new Error('conversation_not_found');
+    }
+    const createRequest: StartConversationRequest = {
+      ...args.createConversation,
+      conversation_id: args.conversationId,
+      initial_message: undefined,
+    };
+    const { record } = await createConversationRecord(createRequest);
+    return record;
+  }
+
+  async function submitTurnMessage(
+    args: SubmitTurnMessageArgs,
+  ): Promise<SubmitTurnMessageResult> {
+    const record = await getOrCreateRecordForTurnSubmission(args);
+    const turnState = getTurnState(record.id);
+    const existingMessage = findMessageByIdempotencyKey(
+      turnState,
+      args.idempotencyKey,
+    );
+    if (existingMessage) {
+      const isDeliveryOwner = assignDeliveryOwner(
+        existingMessage.turn,
+        args.deliveryOwnerId,
+        new Date().toISOString(),
+      );
+      await persistTurnState(record.id);
+      return {
+        conversationId: record.id,
+        turnId: existingMessage.turn.id,
+        messageEventId: existingMessage.message.id,
+        startedNewTurn: false,
+        status: existingMessage.turn.status,
+        isDeliveryOwner,
+      };
+    }
+
+    const now = new Date().toISOString();
+    const latestTurn = getLatestTurn(turnState);
+    const startedNewTurn =
+      !latestTurn || isTurnTerminalStatus(latestTurn.status);
+    const turn =
+      startedNewTurn
+        ? createRunningTurn(turnState, now, args.deliveryOwnerId)
+        : latestTurn;
+    if (!turn) {
+      throw new Error('turn_unavailable');
+    }
+    const isDeliveryOwner = assignDeliveryOwner(turn, args.deliveryOwnerId, now);
+    const message: ConversationTurnMessage = {
+      id: createMessageEventId(),
+      idempotency_key: args.idempotencyKey,
+      accepted_at: now,
+      content: args.userMessage.content,
+      ...(args.userMessage.extended_content?.length
+        ? { extended_content: args.userMessage.extended_content }
+        : {}),
+    };
+    appendAcceptedTurnMessage(turn, message);
+    await persistTurnState(record.id);
+    touch();
+
+    if (args.userMessage.run !== false) {
+      await ensureTurnProcessor(record.id, { waitForKickoff: true });
+    } else {
+      await materializePendingTurnMessages(record, turn);
+    }
+
+    return {
+      conversationId: record.id,
+      turnId: turn.id,
+      messageEventId: message.id,
+      startedNewTurn,
+      status: turn.status,
+      isDeliveryOwner,
+    };
+  }
+
+  async function getTurnOrThrow(
+    conversationId: string,
+    turnId: string,
+  ): Promise<ConversationTurn> {
+    const turn = getTurnById(
+      await loadTurnStateIfNeeded(conversationId),
+      turnId,
+    );
+    if (!turn) {
+      throw new Error('turn_not_found');
+    }
+    return turn;
   }
 
   return {
     conversations,
+    turnStates,
     persistenceRoot,
     getLastEventAt: () => lastEventAt,
     touch,
@@ -871,6 +1384,32 @@ export function createConversationRuntime({
     deleteConversation,
     updateConversationTitle,
     runQueuedConversation,
+    waitForTurnProcessor,
+    submitTurnMessage,
+    getTurnOrThrow,
+    claimTurnOutboundMessages: async (
+      conversationId: string,
+      turnId: string,
+    ) =>
+      await claimOutboundMessages(conversationId, persistenceRoot, {
+        turnId,
+      }),
+    claimTurnTaskCommands: async (
+      conversationId: string,
+      turnId: string,
+    ) =>
+      await claimTaskCommands(conversationId, persistenceRoot, {
+        turnId,
+      }),
+    getTurnResult: async (
+      conversationId: string,
+      turnId: string,
+    ) => {
+      const turn = await getTurnOrThrow(conversationId, turnId);
+      const events = conversations.get(conversationId)?.events ??
+        await readPersistedEventsOrThrow(conversationId, persistenceRoot);
+      return resolveTurnResult(events, turn);
+    },
     hasQueuedUserMessage,
     resolvePersistenceRoot: () =>
       resolveAbsolutePersistenceRoot(resolvePersistenceDir(env), env),
