@@ -35,7 +35,6 @@ export type TurnInfo = {
   started_at: string;
   updated_at: string;
   completed_at?: string;
-  delivery_owner_id?: string;
   is_delivery_owner: boolean;
 };
 
@@ -51,7 +50,7 @@ export type TurnResult = {
 export type MonitorTurnResult = {
   conversationId: string;
   turnId: string;
-  status: TurnTerminalStatus;
+  status: TurnStatus;
   reply?: string;
   deliveredOutboundCount: number;
   isDeliveryOwner: boolean;
@@ -273,8 +272,7 @@ export async function monitorTurn(options: {
     return {
       conversationId: options.conversationId,
       turnId: options.turnId,
-      status:
-        status.status === 'running' ? 'stuck' : status.status,
+      status: status.status,
       deliveredOutboundCount: 0,
       isDeliveryOwner: false,
     };

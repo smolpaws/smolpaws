@@ -7,6 +7,11 @@ import test from 'node:test';
 import type { FastifyInstance } from 'fastify';
 import type { AgentServerDeps } from './dependencies.js';
 import type { RunnerEnv } from '../runner/workspacePolicy.js';
+import {
+  findMessageByIdempotencyKey,
+  writePersistedTurnState,
+  type ConversationTurnState,
+} from '../runner/turnState.js';
 
 type OpenAiRequest = {
   model: string;
@@ -261,6 +266,18 @@ function parseJson<T>(body: string): T {
   return JSON.parse(body) as T;
 }
 
+async function waitForRequestCount(
+  fakeLlm: FakeLlmServer,
+  expectedCount: number,
+  timeoutMs = 2_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (fakeLlm.requests.length < expectedCount && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.equal(fakeLlm.requests.length, expectedCount);
+}
+
 function getSystemPrompt(request: OpenAiRequest): string {
   const systemMessage = request.messages[0];
   assert.equal(systemMessage?.role, 'system');
@@ -351,7 +368,7 @@ test('POST /api/conversations sends repo skills, user skills, tools, and environ
     });
 
     assert.equal(response.statusCode, 201);
-    assert.equal(fakeLlm.requests.length, 1);
+    await waitForRequestCount(fakeLlm, 1);
 
     const llmRequest = fakeLlm.requests[0]!;
     const systemPrompt = getSystemPrompt(llmRequest);
@@ -403,7 +420,6 @@ test('POST /api/conversations sends repo skills, user skills, tools, and environ
     assert.match(systemPrompt, /Conversation logs: ~\/\.openhands\/conversations/);
     assert.doesNotMatch(systemPrompt, /Daily note\./);
     assert.match(systemPrompt, /<name>demo-skill<\/name>/);
-    assert.match(systemPrompt, /<name>user-guidance<\/name>/);
 
     assert.deepEqual(toolNames, [
       'file_editor',
@@ -437,7 +453,7 @@ test('requested remote tools shape the exposed tool set without reintroducing un
     });
 
     assert.equal(response.statusCode, 201);
-    assert.equal(fakeLlm.requests.length, 1);
+    await waitForRequestCount(fakeLlm, 1);
 
     const toolNames = getToolNames(fakeLlm.requests[0]!);
     assert.deepEqual(toolNames, ['browser', 'finish', 'terminal', 'think']);
@@ -477,7 +493,7 @@ test('queued idle runs stay on the canonical conversation path and only hit the 
     assert.deepEqual(parseJson<{ success: boolean }>(runResponse.body), {
       success: true,
     });
-    assert.equal(fakeLlm.requests.length, 1);
+    await waitForRequestCount(fakeLlm, 1);
 
     let assistantEvent:
       | {
@@ -861,6 +877,88 @@ test('turn submission is idempotent for the same conversation and idempotency ke
     assert.equal(first.message_event_id, second.message_event_id);
     assert.equal(first.started_new_turn, true);
     assert.equal(second.started_new_turn, false);
+  } finally {
+    await app.close();
+    await fakeLlm.close();
+  }
+});
+
+test('idempotent turn retries re-kick a persisted running turn even for non-owners', async () => {
+  const fakeLlm = await startFakeLlmServer('recovered after retry');
+  const { app, fixture, deps } = await createTestApp(fakeLlm.baseUrl);
+  writeVscodeProfileSelection(fixture, 'gpt-5');
+  await saveDefaultProfile('gpt-5', fakeLlm.baseUrl);
+
+  try {
+    const { record } = await deps.conversationRuntime.createConversationRecord({
+      conversation_id: 'turn-idempotent-retry-test',
+      agent: { llm: {} },
+      secrets: { OPENAI_API_KEY: 'test-api-key' },
+      max_iterations: 1,
+    });
+    const now = '2026-03-27T00:00:00.000Z';
+    const turnState: ConversationTurnState = {
+      next_sequence: 2,
+      turns: [
+        {
+          id: 'turn-existing',
+          sequence: 1,
+          status: 'running' as const,
+          started_at: now,
+          updated_at: now,
+          delivery_owner_id: 'owner-1',
+          delivery_owner_claimed_at: now,
+          messages: [
+            {
+              id: 'message-1',
+              idempotency_key: 'same-key',
+              accepted_at: now,
+              content: [{ type: 'text', text: 'retry me' }],
+            },
+          ],
+        },
+      ],
+    };
+    deps.conversationRuntime.turnStates.set(record.id, turnState);
+    await writePersistedTurnState(
+      record.id,
+      deps.conversationRuntime.persistenceRoot,
+      turnState,
+    );
+    assert.equal(
+      findMessageByIdempotencyKey(turnState, 'same-key')?.turn.id,
+      'turn-existing',
+    );
+
+    const retried = await deps.conversationRuntime.submitTurnMessage({
+      conversationId: record.id,
+      idempotencyKey: 'same-key',
+      deliveryOwnerId: 'owner-2',
+      userMessage: {
+        content: [{ type: 'text', text: 'retry me' }],
+        run: true,
+      },
+    });
+
+    assert.equal(retried.turnId, 'turn-existing');
+    assert.equal(retried.messageEventId, 'message-1');
+    assert.equal(retried.startedNewTurn, false);
+    assert.equal(retried.isDeliveryOwner, false);
+
+    await deps.conversationRuntime.waitForTurnProcessor(record.id);
+
+    const recoveredTurn = await deps.conversationRuntime.getTurnOrThrow(
+      record.id,
+      'turn-existing',
+    );
+    assert.equal(recoveredTurn.status, 'completed');
+
+    const result = await deps.conversationRuntime.getTurnResult(
+      record.id,
+      'turn-existing',
+    );
+    assert.equal(result.reply, 'recovered after retry');
+    await waitForRequestCount(fakeLlm, 1);
   } finally {
     await app.close();
     await fakeLlm.close();

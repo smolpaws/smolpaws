@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
+  appendOutboundMessage,
   claimOutboundMessages,
 } from '../runner/outbox.js';
 import { buildConversationDirPath } from '../runner/conversationService.js';
@@ -38,6 +39,54 @@ test('conversation-scoped claims keep turn-owned items isolated and preserve leg
     assert.deepEqual(turnClaim, [
       { kind: 'current_thread_message', text: 'turn-owned item' },
     ]);
+  } finally {
+    rmSync(persistenceRoot, { recursive: true, force: true });
+  }
+});
+
+test('turn-scoped claims preserve concurrent appends and remaining items', async () => {
+  const persistenceRoot = mkdtempSync(path.join(os.tmpdir(), 'smolpaws-outbox-'));
+  const conversationId = 'outbox-race-test';
+
+  try {
+    await appendOutboundMessage(
+      conversationId,
+      persistenceRoot,
+      { kind: 'current_thread_message', text: 'turn-1 item' },
+      { turnId: 'turn-1' },
+    );
+    await appendOutboundMessage(
+      conversationId,
+      persistenceRoot,
+      { kind: 'current_thread_message', text: 'turn-2 item' },
+      { turnId: 'turn-2' },
+    );
+
+    const claimPromise = claimOutboundMessages(conversationId, persistenceRoot, {
+      turnId: 'turn-1',
+    });
+    const appendPromise = appendOutboundMessage(
+      conversationId,
+      persistenceRoot,
+      { kind: 'current_thread_message', text: 'late legacy item' },
+    );
+
+    const claimed = await claimPromise;
+    await appendPromise;
+
+    assert.deepEqual(claimed, [
+      { kind: 'current_thread_message', text: 'turn-1 item' },
+    ]);
+    assert.deepEqual(
+      await claimOutboundMessages(conversationId, persistenceRoot),
+      [{ kind: 'current_thread_message', text: 'late legacy item' }],
+    );
+    assert.deepEqual(
+      await claimOutboundMessages(conversationId, persistenceRoot, {
+        turnId: 'turn-2',
+      }),
+      [{ kind: 'current_thread_message', text: 'turn-2 item' }],
+    );
   } finally {
     rmSync(persistenceRoot, { recursive: true, force: true });
   }

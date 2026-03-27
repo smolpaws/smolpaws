@@ -1307,6 +1307,13 @@ export function createConversationRuntime({
         new Date().toISOString(),
       );
       await persistTurnState(record.id);
+      if (!isTurnTerminalStatus(existingMessage.turn.status)) {
+        if (args.userMessage.run !== false) {
+          await ensureTurnProcessor(record.id, { waitForKickoff: true });
+        } else {
+          await materializePendingTurnMessages(record, existingMessage.turn);
+        }
+      }
       return {
         conversationId: record.id,
         turnId: existingMessage.turn.id,
