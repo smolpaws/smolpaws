@@ -105,19 +105,8 @@ async function claimQueueItems<T>(
   options?: ClaimQueueOptions,
 ): Promise<T[]> {
   return await withQueueLock(filePath, async () => {
-    const processingPath = `${filePath}.${Date.now()}.processing`;
     try {
-      await fs.rename(filePath, processingPath);
-    } catch (error) {
-      const err = error as NodeJS.ErrnoException;
-      if (err.code === 'ENOENT') {
-        return [];
-      }
-      throw error;
-    }
-
-    try {
-      const raw = await fs.readFile(processingPath, 'utf8');
+      const raw = await fs.readFile(filePath, 'utf8');
       const envelopes = raw
         .split('\n')
         .map((line) => line.trim())
@@ -132,17 +121,23 @@ async function claimQueueItems<T>(
         }
         remaining.push(envelope);
       }
-      if (remaining.length > 0) {
-        await fs.writeFile(
-          filePath,
-          `${remaining.map((item) => JSON.stringify(item)).join('\n')}\n`,
-          'utf8',
-        );
+      const rewritten = remaining.length
+        ? `${remaining.map((item) => JSON.stringify(item)).join('\n')}\n`
+        : '';
+      const rewritePath = `${filePath}.${Date.now()}.${process.pid}.tmp`;
+      await fs.writeFile(rewritePath, rewritten, 'utf8');
+      try {
+        await fs.rename(rewritePath, filePath);
+      } catch (error) {
+        await fs.unlink(rewritePath).catch(() => undefined);
+        throw error;
       }
-      await fs.unlink(processingPath);
       return claimed;
     } catch (error) {
-      await fs.rename(processingPath, filePath).catch(() => undefined);
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === 'ENOENT') {
+        return [];
+      }
       throw error;
     }
   });
