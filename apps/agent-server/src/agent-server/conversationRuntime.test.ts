@@ -214,7 +214,10 @@ function writeStreamResponse(res: ServerResponse, text: string): void {
   res.end();
 }
 
-async function startFakeLlmServer(responseText = 'meow from fake llm'): Promise<FakeLlmServer> {
+async function startFakeLlmServer(
+  responseText = 'meow from fake llm',
+  options?: { delayMs?: number },
+): Promise<FakeLlmServer> {
   const requests: OpenAiRequest[] = [];
   const server = createServer(async (req, res) => {
     if (req.method !== 'POST' || req.url !== '/chat/completions') {
@@ -223,6 +226,9 @@ async function startFakeLlmServer(responseText = 'meow from fake llm'): Promise<
     }
     const body = await collectRequestBody(req);
     requests.push(JSON.parse(body) as OpenAiRequest);
+    if (options?.delayMs) {
+      await new Promise((resolve) => setTimeout(resolve, options.delayMs));
+    }
     writeStreamResponse(res, responseText);
   });
 
@@ -535,6 +541,74 @@ test('queued idle runs stay on the canonical conversation path and only hit the 
       assistantEvent.llm_message?.content?.[0]?.text,
       'queued meow',
     );
+  } finally {
+    await app.close();
+    await fakeLlm.close();
+  }
+});
+
+test('legacy POST /events waits for turn completion before returning when run is enabled', async () => {
+  const fakeLlm = await startFakeLlmServer('legacy endpoint reply', { delayMs: 100 });
+  const { app, fixture } = await createTestApp(fakeLlm.baseUrl);
+  writeVscodeProfileSelection(fixture, 'gpt-5');
+  await saveDefaultProfile('gpt-5', fakeLlm.baseUrl);
+
+  try {
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/conversations',
+      payload: {
+        agent: { llm: {} },
+        secrets: { OPENAI_API_KEY: 'test-api-key' },
+        max_iterations: 1,
+      },
+    });
+
+    assert.equal(createResponse.statusCode, 201);
+    const createdConversation = parseJson<{ id: string }>(createResponse.body);
+
+    const startedAt = Date.now();
+    const eventResponse = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${createdConversation.id}/events`,
+      payload: {
+        role: 'user',
+        content: [{ type: 'text', text: 'wait for the assistant before returning' }],
+      },
+    });
+    const elapsedMs = Date.now() - startedAt;
+
+    assert.equal(eventResponse.statusCode, 200);
+    assert.deepEqual(parseJson<{ success: boolean }>(eventResponse.body), {
+      success: true,
+    });
+    assert.ok(
+      elapsedMs >= 90,
+      `expected legacy events POST to block on execution, got ${elapsedMs}ms`,
+    );
+    assert.equal(fakeLlm.requests.length, 1);
+
+    const eventsResponse = await app.inject({
+      method: 'GET',
+      url: `/api/conversations/${createdConversation.id}/events/search?kind=MessageEvent&source=agent&sort_order=timestamp_desc&limit=20`,
+    });
+
+    assert.equal(eventsResponse.statusCode, 200);
+    const events = parseJson<{
+      items: Array<{
+        kind: string;
+        llm_message?: {
+          role: string;
+          content?: Array<{ type?: string; text?: string }>;
+        };
+      }>;
+    }>(eventsResponse.body);
+    const assistantEvent = events.items.find(
+      (event) => event.kind === 'MessageEvent' && event.llm_message?.role === 'assistant',
+    );
+
+    assert(assistantEvent);
+    assert.equal(assistantEvent.llm_message?.content?.[0]?.text, 'legacy endpoint reply');
   } finally {
     await app.close();
     await fakeLlm.close();

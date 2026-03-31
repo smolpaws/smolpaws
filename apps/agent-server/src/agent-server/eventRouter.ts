@@ -94,6 +94,9 @@ export function registerEventRoutes(
         idempotencyKey:
           `legacy-event-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       });
+      if (request.body.run !== false) {
+        await deps.conversationRuntime.waitForTurnProcessor(record.id);
+      }
       return { success: true };
     },
   );
