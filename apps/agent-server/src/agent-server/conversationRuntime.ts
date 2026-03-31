@@ -104,14 +104,25 @@ function createMessageEventId(): string {
   return `msg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function getConversationEventLog(record: ConversationRecord): {
+type ConversationEventLog = {
   push: (event: Event) => Event;
-} {
-  // The shared SDK does not currently expose a public "append user event with a
-  // server-owned id" API. We reach through the LocalConversation instance so the
-  // server can preserve turn-owned message ids while still persisting via EventLog.
-  return (record.conversation as unknown as { events: { push: (event: Event) => Event } })
-    .events;
+};
+
+function getConversationEventLog(record: ConversationRecord): ConversationEventLog {
+  // Prefer a future public append API when the SDK grows one; keep the current
+  // EventLog reach-through isolated behind this compatibility shim in the meantime.
+
+  const conversation = record.conversation as unknown as {
+    appendEvent?: (event: Event) => Event;
+    events?: ConversationEventLog;
+  };
+  if (typeof conversation.appendEvent === "function") {
+    return { push: conversation.appendEvent.bind(record.conversation) };
+  }
+  if (typeof conversation.events?.push === "function") {
+    return conversation.events;
+  }
+  throw new Error("conversation_event_append_not_supported");
 }
 
 export type EventSubscriber = (event: Event) => void;

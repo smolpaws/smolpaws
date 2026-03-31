@@ -883,6 +883,33 @@ test('turn submission is idempotent for the same conversation and idempotency ke
   }
 });
 
+test('turn submission returns 404 when the conversation is missing and create_conversation is omitted', async () => {
+  const { app } = await createTestApp('http://unused.invalid');
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${uniqueName('missing-turn-submit')}/turns`,
+      payload: {
+        idempotency_key: 'missing-key',
+        user_message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'hello from a missing conversation' }],
+          run: false,
+        },
+      },
+    });
+
+    assert.equal(response.statusCode, 404);
+    assert.deepEqual(parseJson<{ error: string }>(response.body), {
+      error: 'Conversation not found',
+    });
+  } finally {
+    await app.close();
+  }
+});
+
+
 test('idempotent turn retries re-kick a persisted running turn even for non-owners', async () => {
   const fakeLlm = await startFakeLlmServer('recovered after retry');
   const { app, fixture, deps } = await createTestApp(fakeLlm.baseUrl);
