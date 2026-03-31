@@ -799,6 +799,82 @@ test('POST /api/conversations resets a reused smolpaws conversation exhausted by
   }
 });
 
+test('turn submission resets a reused stale smolpaws conversation when create_conversation is provided', async () => {
+  const fakeLlm = await startFakeLlmServer('stale turn recovery');
+  const { app, fixture, deps } = await createTestApp(fakeLlm.baseUrl);
+  writeVscodeProfileSelection(fixture, 'gpt-5');
+  await saveDefaultProfile('gpt-5', fakeLlm.baseUrl);
+
+  try {
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/conversations',
+      payload: buildCreateConversationBody({
+        conversationId: 'stale-turn-submit',
+        initialMessage: 'first message',
+        run: false,
+      }),
+    });
+    assert.equal(createResponse.statusCode, 201);
+
+    const record = deps.conversationRuntime.conversations.get('stale-turn-submit');
+    assert(record);
+    const staleConversation = record.conversation;
+    record.events.push({
+      kind: 'ConversationStateUpdateEvent',
+      source: 'agent',
+      agent_status: 'WAITING_FOR_CONFIRMATION',
+      id: 'pause-turn-1',
+      timestamp: new Date().toISOString(),
+    } as never);
+
+    const retryResponse = await app.inject({
+      method: 'POST',
+      url: '/api/conversations/stale-turn-submit/turns',
+      payload: {
+        idempotency_key: 'fresh-turn-submit',
+        user_message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'fresh retry through turns' }],
+          run: false,
+        },
+        create_conversation: {
+          agent: { llm: {} },
+          secrets: { OPENAI_API_KEY: 'test-api-key' },
+          max_iterations: 1,
+          smolpaws: {
+            enable_send_message: true,
+            github: {
+              repository_full_name: 'owner/repo-a',
+              actor_login: 'enyst',
+              event: 'issue_comment',
+              issue_number: 20,
+            },
+          },
+        },
+      },
+    });
+    assert.equal(retryResponse.statusCode, 201);
+
+    const nextRecord = deps.conversationRuntime.conversations.get('stale-turn-submit');
+    assert(nextRecord);
+    assert.notEqual(nextRecord.conversation, staleConversation);
+    assert.equal(
+      nextRecord.events.some(
+        (event) =>
+          event.kind === 'ConversationStateUpdateEvent' &&
+          event.source === 'agent' &&
+          event.agent_status === 'WAITING_FOR_CONFIRMATION',
+      ),
+      false,
+    );
+    assert.deepEqual(getUserMessageTexts(nextRecord.events), ['fresh retry through turns']);
+  } finally {
+    await app.close();
+    await fakeLlm.close();
+  }
+});
+
 test('turn submission reuses the active turn while it is still queued/running', async () => {
   const fakeLlm = await startFakeLlmServer('queued turn result');
   const { app, fixture, deps } = await createTestApp(fakeLlm.baseUrl);
@@ -895,6 +971,73 @@ test('turn submission reuses the active turn while it is still queued/running', 
         .join('\n'),
     );
     assert.deepEqual(texts, ['first queued message', 'second queued message']);
+  } finally {
+    await app.close();
+    await fakeLlm.close();
+  }
+});
+
+test('turn result stays empty until the current turn has a materialized start event', async () => {
+  const fakeLlm = await startFakeLlmServer('unused for turn result');
+  const { app, fixture, deps } = await createTestApp(fakeLlm.baseUrl);
+  writeVscodeProfileSelection(fixture, 'gpt-5');
+  await saveDefaultProfile('gpt-5', fakeLlm.baseUrl);
+
+  try {
+    const { record } = await deps.conversationRuntime.createConversationRecord({
+      conversation_id: 'turn-result-no-start',
+      agent: { llm: {} },
+      secrets: { OPENAI_API_KEY: 'test-api-key' },
+      max_iterations: 1,
+    });
+    record.events.push({
+      kind: 'MessageEvent',
+      source: 'agent',
+      id: 'assistant-old',
+      timestamp: new Date().toISOString(),
+      llm_message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'old reply from a previous turn' }],
+      },
+    } as never);
+    deps.conversationRuntime.turnStates.set(record.id, {
+      next_sequence: 2,
+      turns: [
+        {
+          id: 'turn-running-no-start',
+          sequence: 1,
+          status: 'running',
+          started_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          messages: [
+            {
+              id: 'pending-message-1',
+              idempotency_key: 'pending-key',
+              accepted_at: new Date().toISOString(),
+              content: [{ type: 'text', text: 'new message still pending' }],
+            },
+          ],
+        },
+      ],
+    });
+
+    const result = await deps.conversationRuntime.getTurnResult(
+      'turn-result-no-start',
+      'turn-running-no-start',
+    );
+    assert.deepEqual(result, {});
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/conversations/turn-result-no-start/turns/turn-running-no-start/result',
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(parseJson<{ status: string; reply?: string }>(response.body), {
+      conversation_id: 'turn-result-no-start',
+      turn_id: 'turn-running-no-start',
+      status: 'running',
+    });
   } finally {
     await app.close();
     await fakeLlm.close();

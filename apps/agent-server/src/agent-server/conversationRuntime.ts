@@ -154,6 +154,26 @@ type SubmitTurnMessageResult = {
   isDeliveryOwner: boolean;
 };
 
+function buildTurnSubmissionCreateRequest(
+  args: SubmitTurnMessageArgs,
+): StartConversationRequest | undefined {
+  if (!args.createConversation) {
+    return undefined;
+  }
+  return {
+    ...args.createConversation,
+    conversation_id: args.conversationId,
+    initial_message: {
+      role: 'user',
+      content: args.userMessage.content,
+      ...(args.userMessage.extended_content?.length
+        ? { extended_content: args.userMessage.extended_content }
+        : {}),
+      ...(args.userMessage.run === undefined ? {} : { run: args.userMessage.run }),
+    },
+  };
+}
+
 type ConversationRuntimeArgs = {
   env: RunnerEnv;
   persistenceRoot: string;
@@ -389,21 +409,24 @@ function getLatestConversationErrorCode(events: Event[]): string | undefined {
   return undefined;
 }
 
-function getTurnStartIndex(events: Event[], turn: ConversationTurn): number {
+function getTurnStartIndex(events: Event[], turn: ConversationTurn): number | null {
   const startEventId =
     turn.start_event_id ??
     turn.messages.find((message) => message.event_id)?.event_id;
   if (!startEventId) {
-    return 0;
+    return null;
   }
   const index = events.findIndex(
     (event) => (event as { id?: unknown }).id === startEventId,
   );
-  return index >= 0 ? index : 0;
+  return index >= 0 ? index : null;
 }
 
 function getTurnEventSlice(events: Event[], turn: ConversationTurn): Event[] {
   const startIndex = getTurnStartIndex(events, turn);
+  if (startIndex === null) {
+    return [];
+  }
   if (!turn.end_event_id) {
     return events.slice(startIndex);
   }
@@ -788,12 +811,13 @@ export function createConversationRuntime({
   }
 
   async function runTurnProcessor(conversationId: string): Promise<void> {
+    const kickoff = turnProcessorKickoffs.get(conversationId);
+    kickoff?.resolve();
+
     const record = conversations.get(conversationId);
     if (!record) {
       return;
     }
-    const kickoff = turnProcessorKickoffs.get(conversationId);
-    kickoff?.resolve();
 
     while (true) {
       const turn = getActiveTurn(getTurnState(conversationId));
@@ -1286,18 +1310,21 @@ export function createConversationRuntime({
   async function getOrCreateRecordForTurnSubmission(
     args: SubmitTurnMessageArgs,
   ): Promise<ConversationRecord> {
+    const createRequest = buildTurnSubmissionCreateRequest(args);
     const existing = conversations.get(args.conversationId);
     if (existing) {
-      return existing;
+      if (
+        !createRequest ||
+        !shouldRecoverStaleSmolpawsConversation(createRequest) ||
+        !isRecoverableStaleConversation(existing.events)
+      ) {
+        return existing;
+      }
+      await deleteConversation(args.conversationId);
     }
-    if (!args.createConversation) {
+    if (!createRequest) {
       throw new Error('conversation_not_found');
     }
-    const createRequest: StartConversationRequest = {
-      ...args.createConversation,
-      conversation_id: args.conversationId,
-      initial_message: undefined,
-    };
     const { record } = await createConversationRecord(createRequest);
     return record;
   }
