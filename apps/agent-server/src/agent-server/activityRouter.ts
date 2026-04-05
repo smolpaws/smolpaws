@@ -559,10 +559,10 @@ function renderActivityPage(): string {
       </section>
 
       <section class="auth hidden" id="auth-panel">
-        <label for="token">Runner token required for /api/activity</label><br />
+        <label for="token">Access password required for /api/activity</label><br />
         <div style="display:flex; gap:10px; margin-top:8px; flex-wrap:wrap;">
-          <input id="token" type="password" placeholder="Paste SMOLPAWS_RUNNER_TOKEN" style="min-width:320px;" />
-          <button id="save-token" type="button">Save Token</button>
+          <input id="token" type="password" placeholder="Paste the activity password" style="min-width:320px;" />
+          <button id="save-token" type="button">Save Password</button>
         </div>
       </section>
 
@@ -682,7 +682,7 @@ function renderActivityPage(): string {
         });
         if (response.status === 401) {
           authPanelEl.classList.remove("hidden");
-          throw new Error("Runner token required.");
+          throw new Error("Access password required.");
         }
         authPanelEl.classList.add("hidden");
         if (!response.ok) {
