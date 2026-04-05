@@ -99,6 +99,15 @@ type ActivityCacheEntry = {
   response: ActivityResponse;
 };
 
+type ActivitySummaryAccumulator = {
+  total_conversations: number;
+  running_count: number;
+  waiting_count: number;
+  error_count: number;
+  stuck_count: number;
+  pending_outbound_count: number;
+};
+
 function parseLimit(value: unknown): number {
   const raw = typeof value === "string" ? Number(value) : value;
   if (typeof raw !== "number" || !Number.isFinite(raw)) {
@@ -385,16 +394,31 @@ async function loadConversationTurnState(
 async function buildActivityItem(
   info: ConversationInfo,
   deps: AgentServerDeps,
+  preloaded?: {
+    record?: ConversationRecord;
+    config?: SmolpawsConversationConfigValue;
+    turnState?: ConversationTurnState;
+    pendingOutbound?: SmolpawsOutboundMessage[];
+    pendingTasks?: SmolpawsTaskCommand[];
+  },
 ): Promise<ActivityItem> {
-  const record = deps.conversationRuntime.conversations.get(info.id);
+  const record = preloaded?.record ?? deps.conversationRuntime.conversations.get(info.id);
   const isLive = Boolean(record);
   const [events, config, turnState, pendingOutbound, pendingTasks] =
     await Promise.all([
       loadConversationEvents(info, record, deps.persistenceRoot),
-      loadConversationMeta(info, record, deps.persistenceRoot),
-      loadConversationTurnState(info, deps),
-      readQueueItems<SmolpawsOutboundMessage>(info.id, deps.persistenceRoot, "outbox.jsonl"),
-      readQueueItems<SmolpawsTaskCommand>(info.id, deps.persistenceRoot, "task-commands.jsonl"),
+      preloaded?.config
+        ? Promise.resolve(preloaded.config)
+        : loadConversationMeta(info, record, deps.persistenceRoot),
+      preloaded?.turnState
+        ? Promise.resolve(preloaded.turnState)
+        : loadConversationTurnState(info, deps),
+      preloaded?.pendingOutbound
+        ? Promise.resolve(preloaded.pendingOutbound)
+        : readQueueItems<SmolpawsOutboundMessage>(info.id, deps.persistenceRoot, "outbox.jsonl"),
+      preloaded?.pendingTasks
+        ? Promise.resolve(preloaded.pendingTasks)
+        : readQueueItems<SmolpawsTaskCommand>(info.id, deps.persistenceRoot, "task-commands.jsonl"),
     ]);
 
   const latestTurn = getLatestTurn(turnState);
@@ -440,15 +464,41 @@ async function buildActivityItem(
   };
 }
 
-function buildActivitySummary(items: ActivityItem[]): ActivityResponse["summary"] {
+function createEmptySummary(): ActivitySummaryAccumulator {
   return {
-    total_conversations: items.length,
-    running_count: items.filter((item) => item.execution_status === "running").length,
-    waiting_count: items.filter((item) => item.execution_status === "waiting_for_confirmation").length,
-    error_count: items.filter((item) => item.execution_status === "error").length,
-    stuck_count: items.filter((item) => item.execution_status === "stuck").length,
-    pending_outbound_count: items.filter((item) => item.pending_outbound_count > 0).length,
+    total_conversations: 0,
+    running_count: 0,
+    waiting_count: 0,
+    error_count: 0,
+    stuck_count: 0,
+    pending_outbound_count: 0,
   };
+}
+
+function addSummaryItem(
+  summary: ActivitySummaryAccumulator,
+  status: string,
+  hasPendingOutbound: boolean,
+): void {
+  summary.total_conversations += 1;
+  if (status === "running") {
+    summary.running_count += 1;
+  } else if (status === "waiting_for_confirmation") {
+    summary.waiting_count += 1;
+  } else if (status === "error") {
+    summary.error_count += 1;
+  } else if (status === "stuck") {
+    summary.stuck_count += 1;
+  }
+  if (hasPendingOutbound) {
+    summary.pending_outbound_count += 1;
+  }
+}
+
+function isTrackedSmolpawsConfig(
+  config: SmolpawsConversationConfigValue | undefined,
+): config is SmolpawsConversationConfigValue {
+  return Boolean(config?.ingress?.trim());
 }
 
 function renderActivityPage(): string {
@@ -843,15 +893,67 @@ export function registerActivityRoutes(
         deps.conversationRuntime.conversations,
         deriveExecutionStatusFromEvents,
       );
-      const items = await Promise.all(
-        infos.map(async (info) => await buildActivityItem(info, deps)),
+      const summary = createEmptySummary();
+      const visibleCandidates: Array<{
+        info: ConversationInfo;
+        updatedAt: string;
+        preloaded: {
+          record?: ConversationRecord;
+          config: SmolpawsConversationConfigValue;
+          turnState: ConversationTurnState;
+          pendingOutbound: SmolpawsOutboundMessage[];
+        };
+      }> = [];
+
+      for (const info of infos) {
+        const record = deps.conversationRuntime.conversations.get(info.id);
+        const [config, turnState, pendingOutbound] = await Promise.all([
+          loadConversationMeta(info, record, deps.persistenceRoot),
+          loadConversationTurnState(info, deps),
+          readQueueItems<SmolpawsOutboundMessage>(
+            info.id,
+            deps.persistenceRoot,
+            "outbox.jsonl",
+          ),
+        ]);
+        if (!isTrackedSmolpawsConfig(config)) {
+          continue;
+        }
+        const isLive = Boolean(record);
+        const latestTurn = getLatestTurn(turnState);
+        const executionStatus = resolveExecutionStatus({
+          infoStatus: info.execution_status,
+          latestTurn,
+          isLive,
+        });
+        addSummaryItem(summary, executionStatus, pendingOutbound.length > 0);
+        visibleCandidates.push({
+          info,
+          updatedAt:
+            resolveUpdatedAt(latestTurn?.updated_at, info.updated_at) ?? info.updated_at,
+          preloaded: {
+            record,
+            config,
+            turnState,
+            pendingOutbound,
+          },
+        });
+      }
+
+      visibleCandidates.sort(
+        (left, right) =>
+          new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
       );
-      const smolpawsItems = items.filter((item) => item.ingress !== "unknown");
-      smolpawsItems.sort(
+
+      const limitedItems = await Promise.all(
+        visibleCandidates.slice(0, limit).map(async (candidate) =>
+          await buildActivityItem(candidate.info, deps, candidate.preloaded),
+        ),
+      );
+      limitedItems.sort(
         (left, right) =>
           new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime(),
       );
-      const limitedItems = smolpawsItems.slice(0, limit);
 
       const response = {
         server_time: new Date().toISOString(),
@@ -860,7 +962,7 @@ export function registerActivityRoutes(
           (Date.now() - lastEventAt) / 1000,
         ),
         items: limitedItems,
-        summary: buildActivitySummary(limitedItems),
+        summary,
       };
       cachedActivity = {
         limit,

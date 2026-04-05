@@ -454,6 +454,111 @@ test("GET /api/activity skips malformed queue lines and reuses a hot snapshot", 
   }
 });
 
+test("GET /api/activity summary covers all smolpaws conversations beyond the visible limit", async () => {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), "smolpaws-activity-"));
+  const persistenceRoot = path.join(tempRoot, "conversations");
+  const now = new Date("2026-04-06T01:20:00.000Z");
+
+  seedConversation(persistenceRoot, "github-smolpaws-smolpaws-90", {
+    meta: {
+      title: "Issue 90",
+      smolpaws: {
+        ingress: "github_webhook",
+        github: {
+          repository_full_name: "smolpaws/smolpaws",
+          issue_number: 90,
+        },
+      },
+    },
+    events: [
+      {
+        kind: "ConversationStateUpdateEvent",
+        id: "state-90",
+        source: "agent",
+        timestamp: now.toISOString(),
+        agent_status: "RUNNING",
+      },
+    ],
+    turns: {
+      next_sequence: 2,
+      turns: [
+        {
+          id: "turn-90",
+          sequence: 1,
+          status: "running",
+          started_at: new Date(now.getTime() - 5_000).toISOString(),
+          updated_at: now.toISOString(),
+          messages: [
+            {
+              id: "msg-90",
+              idempotency_key: "delivery-90",
+              accepted_at: new Date(now.getTime() - 5_000).toISOString(),
+              content: [{ type: "text", text: "@smolpaws are you there?" }],
+            },
+          ],
+        },
+      ],
+    },
+    outbox: [
+      {
+        turn_id: "turn-90",
+        payload: { kind: "current_thread_message", text: "Still working..." },
+      },
+    ],
+  });
+
+  seedConversation(persistenceRoot, "whatsapp-summary-main", {
+    meta: {
+      title: "WhatsApp summary",
+      smolpaws: {
+        ingress: "whatsapp",
+        scope_id: "main",
+      },
+    },
+    events: [
+      {
+        kind: "ConversationStateUpdateEvent",
+        id: "state-summary",
+        source: "agent",
+        timestamp: new Date(now.getTime() - 60_000).toISOString(),
+        agent_status: "IDLE",
+      },
+    ],
+  });
+
+  const deps = createAgentServerDeps({
+    SMOLPAWS_PERSISTENCE_DIR: persistenceRoot,
+    SMOLPAWS_RUNNER_TOKEN: "secret-token",
+    SMOLPAWS_WORKSPACE_ROOT: tempRoot,
+  });
+  const { app } = await createAgentServerApp(deps);
+
+  try {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/activity?limit=1",
+      headers: {
+        authorization: "Bearer secret-token",
+      },
+    });
+    assert.equal(response.statusCode, 200);
+    const payload = JSON.parse(response.body) as {
+      items: Array<Record<string, unknown>>;
+      summary: Record<string, number>;
+    };
+
+    assert.equal(payload.items.length, 1);
+    assert.equal(payload.summary.total_conversations, 2);
+    assert.equal(payload.summary.running_count, 0);
+    assert.equal(payload.summary.stuck_count, 1);
+    assert.equal(payload.summary.pending_outbound_count, 1);
+    assert.equal(payload.items[0]?.id, "github-smolpaws-smolpaws-90");
+  } finally {
+    await app.close();
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("GET /api/activity requires authorization when a runner token is configured", async () => {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), "smolpaws-activity-"));
   const deps = createAgentServerDeps({
