@@ -34,6 +34,7 @@ import { ErrorSchema } from "./models.js";
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 const ACTIVITY_CACHE_TTL_MS = 1_500;
+const ACTIVITY_INFOS_CACHE_TTL_MS = 5_000;
 
 const ActivityTurnSchema = Type.Object({
   id: Type.String(),
@@ -97,6 +98,11 @@ type ActivityCacheEntry = {
   last_event_at: number;
   generated_at: number;
   response: ActivityResponse;
+};
+
+type ActivityInfosCacheEntry = {
+  generated_at: number;
+  items: ConversationInfo[];
 };
 
 type ActivitySummaryAccumulator = {
@@ -856,6 +862,7 @@ export function registerActivityRoutes(
   deps: AgentServerDeps,
 ): void {
   let cachedActivity: ActivityCacheEntry | undefined;
+  let cachedInfos: ActivityInfosCacheEntry | undefined;
 
   app.get<{
     Querystring: { limit?: string | number };
@@ -888,11 +895,22 @@ export function registerActivityRoutes(
         return cachedActivity.response;
       }
 
-      const infos = await listConversationInfos(
-        deps.persistenceRoot,
-        deps.conversationRuntime.conversations,
-        deriveExecutionStatusFromEvents,
-      );
+      const now = Date.now();
+      const infos =
+        cachedInfos &&
+        now - cachedInfos.generated_at < ACTIVITY_INFOS_CACHE_TTL_MS
+          ? cachedInfos.items
+          : await listConversationInfos(
+              deps.persistenceRoot,
+              deps.conversationRuntime.conversations,
+              deriveExecutionStatusFromEvents,
+            );
+      if (!cachedInfos || cachedInfos.items !== infos) {
+        cachedInfos = {
+          generated_at: now,
+          items: infos,
+        };
+      }
       const summary = createEmptySummary();
       const visibleCandidates: Array<{
         info: ConversationInfo;
@@ -967,7 +985,7 @@ export function registerActivityRoutes(
       cachedActivity = {
         limit,
         last_event_at: lastEventAt,
-        generated_at: Date.now(),
+        generated_at: now,
         response,
       };
       return response;
