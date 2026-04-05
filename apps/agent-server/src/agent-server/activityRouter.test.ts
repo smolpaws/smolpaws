@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -371,6 +371,89 @@ test("GET /api/activity keeps live running conversations marked as running", asy
   }
 });
 
+test("GET /api/activity skips malformed queue lines and reuses a hot snapshot", async () => {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), "smolpaws-activity-"));
+  const persistenceRoot = path.join(tempRoot, "conversations");
+  const now = new Date("2026-04-06T01:10:00.000Z");
+
+  seedConversation(persistenceRoot, "github-smolpaws-smolpaws-81", {
+    meta: {
+      title: "Issue 81",
+      smolpaws: {
+        ingress: "github_webhook",
+        github: {
+          repository_full_name: "smolpaws/smolpaws",
+          issue_number: 81,
+        },
+      },
+    },
+    events: [
+      {
+        kind: "ConversationStateUpdateEvent",
+        id: "state-81",
+        source: "agent",
+        timestamp: now.toISOString(),
+        agent_status: "IDLE",
+      },
+    ],
+    outbox: [
+      {
+        turn_id: "turn-81",
+        payload: { kind: "current_thread_message", text: "queued" },
+      },
+    ],
+  });
+  appendFileSync(
+    path.join(persistenceRoot, "github-smolpaws-smolpaws-81", "outbox.jsonl"),
+    "{ definitely not json }\n",
+  );
+
+  const deps = createAgentServerDeps({
+    SMOLPAWS_PERSISTENCE_DIR: persistenceRoot,
+    SMOLPAWS_RUNNER_TOKEN: "secret-token",
+    SMOLPAWS_WORKSPACE_ROOT: tempRoot,
+  });
+  const { app } = await createAgentServerApp(deps);
+
+  try {
+    const headers = {
+      authorization: "Bearer secret-token",
+    };
+    const first = await app.inject({
+      method: "GET",
+      url: "/api/activity?limit=10",
+      headers,
+    });
+    const second = await app.inject({
+      method: "GET",
+      url: "/api/activity?limit=10",
+      headers,
+    });
+
+    assert.equal(first.statusCode, 200);
+    assert.equal(second.statusCode, 200);
+
+    const firstPayload = JSON.parse(first.body) as {
+      server_time: string;
+      items: Array<Record<string, unknown>>;
+    };
+    const secondPayload = JSON.parse(second.body) as {
+      server_time: string;
+      items: Array<Record<string, unknown>>;
+    };
+
+    assert.equal(firstPayload.server_time, secondPayload.server_time);
+    const item = firstPayload.items.find(
+      (entry) => entry.id === "github-smolpaws-smolpaws-81",
+    );
+    assert(item);
+    assert.equal(item.pending_outbound_count, 1);
+  } finally {
+    await app.close();
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("GET /api/activity requires authorization when a runner token is configured", async () => {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), "smolpaws-activity-"));
   const deps = createAgentServerDeps({
@@ -408,6 +491,8 @@ test("GET /activity serves the operator page", async () => {
     assert.equal(response.statusCode, 200);
     assert.match(response.body, /SmolPaws Activity/);
     assert.match(response.body, /\/api\/activity/);
+    assert.match(response.body, /&quot;/);
+    assert.match(response.body, /&#39;/);
   } finally {
     await app.close();
     rmSync(tempRoot, { recursive: true, force: true });

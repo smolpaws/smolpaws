@@ -33,6 +33,7 @@ import { ErrorSchema } from "./models.js";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+const ACTIVITY_CACHE_TTL_MS = 1_500;
 
 const ActivityTurnSchema = Type.Object({
   id: Type.String(),
@@ -91,6 +92,13 @@ type QueueEnvelope<T> = {
   payload: T;
 };
 
+type ActivityCacheEntry = {
+  limit: number;
+  last_event_at: number;
+  generated_at: number;
+  response: ActivityResponse;
+};
+
 function parseLimit(value: unknown): number {
   const raw = typeof value === "string" ? Number(value) : value;
   if (typeof raw !== "number" || !Number.isFinite(raw)) {
@@ -104,7 +112,7 @@ function truncate(value: string, maxLength = 140): string {
   if (normalized.length <= maxLength) {
     return normalized;
   }
-  return `${normalized.slice(0, Math.max(0, maxLength - 1))}...`;
+  return `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
 function parseIsoTimestamp(value: string | undefined): number {
@@ -301,16 +309,24 @@ async function readQueueItems<T>(
   const filePath = path.join(persistenceRoot, conversationId, basename);
   try {
     const raw = await fs.readFile(filePath, "utf8");
-    return raw
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as QueueEnvelope<T> | T)
-      .map((item) =>
-        item && typeof item === "object" && "payload" in item
-          ? (item as QueueEnvelope<T>).payload
-          : (item as T),
-      );
+    const items: T[] = [];
+    for (const line of raw.split("\n")) {
+      const normalized = line.trim();
+      if (!normalized) {
+        continue;
+      }
+      try {
+        const item = JSON.parse(normalized) as QueueEnvelope<T> | T;
+        items.push(
+          item && typeof item === "object" && "payload" in item
+            ? (item as QueueEnvelope<T>).payload
+            : (item as T),
+        );
+      } catch {
+        continue;
+      }
+    }
+    return items;
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
     if (err.code === "ENOENT") {
@@ -394,6 +410,10 @@ async function buildActivityItem(
     latestTurn?.error_code ??
     getLatestObservationError(events);
   const latestEventAt = getLatestEventTimestamp(events);
+  const latestEventKind = getLatestEventKind(events);
+  const latestAction = getLatestActionLabel(events);
+  const lastUserMessage = getLatestMessageText(events, "user");
+  const lastAssistantMessage = getLatestMessageText(events, "assistant");
   const updatedAt = resolveUpdatedAt(
     latestEventAt,
     latestTurn?.updated_at,
@@ -408,15 +428,11 @@ async function buildActivityItem(
     ingress: config?.ingress?.trim() || "unknown",
     target: buildTargetLabel(info.id, config),
     ...(config?.scope_id?.trim() ? { scope_id: config.scope_id.trim() } : {}),
-    ...(getLatestEventKind(events) ? { latest_event_kind: getLatestEventKind(events) } : {}),
+    ...(latestEventKind ? { latest_event_kind: latestEventKind } : {}),
     ...(latestEventAt ? { latest_event_at: latestEventAt } : {}),
-    ...(getLatestActionLabel(events) ? { latest_action: getLatestActionLabel(events) } : {}),
-    ...(getLatestMessageText(events, "user")
-      ? { last_user_message: getLatestMessageText(events, "user") }
-      : {}),
-    ...(getLatestMessageText(events, "assistant")
-      ? { last_assistant_message: getLatestMessageText(events, "assistant") }
-      : {}),
+    ...(latestAction ? { latest_action: latestAction } : {}),
+    ...(lastUserMessage ? { last_user_message: lastUserMessage } : {}),
+    ...(lastAssistantMessage ? { last_assistant_message: lastAssistantMessage } : {}),
     pending_outbound_count: pendingOutbound.length,
     pending_task_command_count: pendingTasks.length,
     ...(latestError ? { latest_error: truncate(latestError) } : {}),
@@ -664,7 +680,9 @@ function renderActivityPage(): string {
         return String(value)
           .replaceAll("&", "&amp;")
           .replaceAll("<", "&lt;")
-          .replaceAll(">", "&gt;");
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
       }
 
       function renderSummary(data) {
@@ -787,6 +805,8 @@ export function registerActivityRoutes(
   app: FastifyInstance,
   deps: AgentServerDeps,
 ): void {
+  let cachedActivity: ActivityCacheEntry | undefined;
+
   app.get<{
     Querystring: { limit?: string | number };
     Reply: ActivityResponse | { error: string };
@@ -808,6 +828,16 @@ export function registerActivityRoutes(
       }
 
       const limit = parseLimit(request.query.limit);
+      const lastEventAt = deps.conversationRuntime.getLastEventAt();
+      if (
+        cachedActivity &&
+        cachedActivity.limit === limit &&
+        cachedActivity.last_event_at === lastEventAt &&
+        Date.now() - cachedActivity.generated_at < ACTIVITY_CACHE_TTL_MS
+      ) {
+        return cachedActivity.response;
+      }
+
       const infos = await listConversationInfos(
         deps.persistenceRoot,
         deps.conversationRuntime.conversations,
@@ -823,15 +853,22 @@ export function registerActivityRoutes(
       );
       const limitedItems = smolpawsItems.slice(0, limit);
 
-      return {
+      const response = {
         server_time: new Date().toISOString(),
         uptime_seconds: Math.floor((Date.now() - deps.serverStart) / 1000),
         idle_seconds: Math.floor(
-          (Date.now() - deps.conversationRuntime.getLastEventAt()) / 1000,
+          (Date.now() - lastEventAt) / 1000,
         ),
         items: limitedItems,
         summary: buildActivitySummary(limitedItems),
       };
+      cachedActivity = {
+        limit,
+        last_event_at: lastEventAt,
+        generated_at: Date.now(),
+        response,
+      };
+      return response;
     },
   );
 
