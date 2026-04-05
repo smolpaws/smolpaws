@@ -50,6 +50,7 @@ const ActivityItemSchema = Type.Object({
   title: Type.Optional(Type.String()),
   updated_at: Type.String(),
   execution_status: Type.String(),
+  is_live: Type.Boolean(),
   ingress: Type.String(),
   target: Type.String(),
   scope_id: Type.Optional(Type.String()),
@@ -104,6 +105,27 @@ function truncate(value: string, maxLength = 140): string {
     return normalized;
   }
   return `${normalized.slice(0, Math.max(0, maxLength - 1))}...`;
+}
+
+function parseIsoTimestamp(value: string | undefined): number {
+  if (!value) {
+    return 0;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function resolveUpdatedAt(...values: Array<string | undefined>): string {
+  let latest = "";
+  let latestTimestamp = 0;
+  for (const value of values) {
+    const timestamp = parseIsoTimestamp(value);
+    if (timestamp > latestTimestamp && value) {
+      latest = value;
+      latestTimestamp = timestamp;
+    }
+  }
+  return latest || new Date(0).toISOString();
 }
 
 function extractMessageText(event: Event): string {
@@ -233,20 +255,42 @@ function buildTargetLabel(
   return conversationId;
 }
 
-function toActivityTurn(turn?: ConversationTurn): ActivityTurn | undefined {
+function toActivityTurn(
+  turn: ConversationTurn | undefined,
+  options?: { isLive?: boolean },
+): ActivityTurn | undefined {
   if (!turn) {
     return undefined;
   }
+  const displayStatus =
+    turn.status === "running" && options?.isLive === false
+      ? "stuck"
+      : turn.status;
   return {
     id: turn.id,
     sequence: turn.sequence,
-    status: turn.status,
+    status: displayStatus,
     started_at: turn.started_at,
     updated_at: turn.updated_at,
     ...(turn.completed_at ? { completed_at: turn.completed_at } : {}),
     ...(turn.error_code ? { error_code: turn.error_code } : {}),
     ...(turn.error_detail ? { error_detail: turn.error_detail } : {}),
   };
+}
+
+function resolveExecutionStatus(options: {
+  infoStatus: string;
+  latestTurn?: ConversationTurn;
+  isLive: boolean;
+}): string {
+  const latestTurn = options.latestTurn;
+  if (!latestTurn) {
+    return options.infoStatus;
+  }
+  if (latestTurn.status === "running") {
+    return options.isLive ? "running" : "stuck";
+  }
+  return latestTurn.status;
 }
 
 async function readQueueItems<T>(
@@ -327,6 +371,7 @@ async function buildActivityItem(
   deps: AgentServerDeps,
 ): Promise<ActivityItem> {
   const record = deps.conversationRuntime.conversations.get(info.id);
+  const isLive = Boolean(record);
   const [events, config, turnState, pendingOutbound, pendingTasks] =
     await Promise.all([
       loadConversationEvents(info, record, deps.persistenceRoot),
@@ -337,20 +382,30 @@ async function buildActivityItem(
     ]);
 
   const latestTurn = getLatestTurn(turnState);
-  const executionStatus =
-    latestTurn?.status ??
-    (events.length ? deriveExecutionStatusFromEvents(events) : info.execution_status);
+  const executionStatus = resolveExecutionStatus({
+    infoStatus: events.length
+      ? deriveExecutionStatusFromEvents(events)
+      : info.execution_status,
+    latestTurn,
+    isLive,
+  });
   const latestError =
     latestTurn?.error_detail ??
     latestTurn?.error_code ??
     getLatestObservationError(events);
   const latestEventAt = getLatestEventTimestamp(events);
+  const updatedAt = resolveUpdatedAt(
+    info.updated_at,
+    latestEventAt,
+    latestTurn?.updated_at,
+  );
 
   return {
     id: info.id,
     ...(info.title ? { title: info.title } : {}),
-    updated_at: latestEventAt ?? info.updated_at,
+    updated_at: updatedAt,
     execution_status: executionStatus,
+    is_live: isLive,
     ingress: config?.ingress?.trim() || "unknown",
     target: buildTargetLabel(info.id, config),
     ...(config?.scope_id?.trim() ? { scope_id: config.scope_id.trim() } : {}),
@@ -366,7 +421,7 @@ async function buildActivityItem(
     pending_outbound_count: pendingOutbound.length,
     pending_task_command_count: pendingTasks.length,
     ...(latestError ? { latest_error: truncate(latestError) } : {}),
-    ...(latestTurn ? { latest_turn: toActivityTurn(latestTurn) } : {}),
+    ...(latestTurn ? { latest_turn: toActivityTurn(latestTurn, { isLive }) } : {}),
   };
 }
 
@@ -629,12 +684,17 @@ function renderActivityPage(): string {
       }
 
       function renderCards(items) {
+        if (!items.length) {
+          cardsEl.innerHTML = '<article class="card"><div class="subtle">No conversations yet.</div></article>';
+          return;
+        }
         cardsEl.innerHTML = items.map(function(item) {
           const turn = item.latest_turn || null;
           const blocks = [
             ["Ingress", item.ingress],
             ["Target", item.target],
             ["Conversation", item.id],
+            ["Live", item.is_live ? "yes" : "no"],
             ["Updated", item.updated_at],
             ["Latest Event", item.latest_event_kind || "n/a"],
             ["Latest Action", item.latest_action || "n/a"],
@@ -755,12 +815,13 @@ export function registerActivityRoutes(
         deriveExecutionStatusFromEvents,
       );
       const items = await Promise.all(
-        infos.slice(0, limit).map(async (info) => await buildActivityItem(info, deps)),
+        infos.map(async (info) => await buildActivityItem(info, deps)),
       );
       items.sort(
         (left, right) =>
           new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime(),
       );
+      const limitedItems = items.slice(0, limit);
 
       return {
         server_time: new Date().toISOString(),
@@ -768,8 +829,8 @@ export function registerActivityRoutes(
         idle_seconds: Math.floor(
           (Date.now() - deps.conversationRuntime.getLastEventAt()) / 1000,
         ),
-        items,
-        summary: buildActivitySummary(items),
+        items: limitedItems,
+        summary: buildActivitySummary(limitedItems),
       };
     },
   );

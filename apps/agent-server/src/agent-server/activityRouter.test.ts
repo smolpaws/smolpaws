@@ -54,7 +54,7 @@ function seedConversation(
   }
 }
 
-test("GET /api/activity summarizes recent cross-ingress activity", async () => {
+test("GET /api/activity marks persisted running turns as stuck", async () => {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), "smolpaws-activity-"));
   const persistenceRoot = path.join(tempRoot, "conversations");
   const now = new Date("2026-04-06T00:30:00.000Z");
@@ -221,7 +221,8 @@ test("GET /api/activity summarizes recent cross-ingress activity", async () => {
     };
 
     assert.equal(payload.summary.total_conversations, 2);
-    assert.equal(payload.summary.running_count, 1);
+    assert.equal(payload.summary.running_count, 0);
+    assert.equal(payload.summary.stuck_count, 1);
     assert.equal(payload.summary.pending_outbound_count, 1);
 
     const githubItem = payload.items.find(
@@ -230,12 +231,13 @@ test("GET /api/activity summarizes recent cross-ingress activity", async () => {
     assert(githubItem);
     assert.equal(githubItem.ingress, "github_webhook");
     assert.equal(githubItem.target, "smolpaws/smolpaws#76");
-    assert.equal(githubItem.execution_status, "running");
+    assert.equal(githubItem.execution_status, "stuck");
+    assert.equal(githubItem.is_live, false);
     assert.equal(githubItem.pending_outbound_count, 1);
     assert.equal(githubItem.pending_task_command_count, 1);
     assert.equal(
       (githubItem.latest_turn as Record<string, unknown>).status,
-      "running",
+      "stuck",
     );
     assert.match(String(githubItem.latest_action), /^terminal: git status/);
     assert.equal(
@@ -248,6 +250,105 @@ test("GET /api/activity summarizes recent cross-ingress activity", async () => {
     assert.equal(whatsappItem.ingress, "whatsapp");
     assert.equal(whatsappItem.target, "main");
     assert.equal(whatsappItem.execution_status, "completed");
+  } finally {
+    await app.close();
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/activity keeps live running conversations marked as running", async () => {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), "smolpaws-activity-"));
+  const persistenceRoot = path.join(tempRoot, "conversations");
+  const now = new Date("2026-04-06T01:00:00.000Z");
+  const deps = createAgentServerDeps({
+    SMOLPAWS_PERSISTENCE_DIR: persistenceRoot,
+    SMOLPAWS_RUNNER_TOKEN: "secret-token",
+    SMOLPAWS_WORKSPACE_ROOT: tempRoot,
+  });
+
+  deps.conversationRuntime.conversations.set("github-live", {
+    id: "github-live",
+    createdAt: new Date(now.getTime() - 60_000).toISOString(),
+    updatedAt: now.toISOString(),
+    title: "Live GitHub thread",
+    conversation: {} as never,
+    events: [
+      {
+        kind: "MessageEvent",
+        id: "user-live",
+        source: "user",
+        timestamp: new Date(now.getTime() - 30_000).toISOString(),
+        llm_message: {
+          role: "user",
+          content: [{ type: "text", text: "@smolpaws still working?" }],
+        },
+      },
+      {
+        kind: "ConversationStateUpdateEvent",
+        id: "state-live",
+        source: "agent",
+        timestamp: now.toISOString(),
+        agent_status: "RUNNING",
+      },
+    ] as never,
+    settings: {} as never,
+    secrets: {} as never,
+    workspaceRoot: tempRoot,
+    smolpaws: {
+      ingress: "github_webhook",
+      github: {
+        repository_full_name: "smolpaws/smolpaws",
+        issue_number: 80,
+      },
+    },
+  });
+  deps.conversationRuntime.turnStates.set("github-live", {
+    next_sequence: 2,
+    turns: [
+      {
+        id: "turn-live",
+        sequence: 1,
+        status: "running",
+        started_at: new Date(now.getTime() - 30_000).toISOString(),
+        updated_at: now.toISOString(),
+        messages: [
+          {
+            id: "message-live",
+            idempotency_key: "delivery-live",
+            accepted_at: new Date(now.getTime() - 30_000).toISOString(),
+            content: [{ type: "text", text: "@smolpaws still working?" }],
+          },
+        ],
+      },
+    ],
+  });
+
+  const { app } = await createAgentServerApp(deps);
+
+  try {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/activity?limit=10",
+      headers: {
+        authorization: "Bearer secret-token",
+      },
+    });
+    assert.equal(response.statusCode, 200);
+    const payload = JSON.parse(response.body) as {
+      items: Array<Record<string, unknown>>;
+      summary: Record<string, number>;
+    };
+
+    const liveItem = payload.items.find((item) => item.id === "github-live");
+    assert(liveItem);
+    assert.equal(liveItem.execution_status, "running");
+    assert.equal(liveItem.is_live, true);
+    assert.equal(
+      (liveItem.latest_turn as Record<string, unknown>).status,
+      "running",
+    );
+    assert.equal(payload.summary.running_count, 1);
+    assert.equal(payload.summary.stuck_count, 0);
   } finally {
     await app.close();
     rmSync(tempRoot, { recursive: true, force: true });
