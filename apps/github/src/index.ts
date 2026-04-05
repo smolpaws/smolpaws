@@ -29,6 +29,7 @@ interface Env {
 }
 
 const MENTION = "@smolpaws";
+const BOT_LOGIN = "smolpaws";
 const USER_AGENT = "smolpaws-webhook";
 const NOTIFICATION_POLL_LOOKBACK_MINUTES = 30;
 const RUNNER_NOT_CONFIGURED_REPLY =
@@ -99,7 +100,7 @@ export default {
     }
 
     const commentBody = getMentionBody(payload);
-    if (!containsMention(commentBody)) {
+    if (!containsMention(commentBody) && !isOwnThread(payload)) {
       return new Response("Ignored", { status: 200 });
     }
 
@@ -199,6 +200,10 @@ function containsMention(body: string): boolean {
 
 function getMentionBody(payload: GithubEventPayload): string {
   return payload.comment?.body ?? payload.issue?.body ?? "";
+}
+
+function isOwnThread(payload: GithubEventPayload): boolean {
+  return payload.issue?.user?.login?.toLowerCase() === BOT_LOGIN;
 }
 
 function isAllowed(payload: GithubEventPayload, env: Env): boolean {
