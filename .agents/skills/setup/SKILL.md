@@ -75,7 +75,7 @@ Tell the user:
 
 SmolPaws uses OpenHands LLM profiles. The local launchers read secrets from `~/.smolpaws/.env` and resolve the active profile from either `LLM_PROFILE_ID` or the VS Code user setting `openhands.llm.profileId`.
 
-Prepare the local env file:
+Prepare the local env file if none exists:
 
 ```bash
 mkdir -p ~/.smolpaws
