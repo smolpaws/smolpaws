@@ -12,7 +12,7 @@ export type GithubEventPayload = {
     owner?: { login?: string };
   };
   issue?: { number?: number; body?: string; title?: string; user?: { login?: string } };
-  pull_request?: { number?: number };
+  pull_request?: { number?: number; user?: { login?: string } };
   installation?: { id?: number };
 };
 

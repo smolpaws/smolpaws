@@ -762,7 +762,22 @@ test('webhook queues comment on own thread without explicit @mention', async () 
     assert(response);
     assert.equal(response.status, 202);
     assert.equal(sent.length, 1);
-    assert.equal(sent[0].payload.comment?.body, 'hey, can you look at this?');
+    assert.deepEqual(sent[0], {
+      event: 'issue_comment',
+      payload: {
+        action: 'created',
+        sender: { login: 'enyst', id: 1 },
+        comment: { body: 'hey, can you look at this?', id: 100 },
+        repository: {
+          full_name: 'smolpaws/smolpaws',
+          owner: { login: 'smolpaws' },
+        },
+        issue: { number: 76, user: { login: 'smolpaws' } },
+        installation: { id: 3148864 },
+      },
+      delivery_id: sent[0].delivery_id,
+      meta: { ingress: 'github_webhook' },
+    });
   } finally {
     globalThis.caches = originalCaches;
   }
@@ -802,4 +817,98 @@ test('webhook ignores comment without @mention on issues not created by smolpaws
   assert.equal(response.status, 200);
   assert.equal(await response.text(), 'Ignored');
   assert.equal(sent.length, 0);
+});
+
+test('webhook ignores actions from the bot itself (self-loop guard)', async () => {
+  const sent: SmolpawsQueueMessage[] = [];
+  const env: TestEnv = {
+    GITHUB_WEBHOOK_SECRET: 'test-secret',
+    GITHUB_APP_ID: '1',
+    GITHUB_APP_PRIVATE_KEY: 'pem',
+    ALLOWED_ACTORS: 'enyst,smolpaws',
+    SMOLPAWS_QUEUE: {
+      async send(message: SmolpawsQueueMessage): Promise<void> {
+        sent.push(message);
+      },
+    },
+  };
+
+  const request = await createSignedWebhookRequest(
+    {
+      action: 'created',
+      sender: { login: 'smolpaws', id: 2 },
+      comment: { body: 'my own reply', id: 200 },
+      repository: {
+        full_name: 'smolpaws/smolpaws',
+        owner: { login: 'smolpaws' },
+      },
+      issue: { number: 76, user: { login: 'smolpaws' } },
+      installation: { id: 3148864 },
+    },
+    env.GITHUB_WEBHOOK_SECRET,
+  );
+
+  const response = await worker.fetch?.(request, env as never);
+  assert(response);
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), 'Ignored');
+  assert.equal(sent.length, 0);
+});
+
+test('webhook queues comment on own pull request without explicit @mention', async () => {
+  const originalCaches = globalThis.caches;
+  const cache = createMockCache();
+  globalThis.caches = {
+    open: async () => cache,
+    delete: async () => false,
+    has: async () => true,
+    keys: async () => ['smolpaws-github-mention-dedupe'],
+    match: async () => undefined,
+  } as CacheStorage;
+
+  try {
+    const sent: SmolpawsQueueMessage[] = [];
+    const env: TestEnv = {
+      GITHUB_WEBHOOK_SECRET: 'test-secret',
+      GITHUB_APP_ID: '1',
+      GITHUB_APP_PRIVATE_KEY: 'pem',
+      ALLOWED_ACTORS: 'enyst',
+      SMOLPAWS_QUEUE: {
+        async send(message: SmolpawsQueueMessage): Promise<void> {
+          sent.push(message);
+        },
+      },
+    };
+
+    const payload = {
+      action: 'created',
+      sender: { login: 'enyst', id: 1 },
+      comment: { body: 'looks good, ship it', id: 300 },
+      repository: {
+        full_name: 'smolpaws/smolpaws',
+        owner: { login: 'smolpaws' },
+      },
+      pull_request: { number: 77, user: { login: 'smolpaws' } },
+      installation: { id: 3148864 },
+    };
+
+    const request = await createSignedWebhookRequest(
+      payload,
+      env.GITHUB_WEBHOOK_SECRET,
+      'pull_request_review_comment',
+    );
+
+    const response = await worker.fetch?.(request, env as never);
+    assert(response);
+    assert.equal(response.status, 202);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0], {
+      event: 'pull_request_review_comment',
+      payload,
+      delivery_id: sent[0].delivery_id,
+      meta: { ingress: 'github_webhook' },
+    });
+  } finally {
+    globalThis.caches = originalCaches;
+  }
 });

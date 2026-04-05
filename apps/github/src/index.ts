@@ -99,6 +99,10 @@ export default {
       return new Response("Ignored", { status: 200 });
     }
 
+    if (isSelfAction(payload)) {
+      return new Response("Ignored", { status: 200 });
+    }
+
     const commentBody = getMentionBody(payload);
     if (!containsMention(commentBody) && !isOwnThread(payload)) {
       return new Response("Ignored", { status: 200 });
@@ -202,8 +206,14 @@ function getMentionBody(payload: GithubEventPayload): string {
   return payload.comment?.body ?? payload.issue?.body ?? "";
 }
 
+function isSelfAction(payload: GithubEventPayload): boolean {
+  return payload.sender?.login?.toLowerCase() === BOT_LOGIN;
+}
+
 function isOwnThread(payload: GithubEventPayload): boolean {
-  return payload.issue?.user?.login?.toLowerCase() === BOT_LOGIN;
+  const issueAuthor = payload.issue?.user?.login?.toLowerCase();
+  const prAuthor = payload.pull_request?.user?.login?.toLowerCase();
+  return issueAuthor === BOT_LOGIN || prAuthor === BOT_LOGIN;
 }
 
 function isAllowed(payload: GithubEventPayload, env: Env): boolean {
