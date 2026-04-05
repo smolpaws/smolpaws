@@ -193,7 +193,7 @@ PY
 ```
 
 If they want the in-chat persona docs to match the trigger name, also update:
-1. `groups/global/AGENTS.md` - Change `# Andy` and `You are Andy` to the new name
+1. `groups/global/AGENTS.md` - Change `# smolpaws` and `You are smolpaws` to the new name
 2. `groups/main/AGENTS.md` - Same changes at the top
 3. `data/registered_groups.json` - Use `@NewName` as the trigger when registering groups
 
