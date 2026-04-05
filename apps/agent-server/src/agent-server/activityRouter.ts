@@ -115,7 +115,7 @@ function parseIsoTimestamp(value: string | undefined): number {
   return Number.isNaN(timestamp) ? 0 : timestamp;
 }
 
-function resolveUpdatedAt(...values: Array<string | undefined>): string {
+function resolveUpdatedAt(...values: Array<string | undefined>): string | undefined {
   let latest = "";
   let latestTimestamp = 0;
   for (const value of values) {
@@ -125,7 +125,7 @@ function resolveUpdatedAt(...values: Array<string | undefined>): string {
       latestTimestamp = timestamp;
     }
   }
-  return latest || new Date(0).toISOString();
+  return latest || undefined;
 }
 
 function extractMessageText(event: Event): string {
@@ -395,10 +395,9 @@ async function buildActivityItem(
     getLatestObservationError(events);
   const latestEventAt = getLatestEventTimestamp(events);
   const updatedAt = resolveUpdatedAt(
-    info.updated_at,
     latestEventAt,
     latestTurn?.updated_at,
-  );
+  ) ?? info.updated_at;
 
   return {
     id: info.id,
