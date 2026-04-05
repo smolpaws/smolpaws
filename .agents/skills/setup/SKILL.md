@@ -71,69 +71,79 @@ Tell the user:
 
 **Use the `/convert-to-docker` skill** to convert the codebase to Docker, then continue to Section 3.
 
-## 3. Configure Claude Authentication
+## 3. Configure OpenHands LLM Access
+
+SmolPaws uses OpenHands LLM profiles. The local launchers read secrets from `~/.smolpaws/.env` and resolve the active profile from either `LLM_PROFILE_ID` or the VS Code user setting `openhands.llm.profileId`.
+
+Prepare the local env file:
+
+```bash
+mkdir -p ~/.smolpaws
+touch ~/.smolpaws/.env
+```
 
 Ask the user:
-> Do you want to use your **Claude subscription** (Pro/Max) or an **Anthropic API key**?
+> Do you already have a working OpenHands LLM profile selected in VS Code, or do you want to set `LLM_PROFILE_ID` manually in `~/.smolpaws/.env`?
 
-### Option 1: Claude Subscription (Recommended)
-
-Ask the user:
-> Want me to grab the OAuth token from your current Claude session?
-
-If yes:
-```bash
-TOKEN=$(cat ~/.claude/.credentials.json 2>/dev/null | jq -r '.claudeAiOauth.accessToken // empty')
-if [ -n "$TOKEN" ]; then
-  echo "CLAUDE_CODE_OAUTH_TOKEN=$TOKEN" > .env
-  echo "Token configured: ${TOKEN:0:20}...${TOKEN: -4}"
-else
-  echo "No token found - are you logged in to Claude Code?"
-fi
-```
-
-If the token wasn't found, tell the user:
-> Run `claude` in another terminal and log in first, then come back here.
-
-### Option 2: API Key
-
-Ask if they have an existing key to copy or need to create one.
-
-**Copy existing:**
-```bash
-grep "^ANTHROPIC_API_KEY=" /path/to/source/.env > .env
-```
-
-**Create new:**
-```bash
-echo 'ANTHROPIC_API_KEY=' > .env
-```
-
-Tell the user to add their key from https://console.anthropic.com/
-
-**Verify:**
-```bash
-KEY=$(grep "^ANTHROPIC_API_KEY=" .env | cut -d= -f2)
-[ -n "$KEY" ] && echo "API key configured: ${KEY:0:10}...${KEY: -4}" || echo "Missing"
-```
-
-## 4. Build Container Image
-
-Build the SmolPaws agent container:
+If they want to set it manually, add it:
 
 ```bash
-./container/build.sh
+printf 'LLM_PROFILE_ID=YOUR_PROFILE_ID\n' >> ~/.smolpaws/.env
 ```
 
-This creates the `smolpaws-agent:latest` image with Node.js, Chromium, OpenHands Agent SDK, and agent-browser.
+Then make sure the provider key required by that profile is present in `~/.smolpaws/.env`.
+
+Common examples:
+- `OPENAI_API_KEY=...`
+- `ANTHROPIC_API_KEY=...`
+- `GEMINI_API_KEY=...`
+
+If they already have a key elsewhere and want to copy it in:
+
+```bash
+grep -E '^(OPENAI_API_KEY|ANTHROPIC_API_KEY|GEMINI_API_KEY)=' /path/to/source/.env >> ~/.smolpaws/.env
+```
+
+If they need to add one manually, create the line they need and let them fill in the value:
+
+```bash
+echo 'OPENAI_API_KEY=' >> ~/.smolpaws/.env
+```
+
+Verify without printing secrets:
+
+```bash
+node - <<'EOF'
+const fs = require('fs');
+const path = require('path');
+const envPath = path.join(process.env.HOME, '.smolpaws', '.env');
+const raw = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+const names = raw.split(/\r?\n/)
+  .map((line) => line.match(/^([A-Z0-9_]+)=/))
+  .filter(Boolean)
+  .map((match) => match[1]);
+console.log(`Env file: ${envPath}`);
+console.log(`Configured keys: ${names.join(', ') || 'none'}`);
+EOF
+```
+
+## 4. Build Runner Image
+
+Build the shared SmolPaws runner image from `apps/agent-server`:
+
+```bash
+npm run runner:image:build
+```
+
+This creates the `smolpaws-runner:latest` image used by the shared Fastify agent-server runner surface.
 
 Verify the build succeeded by running a simple test (this auto-detects which runtime you're using):
 
 ```bash
 if which docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-  echo '{}' | docker run -i --entrypoint /bin/echo smolpaws-agent:latest "Container OK" || echo "Container build failed"
+  echo '{}' | docker run -i --entrypoint /bin/echo smolpaws-runner:latest "Runner OK" || echo "Runner image build failed"
 else
-  echo '{}' | container run -i --entrypoint /bin/echo smolpaws-agent:latest "Container OK" || echo "Container build failed"
+  echo '{}' | container run -i --entrypoint /bin/echo smolpaws-runner:latest "Runner OK" || echo "Runner image build failed"
 fi
 ```
 
@@ -160,16 +170,34 @@ If it says "Already authenticated", skip to the next step.
 ## 6. Configure Assistant Name
 
 Ask the user:
-> What trigger word do you want to use? (default: `Andy`)
+> What trigger word do you want to use? (default: `smolpaws`)
 >
-> Messages starting with `@TriggerWord` will be sent to Claude.
+> Messages starting with `@TriggerWord` will be sent to SmolPaws.
 
-If they choose something other than `Andy`, update it in these places:
-1. `groups/AGENTS.md` - Change "# Andy" and "You are Andy" to the new name
+Persist the chosen name in `~/.smolpaws/.env`:
+
+```bash
+python3 - <<'PY'
+from pathlib import Path
+import os
+
+env_path = Path(os.path.expanduser('~/.smolpaws/.env'))
+env_path.parent.mkdir(parents=True, exist_ok=True)
+name = 'YOUR_ASSISTANT_NAME'
+lines = []
+if env_path.exists():
+    lines = [line for line in env_path.read_text().splitlines() if not line.startswith('ASSISTANT_NAME=')]
+lines.append(f'ASSISTANT_NAME={name}')
+env_path.write_text('\n'.join(lines) + '\n')
+PY
+```
+
+If they want the in-chat persona docs to match the trigger name, also update:
+1. `groups/global/AGENTS.md` - Change `# Andy` and `You are Andy` to the new name
 2. `groups/main/AGENTS.md` - Same changes at the top
 3. `data/registered_groups.json` - Use `@NewName` as the trigger when registering groups
 
-Store their choice - you'll use it when creating the registered_groups.json and when telling them how to test.
+Store their choice - you'll use it when creating `data/registered_groups.json` and when telling them how to test.
 
 ## 7. Register Main Channel
 
@@ -198,7 +226,7 @@ sqlite3 ~/.smolpaws/whatsapp/messages.db "SELECT DISTINCT chat_jid FROM messages
 sqlite3 ~/.smolpaws/whatsapp/messages.db "SELECT DISTINCT chat_jid FROM messages WHERE chat_jid LIKE '%@g.us' ORDER BY timestamp DESC LIMIT 5"
 ```
 
-Create/update `data/registered_groups.json` using the JID from above and the assistant name from step 5:
+Create/update `data/registered_groups.json` using the JID from above and the assistant name from step 6:
 ```json
 {
   "JID_HERE": {
@@ -220,7 +248,7 @@ mkdir -p groups/main/logs
 Ask the user:
 > Do you want the agent to be able to access any directories **outside** the SmolPaws project?
 >
-> Examples: Git repositories, project folders, documents you want Claude to work on.
+> Examples: Git repositories, project folders, documents you want SmolPaws to work on.
 >
 > **Note:** This is optional. Without configuration, agents can only access their own group folders.
 
@@ -322,99 +350,72 @@ Tell the user:
 > }
 > ```
 
-## 9. Configure launchd Service
+## 9. Install Local Service
 
-Generate the plist file with correct paths automatically:
+### macOS
 
-```bash
-NODE_PATH=$(which node)
-PROJECT_PATH=$(pwd)
-HOME_PATH=$HOME
-
-cat > ~/Library/LaunchAgents/com.smolpaws.plist << EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.smolpaws</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>${NODE_PATH}</string>
-        <string>${PROJECT_PATH}/dist/index.js</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>${PROJECT_PATH}</string>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:${HOME_PATH}/.local/bin</string>
-        <key>HOME</key>
-        <string>${HOME_PATH}</string>
-    </dict>
-    <key>StandardOutPath</key>
-    <string>${PROJECT_PATH}/logs/smolpaws.log</string>
-    <key>StandardErrorPath</key>
-    <string>${PROJECT_PATH}/logs/smolpaws.error.log</string>
-</dict>
-</plist>
-EOF
-
-echo "Created launchd plist with:"
-echo "  Node: ${NODE_PATH}"
-echo "  Project: ${PROJECT_PATH}"
-```
-
-Build and start the service:
+Build the app and install the checked-in LaunchAgent:
 
 ```bash
 npm run build
-mkdir -p logs
-launchctl load ~/Library/LaunchAgents/com.smolpaws.plist
+npm run smolpaws:launchagent:install
 ```
 
-Verify it's running:
+If the user also wants heartbeat ingress enabled locally, install that too:
+
+```bash
+npm run heartbeat:launchagent:install
+```
+
+Verify both services:
+
 ```bash
 launchctl list | grep smolpaws
 ```
 
-## 11. Test
+### Linux / other
+
+This repo does not ship a checked-in systemd unit yet. For now, run SmolPaws in the foreground while testing:
+
+```bash
+npm run dev
+```
+
+## 10. Test
 
 Tell the user (using the assistant name they configured):
 > Send `@ASSISTANT_NAME hello` in your registered chat.
 
-Check the logs:
+If using the macOS LaunchAgent, check the logs:
 ```bash
-tail -f logs/smolpaws.log
+tail -f ~/.smolpaws/logs/smolpaws.launchagent.log
 ```
+
+If running in the foreground, watch the terminal output instead.
 
 The user should receive a response in WhatsApp.
 
 ## Troubleshooting
 
-**Service not starting**: Check `logs/smolpaws.error.log`
+**Service not starting**: Check `~/.smolpaws/logs/smolpaws.launchagent.error.log` if using the LaunchAgent.
 
-**Container agent fails with "Claude Code process exited with code 1"**:
+**Runner exits early (including `Claude Code process exited with code 1`)**:
 - Ensure the container runtime is running:
   - Apple Container: `container system start`
   - Docker: `docker info` (start Docker Desktop on macOS, or `sudo systemctl start docker` on Linux)
-- Check container logs: `cat groups/main/logs/container-*.log | tail -50`
+- Check workspace logs: `cat groups/main/logs/container-*.log | tail -50`
 
 **No response to messages**:
-- Verify the trigger pattern matches (e.g., `@AssistantName` at start of message)
+- Verify the trigger pattern matches (for example `@AssistantName` at the start of the message)
 - Check that the chat JID is in `data/registered_groups.json`
-- Check `logs/smolpaws.log` for errors
+- Check `~/.smolpaws/logs/smolpaws.launchagent.log` if using the LaunchAgent, or the terminal output if running interactively
 
 **WhatsApp disconnected**:
-- The service will show a macOS notification
+- The LaunchAgent path will show a macOS notification
 - Run `npm run auth` to re-authenticate
-- Restart the service: `launchctl kickstart -k gui/$(id -u)/com.smolpaws`
+- Restart the service with `launchctl kickstart -k gui/$(id -u)/com.smolpaws` on macOS, or restart `npm run dev` if running interactively
 
-**Unload service**:
+**Remove macOS LaunchAgent**:
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.smolpaws.plist
+npm run smolpaws:launchagent:remove
 ```
