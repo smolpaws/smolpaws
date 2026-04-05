@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { shouldPostReplyAfterOutbound } from '../index.js';
+import { resolveQueueReplyBody, shouldPostReplyAfterOutbound } from '../index.js';
 
 test('shouldPostReplyAfterOutbound posts the final reply after progress outbound messages', () => {
   assert.equal(
@@ -30,5 +30,27 @@ test('shouldPostReplyAfterOutbound suppresses short lead-in replies when outboun
       },
     ]),
     false,
+  );
+});
+
+test('resolveQueueReplyBody only emits the runner-not-configured fallback when the runner is absent', () => {
+  assert.equal(
+    resolveQueueReplyBody(null),
+    '🐾 smolpaws heard you and is waking up. Runner is not configured yet.',
+  );
+  assert.equal(resolveQueueReplyBody({ reply: undefined, outbound_messages: undefined }), undefined);
+});
+
+test('resolveQueueReplyBody prefers real replies and stays quiet when outbound messages exist', () => {
+  assert.equal(
+    resolveQueueReplyBody({ reply: 'real reply', outbound_messages: undefined }),
+    'real reply',
+  );
+  assert.equal(
+    resolveQueueReplyBody({
+      reply: undefined,
+      outbound_messages: [{ kind: 'current_thread_message', text: 'progress update' }],
+    }),
+    undefined,
   );
 });

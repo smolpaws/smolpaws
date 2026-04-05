@@ -31,6 +31,8 @@ interface Env {
 const MENTION = "@smolpaws";
 const USER_AGENT = "smolpaws-webhook";
 const NOTIFICATION_POLL_LOOKBACK_MINUTES = 30;
+const RUNNER_NOT_CONFIGURED_REPLY =
+  "🐾 smolpaws heard you and is waking up. Runner is not configured yet.";
 
 function buildNotificationsPollUrl(nowMs = Date.now()): string {
   const url = new URL("https://api.github.com/notifications");
@@ -269,11 +271,7 @@ async function processQueueMessage(
       });
     }
 
-    const replyBody =
-      agentResult?.reply ??
-      (outboundMessages.length > 0
-        ? undefined
-        : "🐾 smolpaws heard you and is waking up. Runner is not configured yet.");
+    const replyBody = resolveQueueReplyBody(agentResult);
 
     if (replyBody && shouldPostReplyAfterOutbound(replyBody, outboundMessages)) {
       await postIssueComment({
@@ -289,6 +287,21 @@ async function processQueueMessage(
     console.error("Queue message processing failed", error);
     message.retry({ delaySeconds: 30 });
   }
+}
+
+export function resolveQueueReplyBody(
+  agentResult: Awaited<ReturnType<typeof dispatchToAgentServer>>,
+): string | undefined {
+  if (agentResult?.reply) {
+    return agentResult.reply;
+  }
+  if ((agentResult?.outbound_messages?.length ?? 0) > 0) {
+    return undefined;
+  }
+  if (agentResult === null) {
+    return RUNNER_NOT_CONFIGURED_REPLY;
+  }
+  return undefined;
 }
 
 
