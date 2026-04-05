@@ -399,7 +399,7 @@ The user should receive a response in WhatsApp.
 
 **Service not starting**: Check `~/.smolpaws/logs/smolpaws.launchagent.error.log` if using the LaunchAgent.
 
-**Runner exits early (including `Claude Code process exited with code 1`)**:
+**Runner exits early (including Runner process exited with code 1)**:
 - Ensure the container runtime is running:
   - Apple Container: `container system start`
   - Docker: `docker info` (start Docker Desktop on macOS, or `sudo systemctl start docker` on Linux)
