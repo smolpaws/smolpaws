@@ -206,14 +206,19 @@ function getMentionBody(payload: GithubEventPayload): string {
   return payload.comment?.body ?? payload.issue?.body ?? "";
 }
 
+function isAgentLogin(login: string | undefined): boolean {
+  if (!login) return false;
+  const lower = login.toLowerCase();
+  return lower === AGENT_LOGIN || lower === `${AGENT_LOGIN}[bot]`;
+}
+
 function isSelfAction(payload: GithubEventPayload): boolean {
-  return payload.sender?.login?.toLowerCase() === AGENT_LOGIN;
+  return isAgentLogin(payload.sender?.login);
 }
 
 function isOwnThread(payload: GithubEventPayload): boolean {
-  const issueAuthor = payload.issue?.user?.login?.toLowerCase();
-  const prAuthor = payload.pull_request?.user?.login?.toLowerCase();
-  return issueAuthor === AGENT_LOGIN || prAuthor === AGENT_LOGIN;
+  return isAgentLogin(payload.issue?.user?.login)
+    || isAgentLogin(payload.pull_request?.user?.login);
 }
 
 function isAllowed(payload: GithubEventPayload, env: Env): boolean {
