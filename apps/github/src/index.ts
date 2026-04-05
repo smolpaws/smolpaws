@@ -490,7 +490,7 @@ async function fetchNotificationMention(
     }
 
     const senderLogin = comment.user?.login;
-    if (!senderLogin || senderLogin.toLowerCase() === "smolpaws") {
+    if (!senderLogin || isAgentLogin(senderLogin)) {
       return null;
     }
 
@@ -565,7 +565,7 @@ async function fetchNotificationMention(
   }
 
   const senderLogin = issue.user?.login;
-  if (!senderLogin || senderLogin.toLowerCase() === "smolpaws") {
+  if (!senderLogin || isAgentLogin(senderLogin)) {
     return null;
   }
 
