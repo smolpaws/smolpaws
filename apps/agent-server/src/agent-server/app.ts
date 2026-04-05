@@ -16,6 +16,7 @@ import { registerGitRoutes } from "./gitRouter.js";
 import { registerBashRoutes } from "./bashRouter.js";
 import { registerConversationRoutes } from "./conversationRouter.js";
 import { registerEventRoutes } from "./eventRouter.js";
+import { registerActivityRoutes } from "./activityRouter.js";
 
 function registerErrorHandler(
   app: FastifyInstance,
@@ -90,6 +91,7 @@ export async function createAgentServerApp(
   registerBashRoutes(app, deps);
   registerConversationRoutes(app, deps);
   registerEventRoutes(app, deps);
+  registerActivityRoutes(app, deps);
   registerErrorHandler(app);
 
   return { app, deps };
