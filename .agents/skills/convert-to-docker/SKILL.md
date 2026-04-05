@@ -206,7 +206,7 @@ Yes. SmolPaws uses Docker, which works on both macOS and Linux. Just install Doc
 
 ## 5. Update Skills
 
-### 5a. Update `.claude/skills/setup/SKILL.md`
+### 5a. Update `.agents/skills/setup/SKILL.md`
 
 Replace Section 2 "Install Apple Container" with Docker installation:
 
@@ -255,7 +255,7 @@ echo '{}' | docker run -i --entrypoint /bin/echo smolpaws-agent:latest "Containe
 
 Update troubleshooting section to reference Docker commands.
 
-### 5b. Update `.claude/skills/debug/SKILL.md`
+### 5b. Update `.agents/skills/debug/SKILL.md`
 
 Replace all `container` commands with `docker` equivalents:
 
@@ -359,5 +359,5 @@ Check directory permissions on the host. The container runs as uid 1000.
 | `README.md` | Requirements, FAQ |
 | `docs/REQUIREMENTS.md` | Architecture references |
 | `docs/SPEC.md` | Architecture diagram, tech stack |
-| `.claude/skills/setup/SKILL.md` | Installation instructions |
-| `.claude/skills/debug/SKILL.md` | Debug commands |
+| `.agents/skills/setup/SKILL.md` | Installation instructions |
+| `.agents/skills/debug/SKILL.md` | Debug commands |
