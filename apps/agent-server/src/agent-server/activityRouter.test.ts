@@ -199,6 +199,18 @@ test("GET /api/activity marks persisted running turns as stuck", async () => {
     },
   });
 
+  seedConversation(persistenceRoot, "plain-openhands-thread", {
+    events: [
+      {
+        kind: "ConversationStateUpdateEvent",
+        id: "state-plain",
+        source: "agent",
+        timestamp: new Date(now.getTime() + 10_000).toISOString(),
+        agent_status: "RUNNING",
+      },
+    ],
+  });
+
   const deps = createAgentServerDeps({
     SMOLPAWS_PERSISTENCE_DIR: persistenceRoot,
     SMOLPAWS_RUNNER_TOKEN: "secret-token",
@@ -250,6 +262,10 @@ test("GET /api/activity marks persisted running turns as stuck", async () => {
     assert.equal(whatsappItem.ingress, "whatsapp");
     assert.equal(whatsappItem.target, "main");
     assert.equal(whatsappItem.execution_status, "completed");
+    assert.equal(
+      payload.items.some((item) => item.id === "plain-openhands-thread"),
+      false,
+    );
   } finally {
     await app.close();
     rmSync(tempRoot, { recursive: true, force: true });

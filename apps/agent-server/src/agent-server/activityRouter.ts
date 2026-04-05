@@ -816,11 +816,12 @@ export function registerActivityRoutes(
       const items = await Promise.all(
         infos.map(async (info) => await buildActivityItem(info, deps)),
       );
-      items.sort(
+      const smolpawsItems = items.filter((item) => item.ingress !== "unknown");
+      smolpawsItems.sort(
         (left, right) =>
           new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime(),
       );
-      const limitedItems = items.slice(0, limit);
+      const limitedItems = smolpawsItems.slice(0, limit);
 
       return {
         server_time: new Date().toISOString(),
