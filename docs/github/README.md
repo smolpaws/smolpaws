@@ -142,7 +142,7 @@ npm run runner:local
 3. Expose the local runner:
 
 ```bash
-cloudflared tunnel --url http://localhost:8788
+cloudflared tunnel --url http://127.0.0.1:8788
 ```
 
 4. Update the deployed Worker secret `SMOLPAWS_RUNNER_URL` to the public tunnel URL.
@@ -158,7 +158,7 @@ Quick checks:
 
 ```bash
 curl http://127.0.0.1:8788/health
-curl https://smolpaws.liberty-labs.org/health
+curl https://<your-worker-domain>/health
 ```
 
 This mode is preferred when Cloudflare already has the GitHub App secrets and you do not want to duplicate them into a local Worker dev setup.

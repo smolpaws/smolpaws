@@ -165,17 +165,14 @@ For GitHub-triggered runs, the agent-server resolves the local working directory
 
 ### Recommended real webhook test flow on this machine
 
-The real webhook path we have actually used and verified on this machine is:
+Follow the detailed tunnel workflow in [README.md](README.md#recommended-local-test-flow).
 
-1. keep GitHub pointed at the **deployed** Worker webhook URL
-2. run the local agent-server on `127.0.0.1:8788`
-3. expose it with:
+Operationally, the verified setup is:
 
-```bash
-cloudflared tunnel --url http://localhost:8788
-```
-
-4. update the deployed Worker secret `SMOLPAWS_RUNNER_URL` to the resulting public tunnel URL
+- keep GitHub pointed at the **deployed** Worker webhook URL
+- run the local agent-server on `127.0.0.1:8788`
+- expose that runner with `cloudflared tunnel --url http://127.0.0.1:8788`
+- point the deployed Worker secret `SMOLPAWS_RUNNER_URL` at the tunnel URL
 
 This keeps GitHub talking to the real Cloudflare ingress, while Cloudflare talks back to your local runner through the tunnel.
 
