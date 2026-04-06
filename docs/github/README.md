@@ -128,6 +128,63 @@ npm run github:test
 
 This includes the Worker -> agent-server contract test and notifications-path coverage for issue-body mentions in repos where the GitHub App is not installed.
 
+## Local run modes
+
+There are two different ways to run GitHub ingress locally, and they behave differently.
+
+### 1) Local Worker mode
+
+```bash
+npm run github:dev
+```
+
+This is now the canonical local launcher. It runs `scripts/run-local-github-worker.sh`, which:
+
+- loads `~/.smolpaws/.env` if present
+- defaults `SMOLPAWS_RUNNER_URL` to `http://127.0.0.1:8788`
+- writes a temporary `apps/github/.dev.vars.smolpaws`
+- starts `wrangler dev --env smolpaws`
+
+Important:
+
+- local `wrangler dev` does **not** automatically pull deployed Cloudflare Worker secrets
+- if you want webhook handling on `localhost:8787`, local secrets such as `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_ID`, and `GITHUB_APP_PRIVATE_KEY` must exist locally (for example in `~/.smolpaws/.env`)
+- `GITHUB_TOKEN` by itself is not enough for GitHub App webhook testing
+
+Quick checks:
+
+```bash
+curl http://127.0.0.1:8787/health
+curl http://127.0.0.1:8788/health
+```
+
+### 2) Deployed Worker + local runner mode
+
+This is the easiest real end-to-end GitHub test path on this machine.
+
+1. Keep the GitHub App webhook pointed at the deployed Worker domain.
+2. Start the local runner:
+
+```bash
+npm run runner:local
+```
+
+3. Expose the local runner:
+
+```bash
+/opt/homebrew/bin/cloudflared tunnel --url http://localhost:8788
+```
+
+4. Update the deployed Worker secret `SMOLPAWS_RUNNER_URL` to the public tunnel URL.
+
+In this mode:
+
+- GitHub still talks to Cloudflare
+- Cloudflare then talks back to your laptop through the tunnel
+- the tunnel only works while the `cloudflared` process stays running
+
+This mode is preferred when Cloudflare already has the GitHub App secrets and you do not want to duplicate them into local dev files.
+
 ### Required env vars
 
 - `LLM_PROFILE_ID` (optional if VS Code user settings already define `openhands.llm.profileId`)
@@ -145,6 +202,13 @@ This includes the Worker -> agent-server contract test and notifications-path co
 - `SMOLPAWS_PERSISTENCE_DIR` (optional persistence root; defaults to `~/.openhands/conversations`)
 - `SMOLPAWS_VSCODE_SETTINGS_PATH` (optional override for the VS Code user settings file used to resolve `openhands.llm.profileId`)
 - `OPENHANDS_CONVERSATIONS_DIR` (optional alias for persistence root)
+
+For local Worker webhook tests, also add these locally if you want `localhost:8787` to process real GitHub App webhook payloads:
+
+- `GITHUB_WEBHOOK_SECRET`
+- `GITHUB_APP_ID`
+- `GITHUB_APP_PRIVATE_KEY`
+- `SMOLPAWS_RUNNER_URL`
 
 ## Deployment alternatives
 

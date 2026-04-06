@@ -163,5 +163,40 @@ For GitHub-triggered runs, the agent-server resolves the local working directory
 
 ## 5) Operational notes
 
+### Local worker vs deployed worker
+
+Be explicit about which mode you are testing:
+
+- `npm run github:dev` runs a **local** Worker on `http://127.0.0.1:8787`
+- the deployed Worker lives at your public Cloudflare domain
+
+Important:
+
+- local `wrangler dev` does **not** automatically use deployed Cloudflare secrets
+- only values present in local Worker vars / `.dev.vars` are available to the local Worker process
+- in this repo, `npm run github:dev` now goes through `scripts/run-local-github-worker.sh`, which loads `~/.smolpaws/.env` and writes a temporary local `.dev.vars.smolpaws`
+
+That means:
+
+- WhatsApp and the local agent-server already read `~/.smolpaws/.env`
+- GitHub local dev now does too
+- but you still need the GitHub App secrets locally if you want the **local** worker to validate webhook requests
+
+### Recommended real webhook test flow on this machine
+
+The simplest real test path is:
+
+1. keep GitHub pointed at the **deployed** Worker webhook URL
+2. run the local agent-server on `127.0.0.1:8788`
+3. expose it with:
+
+```bash
+/opt/homebrew/bin/cloudflared tunnel --url http://localhost:8788
+```
+
+4. update the deployed Worker secret `SMOLPAWS_RUNNER_URL` to the resulting public tunnel URL
+
+This avoids copying GitHub App secrets into local Worker dev config and keeps GitHub talking to the real Cloudflare ingress.
+
 - The notifications path marks threads as read after enqueueing. If a queue job fails and retries, it will not be re-enqueued by polling (but the queued message will still retry).
 - For private repos, the `smolpaws` user must have repo access or notifications will not be delivered.
