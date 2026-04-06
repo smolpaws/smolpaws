@@ -197,6 +197,10 @@ test('scheduled notifications queue issue-body mentions when latest_comment_url 
           repository_url: 'https://api.github.com/repos/enyst/OpenHands-Tab',
         },
       },
+      'https://api.github.com/repos/enyst/OpenHands-Tab/issues/123/comments?per_page=50&sort=updated&direction=desc':
+        {
+          body: [],
+        },
       'https://api.github.com/notifications/threads/thread-1': {
         body: {},
       },
@@ -505,6 +509,183 @@ test('scheduled notifications queue pull request review-comment mentions with pu
       notification_thread_id: 'thread-3',
     },
   });
+});
+
+test('scheduled notifications recover inline pull request review-comment mentions when latest_comment_url is missing', async () => {
+  const pullUrl = 'https://api.github.com/repos/enyst/OpenHands-Tab/pulls/456';
+  const issueCommentsUrl =
+    'https://api.github.com/repos/enyst/OpenHands-Tab/issues/456/comments?per_page=50&sort=updated&direction=desc';
+  const reviewCommentsUrl =
+    'https://api.github.com/repos/enyst/OpenHands-Tab/pulls/456/comments?per_page=50&sort=updated&direction=desc';
+  const reviewsUrl =
+    'https://api.github.com/repos/enyst/OpenHands-Tab/pulls/456/reviews?per_page=50';
+  const { sent } = await runScheduled({
+    notifications: [
+      {
+        id: 'thread-inline-fallback',
+        reason: 'mention',
+        updated_at: '2026-04-06T16:37:38Z',
+        subject: {
+          url: pullUrl,
+          type: 'PullRequest',
+        },
+        repository: {
+          full_name: 'enyst/OpenHands-Tab',
+          owner: { login: 'enyst' },
+        },
+      },
+    ],
+    responses: {
+      [pullUrl]: {
+        body: {
+          number: 456,
+          body: 'no mention in the PR body',
+          user: { login: 'someone-else', id: 1 },
+          url: pullUrl,
+          repository_url: 'https://api.github.com/repos/enyst/OpenHands-Tab',
+          pull_request: {},
+        },
+      },
+      [issueCommentsUrl]: {
+        body: [],
+      },
+      [reviewCommentsUrl]: {
+        body: [
+          {
+            id: 3040487887,
+            body: '@smolpaws please pick this up from the inline thread',
+            user: { login: 'enyst', id: 9 },
+            pull_request_url: pullUrl,
+            created_at: '2026-04-06T16:36:14Z',
+            updated_at: '2026-04-06T16:36:14Z',
+          },
+        ],
+      },
+      [reviewsUrl]: {
+        body: [],
+      },
+      'https://api.github.com/notifications/threads/thread-inline-fallback': {
+        body: {},
+      },
+    },
+  });
+
+  assert.deepEqual(sent, [
+    {
+      event: 'pull_request_review_comment',
+      delivery_id: 'pull_request_review_comment:enyst/openhands-tab:comment:3040487887',
+      payload: {
+        action: 'created',
+        sender: { login: 'enyst', id: 9 },
+        comment: {
+          body: '@smolpaws please pick this up from the inline thread',
+          id: 3040487887,
+        },
+        repository: {
+          full_name: 'enyst/OpenHands-Tab',
+          owner: { login: 'enyst' },
+        },
+        issue: {
+          number: 456,
+        },
+        pull_request: {
+          number: 456,
+        },
+      },
+      meta: {
+        ingress: 'github_notifications',
+        notification_thread_id: 'thread-inline-fallback',
+      },
+    },
+  ]);
+});
+
+test('scheduled notifications recover pull request review-body mentions when latest_comment_url is missing', async () => {
+  const pullUrl = 'https://api.github.com/repos/enyst/OpenHands-Tab/pulls/789';
+  const issueCommentsUrl =
+    'https://api.github.com/repos/enyst/OpenHands-Tab/issues/789/comments?per_page=50&sort=updated&direction=desc';
+  const reviewCommentsUrl =
+    'https://api.github.com/repos/enyst/OpenHands-Tab/pulls/789/comments?per_page=50&sort=updated&direction=desc';
+  const reviewsUrl =
+    'https://api.github.com/repos/enyst/OpenHands-Tab/pulls/789/reviews?per_page=50';
+  const { sent } = await runScheduled({
+    notifications: [
+      {
+        id: 'thread-review-fallback',
+        reason: 'mention',
+        updated_at: '2026-04-06T16:50:00Z',
+        subject: {
+          url: pullUrl,
+          type: 'PullRequest',
+        },
+        repository: {
+          full_name: 'enyst/OpenHands-Tab',
+          owner: { login: 'enyst' },
+        },
+      },
+    ],
+    responses: {
+      [pullUrl]: {
+        body: {
+          number: 789,
+          body: 'no mention in the PR body either',
+          user: { login: 'someone-else', id: 1 },
+          url: pullUrl,
+          repository_url: 'https://api.github.com/repos/enyst/OpenHands-Tab',
+          pull_request: {},
+        },
+      },
+      [issueCommentsUrl]: {
+        body: [],
+      },
+      [reviewCommentsUrl]: {
+        body: [],
+      },
+      [reviewsUrl]: {
+        body: [
+          {
+            id: 555,
+            body: '@smolpaws weigh in on this approval review too',
+            user: { login: 'enyst', id: 11 },
+            submitted_at: '2026-04-06T16:49:45Z',
+            pull_request_url: pullUrl,
+          },
+        ],
+      },
+      'https://api.github.com/notifications/threads/thread-review-fallback': {
+        body: {},
+      },
+    },
+  });
+
+  assert.deepEqual(sent, [
+    {
+      event: 'pull_request_review_comment',
+      delivery_id: 'pull_request_review_comment:enyst/openhands-tab:comment:555',
+      payload: {
+        action: 'created',
+        sender: { login: 'enyst', id: 11 },
+        comment: {
+          body: '@smolpaws weigh in on this approval review too',
+          id: 555,
+        },
+        repository: {
+          full_name: 'enyst/OpenHands-Tab',
+          owner: { login: 'enyst' },
+        },
+        issue: {
+          number: 789,
+        },
+        pull_request: {
+          number: 789,
+        },
+      },
+      meta: {
+        ingress: 'github_notifications',
+        notification_thread_id: 'thread-review-fallback',
+      },
+    },
+  ]);
 });
 
 test('scheduled notifications re-enqueue new mentions on the same thread when latest_comment_url changes', async () => {

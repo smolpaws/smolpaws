@@ -76,7 +76,7 @@ crons = ["* * * * *"]
 On each tick the Worker:
 1. Calls `GET https://api.github.com/notifications?per_page=50`
 2. Filters notifications where `reason == "mention"`
-3. Prefers the latest comment (`subject.latest_comment_url`) when present, but falls back to the issue thread object itself for issue-body mentions
+3. Prefers the latest comment (`subject.latest_comment_url`) when present. If GitHub omits it, the Worker reconstructs the mention from the issue/PR body plus recent issue comments, PR review comments, and PR reviews.
 4. Enqueues a queue message for processing
 5. Marks the notification thread as read
 
@@ -181,6 +181,7 @@ Important:
 - the deployed Worker already holds the GitHub App secrets in Cloudflare
 - the tunnel only needs to expose the local runner
 - if the tunnel dies, the deployed Worker will stop reaching your local runner until `SMOLPAWS_RUNNER_URL` is updated again
+- To debug notification decisions on the deployed Worker, run `cd apps/github && wrangler tail` and watch for `github.notifications.*` and `github.queue.*` log markers. `thread_id` is the GitHub notification thread id; `notification_thread_id` is the same id carried into the queue consumer.
 
 - The notifications path marks threads as read after enqueueing. If a queue job fails and retries, it will not be re-enqueued by polling (but the queued message will still retry).
 - For private repos, the `smolpaws` user must have repo access or notifications will not be delivered.

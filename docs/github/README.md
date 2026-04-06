@@ -126,7 +126,7 @@ This runs the real Fastify app through `app.inject(...)` with a fake OpenAI-comp
 npm run github:test
 ```
 
-This includes the Worker -> agent-server contract test and notifications-path coverage for issue-body mentions in repos where the GitHub App is not installed.
+This includes the Worker -> agent-server contract test and notifications-path coverage for issue-body mentions, inline PR review comments, and PR review bodies in repos where the GitHub App is not installed.
 
 ## Recommended local test flow
 
@@ -162,6 +162,43 @@ curl https://<your-worker-domain>/health
 ```
 
 This mode is preferred when Cloudflare already has the GitHub App secrets and you do not want to duplicate them into a local Worker dev setup.
+
+### Debugging the deployed Worker
+
+When a GitHub notification flips from unread to read but nothing shows up under `~/.openhands/conversations`, inspect the deployed Worker logs first:
+
+```bash
+cd apps/github
+wrangler tail
+```
+
+The Worker emits stable log markers for the notifications path:
+
+- `github.notifications.poll.fetched`
+- `github.notifications.read.already_enqueued_notification`
+- `github.notifications.read.no_valid_mention`
+- `github.notifications.read.blocked_by_allowlist`
+- `github.notifications.read.duplicate_mention_identity`
+- `github.notifications.queue.enqueued`
+- `github.queue.process.start`
+- `github.queue.process.completed`
+
+Useful fields in those logs:
+
+- `thread_id`: GitHub notification thread id
+- `repo`
+- `issue_number`
+- `actor`
+- `dedupe_identity`
+- `mention_identity`
+- `notification_thread_id`
+
+The useful split is:
+
+- `github.notifications.*` explains why the notifications poller marked a thread read
+- `github.queue.*` shows whether the queued message actually made it through runner delivery
+
+When GitHub omits `subject.latest_comment_url` for a `reason: "mention"` notification, the Worker now reconstructs the mention by scanning the thread body plus recent issue comments, PR review comments, and PR reviews, then chooses the best candidate near the notification timestamp.
 
 ### Required env vars
 

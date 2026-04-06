@@ -46,6 +46,37 @@ function buildNotificationsPollUrl(nowMs = Date.now()): string {
   return url.toString();
 }
 
+function buildNotificationLogContext(
+  notification: GithubNotification,
+): Record<string, unknown> {
+  return {
+    thread_id: notification.id ?? null,
+    reason: notification.reason ?? null,
+    unread: notification.unread ?? null,
+    updated_at: notification.updated_at ?? null,
+    last_read_at: notification.last_read_at ?? null,
+    repo: notification.repository?.full_name ?? null,
+    subject_type: notification.subject?.type ?? null,
+    subject_title: notification.subject?.title ?? null,
+    latest_comment_url: notification.subject?.latest_comment_url ?? null,
+    subject_url: notification.subject?.url ?? null,
+  };
+}
+
+function logNotificationDecision(
+  stage: string,
+  details: Record<string, unknown>,
+): void {
+  console.log(`github.notifications.${stage}`, details);
+}
+
+function logQueueDelivery(
+  stage: string,
+  details: Record<string, unknown>,
+): void {
+  console.log(`github.queue.${stage}`, details);
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -278,6 +309,14 @@ async function processQueueMessage(
   }
 
   try {
+    logQueueDelivery("process.start", {
+      delivery_id: message.body.delivery_id ?? null,
+      ingress: message.body.meta?.ingress ?? null,
+      notification_thread_id: message.body.meta?.notification_thread_id ?? null,
+      repo: repoFullName,
+      issue_number: issueNumber,
+      installation_id: installationId ?? null,
+    });
     const token = await resolveGithubToken({ env, installationId });
     const agentResult = await dispatchToAgentServer(message.body, env);
     const outboundMessages = agentResult?.outbound_messages ?? [];
@@ -292,8 +331,12 @@ async function processQueueMessage(
     }
 
     const replyBody = resolveQueueReplyBody(agentResult);
+    const postedReply =
+      replyBody
+        ? shouldPostReplyAfterOutbound(replyBody, outboundMessages)
+        : false;
 
-    if (replyBody && shouldPostReplyAfterOutbound(replyBody, outboundMessages)) {
+    if (replyBody && postedReply) {
       await postIssueComment({
         token,
         repoFullName,
@@ -302,9 +345,33 @@ async function processQueueMessage(
       });
     }
 
+    logQueueDelivery("process.completed", {
+      delivery_id: message.body.delivery_id ?? null,
+      ingress: message.body.meta?.ingress ?? null,
+      notification_thread_id: message.body.meta?.notification_thread_id ?? null,
+      repo: repoFullName,
+      issue_number: issueNumber,
+      outbound_count: outboundMessages.length,
+      posted_reply: postedReply,
+      runner_result: agentResult === null
+        ? "runner_not_configured"
+        : outboundMessages.length > 0
+          ? "outbound_messages"
+          : agentResult?.reply
+            ? "reply_only"
+            : "no_reply",
+    });
+
     message.ack();
   } catch (error) {
-    console.error("Queue message processing failed", error);
+    console.error("Queue message processing failed", {
+      delivery_id: message.body.delivery_id ?? null,
+      ingress: message.body.meta?.ingress ?? null,
+      notification_thread_id: message.body.meta?.notification_thread_id ?? null,
+      repo: repoFullName,
+      issue_number: issueNumber,
+      error,
+    });
     message.retry({ delaySeconds: 30 });
   }
 }
@@ -328,10 +395,14 @@ export function resolveQueueReplyBody(
 type GithubNotification = {
   id?: string;
   reason?: string;
+  unread?: boolean;
+  updated_at?: string;
+  last_read_at?: string | null;
   subject?: {
     url?: string;
     latest_comment_url?: string;
     type?: string;
+    title?: string;
   };
   repository?: {
     full_name?: string;
@@ -345,6 +416,8 @@ type GithubMentionComment = {
   user?: { login?: string; id?: number };
   issue_url?: string;
   pull_request_url?: string;
+  created_at?: string;
+  updated_at?: string;
 };
 
 type GithubMentionIssue = {
@@ -357,6 +430,14 @@ type GithubMentionIssue = {
   pull_request?: unknown;
 };
 
+type GithubPullRequestReview = {
+  id?: number;
+  body?: string | null;
+  user?: { login?: string; id?: number };
+  submitted_at?: string;
+  pull_request_url?: string;
+};
+
 type NotificationMention = {
   event: SmolpawsEvent;
   body: string;
@@ -367,6 +448,11 @@ type NotificationMention = {
   pullRequestNumber?: number;
   repoFullName: string;
   ownerLogin: string;
+};
+
+type NotificationMentionCandidate = NotificationMention & {
+  timestamp?: string;
+  source: string;
 };
 
 function normalizeToken(value?: string): string | null {
@@ -458,6 +544,276 @@ function parseIssueOrPrNumberFromApiUrl(url?: string): number | undefined {
   return Number(match[2]);
 }
 
+function parseComparableTimestamp(value?: string | null): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function buildCommentMentionCandidate(options: {
+  event: SmolpawsEvent;
+  body: string;
+  senderLogin?: string;
+  senderId?: number;
+  commentId?: number;
+  issueNumber?: number;
+  pullRequestNumber?: number;
+  repoFullName?: string;
+  ownerLogin?: string;
+  timestamp?: string;
+  source: string;
+}): NotificationMentionCandidate | null {
+  if (!containsMention(options.body)) {
+    return null;
+  }
+
+  const senderLogin = options.senderLogin;
+  if (!senderLogin || isAgentLogin(senderLogin)) {
+    return null;
+  }
+
+  if (!options.repoFullName || !options.ownerLogin || !options.issueNumber) {
+    return null;
+  }
+
+  return {
+    event: options.event,
+    body: options.body,
+    senderLogin,
+    ...(typeof options.senderId === "number" ? { senderId: options.senderId } : {}),
+    ...(typeof options.commentId === "number" ? { commentId: options.commentId } : {}),
+    issueNumber: options.issueNumber,
+    ...(typeof options.pullRequestNumber === "number"
+      ? { pullRequestNumber: options.pullRequestNumber }
+      : {}),
+    repoFullName: options.repoFullName,
+    ownerLogin: options.ownerLogin,
+    ...(options.timestamp ? { timestamp: options.timestamp } : {}),
+    source: options.source,
+  };
+}
+
+function buildIssueBodyMentionCandidate(options: {
+  issue: GithubMentionIssue;
+  repoFullName?: string;
+  ownerLogin?: string;
+  issueNumber?: number;
+  pullRequestNumber?: number;
+  source: string;
+}): NotificationMentionCandidate | null {
+  return buildCommentMentionCandidate({
+    event: "issues",
+    body: options.issue.body ?? "",
+    senderLogin: options.issue.user?.login,
+    senderId: options.issue.user?.id,
+    issueNumber: options.issueNumber ?? options.issue.number,
+    pullRequestNumber: options.pullRequestNumber,
+    repoFullName: options.repoFullName,
+    ownerLogin: options.ownerLogin,
+    source: options.source,
+  });
+}
+
+function chooseBestNotificationMention(
+  candidates: NotificationMentionCandidate[],
+  notification: GithubNotification,
+): NotificationMention | null {
+  if (!candidates.length) {
+    return null;
+  }
+
+  const notificationUpdatedAtMs = parseComparableTimestamp(notification.updated_at);
+  const withinNotificationWindow = candidates.filter((candidate) => {
+    const candidateTimestampMs = parseComparableTimestamp(candidate.timestamp);
+    if (notificationUpdatedAtMs === null || candidateTimestampMs === null) {
+      return false;
+    }
+    return candidateTimestampMs <= notificationUpdatedAtMs + 1_000;
+  });
+
+  const pool = withinNotificationWindow.length > 0 ? withinNotificationWindow : candidates;
+  const sorted = pool.slice().sort((left, right) => {
+    const leftTs = parseComparableTimestamp(left.timestamp) ?? Number.NEGATIVE_INFINITY;
+    const rightTs = parseComparableTimestamp(right.timestamp) ?? Number.NEGATIVE_INFINITY;
+    if (leftTs !== rightTs) {
+      return rightTs - leftTs;
+    }
+    return left.source.localeCompare(right.source);
+  });
+
+  const [best] = sorted;
+  if (!best) {
+    return null;
+  }
+
+  const { timestamp: _timestamp, source: _source, ...mention } = best;
+  return mention;
+}
+
+async function fetchGithubApiJsonOrNull<T>(options: {
+  token: string;
+  url: string;
+  threadId?: string;
+  errorLabel: string;
+}): Promise<T | null> {
+  const response = await githubApiFetch(options.token, options.url);
+  if (!response.ok) {
+    const text = await response.text();
+    console.error(options.errorLabel, {
+      threadId: options.threadId,
+      status: response.status,
+      text,
+      url: options.url,
+    });
+    return null;
+  }
+  return (await response.json()) as T;
+}
+
+async function fetchNotificationMentionWithoutLatestComment(
+  notification: GithubNotification,
+  token: string,
+): Promise<NotificationMention | null> {
+  const subjectUrl = notification.subject?.url;
+  if (!subjectUrl) {
+    return null;
+  }
+
+  if (!isTrustedGithubApiUrl(subjectUrl)) {
+    console.error("Invalid notification subject url", {
+      threadId: notification.id,
+      subjectUrl,
+    });
+    return null;
+  }
+
+  const subject = await fetchGithubApiJsonOrNull<GithubMentionIssue>({
+    token,
+    url: subjectUrl,
+    threadId: notification.id,
+    errorLabel: "Failed to fetch mention issue thread",
+  });
+  if (!subject) {
+    return null;
+  }
+
+  const repoFullName =
+    notification.repository?.full_name ??
+    parseRepoFullNameFromApiUrl(subject.repository_url ?? subject.url ?? subjectUrl);
+  const ownerLogin =
+    notification.repository?.owner?.login ??
+    (repoFullName ? repoFullName.split("/")[0] : undefined);
+  const issueNumber =
+    subject.number ??
+    parseIssueOrPrNumberFromApiUrl(subject.url ?? subjectUrl);
+  const pullRequestNumber =
+    subject.pull_request || notification.subject?.type === "PullRequest"
+      ? issueNumber
+      : undefined;
+
+  if (!repoFullName || !ownerLogin || !issueNumber) {
+    console.error("Notification issue missing repository context", {
+      threadId: notification.id,
+      repoFullName,
+      ownerLogin,
+      issueNumber,
+    });
+    return null;
+  }
+
+  const candidates: NotificationMentionCandidate[] = [];
+  const subjectCandidate = buildIssueBodyMentionCandidate({
+    issue: subject,
+    repoFullName,
+    ownerLogin,
+    issueNumber,
+    pullRequestNumber,
+    source: "subject",
+  });
+  if (subjectCandidate) {
+    candidates.push(subjectCandidate);
+  }
+
+  const issueComments = await fetchGithubApiJsonOrNull<GithubMentionComment[]>({
+    token,
+    url: `https://api.github.com/repos/${repoFullName}/issues/${issueNumber}/comments?per_page=50&sort=updated&direction=desc`,
+    threadId: notification.id,
+    errorLabel: "Failed to fetch notification issue comments",
+  });
+  for (const comment of issueComments ?? []) {
+    const candidate = buildCommentMentionCandidate({
+      event: "issue_comment",
+      body: comment.body ?? "",
+      senderLogin: comment.user?.login,
+      senderId: comment.user?.id,
+      commentId: comment.id,
+      issueNumber,
+      pullRequestNumber,
+      repoFullName,
+      ownerLogin,
+      timestamp: comment.updated_at ?? comment.created_at,
+      source: "issue_comment",
+    });
+    if (candidate) {
+      candidates.push(candidate);
+    }
+  }
+
+  if (pullRequestNumber) {
+    const reviewComments = await fetchGithubApiJsonOrNull<GithubMentionComment[]>({
+      token,
+      url: `https://api.github.com/repos/${repoFullName}/pulls/${pullRequestNumber}/comments?per_page=50&sort=updated&direction=desc`,
+      threadId: notification.id,
+      errorLabel: "Failed to fetch notification pull request review comments",
+    });
+    for (const comment of reviewComments ?? []) {
+      const candidate = buildCommentMentionCandidate({
+        event: "pull_request_review_comment",
+        body: comment.body ?? "",
+        senderLogin: comment.user?.login,
+        senderId: comment.user?.id,
+        commentId: comment.id,
+        issueNumber,
+        pullRequestNumber,
+        repoFullName,
+        ownerLogin,
+        timestamp: comment.updated_at ?? comment.created_at,
+        source: "pull_request_review_comment",
+      });
+      if (candidate) {
+        candidates.push(candidate);
+      }
+    }
+
+    const reviews = await fetchGithubApiJsonOrNull<GithubPullRequestReview[]>({
+      token,
+      url: `https://api.github.com/repos/${repoFullName}/pulls/${pullRequestNumber}/reviews?per_page=50`,
+      threadId: notification.id,
+      errorLabel: "Failed to fetch notification pull request reviews",
+    });
+    for (const review of reviews ?? []) {
+      const candidate = buildCommentMentionCandidate({
+        event: "pull_request_review_comment",
+        body: review.body ?? "",
+        senderLogin: review.user?.login,
+        senderId: review.user?.id,
+        commentId: review.id,
+        issueNumber,
+        pullRequestNumber,
+        repoFullName,
+        ownerLogin,
+        timestamp: review.submitted_at,
+        source: "pull_request_review",
+      });
+      if (candidate) {
+        candidates.push(candidate);
+      }
+    }
+  }
+
+  return chooseBestNotificationMention(candidates, notification);
+}
+
 async function fetchNotificationMention(
   notification: GithubNotification,
   token: string,
@@ -534,75 +890,7 @@ async function fetchNotificationMention(
     };
   }
 
-  const subjectUrl = notification.subject?.url;
-  if (!subjectUrl) {
-    return null;
-  }
-
-  if (!isTrustedGithubApiUrl(subjectUrl)) {
-    console.error("Invalid notification subject url", {
-      threadId: notification.id,
-      subjectUrl,
-    });
-    return null;
-  }
-
-  const issueResponse = await githubApiFetch(token, subjectUrl);
-  if (!issueResponse.ok) {
-    const text = await issueResponse.text();
-    console.error("Failed to fetch mention issue thread", {
-      threadId: notification.id,
-      status: issueResponse.status,
-      text,
-    });
-    return null;
-  }
-
-  const issue = (await issueResponse.json()) as GithubMentionIssue;
-  const body = issue.body ?? "";
-  if (!containsMention(body)) {
-    return null;
-  }
-
-  const senderLogin = issue.user?.login;
-  if (!senderLogin || isAgentLogin(senderLogin)) {
-    return null;
-  }
-
-  const repoFullName =
-    notification.repository?.full_name ??
-    parseRepoFullNameFromApiUrl(issue.repository_url ?? issue.url ?? subjectUrl);
-  const ownerLogin =
-    notification.repository?.owner?.login ??
-    (repoFullName ? repoFullName.split("/")[0] : undefined);
-  const issueNumber =
-    issue.number ??
-    parseIssueOrPrNumberFromApiUrl(issue.url ?? subjectUrl);
-  const pullRequestNumber =
-    issue.pull_request || notification.subject?.type === "PullRequest"
-      ? issueNumber
-      : undefined;
-
-  if (!repoFullName || !ownerLogin || !issueNumber) {
-    console.error("Notification issue missing repository context", {
-      threadId: notification.id,
-      repoFullName,
-      ownerLogin,
-      issueNumber,
-    });
-    return null;
-  }
-
-  return {
-    event: "issues",
-    body,
-    senderLogin,
-    senderId: issue.user?.id,
-    issueNumber,
-    pullRequestNumber,
-    repoFullName,
-    ownerLogin,
-  };
+  return fetchNotificationMentionWithoutLatestComment(notification, token);
 }
 
 async function markNotificationThreadRead(
@@ -760,6 +1048,10 @@ async function pollGithubNotifications(env: Env): Promise<void> {
   }
 
   const notifications = (await response.json()) as GithubNotification[];
+  logNotificationDecision("poll.fetched", {
+    count: notifications.length,
+    mention_count: notifications.filter((notification) => notification.reason === "mention").length,
+  });
 
   await forEachWithConcurrency(
     notifications,
@@ -785,17 +1077,26 @@ async function handleNotification(
 
   const threadId = notification.id;
   if (!threadId) {
+    logNotificationDecision("skip.missing_thread_id", buildNotificationLogContext(notification));
     return;
   }
 
   const dedupeIdentity = notificationDedupeIdentity(notification);
   if (await wasNotificationEnqueued(dedupeIdentity)) {
+    logNotificationDecision("read.already_enqueued_notification", {
+      ...buildNotificationLogContext(notification),
+      dedupe_identity: dedupeIdentity,
+    });
     await markNotificationThreadRead(threadId, token);
     return;
   }
 
   const mention = await fetchNotificationMention(notification, token);
   if (!mention) {
+    logNotificationDecision("read.no_valid_mention", {
+      ...buildNotificationLogContext(notification),
+      dedupe_identity: dedupeIdentity,
+    });
     await markNotificationThreadRead(threadId, token);
     return;
   }
@@ -820,12 +1121,29 @@ async function handleNotification(
   };
 
   if (!isAllowed(payload, env)) {
+    logNotificationDecision("read.blocked_by_allowlist", {
+      ...buildNotificationLogContext(notification),
+      dedupe_identity: dedupeIdentity,
+      actor: mention.senderLogin,
+      event: mention.event,
+      issue_number: mention.issueNumber,
+      repo: mention.repoFullName,
+    });
     await markNotificationThreadRead(threadId, token);
     return;
   }
 
   const mentionIdentity = githubMentionIdentity(payload, mention.event);
   if (mentionIdentity && await wasGithubMentionEnqueued(mentionIdentity)) {
+    logNotificationDecision("read.duplicate_mention_identity", {
+      ...buildNotificationLogContext(notification),
+      dedupe_identity: dedupeIdentity,
+      mention_identity: mentionIdentity,
+      actor: mention.senderLogin,
+      event: mention.event,
+      issue_number: mention.issueNumber,
+      repo: mention.repoFullName,
+    });
     await markNotificationEnqueued(dedupeIdentity);
     await markNotificationThreadRead(threadId, token);
     return;
@@ -841,6 +1159,16 @@ async function handleNotification(
     },
   };
 
+  logNotificationDecision("queue.enqueued", {
+    ...buildNotificationLogContext(notification),
+    dedupe_identity: dedupeIdentity,
+    mention_identity: mentionIdentity ?? null,
+    actor: mention.senderLogin,
+    event: mention.event,
+    issue_number: mention.issueNumber,
+    pull_request_number: mention.pullRequestNumber ?? null,
+    repo: mention.repoFullName,
+  });
   await env.SMOLPAWS_QUEUE.send(queueMessage);
   if (mentionIdentity) {
     await markGithubMentionEnqueued(mentionIdentity);
