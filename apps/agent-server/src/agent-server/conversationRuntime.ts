@@ -346,6 +346,9 @@ function buildEnvironmentInformationBlock(params: {
     if (actorLogin) {
       lines.push(`- GitHub actor: ${actorLogin}`);
     }
+    lines.push(
+      "- Be careful when comparing against GitHub branches or main: local clones under ~/repos may be stale or detached. Fetch the relevant remote refs before treating local main/upstream branches as authoritative.",
+    );
   }
 
   if (ingress === 'heartbeat') {

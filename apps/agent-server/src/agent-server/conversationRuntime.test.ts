@@ -417,6 +417,10 @@ test('POST /api/conversations sends repo skills, user skills, tools, and environ
     assert.match(systemPrompt, /GitHub repository: owner\/repo-a/);
     assert.match(systemPrompt, /GitHub thread: issue #20/);
     assert.match(systemPrompt, /GitHub actor: enyst/);
+    assert.match(
+      systemPrompt,
+      /local clones under ~\/repos may be stale or detached\. Fetch the relevant remote refs before treating local main\/upstream branches as authoritative\./,
+    );
     assert.match(systemPrompt, /Repo A Guidance/);
     assert.match(systemPrompt, /Always inspect repo-a fixtures before changing code\./);
     assert.match(systemPrompt, /This repository is SmolPaws home den\./);
