@@ -114,6 +114,18 @@ type ActivitySummaryAccumulator = {
   pending_outbound_count: number;
 };
 
+type VisibleActivityCandidate = {
+  info: ConversationInfo;
+  updatedAt: string;
+  preloaded: {
+    record?: ConversationRecord;
+    events: Event[];
+    config: SmolpawsConversationConfigValue;
+    turnState: ConversationTurnState;
+    pendingOutbound: SmolpawsOutboundMessage[];
+  };
+};
+
 function parseLimit(value: unknown): number {
   const raw = typeof value === "string" ? Number(value) : value;
   if (typeof raw !== "number" || !Number.isFinite(raw)) {
@@ -166,7 +178,43 @@ function extractMessageText(event: Event): string {
   if (typeof reasoning === "string" && reasoning.trim()) {
     parts.push(reasoning.trim());
   }
-  return parts.filter(Boolean).join("\n").trim();
+  return parts
+    .map((part) => unwrapPromptEnvelopeText(part))
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function decodeXmlEntities(value: string): string {
+  return value
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", "\"")
+    .replaceAll("&#39;", "'")
+    .replaceAll("&amp;", "&");
+}
+
+function unwrapPromptEnvelopeText(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("<messages")) {
+    return trimmed;
+  }
+
+  const matches = Array.from(
+    trimmed.matchAll(/<message\b[^>]*>([\s\S]*?)<\/message>/g),
+  );
+  if (!matches.length) {
+    return trimmed;
+  }
+
+  return matches
+    .map((match) => decodeXmlEntities((match[1] ?? "").trim()))
+    .filter(Boolean)
+    .join("\n");
+}
+
+function compareIsoTimestampsDesc(left: string, right: string): number {
+  return parseIsoTimestamp(right) - parseIsoTimestamp(left);
 }
 
 function getLatestMessageText(
@@ -253,9 +301,29 @@ function getLatestObservationError(events: Event[]): string | undefined {
   return undefined;
 }
 
+function formatEventKind(kind: string): string {
+  return kind
+    .replace(/Event$/, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .trim();
+}
+
 function getLatestEventKind(events: Event[]): string | undefined {
-  const latest = events[events.length - 1] as { kind?: unknown } | undefined;
-  return typeof latest?.kind === "string" ? latest.kind : undefined;
+  let fallback: string | undefined;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index] as { kind?: unknown } | undefined;
+    if (typeof event?.kind !== "string") {
+      continue;
+    }
+    if (!fallback) {
+      fallback = event.kind;
+    }
+    if (event.kind === "ConversationStateUpdateEvent") {
+      continue;
+    }
+    return formatEventKind(event.kind);
+  }
+  return fallback ? formatEventKind(fallback) : undefined;
 }
 
 function buildTargetLabel(
@@ -402,6 +470,7 @@ async function buildActivityItem(
   deps: AgentServerDeps,
   preloaded?: {
     record?: ConversationRecord;
+    events?: Event[];
     config?: SmolpawsConversationConfigValue;
     turnState?: ConversationTurnState;
     pendingOutbound?: SmolpawsOutboundMessage[];
@@ -412,7 +481,9 @@ async function buildActivityItem(
   const isLive = Boolean(record);
   const [events, config, turnState, pendingOutbound, pendingTasks] =
     await Promise.all([
-      loadConversationEvents(info, record, deps.persistenceRoot),
+      preloaded?.events
+        ? Promise.resolve(preloaded.events)
+        : loadConversationEvents(info, record, deps.persistenceRoot),
       preloaded?.config
         ? Promise.resolve(preloaded.config)
         : loadConversationMeta(info, record, deps.persistenceRoot),
@@ -507,6 +578,45 @@ function isTrackedSmolpawsConfig(
   return Boolean(config?.ingress?.trim());
 }
 
+function getIngressGroupKey(ingress: string): string {
+  const normalized = ingress.trim().toLowerCase();
+  if (normalized.startsWith("github")) {
+    return "github";
+  }
+  if (normalized.startsWith("whatsapp")) {
+    return "whatsapp";
+  }
+  if (normalized.startsWith("heartbeat")) {
+    return "heartbeat";
+  }
+  return normalized || "other";
+}
+
+function limitItemsPerIngress(
+  items: ActivityItem[],
+  limit: number,
+) : ActivityItem[] {
+  const groups = new Map<string, ActivityItem[]>();
+
+  for (const item of items) {
+    const groupKey = getIngressGroupKey(item.ingress);
+    const existing = groups.get(groupKey);
+    if (existing) {
+      existing.push(item);
+    } else {
+      groups.set(groupKey, [item]);
+    }
+  }
+
+  return Array.from(groups.values())
+    .flatMap((items) =>
+      items
+        .sort((left, right) => compareIsoTimestampsDesc(left.updated_at, right.updated_at))
+        .slice(0, limit),
+    )
+    .sort((left, right) => compareIsoTimestampsDesc(left.updated_at, right.updated_at));
+}
+
 function renderActivityPage(): string {
   return `<!doctype html>
 <html lang="en">
@@ -553,7 +663,7 @@ function renderActivityPage(): string {
       .toolbar,
       .auth,
       .summary,
-      .card {
+      .section {
         border: 1px solid rgba(148, 163, 184, 0.22);
         background: rgba(17, 24, 39, 0.84);
         backdrop-filter: blur(6px);
@@ -617,22 +727,26 @@ function renderActivityPage(): string {
       }
       #cards {
         display: grid;
-        gap: 14px;
+        gap: 18px;
         margin-top: 18px;
       }
-      .card {
+      .section {
         padding: 16px;
       }
-      .card-header {
+      .section-header {
         display: flex;
         gap: 12px;
         justify-content: space-between;
-        align-items: flex-start;
-        margin-bottom: 12px;
+        align-items: baseline;
+        margin-bottom: 14px;
       }
-      .card h2 {
-        margin: 0 0 4px;
+      .section h2 {
+        margin: 0;
         font-size: 16px;
+      }
+      .section-count {
+        color: var(--muted);
+        font-size: 13px;
       }
       .chip {
         display: inline-block;
@@ -645,24 +759,93 @@ function renderActivityPage(): string {
       .status-waiting_for_confirmation { color: var(--warn); border-color: rgba(245, 158, 11, 0.45); }
       .status-error, .status-stuck { color: var(--error); border-color: rgba(249, 115, 22, 0.45); }
       .status-idle, .status-completed, .status-paused { color: var(--idle); border-color: rgba(100, 116, 139, 0.45); }
-      .grid {
+      .row-list {
         display: grid;
-        gap: 10px;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
       }
-      .block {
-        padding: 10px 12px;
+      .row {
+        padding: 14px 16px;
         border-radius: 12px;
         background: rgba(255, 255, 255, 0.03);
+        user-select: text;
       }
-      .block .label {
+      .row-top {
+        display: flex;
+        gap: 12px;
+        justify-content: space-between;
+        align-items: flex-start;
+      }
+      .row-title {
+        font-size: 18px;
+        font-weight: 700;
+        margin: 0;
+      }
+      .row-meta {
         color: var(--muted);
         font-size: 12px;
-        margin-bottom: 6px;
-      }
-      .block .value {
+        margin-top: 4px;
+        line-height: 1.45;
         white-space: pre-wrap;
         word-break: break-word;
+      }
+      .row-snippet {
+        margin-top: 10px;
+        display: grid;
+        grid-template-columns: minmax(132px, 168px) minmax(0, 1fr);
+        gap: 8px 14px;
+        align-items: start;
+        line-height: 1.45;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .row-snippet .label {
+        color: var(--muted);
+        display: block;
+        min-width: 0;
+      }
+      .row-foot {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 12px;
+      }
+      .mini {
+        color: var(--muted);
+        font-size: 12px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .row-detail {
+        margin-top: 10px;
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      }
+      .detail {
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.025);
+      }
+      .detail .label {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 4px;
+      }
+      .detail .value {
+        line-height: 1.45;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      @media (max-width: 860px) {
+        .row-top {
+          flex-direction: column;
+        }
+        .row-snippet {
+          grid-template-columns: 1fr;
+          gap: 4px;
+        }
       }
       #error {
         color: #fca5a5;
@@ -678,8 +861,8 @@ function renderActivityPage(): string {
 
       <section class="toolbar">
         <div>
-          <label for="limit">Conversation limit</label><br />
-          <input id="limit" type="number" min="1" max="100" value="20" />
+          <label for="limit">Per-ingress limit</label><br />
+          <input id="limit" type="number" min="1" max="20" value="3" />
         </div>
         <div class="subtle" id="status">Loading...</div>
       </section>
@@ -756,58 +939,118 @@ function renderActivityPage(): string {
         }).join("");
       }
 
+      function formatTimestamp(value) {
+        if (!value) {
+          return "n/a";
+        }
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+          return value;
+        }
+        return date.toLocaleString();
+      }
+
+      function prettifyIngress(ingress) {
+        const normalized = String(ingress || "").toLowerCase();
+        if (normalized.startsWith("github")) return "GitHub";
+        if (normalized.startsWith("whatsapp")) return "WhatsApp";
+        if (normalized.startsWith("heartbeat")) return "Heartbeat";
+        return ingress || "Other";
+      }
+
+      function groupItems(items) {
+        const groups = new Map();
+        items.forEach(function(item) {
+          const key = prettifyIngress(item.ingress);
+          if (!groups.has(key)) {
+            groups.set(key, []);
+          }
+          groups.get(key).push(item);
+        });
+        return Array.from(groups.entries())
+          .map(function(entry) {
+            entry[1].sort(function(left, right) {
+              return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime();
+            });
+            return entry;
+          })
+          .sort(function(left, right) {
+            return new Date(right[1][0].updated_at).getTime() - new Date(left[1][0].updated_at).getTime();
+          });
+      }
+
       function renderCards(items) {
         if (!items.length) {
-          cardsEl.innerHTML = '<article class="card"><div class="subtle">No conversations yet.</div></article>';
+          cardsEl.innerHTML = '<section class="section"><div class="subtle">No conversations yet.</div></section>';
           return;
         }
-        cardsEl.innerHTML = items.map(function(item) {
-          const turn = item.latest_turn || null;
-          const blocks = [
-            ["Ingress", item.ingress],
-            ["Target", item.target],
-            ["Conversation", item.id],
-            ["Live", item.is_live ? "yes" : "no"],
-            ["Updated", item.updated_at],
-            ["Latest Event", item.latest_event_kind || "n/a"],
-            ["Latest Action", item.latest_action || "n/a"],
-            ["Last User Message", item.last_user_message || "n/a"],
-            ["Last Assistant Message", item.last_assistant_message || "n/a"],
-            ["Pending Outbound", String(item.pending_outbound_count)],
-            ["Pending Task Commands", String(item.pending_task_command_count)],
-          ];
-          if (item.latest_error) {
-            blocks.push(["Latest Error", item.latest_error]);
-          }
-          if (turn) {
-            blocks.push([
-              "Latest Turn",
-              "seq " + turn.sequence + " | " + turn.status + "\\n" +
-                turn.id + "\\nupdated " + turn.updated_at
-            ]);
-          }
-          return '<article class="card">' +
-            '<div class="card-header">' +
-              '<div>' +
-                '<h2>' + escapeHtml(item.title || item.target) + '</h2>' +
-                '<div class="subtle">' + escapeHtml(item.scope_id || "") + '</div>' +
-              '</div>' +
-              '<span class="chip status-' + escapeHtml(item.execution_status) + '">' +
-                escapeHtml(item.execution_status) +
-              '</span>' +
+
+        cardsEl.innerHTML = groupItems(items).map(function(group) {
+          const ingress = group[0];
+          const groupItemsList = group[1];
+          return '<section class="section">' +
+            '<div class="section-header">' +
+              '<h2>' + escapeHtml(ingress) + '</h2>' +
+              '<div class="section-count">' + escapeHtml(groupItemsList.length) + ' recent conversations</div>' +
             '</div>' +
-            '<div class="grid">' +
-              blocks.map(function(block) {
-                return '<div class="block"><div class="label">' + escapeHtml(block[0]) +
-                  '</div><div class="value">' + escapeHtml(block[1]) + '</div></div>';
-              }).join("") +
+            '<div class="row-list">' +
+              groupItemsList.map(function(item) {
+                const turn = item.latest_turn || null;
+                const title = item.title || item.target;
+                const detailBlocks = [
+                  ["Conversation", item.id],
+                  ["Latest Event", item.latest_event_kind || "n/a"],
+                ];
+                if (item.latest_error) {
+                  detailBlocks.push(["Latest Error", item.latest_error]);
+                }
+                if (turn) {
+                  detailBlocks.push([
+                    "Latest Turn",
+                    "seq " + turn.sequence + " | " + turn.status + "\\n" +
+                      turn.id + "\\nupdated " + formatTimestamp(turn.updated_at),
+                  ]);
+                }
+                return '<article class="row">' +
+                  '<div class="row-top">' +
+                    '<div>' +
+                      '<div class="row-title">' + escapeHtml(title) + '</div>' +
+                      '<div class="row-meta">' +
+                        escapeHtml((item.scope_id || item.ingress) + " | " + formatTimestamp(item.updated_at) + " | live " + (item.is_live ? "yes" : "no")) +
+                      '</div>' +
+                    '</div>' +
+                    '<span class="chip status-' + escapeHtml(item.execution_status) + '">' +
+                      escapeHtml(item.execution_status) +
+                    '</span>' +
+                  '</div>' +
+                  (item.latest_action
+                    ? '<div class="row-snippet"><span class="label">Latest Action</span>' + escapeHtml(item.latest_action) + '</div>'
+                    : '') +
+                  (item.last_user_message
+                    ? '<div class="row-snippet"><span class="label">Last User Message</span>' + escapeHtml(item.last_user_message) + '</div>'
+                    : '') +
+                  (item.last_assistant_message
+                    ? '<div class="row-snippet"><span class="label">Last Agent Message</span>' + escapeHtml(item.last_assistant_message) + '</div>'
+                    : '') +
+                  '<div class="row-foot">' +
+                    '<span class="mini">pending outbound ' + escapeHtml(item.pending_outbound_count) + '</span>' +
+                    '<span class="mini">pending tasks ' + escapeHtml(item.pending_task_command_count) + '</span>' +
+                  '</div>' +
+                  '<div class="row-detail">' +
+                    detailBlocks.map(function(block) {
+                      return '<div class="detail"><span class="label">' + escapeHtml(block[0]) +
+                        '</span><div class="value">' + escapeHtml(block[1]) + '</div></div>';
+                    }).join('') +
+                  '</div>' +
+                '</article>';
+              }).join('') +
             '</div>' +
-          '</article>';
+          '</section>';
         }).join("");
       }
 
       async function loadActivity() {
-        const limit = Math.max(1, Math.min(100, Number(limitInputEl.value || 20)));
+        const limit = Math.max(1, Math.min(20, Number(limitInputEl.value || 3)));
         const token = readStoredToken();
         const headers = token ? { Authorization: "Bearer " + token } : {};
         const response = await fetch("/api/activity?limit=" + encodeURIComponent(String(limit)), {
@@ -824,7 +1067,18 @@ function renderActivityPage(): string {
         return await response.json();
       }
 
+      function hasActiveSelection() {
+        const selection = window.getSelection();
+        return Boolean(selection && selection.rangeCount > 0 && !selection.isCollapsed);
+      }
+
+      let refreshDeferredForSelection = false;
+
       async function refresh() {
+        if (hasActiveSelection()) {
+          refreshDeferredForSelection = true;
+          return;
+        }
         try {
           const data = await loadActivity();
           renderSummary(data);
@@ -846,6 +1100,13 @@ function renderActivityPage(): string {
 
       limitInputEl.addEventListener("change", function() {
         refresh();
+      });
+
+      document.addEventListener("selectionchange", function() {
+        if (refreshDeferredForSelection && !hasActiveSelection()) {
+          refreshDeferredForSelection = false;
+          refresh();
+        }
       });
 
       consumeHashToken();
@@ -912,20 +1173,12 @@ export function registerActivityRoutes(
         };
       }
       const summary = createEmptySummary();
-      const visibleCandidates: Array<{
-        info: ConversationInfo;
-        updatedAt: string;
-        preloaded: {
-          record?: ConversationRecord;
-          config: SmolpawsConversationConfigValue;
-          turnState: ConversationTurnState;
-          pendingOutbound: SmolpawsOutboundMessage[];
-        };
-      }> = [];
+      const visibleCandidates: VisibleActivityCandidate[] = [];
 
       for (const info of infos) {
         const record = deps.conversationRuntime.conversations.get(info.id);
-        const [config, turnState, pendingOutbound] = await Promise.all([
+        const [events, config, turnState, pendingOutbound] = await Promise.all([
+          loadConversationEvents(info, record, deps.persistenceRoot),
           loadConversationMeta(info, record, deps.persistenceRoot),
           loadConversationTurnState(info, deps),
           readQueueItems<SmolpawsOutboundMessage>(
@@ -939,8 +1192,11 @@ export function registerActivityRoutes(
         }
         const isLive = Boolean(record);
         const latestTurn = getLatestTurn(turnState);
+        const latestEventAt = getLatestEventTimestamp(events);
         const executionStatus = resolveExecutionStatus({
-          infoStatus: info.execution_status,
+          infoStatus: events.length
+            ? deriveExecutionStatusFromEvents(events)
+            : info.execution_status,
           latestTurn,
           isLive,
         });
@@ -948,9 +1204,14 @@ export function registerActivityRoutes(
         visibleCandidates.push({
           info,
           updatedAt:
-            resolveUpdatedAt(latestTurn?.updated_at, info.updated_at) ?? info.updated_at,
+            resolveUpdatedAt(
+              latestEventAt,
+              latestTurn?.updated_at,
+              info.updated_at,
+            ) ?? info.updated_at,
           preloaded: {
             record,
+            events,
             config,
             turnState,
             pendingOutbound,
@@ -958,20 +1219,12 @@ export function registerActivityRoutes(
         });
       }
 
-      visibleCandidates.sort(
-        (left, right) =>
-          new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
-      );
-
-      const limitedItems = await Promise.all(
-        visibleCandidates.slice(0, limit).map(async (candidate) =>
+      const allItems = await Promise.all(
+        visibleCandidates.map(async (candidate) =>
           await buildActivityItem(candidate.info, deps, candidate.preloaded),
         ),
       );
-      limitedItems.sort(
-        (left, right) =>
-          new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime(),
-      );
+      const limitedItems = limitItemsPerIngress(allItems, limit);
 
       const response = {
         server_time: new Date().toISOString(),

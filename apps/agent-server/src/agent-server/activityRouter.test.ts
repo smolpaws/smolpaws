@@ -165,7 +165,13 @@ test("GET /api/activity marks persisted running turns as stuck", async () => {
         timestamp: new Date(earlier.getTime() - 60_000).toISOString(),
         llm_message: {
           role: "user",
-          content: [{ type: "text", text: "hey from whatsapp" }],
+          content: [
+            {
+              type: "text",
+              text:
+                '<messages>\n<message sender="smol" time="2026-04-06T00:28:00.000Z">hey from &lt;whatsapp&gt; &amp; more</message>\n</messages>',
+            },
+          ],
         },
       },
       {
@@ -251,6 +257,7 @@ test("GET /api/activity marks persisted running turns as stuck", async () => {
       (githubItem.latest_turn as Record<string, unknown>).status,
       "stuck",
     );
+    assert.equal(githubItem.latest_event_kind, "Action");
     assert.match(String(githubItem.latest_action), /^terminal: git status/);
     assert.equal(
       githubItem.last_user_message,
@@ -262,6 +269,10 @@ test("GET /api/activity marks persisted running turns as stuck", async () => {
     assert.equal(whatsappItem.ingress, "whatsapp");
     assert.equal(whatsappItem.target, "main");
     assert.equal(whatsappItem.execution_status, "completed");
+    assert.equal(
+      whatsappItem.last_user_message,
+      "hey from <whatsapp> & more",
+    );
     assert.equal(
       payload.items.some((item) => item.id === "plain-openhands-thread"),
       false,
@@ -547,12 +558,175 @@ test("GET /api/activity summary covers all smolpaws conversations beyond the vis
       summary: Record<string, number>;
     };
 
-    assert.equal(payload.items.length, 1);
+    assert.equal(payload.items.length, 2);
     assert.equal(payload.summary.total_conversations, 2);
     assert.equal(payload.summary.running_count, 0);
     assert.equal(payload.summary.stuck_count, 1);
     assert.equal(payload.summary.pending_outbound_count, 1);
     assert.equal(payload.items[0]?.id, "github-smolpaws-smolpaws-90");
+    assert.equal(payload.items[1]?.id, "whatsapp-summary-main");
+  } finally {
+    await app.close();
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/activity applies the visible limit per ingress group", async () => {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), "smolpaws-activity-"));
+  const persistenceRoot = path.join(tempRoot, "conversations");
+  const now = new Date("2026-04-06T01:30:00.000Z");
+
+  seedConversation(persistenceRoot, "github-smolpaws-smolpaws-101", {
+    meta: {
+      title: "Issue 101",
+      smolpaws: {
+        ingress: "github_webhook",
+        github: {
+          repository_full_name: "smolpaws/smolpaws",
+          issue_number: 101,
+        },
+      },
+    },
+    events: [
+      {
+        kind: "ConversationStateUpdateEvent",
+        id: "state-101",
+        source: "agent",
+        timestamp: now.toISOString(),
+        agent_status: "IDLE",
+      },
+    ],
+  });
+
+  seedConversation(persistenceRoot, "github-smolpaws-smolpaws-100", {
+    meta: {
+      title: "Issue 100",
+      smolpaws: {
+        ingress: "github_notifications",
+        github: {
+          repository_full_name: "smolpaws/smolpaws",
+          issue_number: 100,
+        },
+      },
+    },
+    events: [
+      {
+        kind: "ConversationStateUpdateEvent",
+        id: "state-100",
+        source: "agent",
+        timestamp: new Date(now.getTime() - 10_000).toISOString(),
+        agent_status: "IDLE",
+      },
+    ],
+  });
+
+  seedConversation(persistenceRoot, "whatsapp-latest", {
+    meta: {
+      title: "WhatsApp latest",
+      smolpaws: {
+        ingress: "whatsapp",
+        scope_id: "main",
+      },
+    },
+    events: [
+      {
+        kind: "ConversationStateUpdateEvent",
+        id: "state-wa-latest",
+        source: "agent",
+        timestamp: new Date(now.getTime() - 20_000).toISOString(),
+        agent_status: "IDLE",
+      },
+    ],
+  });
+
+  seedConversation(persistenceRoot, "whatsapp-older", {
+    meta: {
+      title: "WhatsApp older",
+      smolpaws: {
+        ingress: "whatsapp",
+        scope_id: "main",
+      },
+    },
+    events: [
+      {
+        kind: "ConversationStateUpdateEvent",
+        id: "state-wa-older",
+        source: "agent",
+        timestamp: new Date(now.getTime() - 30_000).toISOString(),
+        agent_status: "IDLE",
+      },
+    ],
+  });
+
+  seedConversation(persistenceRoot, "heartbeat-latest", {
+    meta: {
+      title: "Heartbeat latest",
+      smolpaws: {
+        ingress: "heartbeat",
+        scope_id: "heartbeat-local",
+      },
+    },
+    events: [
+      {
+        kind: "ConversationStateUpdateEvent",
+        id: "state-heartbeat-latest",
+        source: "agent",
+        timestamp: new Date(now.getTime() - 40_000).toISOString(),
+        agent_status: "IDLE",
+      },
+    ],
+  });
+
+  seedConversation(persistenceRoot, "heartbeat-older", {
+    meta: {
+      title: "Heartbeat older",
+      smolpaws: {
+        ingress: "heartbeat",
+        scope_id: "heartbeat-local",
+      },
+    },
+    events: [
+      {
+        kind: "ConversationStateUpdateEvent",
+        id: "state-heartbeat-older",
+        source: "agent",
+        timestamp: new Date(now.getTime() - 50_000).toISOString(),
+        agent_status: "IDLE",
+      },
+    ],
+  });
+
+  const deps = createAgentServerDeps({
+    SMOLPAWS_PERSISTENCE_DIR: persistenceRoot,
+    SMOLPAWS_RUNNER_TOKEN: "secret-token",
+    SMOLPAWS_WORKSPACE_ROOT: tempRoot,
+  });
+  const { app } = await createAgentServerApp(deps);
+
+  try {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/activity?limit=1",
+      headers: {
+        authorization: "Bearer secret-token",
+      },
+    });
+    assert.equal(response.statusCode, 200);
+    const payload = JSON.parse(response.body) as {
+      items: Array<Record<string, unknown>>;
+      summary: Record<string, number>;
+    };
+
+    assert.equal(payload.items.length, 3);
+    assert.deepEqual(
+      payload.items.map((item) => item.id),
+      [
+        "github-smolpaws-smolpaws-101",
+        "whatsapp-latest",
+        "heartbeat-latest",
+      ],
+    );
+    assert.equal(payload.summary.total_conversations, 6);
   } finally {
     await app.close();
     rmSync(tempRoot, { recursive: true, force: true });
@@ -596,6 +770,12 @@ test("GET /activity serves the operator page", async () => {
     assert.equal(response.statusCode, 200);
     assert.match(response.body, /SmolPaws Activity/);
     assert.match(response.body, /\/api\/activity/);
+    assert.match(response.body, /Per-ingress limit/);
+    assert.match(response.body, /Last Agent Message/);
+    assert.match(response.body, /selectionchange/);
+    assert.match(response.body, /hasActiveSelection/);
+    assert.doesNotMatch(response.body, /\["Target", item.target\]/);
+    assert.doesNotMatch(response.body, /\["Updated", formatTimestamp\(item.updated_at\)\]/);
     assert.match(response.body, /&quot;/);
     assert.match(response.body, /&#39;/);
   } finally {
