@@ -4,7 +4,7 @@ import type { StartConversationRequest } from './models.js';
 
 export const DEFAULT_HEARTBEAT_RUNNER_HOST = '127.0.0.1';
 export const DEFAULT_HEARTBEAT_RUNNER_PORT = '8788';
-export const DEFAULT_HEARTBEAT_CRON = '0 * * * *';
+export const DEFAULT_HEARTBEAT_CRON = '0 12 * * *';
 export const DEFAULT_HEARTBEAT_MAX_ITERATIONS = 500;
 
 type HeartbeatPaths = {

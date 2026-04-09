@@ -37,7 +37,7 @@ Heartbeat is now available as a local LaunchAgent-backed ingress. The canonical 
 
 The heartbeat runner reuses the normal local agent-server when it is already up. If the loopback agent-server is not running, the heartbeat launcher starts it first and then queues the heartbeat conversation on the canonical `/api/conversations` path.
 
-By default, the LaunchAgent runs hourly (`3600` seconds). Each heartbeat run now gets its own conversation id instead of reusing one conversation for the whole day.
+By default, the LaunchAgent runs once per day at `12:00` local time. Each heartbeat run gets its own conversation id instead of reusing one conversation for the whole day.
 
 ## Why This Exists
 
