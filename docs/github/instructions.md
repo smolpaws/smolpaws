@@ -174,6 +174,26 @@ Operationally, the verified setup is:
 - expose that runner with `cloudflared tunnel --url http://127.0.0.1:8788`
 - point the deployed Worker secret `SMOLPAWS_RUNNER_URL` at the tunnel URL
 
+When GitHub ingress stops reaching the local runner, the first recovery step is to rotate the tunnel:
+
+```bash
+pkill -f 'cloudflared tunnel --url http://127.0.0.1:8788' || true
+cloudflared tunnel --url http://127.0.0.1:8788
+```
+
+Then:
+
+- copy the new `trycloudflare.com` URL
+- update the deployed Worker secret `SMOLPAWS_RUNNER_URL`
+- verify both local and public health:
+
+```bash
+curl http://127.0.0.1:8788/health
+curl http://127.0.0.1:8788/ready
+curl https://<new-trycloudflare-url>/health
+curl https://<new-trycloudflare-url>/ready
+```
+
 This keeps GitHub talking to the real Cloudflare ingress, while Cloudflare talks back to your local runner through the tunnel.
 
 Important:

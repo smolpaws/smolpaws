@@ -147,6 +147,35 @@ cloudflared tunnel --url http://127.0.0.1:8788
 
 4. Update the deployed Worker secret `SMOLPAWS_RUNNER_URL` to the public tunnel URL.
 
+### Starting or restarting `cloudflared`
+
+If GitHub ingress suddenly stops reaching the local runner, restart the tunnel and then update the Worker secret to the new tunnel URL.
+
+Start a fresh tunnel:
+
+```bash
+cloudflared tunnel --url http://127.0.0.1:8788
+```
+
+If an old tunnel process is still around and you want a clean restart first:
+
+```bash
+pkill -f 'cloudflared tunnel --url http://127.0.0.1:8788' || true
+cloudflared tunnel --url http://127.0.0.1:8788
+```
+
+After it prints a `https://...trycloudflare.com` URL:
+
+1. Set the deployed Worker secret `SMOLPAWS_RUNNER_URL` to that URL.
+2. Confirm the tunnel can reach the local runner:
+
+```bash
+curl http://127.0.0.1:8788/health
+curl http://127.0.0.1:8788/ready
+curl https://<new-trycloudflare-url>/health
+curl https://<new-trycloudflare-url>/ready
+```
+
 In this mode:
 
 - GitHub still talks to Cloudflare
