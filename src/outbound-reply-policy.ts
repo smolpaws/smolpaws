@@ -1,10 +1,28 @@
 import type { AgentRuntimeOutput } from './agent-runtime/types.js';
 
+const SHORT_LEAD_IN_WORD_LIMIT = 12;
+
 /**
  * Normalizes assistant text for duplicate-suppression comparisons.
  */
 function normalizeComparableMessageText(value: string): string {
   return value.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/**
+ * Returns the most recent outbound message that can satisfy the host reply.
+ */
+function findLastCurrentThreadMessage(
+  outboundMessages: AgentRuntimeOutput['outboundMessages'],
+) {
+  for (let index = (outboundMessages?.length ?? 0) - 1; index >= 0; index -= 1) {
+    const outbound = outboundMessages?.[index];
+    if (outbound?.kind === 'current_thread_message') {
+      return outbound;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -25,8 +43,8 @@ export function shouldSendFinalReplyAfterOutbound(
     return true;
   }
 
-  const lastOutbound = outbound[outbound.length - 1];
-  if (!lastOutbound || lastOutbound.kind !== 'current_thread_message') {
+  const lastOutbound = findLastCurrentThreadMessage(outbound);
+  if (!lastOutbound) {
     return true;
   }
 
@@ -41,7 +59,7 @@ export function shouldSendFinalReplyAfterOutbound(
 
   const replyWords = normalizedReply.split(/\s+/).filter(Boolean);
   const looksLikeShortLeadIn =
-    replyWords.length <= 12 &&
+    replyWords.length <= SHORT_LEAD_IN_WORD_LIMIT &&
     normalizedReply.endsWith(':') &&
     normalizedOutbound.startsWith(normalizedReply);
 
