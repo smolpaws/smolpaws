@@ -1,9 +1,16 @@
 import type { AgentRuntimeOutput } from './agent-runtime/types.js';
 
+/**
+ * Normalizes assistant text for duplicate-suppression comparisons.
+ */
 function normalizeComparableMessageText(value: string): string {
-  return value.replace(/\s+/g, ' ').trim();
+  return value.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+/**
+ * Suppresses the host-level final reply when the latest outbound tool message
+ * already delivered the same reply text or expanded a short lead-in prefix.
+ */
 export function shouldSendFinalReplyAfterOutbound(
   reply: string | null | undefined,
   outboundMessages: AgentRuntimeOutput['outboundMessages'],
@@ -28,7 +35,7 @@ export function shouldSendFinalReplyAfterOutbound(
     return true;
   }
 
-  if (normalizedOutbound.includes(normalizedReply)) {
+  if (normalizedOutbound === normalizedReply) {
     return false;
   }
 
@@ -36,7 +43,7 @@ export function shouldSendFinalReplyAfterOutbound(
   const looksLikeShortLeadIn =
     replyWords.length <= 12 &&
     normalizedReply.endsWith(':') &&
-    normalizedOutbound.length >= normalizedReply.length;
+    normalizedOutbound.startsWith(normalizedReply);
 
   if (looksLikeShortLeadIn) {
     return false;

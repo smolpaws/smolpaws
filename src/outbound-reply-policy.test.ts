@@ -24,6 +24,42 @@ test('suppresses duplicates even when spacing differs', () => {
   );
 });
 
+test('suppresses duplicates even when casing differs', () => {
+  assert.equal(
+    shouldSendFinalReplyAfterOutbound('Morning Engel Paws', [
+      { kind: 'current_thread_message', text: 'morning engel paws' },
+    ]),
+    false,
+  );
+});
+
+test('does not suppress when final reply is only a substring of outbound text', () => {
+  assert.equal(
+    shouldSendFinalReplyAfterOutbound('All set.', [
+      { kind: 'current_thread_message', text: 'All set. The den is tidy.' },
+    ]),
+    true,
+  );
+});
+
+test('suppresses short lead-in only when outbound starts with that lead-in', () => {
+  assert.equal(
+    shouldSendFinalReplyAfterOutbound('Summary:', [
+      { kind: 'current_thread_message', text: 'Summary: 1) paws 2) treats' },
+    ]),
+    false,
+  );
+});
+
+test('does not suppress short lead-in when outbound only mentions it later', () => {
+  assert.equal(
+    shouldSendFinalReplyAfterOutbound('Summary:', [
+      { kind: 'current_thread_message', text: 'Quick note before the Summary: 1) paws 2) treats' },
+    ]),
+    true,
+  );
+});
+
 test('still sends a distinct final reply after outbound progress updates', () => {
   assert.equal(
     shouldSendFinalReplyAfterOutbound('All set. The den is tidy.', [
