@@ -32,6 +32,7 @@ import { scopeFromRegisteredGroup } from './scope.js';
 import { loadJson, saveJson } from './utils.js';
 import { collapseMessagesToLatestPerChat } from './message-loop.js';
 import { ConnectionGuards } from './connection-guards.js';
+import { shouldSendFinalReplyAfterOutbound } from './outbound-reply-policy.js';
 import { resolveOutboundChatJid } from './whatsapp-jid.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -230,7 +231,7 @@ async function processMessage(msg: NewMessage): Promise<void> {
 
   if (output.status === 'success') {
     lastAgentTimestamp[msg.chat_jid] = msg.timestamp;
-    if (output.result) {
+    if (shouldSendFinalReplyAfterOutbound(output.result, output.outboundMessages)) {
       await sendMessage(msg.chat_jid, `${ASSISTANT_NAME}: ${output.result}`);
     }
   }
