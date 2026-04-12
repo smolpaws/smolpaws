@@ -42,6 +42,15 @@ test('does not suppress when final reply is only a substring of outbound text', 
   );
 });
 
+test('does not suppress short substring false positives', () => {
+  assert.equal(
+    shouldSendFinalReplyAfterOutbound('in', [
+      { kind: 'current_thread_message', text: 'Winning the den cleanup race.' },
+    ]),
+    true,
+  );
+});
+
 test('suppresses short lead-in only when outbound starts with that lead-in', () => {
   assert.equal(
     shouldSendFinalReplyAfterOutbound('Summary:', [

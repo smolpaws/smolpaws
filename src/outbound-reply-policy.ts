@@ -15,14 +15,9 @@ function normalizeComparableMessageText(value: string): string {
 function findLastCurrentThreadMessage(
   outboundMessages: AgentRuntimeOutput['outboundMessages'],
 ) {
-  for (let index = (outboundMessages?.length ?? 0) - 1; index >= 0; index -= 1) {
-    const outbound = outboundMessages?.[index];
-    if (outbound?.kind === 'current_thread_message') {
-      return outbound;
-    }
-  }
-
-  return null;
+  return [...(outboundMessages ?? [])]
+    .reverse()
+    .find((outbound) => outbound.kind === 'current_thread_message') ?? null;
 }
 
 /**
