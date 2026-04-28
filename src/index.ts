@@ -19,6 +19,7 @@ import {
   WHATSAPP_DIR,
   DATA_DIR,
   TRIGGER_PATTERN,
+  MAIN_GROUP_FOLDER,
 } from './config.js';
 import { RegisteredGroup, Session, NewMessage } from './types.js';
 import { initDatabase, storeMessage, storeChatMetadata, getNewMessages, getMessagesSince, updateChatName, getLastGroupSync, setLastGroupSync } from './db.js';
@@ -52,6 +53,7 @@ let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
 
 const guards = new ConnectionGuards();
+let startupNotified = false;
 
 async function setTyping(jid: string, isTyping: boolean): Promise<void> {
   try {
@@ -393,6 +395,16 @@ async function connectWhatsApp(): Promise<void> {
       }
       if (guards.tryStartMessageLoop()) {
         startMessageLoop();
+      }
+      // Notify the main chat once per process start
+      if (!startupNotified) {
+        startupNotified = true;
+        const mainJid = Object.entries(registeredGroups)
+          .find(([, g]) => g.folder === MAIN_GROUP_FOLDER)?.[0];
+        if (mainJid) {
+          sendMessage(mainJid, `${ASSISTANT_NAME}: 🐾 I'm up.`)
+            .catch(err => logger.warn({ err }, 'Startup notification failed'));
+        }
       }
     }
   });
