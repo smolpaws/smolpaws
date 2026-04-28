@@ -137,7 +137,7 @@ function isImageMedia(mime: string | undefined): boolean {
 
 /** Returns true when the message carries an audio file. */
 function isAudioMedia(mime: string | undefined): boolean {
-  return !!mime && (mime.startsWith('audio/') || mime === 'application/ogg');
+  return !!mime && (mime.startsWith('audio/') || mime.startsWith('application/ogg'));
 }
 
 /** Download media from a WhatsApp message and save to disk. */

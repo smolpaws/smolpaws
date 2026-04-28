@@ -80,8 +80,8 @@ const SANDBOX_WAKE_POLL_MS = 3_000;
 const SANDBOX_WAKE_MAX_WAIT_MS = 90_000;
 
 function isDaytonaSandboxStopped(error: unknown): boolean {
-  const msg = error instanceof Error ? error.message : String(error);
-  return msg.includes('no IP address found') || msg.includes('Is the Sandbox started');
+  const msg = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return msg.includes('no ip address found') || msg.includes('is the sandbox started');
 }
 
 async function waitForSandboxReady(
