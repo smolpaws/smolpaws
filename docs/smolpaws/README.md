@@ -22,12 +22,14 @@ That includes:
 - `USER.md`
 - `TOOLS.md`
 - `SOUL.md`
-- `MEMORY.md`
+- `MEMORY.md` (stub — points to private `~/.smolpaws/memory/MEMORY.md`)
 - `HEARTBEAT.md`
 - `BOOT.md`
 - `BOOTSTRAP.md`
 
-Daily memory files and heartbeat state live under `~/.smolpaws/memory/`. They are private, not auto-injected, and SmolPaws is explicitly pointed at them when needed.
+## Private State
+
+Durable memory (`MEMORY.md`) and daily memory files live under `~/.smolpaws/memory/`. They contain machine-specific facts, operational details, and personal context that should not be in a public repository. They are not auto-injected into the repo context but SmolPaws reads them at conversation start and during heartbeats.
 
 Heartbeat is now available as a local LaunchAgent-backed ingress. The canonical local commands are:
 
