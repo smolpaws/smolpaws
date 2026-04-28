@@ -148,6 +148,29 @@ export function setLastGroupSync(): void {
   db.prepare(`INSERT OR REPLACE INTO chats (jid, name, last_message_time) VALUES ('__group_sync__', '__group_sync__', ?)`).run(now);
 }
 
+function firstMessageText(...values: Array<string | null | undefined>): string {
+  return values.find((value) => !!value) ?? '';
+}
+
+function extractMessageText(message: proto.IMessage | null | undefined): string {
+  const directText = firstMessageText(
+    message?.conversation,
+    message?.extendedTextMessage?.text,
+    message?.imageMessage?.caption,
+    message?.videoMessage?.caption,
+    message?.documentMessage?.caption,
+  );
+  if (directText) return directText;
+
+  return firstMessageText(
+    extractMessageText(message?.documentWithCaptionMessage?.message),
+  );
+}
+
+export function extractMessageContent(msg: proto.IWebMessageInfo): string {
+  return extractMessageText(msg.message);
+}
+
 /**
  * Store a message with full content.
  * Only call this for registered groups where message history is needed.
@@ -161,13 +184,7 @@ export function storeMessage(
 ): void {
   if (!msg.key) return;
 
-  const content =
-    msg.message?.conversation ||
-    msg.message?.extendedTextMessage?.text ||
-    msg.message?.imageMessage?.caption ||
-    msg.message?.videoMessage?.caption ||
-    '';
-
+  const content = extractMessageContent(msg);
   const timestamp = new Date(Number(msg.messageTimestamp) * 1000).toISOString();
   const sender = msg.key.participant || msg.key.remoteJid || '';
   const senderName = pushName || sender.split('@')[0];
