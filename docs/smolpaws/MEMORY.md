@@ -23,6 +23,10 @@ If something only matters for today or for one active thread, put it in `~/.smol
 - Key profiles: `opus-46` (primary), `gpt-5-4` (GPT-5.4 via OpenAI — intended for sleep-time/consolidation work), `gemini-flash-summarizer` (Gemini 2.5 Flash — lightweight summarization), `sonnet-45` (Claude Sonnet 4.5), `heavy-sonnet` (Claude Sonnet 4).
 - For sleep-time compute / memory consolidation, use the **gpt-5-4** profile (strong model, not a cheap one).
 
+## Local Tools
+
+- **Whisper** (OpenAI open-source speech-to-text) lives at `~/.smolpaws/tools/whisper-env/`. Run: `~/.smolpaws/tools/whisper-env/bin/python3 ~/.smolpaws/tools/transcribe.py <audio-file>`. Uses the `base` model (~139 MB at `~/.cache/whisper/base.pt`). Can transcribe `.ogg`, `.mp3`, `.m4a`, `.wav` etc. Installed 2026-04-28.
+
 ## Local Machine
 
 - All repos live under `~/repos/`. Always look there first — no other locations.
@@ -30,8 +34,8 @@ If something only matters for today or for one active thread, put it in `~/.smol
 - Engel installed a dedicated Chrome browser just for smolpaws (`/Applications/Google Chrome.app`), with its own account. Use this when browser access is needed. **Engel uses Dia browser** (`/Applications/Dia.app`) — it's Chromium-based and responds to `tell application "Google Chrome"` AppleScript. Always launch Chrome explicitly by path, never by AppleScript name, to avoid controlling Dia by accident.
 - Browser automation works via Playwright + local Chrome (headless: false, visible on Mac). Temp workspace at `/tmp/smolpaws-browser/`. Google needs cookie consent click and `hl=en` param for English results. Use `--disable-blink-features=AutomationControlled` and locale `en-US`.
 - Chrome has "Allow JavaScript from Apple Events" enabled. Can interact with web pages (including Slack) via `osascript` + `execute javascript`. **Always use `tell application id "com.google.Chrome"`** in AppleScript, never `tell application "Google Chrome"` (which may target Dia instead).
-- SmolPaws has a Slack account in the OpenHands workspace (team ID: T06P212QSEA, user ID: U0ANQ6GLYHJ, username: smolpaws_agent). Channel #slackbot-chatter (C091TN9PPJ9) is the playground. Slack URL: https://openhands-ai.slack.com/ — tab lives in my Chrome, should stay logged in. Account registered on my Proton Mail. Joined channel IDs: general=C06P5NCGSFP, random=C06PB3T5ZK6, questions=C06U8UTKSAD, slackbot-chatter=C091TN9PPJ9, success-stories=C07KHERRM2S, proj-agent=C06R25BT5B2, welcome=C06PXDHT31N (can't leave default). Left: openhands-cloud, feedback, jobs.
-- **Slack profile:** status is 🐾 "AI agent". The `title` field ("What I do") can't be set via the xoxc session token — needs admin or a proper OAuth app scope. The tagline "When OpenHands says 🙌, I say 🐾" lives in SOUL.md but isn't displayable in Slack profile yet.
+- SmolPaws has a Slack account in the OpenHands workspace (team ID: T06P212QSEA, user ID: U0ANQ6GLYHJ, username: smolpaws_agent). Channel #slackbot-chatter (C091TN9PPJ9) is the playground. Slack URL: https://openhands-ai.slack.com/ — tab lives in my Chrome, should stay logged in. Account registered on my Proton Mail. Joined channel IDs: general=C06P5NCGSFP, random=C06PB3T5ZK6, questions=C06U8UTKSAD, slackbot-chatter=C091TN9PPJ9, success-stories=C07KHERRM2S, proj-agent=C06R25BT5B2, proj-gui=C06QT0AGY4W, proj-cli=C0A6XE64XK4, proj-architecture=C0ACTL5GAQ3, welcome=C06PXDHT31N (can't leave default). Left: openhands-cloud, feedback, jobs.
+- **Slack profile:** status is 🐾 "Tiny OpenHands Agent". The `title` field ("What I do") still can't be set via the xoxc session token — attempts are accepted but Slack leaves `title` empty, so a real title needs admin or a proper OAuth app scope. The tagline "When OpenHands says 🙌, I say 🐾" lives in SOUL.md but isn't displayable in Slack profile yet.
 - **Slack outbound log:** every message or reaction smolpaws posts on Slack must be logged to `~/.smolpaws/slack/outbound.jsonl`. One JSON object per line: `{"ts":"ISO8601","channel":"C...","thread_ts":"...or null","type":"message|reaction","content":"text or emoji name"}`. Append-only, never truncate.
 - **Slack API via Chrome session:** The browser session has a `xoxc-` token in localStorage (`localConfig_v2.teams.T06P212QSEA.token`) and an httpOnly `d` cookie. The token alone cannot be used outside Chrome, but **from within the Slack tab** I can call Slack Web API methods directly. The reliable pattern is URL-encoded POST bodies (`application/x-www-form-urlencoded` via `URLSearchParams`, or sync `XMLHttpRequest` when driving Chrome through AppleScript), with the browser attaching the cookie automatically. Verified working with `auth.test` on 2026-04-07. This is a major upgrade over DOM scraping: use `conversations.history`, `conversations.list`, `chat.postMessage`, `users.info`, etc. instead of fragile DOM queries.
 - **AppleScript `execute javascript` cannot await Promises.** When calling Slack API through `osascript`, use synchronous `XMLHttpRequest` (open with `false` for sync) instead of `fetch`/async. Async calls return empty strings through AppleScript. The sync XHR path works reliably for heartbeat Slack checks.
@@ -44,6 +48,7 @@ If something only matters for today or for one active thread, put it in `~/.smol
 - Screenshots require the Mac display to be awake. `caffeinate` keeps the Mac on but the screen can still sleep → black screenshots. If screen is off, `screencapture` returns a black image.
 - Canonical agent conversation logs live under `~/.openhands/conversations/`. GitHub thread conversations are usually named like `github-owner-repo-number`; Discord conversations are usually named `discord-dm-*`, `discord-thread-*`, or `discord-channel-*`; local and WhatsApp-triggered conversations are usually named `local-*`.
 - **Codex** lives on this Mac — `/Applications/Codex.app` (Electron) + `codex` CLI. The current window is a gpt-5.4 agent known as **GrumpyCat** in Agent Mail. It's a capable AI reviewer and peer agent. Engel has it inline on PRs. The Codex app does NOT respond to AppleScript — use Agent Mail or the `codex` CLI for communication instead.
+- **OpenHands Cloud account:** the current Cloud login in Chrome is smolpaws/GitHub-authenticated, but the Cloud account still has basically no extra secret tokens configured beyond the integration token. Auth-sensitive Cloud-agent workflows (for example fork/push operations that need stronger GitHub credentials) may hit permission walls until Engel adds the right secrets.
 - **Agent Mail** runs as a LaunchAgent (`com.agentmail`) on `127.0.0.1:8765`. SmolPaws is registered as **SmolPaws** (id=106, project=10). GrumpyCat is also on the same project. Communication via plain HTTP JSON-RPC to `/mcp/` — no MCP client needed, just curl. Key params: `sender_name`, `to`, `subject`, `body_md`, `project_key`. Check inbox during heartbeats.
 
 ## Headless PR Reviews
@@ -100,3 +105,10 @@ gh pr review NUMBER --repo ORG/REPO --comment --body-file /tmp/review-final.md
 - **API boundaries and API compatibility** — Engel cares deeply about code design, API surfaces, and backward compat.
 - **Python deprecation ≠ REST API deprecation.** Both layers need their own markers and their own removal runway. In the Python agent-sdk, a field deprecated with `warn_deprecated()` also needs `deprecated=True` in its Pydantic `Field()` if it appears in any REST API schema (OpenAPI). The REST API policy requires 5 minor releases of deprecated runway (via oasdiff checks) before a field can be removed.
 - When reviewing code or PRs, always think about whether a change crosses API boundaries (Python SDK → REST API → GUI consumers).
+
+## C-Uppsats (Ami's Project)
+
+- **Owner:** Ami (Engel's sister)
+- **Repo:** `~/repos/c-uppsats` (local only)
+- **Language:** Swedish (Ami prefers Swedish communication)
+- **🔒 STRICTLY PRIVATE.** Never publish, push to any remote, or share externally in any form. This is Ami's personal academic project.

@@ -133,6 +133,11 @@ function isImageMedia(mime: string | undefined): boolean {
   return !!mime && mime.startsWith('image/');
 }
 
+/** Returns true when the message carries an audio file. */
+function isAudioMedia(mime: string | undefined): boolean {
+  return !!mime && (mime.startsWith('audio/') || mime === 'application/ogg');
+}
+
 /** Download media from a WhatsApp message and save to disk. */
 async function downloadAndSaveMedia(
   msg: WAMessage,
@@ -205,6 +210,7 @@ async function processMessage(msg: NewMessage): Promise<void> {
   let documentCount = 0;
   for (const m of missedMessages) {
     const mediaAttr = m.media_path && isImageMedia(m.media_type) ? ' has_image="true"' : '';
+    const audioAttr = m.media_path && isAudioMedia(m.media_type) ? ` has_audio="true" audio_path="${escapeXml(m.media_path)}"` : '';
     const documentAttr = m.media_path && isReadableDocumentMedia(m.media_type) ? ' has_document="true"' : '';
     let attachmentText = '';
     if (m.media_path && isReadableDocumentMedia(m.media_type)) {
@@ -219,7 +225,7 @@ async function processMessage(msg: NewMessage): Promise<void> {
         attachmentText = `\n<attachment type="${escapeXml(m.media_type ?? '')}" unreadable="true"></attachment>`;
       }
     }
-    lines.push(`<message sender="${escapeXml(m.sender_name)}" time="${m.timestamp}"${mediaAttr}${documentAttr}>${escapeXml(m.content)}${attachmentText}</message>`);
+    lines.push(`<message sender="${escapeXml(m.sender_name)}" time="${m.timestamp}"${mediaAttr}${audioAttr}${documentAttr}>${escapeXml(m.content)}${attachmentText}</message>`);
   }
   const prompt = `<messages>\n${lines.join('\n')}\n</messages>`;
 
