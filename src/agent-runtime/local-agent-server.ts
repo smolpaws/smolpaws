@@ -32,7 +32,7 @@ const DEFAULT_AGENT_TOOLS = [
 ] as const;
 const WHATSAPP_MAX_ITERATIONS = 5000;
 const TURN_POLL_INTERVAL_MS = 2_000;
-const TURN_TIMEOUT_MS = 5 * 60 * 1000;
+const TURN_TIMEOUT_MS = 30 * 60 * 1000;
 const TERMINAL_STATUSES = new Set<TurnTerminalStatus>([
   'completed',
   'waiting_for_confirmation',
