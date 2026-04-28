@@ -18,6 +18,8 @@ import { registerConversationRoutes } from "./conversationRouter.js";
 import { registerEventRoutes } from "./eventRouter.js";
 import { registerActivityRoutes } from "./activityRouter.js";
 
+export const AGENT_SERVER_BODY_LIMIT_BYTES = 25 * 1024 * 1024;
+
 function registerErrorHandler(
   app: FastifyInstance,
 ): void {
@@ -80,7 +82,10 @@ function registerErrorHandler(
 export async function createAgentServerApp(
   deps: AgentServerDeps = createAgentServerDeps(),
 ) {
-  const app = Fastify({ logger: true }).withTypeProvider<TypeBoxTypeProvider>();
+  const app = Fastify({
+    bodyLimit: AGENT_SERVER_BODY_LIMIT_BYTES,
+    logger: true,
+  }).withTypeProvider<TypeBoxTypeProvider>();
   await app.register(websocket);
   await app.register(multipart);
 
