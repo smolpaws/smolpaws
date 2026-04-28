@@ -14,6 +14,9 @@ import {
 export type AgentServerEnv = {
   SMOLPAWS_RUNNER_URL?: string;
   SMOLPAWS_RUNNER_TOKEN?: string;
+  DAYTONA_API_KEY?: string;
+  DAYTONA_API_URL?: string;
+  DAYTONA_SANDBOX_ID?: string;
 };
 
 const DEFAULT_AGENT_TOOLS = [
@@ -72,6 +75,71 @@ function buildFallbackReply(message: SmolpawsQueueMessage): string {
   return `🐾 Hey ${actor}! smolpaws is warming up in ${repo}.\n${requestLine}`;
 }
 
+const DAYTONA_DEFAULT_API_URL = 'https://app.daytona.io/api';
+const SANDBOX_WAKE_POLL_MS = 3_000;
+const SANDBOX_WAKE_MAX_WAIT_MS = 90_000;
+
+function isDaytonaSandboxStopped(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return msg.includes('no IP address found') || msg.includes('Is the Sandbox started');
+}
+
+async function waitForSandboxReady(
+  baseUrl: string,
+  fetchImpl: typeof fetch,
+  authToken?: string,
+  timeoutMs = SANDBOX_WAKE_MAX_WAIT_MS,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const headers: Record<string, string> = {};
+      if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+      const resp = await fetchImpl(`${baseUrl}/health`, { method: 'GET', headers });
+      if (resp.ok) return true;
+    } catch { /* sandbox still waking */ }
+    await new Promise((r) => setTimeout(r, SANDBOX_WAKE_POLL_MS));
+  }
+  return false;
+}
+
+async function wakeDaytonaSandbox(
+  env: AgentServerEnv,
+  fetchImpl: typeof fetch,
+): Promise<boolean> {
+  const apiKey = normalizeValue(env.DAYTONA_API_KEY);
+  const sandboxId = normalizeValue(env.DAYTONA_SANDBOX_ID);
+  if (!apiKey || !sandboxId) {
+    console.log('daytona.wake.skip', { reason: 'missing DAYTONA_API_KEY or DAYTONA_SANDBOX_ID' });
+    return false;
+  }
+
+  const apiUrl = normalizeValue(env.DAYTONA_API_URL) ?? DAYTONA_DEFAULT_API_URL;
+  const startUrl = `${apiUrl.replace(/\/+$/, '')}/sandbox/${encodeURIComponent(sandboxId)}/start`;
+
+  console.log('daytona.wake.starting', { sandboxId });
+  const resp = await fetchImpl(startUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    console.log('daytona.wake.error', { status: resp.status, body });
+    return false;
+  }
+
+  const agentServerBaseUrl = normalizeAgentServerBaseUrl(env.SMOLPAWS_RUNNER_URL);
+  if (!agentServerBaseUrl) return false;
+
+  const ready = await waitForSandboxReady(agentServerBaseUrl, fetchImpl, env.SMOLPAWS_RUNNER_TOKEN);
+  console.log('daytona.wake.result', { sandboxId, ready });
+  return ready;
+}
+
 function collapseOutboundMessages(
   outboundMessages: SmolpawsOutboundMessage[],
 ): SmolpawsOutboundMessage[] {
@@ -95,10 +163,10 @@ function collapseOutboundMessages(
   ];
 }
 
-export async function dispatchToAgentServer(
+async function dispatchToAgentServerInner(
   message: SmolpawsQueueMessage,
   env: AgentServerEnv,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof fetch,
 ): Promise<{ reply?: string; outbound_messages?: SmolpawsOutboundMessage[] } | null> {
   const agentServerBaseUrl = normalizeAgentServerBaseUrl(env.SMOLPAWS_RUNNER_URL);
   if (!agentServerBaseUrl) {
@@ -169,4 +237,22 @@ export async function dispatchToAgentServer(
         ? collapseOutboundMessages(outboundMessages)
         : undefined,
   };
+}
+
+export async function dispatchToAgentServer(
+  message: SmolpawsQueueMessage,
+  env: AgentServerEnv,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ reply?: string; outbound_messages?: SmolpawsOutboundMessage[] } | null> {
+  try {
+    return await dispatchToAgentServerInner(message, env, fetchImpl);
+  } catch (error) {
+    if (!isDaytonaSandboxStopped(error)) throw error;
+
+    console.log('daytona.sandbox.stopped', { error: String(error) });
+    const woke = await wakeDaytonaSandbox(env, fetchImpl);
+    if (!woke) throw error;
+
+    return await dispatchToAgentServerInner(message, env, fetchImpl);
+  }
 }

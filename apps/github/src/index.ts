@@ -26,6 +26,11 @@ interface Env {
   ALLOWED_INSTALLATIONS?: string;
   SMOLPAWS_RUNNER_URL?: string;
   SMOLPAWS_RUNNER_TOKEN?: string;
+
+  // Daytona sandbox auto-wake (optional)
+  DAYTONA_API_KEY?: string;
+  DAYTONA_API_URL?: string;
+  DAYTONA_SANDBOX_ID?: string;
 }
 
 const MENTION = "@smolpaws";
