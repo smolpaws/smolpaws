@@ -34,6 +34,7 @@ import { collapseMessagesToLatestPerChat } from './message-loop.js';
 import { ConnectionGuards } from './connection-guards.js';
 import { shouldSendFinalReplyAfterOutbound } from './outbound-reply-policy.js';
 import { resolveOutboundChatJid } from './whatsapp-jid.js';
+import { isReadableDocumentMedia, readDocumentText } from './document-text.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MEDIA_DIR = path.join(WHATSAPP_DIR, 'media');
@@ -186,7 +187,7 @@ async function processMessage(msg: NewMessage): Promise<void> {
 
   const content = msg.content.trim();
 
-  // The control scope responds to ambient messages; all others require the trigger prefix.
+  // The control scope responds to ambient messages; all others require an @mention.
   // Images with @trigger in the caption match normally; control scope sees everything.
   if (!shouldRespondWithoutTrigger(group.folder) && !TRIGGER_PATTERN.test(content)) return;
 
@@ -200,10 +201,26 @@ async function processMessage(msg: NewMessage): Promise<void> {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 
-  const lines = missedMessages.map(m => {
+  const lines: string[] = [];
+  let documentCount = 0;
+  for (const m of missedMessages) {
     const mediaAttr = m.media_path && isImageMedia(m.media_type) ? ' has_image="true"' : '';
-    return `<message sender="${escapeXml(m.sender_name)}" time="${m.timestamp}"${mediaAttr}>${escapeXml(m.content)}</message>`;
-  });
+    const documentAttr = m.media_path && isReadableDocumentMedia(m.media_type) ? ' has_document="true"' : '';
+    let attachmentText = '';
+    if (m.media_path && isReadableDocumentMedia(m.media_type)) {
+      try {
+        const document = await readDocumentText(m.media_path, m.media_type);
+        if (document) {
+          documentCount++;
+          attachmentText = `\n<attachment name="${escapeXml(document.name)}" type="${escapeXml(m.media_type ?? '')}"${document.truncated ? ' truncated="true"' : ''}>${escapeXml(document.text)}</attachment>`;
+        }
+      } catch (err) {
+        logger.warn({ err, mediaPath: m.media_path }, 'Failed to extract document text');
+        attachmentText = `\n<attachment type="${escapeXml(m.media_type ?? '')}" unreadable="true"></attachment>`;
+      }
+    }
+    lines.push(`<message sender="${escapeXml(m.sender_name)}" time="${m.timestamp}"${mediaAttr}${documentAttr}>${escapeXml(m.content)}${attachmentText}</message>`);
+  }
   const prompt = `<messages>\n${lines.join('\n')}\n</messages>`;
 
   if (!prompt) return;
@@ -217,7 +234,7 @@ async function processMessage(msg: NewMessage): Promise<void> {
     }
   }
 
-  logger.info({ group: group.name, messageCount: missedMessages.length, imageCount: imageUrls.length }, 'Processing message');
+  logger.info({ group: group.name, messageCount: missedMessages.length, imageCount: imageUrls.length, documentCount }, 'Processing message');
 
   await setTyping(msg.chat_jid, true);
   const output = await runAgent(

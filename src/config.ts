@@ -25,7 +25,7 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export const TRIGGER_PATTERN = new RegExp(`^@${escapeRegex(ASSISTANT_NAME)}\\b`, 'i');
+export const TRIGGER_PATTERN = new RegExp(`(^|\\W)@${escapeRegex(ASSISTANT_NAME)}\\b`, 'i');
 
 // Timezone for scheduled tasks (cron expressions, etc.)
 // Uses system timezone by default
