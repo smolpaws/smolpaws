@@ -197,6 +197,9 @@ async function dispatchToAgentServerInner(
         llm: {},
         tools: DEFAULT_AGENT_TOOLS,
       },
+      confirmation_policy: {
+        kind: 'NeverConfirm',
+      },
       max_iterations: GITHUB_MAX_ITERATIONS,
       smolpaws: {
         ingress: message.meta?.ingress ?? 'github_webhook',

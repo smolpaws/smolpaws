@@ -102,6 +102,7 @@ test('dispatchToAgentServer submits a Discord turn and returns the final reply',
     idempotency_key: string;
     user_message: { content: Array<{ text: string }> };
     create_conversation: {
+      confirmation_policy: { kind: string };
       smolpaws: {
         ingress: string;
         enable_send_message: boolean;
@@ -110,6 +111,7 @@ test('dispatchToAgentServer submits a Discord turn and returns the final reply',
   };
   assert.equal(submitBody.idempotency_key, 'discord-message-1');
   assert.equal(submitBody.user_message.content[0]?.text, 'please help');
+  assert.equal(submitBody.create_conversation.confirmation_policy.kind, 'NeverConfirm');
   assert.equal(submitBody.create_conversation.smolpaws.ingress, 'discord');
   assert.equal(submitBody.create_conversation.smolpaws.enable_send_message, true);
 });

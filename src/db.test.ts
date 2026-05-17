@@ -38,6 +38,13 @@ test('extracts wrapped document captions from Baileys future-proof messages', ()
   );
 });
 
+test('does not recurse forever when wrapped message objects point back to themselves', () => {
+  const nested: TestMessage = {};
+  nested.documentWithCaptionMessage = { message: nested };
+
+  assert.equal(extractMessageContent(webMessage(nested)), '');
+});
+
 test('keeps existing text and media caption extraction behavior', () => {
   assert.equal(extractMessageContent(webMessage({ conversation: 'plain text' })), 'plain text');
   assert.equal(

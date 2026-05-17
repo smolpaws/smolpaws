@@ -1044,6 +1044,11 @@ export function createConversationRuntime({
       const existing = conversations.get(requestedId);
       if (existing) {
         await refreshConversationSmolpawsConfig(existing, request.smolpaws);
+        if (request.confirmation_policy) {
+          await applyConfirmationPolicy(existing, {
+            policy: request.confirmation_policy,
+          });
+        }
         return { record: existing, isNew: false };
       }
     }

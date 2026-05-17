@@ -152,7 +152,18 @@ function firstMessageText(...values: Array<string | null | undefined>): string {
   return values.find((value) => !!value) ?? '';
 }
 
-function extractMessageText(message: proto.IMessage | null | undefined): string {
+function extractMessageText(
+  message: proto.IMessage | null | undefined,
+  seen = new Set<object>(),
+): string {
+  if (!message || typeof message !== 'object') {
+    return '';
+  }
+  if (seen.has(message)) {
+    return '';
+  }
+  seen.add(message);
+
   const directText = firstMessageText(
     message?.conversation,
     message?.extendedTextMessage?.text,
@@ -163,7 +174,7 @@ function extractMessageText(message: proto.IMessage | null | undefined): string 
   if (directText) return directText;
 
   return firstMessageText(
-    extractMessageText(message?.documentWithCaptionMessage?.message),
+    extractMessageText(message?.documentWithCaptionMessage?.message, seen),
   );
 }
 

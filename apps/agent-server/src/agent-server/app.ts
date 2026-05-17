@@ -7,6 +7,8 @@ import Fastify, {
   type FastifyReply,
   type FastifyRequest,
 } from "fastify";
+import { createRequire } from "module";
+import path from "path";
 import { createAgentServerDeps, type AgentServerDeps } from "./dependencies.js";
 import { assertSafeRunnerBind, resolveRunnerHost } from "../runner/workspacePolicy.js";
 import { registerServerDetailsRoutes } from "./serverDetailsRouter.js";
@@ -19,6 +21,10 @@ import { registerEventRoutes } from "./eventRouter.js";
 import { registerActivityRoutes } from "./activityRouter.js";
 
 export const AGENT_SERVER_BODY_LIMIT_BYTES = 25 * 1024 * 1024;
+const require = createRequire(import.meta.url);
+const AGENT_SDK_VERSION = require(
+  path.join(path.dirname(require.resolve("@smolpaws/agent-sdk")), "..", "package.json"),
+).version as string;
 
 function registerErrorHandler(
   app: FastifyInstance,
@@ -86,6 +92,7 @@ export async function createAgentServerApp(
     bodyLimit: AGENT_SERVER_BODY_LIMIT_BYTES,
     logger: true,
   }).withTypeProvider<TypeBoxTypeProvider>();
+  app.log.info({ agentSdkVersion: AGENT_SDK_VERSION }, "Loaded @smolpaws/agent-sdk");
   await app.register(websocket);
   await app.register(multipart);
 

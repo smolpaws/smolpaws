@@ -105,6 +105,7 @@ test('dispatchToAgentServer submits a turn and reads the final result from the t
     delivery_owner_id: string;
     user_message: { content: Array<{ text: string }> };
     create_conversation: {
+      confirmation_policy: { kind: string };
       max_iterations: number;
       agent: { tools: Array<{ name: string }> };
       smolpaws: {
@@ -123,6 +124,7 @@ test('dispatchToAgentServer submits a turn and reads the final result from the t
   assert.equal(submitBody.idempotency_key, 'delivery-123');
   assert.equal(typeof submitBody.delivery_owner_id, 'string');
   assert.equal(submitBody.user_message.content[0]?.text, 'fix the bug');
+  assert.equal(submitBody.create_conversation.confirmation_policy.kind, 'NeverConfirm');
   assert.equal(submitBody.create_conversation.max_iterations, 1000);
   assert.deepEqual(
     submitBody.create_conversation.agent.tools.map((tool) => tool.name),

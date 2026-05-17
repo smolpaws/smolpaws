@@ -66,6 +66,9 @@ export async function dispatchToAgentServer(options: {
         llm: {},
         tools: DEFAULT_AGENT_TOOLS,
       },
+      confirmation_policy: {
+        kind: 'NeverConfirm',
+      },
       smolpaws: {
         ingress: 'discord',
         enable_send_message: true,

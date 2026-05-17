@@ -11,6 +11,7 @@ import pino from 'pino';
 import crypto from 'crypto';
 import { exec } from 'child_process';
 import fs from 'fs';
+import { createRequire } from 'module';
 import path from 'path';
 
 import {
@@ -40,6 +41,10 @@ import { isReadableDocumentMedia, readDocumentText } from './document-text.js';
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MEDIA_DIR = path.join(WHATSAPP_DIR, 'media');
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB cap for inline images
+const require = createRequire(import.meta.url);
+const AGENT_SDK_VERSION = require(
+  path.join(path.dirname(require.resolve('@smolpaws/agent-sdk')), '..', 'package.json'),
+).version as string;
 
 const logger = pino({
   level: process.env.LOG_LEVEL || 'info',
@@ -471,6 +476,7 @@ async function startMessageLoop(): Promise<void> {
 async function main(): Promise<void> {
   initDatabase();
   logger.info('Database initialized');
+  logger.info({ agentSdkVersion: AGENT_SDK_VERSION }, 'Loaded @smolpaws/agent-sdk');
   loadState();
   await connectWhatsApp();
 }

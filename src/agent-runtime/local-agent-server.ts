@@ -189,6 +189,17 @@ async function monitorConversationTurn(options: {
           turnId: submitResult.turn_id,
         }),
       );
+      if (result.status === 'waiting_for_confirmation') {
+        return {
+          status: 'error',
+          result: null,
+          conversationId: submitResult.conversation_id,
+          error:
+            'Runner requested confirmation, but SmolPaws clients cannot surface confirmation prompts.',
+          errorCode: 'waiting_for_confirmation',
+          ...(outboundMessages.length ? { outboundMessages } : {}),
+        };
+      }
       if (result.error_code) {
         return {
           status: 'error',

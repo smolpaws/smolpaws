@@ -375,6 +375,93 @@ test('runLocalAgentServerAgent retries a transient fetch failure when claiming o
   }
 });
 
+test('runLocalAgentServerAgent treats confirmation-required turns as errors for client ingress', async () => {
+  initDatabase();
+  process.env.SMOLPAWS_RUNNER_URL = 'http://127.0.0.1:8788';
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = buildFetchStub({
+    '/ready': () =>
+      new Response(JSON.stringify({ status: 'ready' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    '/api/conversations/main-': () =>
+      new Response(
+        JSON.stringify({
+          conversation_id: 'wa-confirm-conv',
+          turn_id: 'turn-confirm',
+          message_event_id: 'msg-confirm',
+          started_new_turn: true,
+          status: 'running',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    '/turns/turn-confirm?delivery_owner_id=': () =>
+      new Response(
+        JSON.stringify({
+          conversation_id: 'wa-confirm-conv',
+          turn_id: 'turn-confirm',
+          status: 'waiting_for_confirmation',
+          started_at: '2026-03-27T00:00:00.000Z',
+          updated_at: '2026-03-27T00:00:01.000Z',
+          completed_at: '2026-03-27T00:00:01.000Z',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    '/turns/turn-confirm/task_commands/claim': () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    '/turns/turn-confirm/outbound_messages/claim': () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    '/turns/turn-confirm/result': () =>
+      new Response(
+        JSON.stringify({
+          conversation_id: 'wa-confirm-conv',
+          turn_id: 'turn-confirm',
+          status: 'waiting_for_confirmation',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+  });
+
+  try {
+    const result = await runLocalAgentServerAgent(TEST_SCOPE, {
+      prompt: 'say hello',
+      scopeId: TEST_SCOPE.scopeId,
+      chatJid: TEST_SCOPE.chatJid,
+      isControlScope: TEST_SCOPE.isControlScope,
+    });
+
+    assert.equal(result.status, 'error');
+    assert.equal(result.conversationId, 'wa-confirm-conv');
+    assert.equal(result.result, null);
+    assert.equal(
+      result.error,
+      'Runner requested confirmation, but SmolPaws clients cannot surface confirmation prompts.',
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.SMOLPAWS_RUNNER_URL;
+  }
+});
+
 test('runLocalAgentServerAgent fails fast on a legacy /run runner url', async () => {
   initDatabase();
   process.env.SMOLPAWS_RUNNER_URL = 'https://runner.example.com/run/';
