@@ -181,15 +181,7 @@ async function monitorConversationTurn(options: {
     outboundMessages.push(...outbound);
 
     if (TERMINAL_STATUSES.has(status.status as TurnTerminalStatus)) {
-      const result = await retryRunnerOperation(baseUrl, 'load turn result', () =>
-        getTurnResult({
-          baseUrl,
-          authToken: process.env.SMOLPAWS_RUNNER_TOKEN?.trim(),
-          conversationId: submitResult.conversation_id,
-          turnId: submitResult.turn_id,
-        }),
-      );
-      if (result.status === 'waiting_for_confirmation') {
+      if (status.status === 'waiting_for_confirmation') {
         return {
           status: 'error',
           result: null,
@@ -200,6 +192,14 @@ async function monitorConversationTurn(options: {
           ...(outboundMessages.length ? { outboundMessages } : {}),
         };
       }
+      const result = await retryRunnerOperation(baseUrl, 'load turn result', () =>
+        getTurnResult({
+          baseUrl,
+          authToken: process.env.SMOLPAWS_RUNNER_TOKEN?.trim(),
+          conversationId: submitResult.conversation_id,
+          turnId: submitResult.turn_id,
+        }),
+      );
       if (result.error_code) {
         return {
           status: 'error',

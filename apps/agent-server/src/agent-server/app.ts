@@ -1,6 +1,7 @@
 import multipart from "@fastify/multipart";
 import websocket from "@fastify/websocket";
 import { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
+import { existsSync } from "node:fs";
 import Fastify, {
   type FastifyError,
   type FastifyInstance,
@@ -22,9 +23,29 @@ import { registerActivityRoutes } from "./activityRouter.js";
 
 export const AGENT_SERVER_BODY_LIMIT_BYTES = 25 * 1024 * 1024;
 const require = createRequire(import.meta.url);
-const AGENT_SDK_VERSION = require(
-  path.join(path.dirname(require.resolve("@smolpaws/agent-sdk")), "..", "package.json"),
-).version as string;
+
+function resolveInstalledPackageVersion(packageName: string): string {
+  let currentDir = path.dirname(require.resolve(packageName));
+  while (true) {
+    const manifestPath = path.join(currentDir, "package.json");
+    if (existsSync(manifestPath)) {
+      const manifest = require(manifestPath) as {
+        name?: string;
+        version?: string;
+      };
+      if (manifest.name === packageName && typeof manifest.version === "string") {
+        return manifest.version;
+      }
+    }
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      throw new Error(`package_manifest_not_found:${packageName}`);
+    }
+    currentDir = parentDir;
+  }
+}
+
+const AGENT_SDK_VERSION = resolveInstalledPackageVersion("@smolpaws/agent-sdk");
 
 function registerErrorHandler(
   app: FastifyInstance,

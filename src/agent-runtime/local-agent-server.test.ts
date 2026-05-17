@@ -429,11 +429,7 @@ test('runLocalAgentServerAgent treats confirmation-required turns as errors for 
       }),
     '/turns/turn-confirm/result': () =>
       new Response(
-        JSON.stringify({
-          conversation_id: 'wa-confirm-conv',
-          turn_id: 'turn-confirm',
-          status: 'waiting_for_confirmation',
-        }),
+        JSON.stringify({}),
         {
           status: 200,
           headers: { 'Content-Type': 'application/json' },

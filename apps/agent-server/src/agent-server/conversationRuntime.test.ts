@@ -879,6 +879,64 @@ test('turn submission resets a reused stale smolpaws conversation when create_co
   }
 });
 
+test('turn submission reapplies confirmation policy on a reused live conversation', async () => {
+  const fakeLlm = await startFakeLlmServer('confirmation policy reapplied');
+  const { app, fixture, deps } = await createTestApp(fakeLlm.baseUrl);
+  writeVscodeProfileSelection(fixture, 'gpt-5');
+  await saveDefaultProfile('gpt-5', fakeLlm.baseUrl);
+
+  try {
+    const { record } = await deps.conversationRuntime.createConversationRecord({
+      conversation_id: 'reused-live-confirmation-policy',
+      agent: { llm: {} },
+      secrets: { OPENAI_API_KEY: 'test-api-key' },
+      max_iterations: 1,
+    });
+
+    const originalSetConfirmationPolicy =
+      record.conversation.setConfirmationPolicy.bind(record.conversation);
+    let confirmationPolicyCalls = 0;
+    record.conversation.setConfirmationPolicy = async (...args) => {
+      confirmationPolicyCalls += 1;
+      return await originalSetConfirmationPolicy(...args);
+    };
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${record.id}/turns`,
+      payload: {
+        idempotency_key: 'reuse-live-confirmation-policy',
+        user_message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'reuse the live conversation' }],
+          run: false,
+        },
+        create_conversation: {
+          agent: { llm: {} },
+          confirmation_policy: { kind: 'NeverConfirm' },
+          secrets: { OPENAI_API_KEY: 'test-api-key' },
+          max_iterations: 1,
+          smolpaws: {
+            enable_send_message: true,
+            github: {
+              repository_full_name: 'owner/repo-a',
+              actor_login: 'enyst',
+              event: 'issue_comment',
+              issue_number: 21,
+            },
+          },
+        },
+      },
+    });
+
+    assert.equal(response.statusCode, 201);
+    assert.equal(confirmationPolicyCalls, 1);
+  } finally {
+    await app.close();
+    await fakeLlm.close();
+  }
+});
+
 test('turn submission reuses the active turn while it is still queued/running', async () => {
   const fakeLlm = await startFakeLlmServer('queued turn result');
   const { app, fixture, deps } = await createTestApp(fakeLlm.baseUrl);
