@@ -38,7 +38,9 @@ export function buildHeartbeatPaths(homeDir = os.homedir()): HeartbeatPaths {
     memoryFile: path.join(docsDir, 'MEMORY.md'),
     dailyMemoryDir: path.join(smolpawsHomeDir, 'memory'),
     heartbeatStateFile: path.join(smolpawsHomeDir, 'memory', 'heartbeat-state.json'),
-    conversationArchiveDir: path.join(homeDir, '.openhands', 'conversations'),
+    conversationArchiveDir:
+      process.env.SMOLPAWS_CONVERSATIONS_DIR?.trim() ||
+      path.join(homeDir, '.openhands', 'conversations'),
   };
 }
 
@@ -53,7 +55,7 @@ export function buildHeartbeatPrompt(paths: HeartbeatPaths, now: Date): string {
     `Durable memory lives at: ${paths.memoryFile}`,
     `Daily memory directory: ${paths.dailyMemoryDir}`,
     `Heartbeat state file: ${paths.heartbeatStateFile}`,
-    `Heartbeat conversation archive directory: ${paths.conversationArchiveDir}`,
+    `Conversation archive directory: ${paths.conversationArchiveDir}`,
     `Today is: ${formatLocalDate(now)}`,
     'For Slack checks, do not silently narrow the required channel set.',
     'Check mentions in the full joined-channel set: general (C06P5NCGSFP), random (C06PB3T5ZK6), questions (C06U8UTKSAD), slackbot-chatter (C091TN9PPJ9), success-stories (C07KHERRM2S), and proj-agent (C06R25BT5B2).',
