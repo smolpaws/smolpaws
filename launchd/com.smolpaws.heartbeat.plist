@@ -10,13 +10,8 @@
     </array>
     <key>WorkingDirectory</key>
     <string>{{PROJECT_ROOT}}</string>
-    <key>StartCalendarInterval</key>
-    <dict>
-        <key>Hour</key>
-        <integer>12</integer>
-        <key>Minute</key>
-        <integer>0</integer>
-    </dict>
+    <key>StartInterval</key>
+    <integer>3600</integer>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
