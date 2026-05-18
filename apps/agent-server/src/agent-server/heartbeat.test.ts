@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
+  DEFAULT_HEARTBEAT_CRON,
   buildHeartbeatConversationId,
   buildHeartbeatPaths,
   buildHeartbeatPrompt,
@@ -17,6 +18,7 @@ test('buildHeartbeatConversationId creates one conversation per local day', () =
     buildHeartbeatConversationId(new Date('2026-03-24T15:16:00')),
     'heartbeat-smolpaws-2026-03-24',
   );
+  assert.equal(DEFAULT_HEARTBEAT_CRON, '0 * * * *');
 });
 
 test('buildHeartbeatRequest uses the canonical conversation path without outbound messaging', () => {
