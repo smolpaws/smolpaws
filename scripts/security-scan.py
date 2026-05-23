@@ -231,19 +231,13 @@ def classify_file(path: Path) -> str:
     if name in (".env", ".env.local", ".env.production"):
         return "env-file"
 
-    # Root-level system prompt files (always loaded into context)
+    # Only the root AGENTS.md is the system prompt where defense posture belongs
     if name in ("agents.md", "claude.md"):
-        # Only root AGENTS.md or docs/smolpaws/AGENTS.md are system prompts
         if len(parts) == 1:  # root AGENTS.md
-            return "system-prompt"
-        if len(parts) >= 2 and "smolpaws" in parts:
-            # docs/smolpaws/AGENTS.md, docs/smolpaws/SOUL.md, etc.
             return "system-prompt"
         return "context-file"
 
-    if name in ("soul.md", "heartbeat.md"):
-        if "smolpaws" in parts:
-            return "system-prompt"
+    if name in ("soul.md", "heartbeat.md", "identity.md"):
         return "context-file"
 
     if "skill" in str(path).lower() and path.suffix == ".md":
