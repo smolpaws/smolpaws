@@ -82,7 +82,7 @@ for line in sys.stdin:
                 args = fn.get('arguments', '')
                 if isinstance(args, str):
                     try: args = json.loads(args)
-                    except: pass
+                    except (json.JSONDecodeError, TypeError): pass
                 if name == 'finish':
                     msg = args.get('message', '') if isinstance(args, dict) else ''
                     print(f'[{ts}] FINISH: {msg[:300]}')

@@ -107,7 +107,7 @@ URL_EXEC_PATTERNS = [
     (r"wget\s+[^\n]*\|\s*(?:ba)?sh", "wget piped to shell"),
     (r"curl\s+[^\n]*-o\s+[^\s]+\s*&&\s*(?:ba)?sh", "curl download then execute"),
     (r"eval\s*\(\s*(?:fetch|curl|wget|requests\.get)", "eval of remote content"),
-    (r"npx\s+[^\s]+\s+install", "npx install (supply chain risk)"),
+    (r"(?:npm|pnpm|yarn)\s+install\s+[^\s]+\s*&&", "package install chained with execution (supply chain risk)"),
     (r"pip\s+install\s+[^\s]+\s*&&", "pip install chained with execution"),
 ]
 
@@ -170,7 +170,7 @@ def discover_committed_files(root: Path) -> list[tuple[Path, str]]:
     """Only scan files tracked by git."""
     try:
         result = subprocess.run(
-            ["git", "ls-files", "--full-name"],
+            ["git", "ls-files"],
             cwd=root, capture_output=True, text=True, check=True,
         )
         files = []
@@ -228,7 +228,7 @@ def classify_file(path: Path) -> str:
     name = path.name.lower()
     parts = path.parts
 
-    if name in (".env", ".env.local", ".env.production"):
+    if name in (".env", ".env.local", ".env.production", ".env.development"):
         return "env-file"
 
     # Only the root AGENTS.md is the system prompt where defense posture belongs
