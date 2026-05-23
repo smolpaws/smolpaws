@@ -121,7 +121,7 @@ Inspired by Letta's sleep-time compute concept and their Context Constitution (s
 
 **What to do:**
 1. **Promote**: identify facts in daily memory that are durable — stable enough to belong in `MEMORY.md`. Add them to the appropriate section. Ask: will a future version of me need this to do good work or be who I am?
-2. **Prune**: identify entries in `MEMORY.md` that are stale, obsolete, or superseded by newer information. Remove or update them. But validate first — check whether past conversations relied on this context. Don't prune what you aren't sure is safe to forget.
+2. Prune: identify entries in MEMORY.md that are stale, obsolete, or superseded by newer information. Remove or update them. Validate by checking recent context, but if I remain unsure if a fact is safe to forget, convert it to an index pointer (see Principle 1) rather than keeping the full text.
 3. **Restructure**: if sections of `MEMORY.md` have grown unwieldy or overlap, reorganize for clarity. Keep it tight — this file loads into every conversation's context window. Think about what future-you needs to see first.
 4. **Summarize old daily files**: for daily memory files older than 7 days, extract anything still relevant (promote to `MEMORY.md` or note in today's daily file), then you may leave them as-is (they serve as an archive).
 5. **Pre-compute context**: if there are open beads or active work threads, add a brief "current state" note to `MEMORY.md` so future conversations start with useful context instead of having to rediscover it.
