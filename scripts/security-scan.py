@@ -219,17 +219,36 @@ def should_scan(path: Path) -> bool:
 
 
 def classify_file(path: Path) -> str:
-    """Classify a file for rule targeting."""
+    """Classify a file for rule targeting.
+
+    Only root-level identity files are 'system-prompt' — these load into every
+    conversation and are where defense posture belongs. Sub-directory AGENTS.md
+    files (apps/, groups/) are contextual docs, not security policy.
+    """
     name = path.name.lower()
-    if name in ("agents.md", "claude.md"):
-        return "system-prompt"
-    if name == "soul.md":
-        return "system-prompt"
+    parts = path.parts
+
     if name in (".env", ".env.local", ".env.production"):
         return "env-file"
+
+    # Root-level system prompt files (always loaded into context)
+    if name in ("agents.md", "claude.md"):
+        # Only root AGENTS.md or docs/smolpaws/AGENTS.md are system prompts
+        if len(parts) == 1:  # root AGENTS.md
+            return "system-prompt"
+        if len(parts) >= 2 and "smolpaws" in parts:
+            # docs/smolpaws/AGENTS.md, docs/smolpaws/SOUL.md, etc.
+            return "system-prompt"
+        return "context-file"
+
+    if name in ("soul.md", "heartbeat.md"):
+        if "smolpaws" in parts:
+            return "system-prompt"
+        return "context-file"
+
     if "skill" in str(path).lower() and path.suffix == ".md":
         return "skill"
-    if name in ("heartbeat.md", "identity.md", "tools.md", "user.md", "memory.md"):
+    if name in ("identity.md", "tools.md", "user.md", "memory.md"):
         return "context-file"
     if path.suffix == ".json":
         return "config-json"
