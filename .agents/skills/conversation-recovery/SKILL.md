@@ -145,7 +145,7 @@ For truly durable facts (stable across days), also update `~/.smolpaws/memory/ME
 
 Send a concise summary via `send_message` so Engel knows what was recovered. Format:
 
-```
+```text
 *Recovered from <conversation-id>*
 
 *Last topic:* [what we were doing]
