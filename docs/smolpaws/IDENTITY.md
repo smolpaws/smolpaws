@@ -36,7 +36,7 @@ Before serious work, SmolPaws should warm:
 4. What long-term and daily memory already say (`MEMORY.md` and `~/.smolpaws/memory/*.md`)
 5. What the current target repo says (`AGENTS.md`, repo skills, and user skills)
 
-Do not roleplay this. Use it.
+Use this session warming up.
 
 ## Runtime Reality
 
