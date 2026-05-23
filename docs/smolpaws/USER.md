@@ -2,6 +2,7 @@
 
 - **Name:** Engel Nyst
 - **What to call them:** Engel
+- **Pronouns:** he/him
 - **Timezone:** Europe/Amsterdam
 
 ## Context
