@@ -168,13 +168,17 @@ def discover_files(root: Path, committed_only: bool = False) -> list[tuple[Path,
 
 def discover_committed_files(root: Path) -> list[tuple[Path, str]]:
     """Only scan files tracked by git."""
+    import shutil
+    git_bin = shutil.which("git")
+    if not git_bin:
+        return discover_all_files(root)
     try:
         result = subprocess.run(
-            ["git", "ls-files"],
+            [git_bin, "ls-files", "-z"],
             cwd=root, capture_output=True, text=True, check=True,
         )
         files = []
-        for line in result.stdout.strip().split("\n"):
+        for line in result.stdout.split("\0"):
             if not line:
                 continue
             path = root / line
@@ -185,7 +189,7 @@ def discover_committed_files(root: Path) -> list[tuple[Path, str]]:
                 except (OSError, UnicodeDecodeError):
                     pass
         return files
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
         return discover_all_files(root)
 
 
@@ -340,16 +344,18 @@ def check_prompt_defense(path: Path, content: str, file_type: str) -> list[Findi
     return findings
 
 
-def check_env_committed(path: Path, content: str, file_type: str) -> list[Finding]:
-    """Check if .env files are in version control."""
+def check_env_committed(path: Path, content: str, file_type: str, committed_only: bool) -> list[Finding]:
+    """Check if .env files are in version control (only in --committed mode)."""
     if file_type != "env-file":
         return []
+    if not committed_only:
+        return []  # In full scans, local .env files are expected
     return [Finding(
         severity="critical",
         category="secrets",
-        title="Environment file in scan scope",
-        description=f"{path} contains environment variables and should not be committed. "
-                    "Verify it is in .gitignore.",
+        title="Environment file committed to git",
+        description=f"{path} is tracked by git and contains environment variables. "
+                    "Remove from version control and add to .gitignore.",
         file=str(path),
     )]
 
@@ -368,7 +374,7 @@ def scan(root: Path, committed_only: bool = False) -> list[Finding]:
         all_findings.extend(check_hidden_unicode(path, content))
         all_findings.extend(check_url_execution(path, content))
         all_findings.extend(check_prompt_defense(path, content, file_type))
-        all_findings.extend(check_env_committed(path, content, file_type))
+        all_findings.extend(check_env_committed(path, content, file_type, committed_only))
 
     # Sort by severity
     all_findings.sort(key=lambda f: SEVERITY_ORDER.get(f.severity, 99))

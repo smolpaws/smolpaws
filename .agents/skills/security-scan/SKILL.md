@@ -23,8 +23,8 @@ Lightweight security scanner for SmolPaws' agent config files. Inspired by Agent
 | Secrets | API keys, tokens, passwords, connection strings in committed files | Critical |
 | Hidden Unicode | Invisible characters that could hide malicious instructions | Critical |
 | URL execution | `curl \| sh`, `eval(fetch(...))`, supply chain patterns | High |
-| Prompt defense | Missing defenses in AGENTS.md/skills against injection, role escape, etc. | High/Medium |
-| Env files | .env files that shouldn't be in version control | Critical |
+| Prompt defense | Missing defenses in root AGENTS.md against injection, role escape, etc. | High/Medium |
+| Env files | .env files committed to git (only in `--committed` mode) | Critical |
 
 ## How to Run
 
