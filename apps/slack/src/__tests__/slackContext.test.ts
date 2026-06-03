@@ -215,9 +215,7 @@ test('MentionedThreadTracker: different threads are independent', () => {
 });
 
 test('MentionedThreadTracker: evicts oldest when exceeding max', () => {
-  // Use a small tracker to test eviction
   const t = new MentionedThreadTracker();
-  // Track 1001 threads to trigger eviction (max is 1000)
   for (let i = 0; i < 1001; i++) {
     t.track(`thread-${i}`);
   }
@@ -225,4 +223,21 @@ test('MentionedThreadTracker: evicts oldest when exceeding max', () => {
   assert.equal(t.isTracked('thread-0'), false);
   // Newest threads should still be tracked
   assert.equal(t.isTracked('thread-1000'), true);
+});
+
+test('MentionedThreadTracker: re-tracking refreshes insertion order', () => {
+  const t = new MentionedThreadTracker();
+  // Track thread-0 first, then 999 more
+  t.track('thread-0');
+  for (let i = 1; i <= 999; i++) {
+    t.track(`thread-${i}`);
+  }
+  // Re-track thread-0 to refresh its position to the end
+  t.track('thread-0');
+  // Now add one more to trigger eviction
+  t.track('thread-1000');
+  // thread-0 was refreshed — should survive eviction
+  assert.equal(t.isTracked('thread-0'), true);
+  // thread-1 was oldest after refresh — should be evicted
+  assert.equal(t.isTracked('thread-1'), false);
 });

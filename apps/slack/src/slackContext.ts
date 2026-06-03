@@ -106,6 +106,9 @@ export class MentionedThreadTracker {
   private threads = new Set<string>();
 
   track(threadTs: string): void {
+    // Delete first so re-tracking refreshes insertion order.
+    // Set.add on an existing value is a no-op for ordering.
+    this.threads.delete(threadTs);
     this.threads.add(threadTs);
     if (this.threads.size > MENTIONED_THREADS_MAX) {
       const iter = this.threads.values();
