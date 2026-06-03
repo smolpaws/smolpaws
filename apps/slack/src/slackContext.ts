@@ -1,6 +1,5 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { homedir } from 'node:os';
+import { dirname } from 'node:path';
 import type { SlackConfig } from './config.js';
 
 export type SlackEventContext = {
@@ -51,7 +50,7 @@ export function checkAccess(ctx: SlackEventContext, config: SlackConfig): AllowR
 }
 
 const DEFAULT_GUEST_LIMIT = 5;
-const DEFAULT_RATE_FILE = join(homedir(), '.smolpaws', 'slack', 'guest-usage.json');
+const DEFAULT_RATE_FILE = `${process.env.HOME}/.smolpaws/slack/guest-usage.json`;
 
 type GuestUsageEntry = { count: number; first_at: string };
 type GuestUsageData = Record<string, GuestUsageEntry>;
