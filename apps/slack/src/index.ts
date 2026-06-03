@@ -195,10 +195,11 @@ app.event('message', async ({ event, context }) => {
 
   // Only handle DMs — channel messages use app_mention
   if (msg.channel_type !== 'im') return;
-  // Skip bot messages, edits, and subtypes
+  // Skip bot messages, self-messages, edits, and subtypes
   if (msg.subtype) return;
   if (msg.bot_id) return;
   if (!msg.user) return;
+  if (msg.user === botUserId) return;
 
   const teamId = context.teamId;
   if (!teamId) {
