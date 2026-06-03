@@ -43,7 +43,8 @@ function splitMessage(text: string): string[] {
     }
     let splitAt = remaining.lastIndexOf('\n', SLACK_MAX_LENGTH);
     if (splitAt < SLACK_MAX_LENGTH * 0.5) {
-      splitAt = remaining.lastIndexOf(' ', SLACK_MAX_LENGTH);
+      const spaceSplit = remaining.lastIndexOf(' ', SLACK_MAX_LENGTH);
+      if (spaceSplit > splitAt) splitAt = spaceSplit;
     }
     if (splitAt < SLACK_MAX_LENGTH * 0.3) {
       splitAt = SLACK_MAX_LENGTH;
