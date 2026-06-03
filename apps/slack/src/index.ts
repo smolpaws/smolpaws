@@ -116,6 +116,13 @@ async function handleSlackEvent(ctx: SlackEventContext): Promise<void> {
     return;
   }
 
+  // Track channel threads after access check passes so denied mentions
+  // don't open the thread for follow-ups.
+  if (!ctx.isDm) {
+    const threadRoot = ctx.threadTs ?? ctx.ts;
+    mentionedThreads.track(threadRoot);
+  }
+
   const conversationId = buildConversationId(ctx);
   const threadTs = replyThreadTs(ctx);
 
@@ -176,10 +183,6 @@ app.event('app_mention', async ({ event, context }) => {
     logger.warn('app_mention event missing team context');
     return;
   }
-
-  // Track this thread so follow-up replies don't need @mention
-  const threadRoot = event.thread_ts ?? event.ts;
-  mentionedThreads.track(threadRoot);
 
   const ctx: SlackEventContext = {
     teamId,
