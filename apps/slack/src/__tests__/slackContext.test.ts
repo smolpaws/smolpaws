@@ -4,6 +4,7 @@ import {
   buildConversationId,
   checkAccess,
   GuestRateLimiter,
+  MentionedThreadTracker,
   MessageDeduplicator,
   replyThreadTs,
   stripBotMention,
@@ -191,4 +192,37 @@ test('MessageDeduplicator: different messages are not duplicates', () => {
   const d = new MessageDeduplicator();
   d.isDuplicate('a');
   assert.equal(d.isDuplicate('b'), false);
+});
+
+// --- MentionedThreadTracker ---
+
+test('MentionedThreadTracker: untracked thread is not tracked', () => {
+  const t = new MentionedThreadTracker();
+  assert.equal(t.isTracked('1717200000.000100'), false);
+});
+
+test('MentionedThreadTracker: tracked thread is tracked', () => {
+  const t = new MentionedThreadTracker();
+  t.track('1717200000.000100');
+  assert.equal(t.isTracked('1717200000.000100'), true);
+});
+
+test('MentionedThreadTracker: different threads are independent', () => {
+  const t = new MentionedThreadTracker();
+  t.track('1717200000.000100');
+  assert.equal(t.isTracked('1717200000.000100'), true);
+  assert.equal(t.isTracked('1717200000.000200'), false);
+});
+
+test('MentionedThreadTracker: evicts oldest when exceeding max', () => {
+  // Use a small tracker to test eviction
+  const t = new MentionedThreadTracker();
+  // Track 1001 threads to trigger eviction (max is 1000)
+  for (let i = 0; i < 1001; i++) {
+    t.track(`thread-${i}`);
+  }
+  // Oldest threads (first ~500) should be evicted
+  assert.equal(t.isTracked('thread-0'), false);
+  // Newest threads should still be tracked
+  assert.equal(t.isTracked('thread-1000'), true);
 });

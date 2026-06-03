@@ -40,6 +40,10 @@ npm --prefix apps/slack run test   # unit tests
 
 Requires `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` in `~/.smolpaws/.env`.
 
+## Thread Follow-ups
+
+Once the bot is @mentioned in a thread, it responds to all subsequent replies in that thread without requiring another @mention. Tracked in-memory (resets on restart). Requires `channels:history` scope and `message.channels` event subscription.
+
 ## Documentation
 
 - Architecture plan: [`../../docs/slack/README.md`](../../docs/slack/README.md)
