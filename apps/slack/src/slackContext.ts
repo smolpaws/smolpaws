@@ -56,8 +56,11 @@ export class MessageDeduplicator {
 
   private prune(now: number): void {
     if (this.seen.size < 200) return;
+    // Map preserves insertion order — oldest entries come first.
+    // Break on first non-expired entry since all subsequent are newer.
     for (const [k, ts] of this.seen) {
       if (now - ts > DEDUP_TTL_MS) this.seen.delete(k);
+      else break;
     }
   }
 }

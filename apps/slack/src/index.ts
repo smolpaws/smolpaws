@@ -94,8 +94,10 @@ async function handleSlackEvent(ctx: SlackEventContext): Promise<void> {
 
   const prompt = stripBotMention(ctx.text, ctx.botUserId);
   if (!prompt) {
-    await postReply(ctx.channelId, replyThreadTs(ctx),
-      '🐾 You called? Say something after the mention and I\'ll help.');
+    const hint = ctx.isDm
+      ? '🐾 Send me a message and I\'ll help.'
+      : '🐾 You called? Say something after the mention and I\'ll help.';
+    await postReply(ctx.channelId, replyThreadTs(ctx), hint);
     return;
   }
 
@@ -147,13 +149,12 @@ async function handleSlackEvent(ctx: SlackEventContext): Promise<void> {
 
 // --- Event handlers ---
 
-app.event('app_mention', async ({ event }) => {
+app.event('app_mention', async ({ event, context }) => {
   if (!botUserId) return;
   if (!event.user) return;
-  // team is present on app_mention events but not in the base type
-  const teamId = (event as unknown as Record<string, unknown>).team as string | undefined;
+  const teamId = context.teamId;
   if (!teamId) {
-    logger.warn('app_mention event missing team field');
+    logger.warn('app_mention event missing team context');
     return;
   }
 
@@ -171,7 +172,7 @@ app.event('app_mention', async ({ event }) => {
   await handleSlackEvent(ctx);
 });
 
-app.event('message', async ({ event }) => {
+app.event('message', async ({ event, context }) => {
   if (!botUserId) return;
   const msg = event as GenericMessageEvent;
 
@@ -182,10 +183,9 @@ app.event('message', async ({ event }) => {
   if (msg.bot_id) return;
   if (!msg.user) return;
 
-  // team is present on message events but not always in the base type
-  const teamId = (msg as unknown as Record<string, unknown>).team as string | undefined;
+  const teamId = context.teamId;
   if (!teamId) {
-    logger.warn('DM message event missing team field');
+    logger.warn('DM message event missing team context');
     return;
   }
 

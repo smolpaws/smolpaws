@@ -8,7 +8,7 @@ Phase 1 implementation: DMs (`message.im`) and channel mentions (`app_mention`) 
 
 ## How It Works
 
-```
+```text
 Slack Socket Mode (WebSocket)
   → apps/slack (Bolt)
   → src/shared/turnClient.ts
