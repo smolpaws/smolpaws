@@ -4,7 +4,8 @@ import pino from 'pino';
 import { loadConfig } from './config.js';
 import {
   buildConversationId,
-  isAllowed,
+  checkAccess,
+  GuestRateLimiter,
   MessageDeduplicator,
   replyThreadTs,
   stripBotMention,
@@ -21,6 +22,7 @@ const logger = pino({
 
 const SLACK_MAX_LENGTH = 3900;
 const dedup = new MessageDeduplicator();
+const guestLimiter = new GuestRateLimiter();
 
 const app = new App({
   token: config.botToken,
@@ -87,9 +89,19 @@ async function handleSlackEvent(ctx: SlackEventContext): Promise<void> {
     return;
   }
 
-  if (!isAllowed(ctx, config)) {
-    logger.info({ userId: ctx.userId, channelId: ctx.channelId }, 'Slack event rejected by allowlist');
+  const access = checkAccess(ctx, config);
+  if (access === 'denied') {
+    logger.info({ userId: ctx.userId, channelId: ctx.channelId }, 'Slack event denied by allowlist');
     return;
+  }
+  if (access === 'guest') {
+    if (!guestLimiter.isWithinLimit(ctx.userId)) {
+      logger.info({ userId: ctx.userId }, 'Guest user exceeded conversation limit');
+      await postReply(ctx.channelId, replyThreadTs(ctx),
+        '🐾 You\'ve used your guest conversations. Ask Engel to add you to the allowlist.');
+      return;
+    }
+    guestLimiter.record(ctx.userId);
   }
 
   const prompt = stripBotMention(ctx.text, ctx.botUserId);
@@ -141,7 +153,7 @@ async function handleSlackEvent(ctx: SlackEventContext): Promise<void> {
       logger.warn({ conversationId }, 'No reply from agent');
     }
   } catch (error) {
-    logger.error({ error, conversationId }, 'Error processing Slack message');
+    logger.error({ err: error, conversationId }, 'Error processing Slack message');
     await postReply(ctx.channelId, threadTs,
       '🐾 Something went wrong on my end. Try again in a moment.').catch(() => {});
   }
@@ -152,6 +164,10 @@ async function handleSlackEvent(ctx: SlackEventContext): Promise<void> {
 app.event('app_mention', async ({ event, context }) => {
   if (!botUserId) return;
   if (!event.user) return;
+  // Prevent bot loops: ignore bot messages and self-mentions
+  if (event.bot_id) return;
+  if (event.user === botUserId) return;
+
   const teamId = context.teamId;
   if (!teamId) {
     logger.warn('app_mention event missing team context');
@@ -206,10 +222,12 @@ app.event('message', async ({ event, context }) => {
 // --- Startup ---
 
 async function start(): Promise<void> {
-  await app.start();
-
+  // Resolve bot identity before starting Socket Mode so event handlers
+  // have botUserId available from the first event.
   const auth = await app.client.auth.test();
   botUserId = (auth.user_id as string) ?? '';
+
+  await app.start();
 
   logger.info(
     {
@@ -231,6 +249,6 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 }
 
 start().catch((error) => {
-  logger.fatal({ error }, 'Failed to start Slack bot');
+  logger.fatal({ err: error }, 'Failed to start Slack bot');
   process.exit(1);
 });
