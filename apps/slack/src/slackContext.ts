@@ -62,19 +62,24 @@ export function isPriorSlackTs(ts: string, currentTs: string): boolean {
   if (sec1 !== sec2) {
     return sec1 < sec2;
   }
-  const frac1 = Number.parseInt(frac1Raw.padEnd(6, '0'), 10);
-  const frac2 = Number.parseInt(frac2Raw.padEnd(6, '0'), 10);
+  const maxFracLen = Math.max(frac1Raw.length, frac2Raw.length, 1);
+  const frac1 = Number.parseInt(frac1Raw.padEnd(maxFracLen, '0'), 10);
+  const frac2 = Number.parseInt(frac2Raw.padEnd(maxFracLen, '0'), 10);
   if (!Number.isFinite(frac1) || !Number.isFinite(frac2)) {
     return false;
   }
   return frac1 < frac2;
 }
 
+function isSlackUserMentionId(id: string): boolean {
+  return id.startsWith('U') || id.startsWith('W');
+}
+
 export function formatThreadContext(messages: ThreadMessage[], currentTs: string, botUserId: string): string {
   const prior = messages.filter((m) => isPriorSlackTs(m.ts, currentTs));
   if (prior.length === 0) return '';
   const lines = prior.map((m) => {
-    const who = m.user === botUserId ? 'smolpaws' : `<@${m.user}>`;
+    const who = m.user === botUserId ? 'smolpaws' : isSlackUserMentionId(m.user) ? `<@${m.user}>` : m.user;
     return `${who}: ${m.text}`;
   });
   return `[Thread context]\n${lines.join('\n')}\n\n[Current message]\n`;

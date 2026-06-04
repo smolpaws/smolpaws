@@ -300,9 +300,11 @@ test('formatThreadContext: preserves microsecond ordering without float parsing'
   assert.ok(!result.includes('later'));
 });
 
-test('isPriorSlackTs: compares same-second timestamps by padded fractional part', () => {
+test('isPriorSlackTs: compares same-second timestamps by full fractional precision', () => {
   assert.equal(isPriorSlackTs('100.9', '100.10'), false);
   assert.equal(isPriorSlackTs('100.000009', '100.000010'), true);
+  assert.equal(isPriorSlackTs('1717200000.12345678', '1717200000.1234568'), true);
+  assert.equal(isPriorSlackTs('1717200000.1234568', '1717200000.12345678'), false);
 });
 
 test('isThreadContextMessageSubtype: keeps conversational subtypes and drops system ones', () => {
@@ -313,4 +315,17 @@ test('isThreadContextMessageSubtype: keeps conversational subtypes and drops sys
   assert.equal(isThreadContextMessageSubtype('channel_join'), false);
   assert.equal(isThreadContextMessageSubtype('pinned_item'), false);
   assert.equal(isThreadContextMessageSubtype('tombstone'), false);
+});
+
+test('formatThreadContext: leaves non-user identifiers unwrapped', () => {
+  const messages = [
+    { user: 'github-actions', text: 'CI passed', ts: '100.001' },
+    { user: 'B123BOT', text: 'release automation', ts: '100.002' },
+    { user: 'U1', text: 'current', ts: '100.003' },
+  ];
+  const result = formatThreadContext(messages, '100.003', 'U0BOT');
+  assert.ok(result.includes('github-actions: CI passed'));
+  assert.ok(result.includes('B123BOT: release automation'));
+  assert.ok(!result.includes('<@github-actions>'));
+  assert.ok(!result.includes('<@B123BOT>'));
 });

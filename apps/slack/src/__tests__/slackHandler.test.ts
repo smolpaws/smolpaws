@@ -368,6 +368,24 @@ test('thread context: labels bot messages as smolpaws', async () => {
   assert.ok(deps.dispatched[0].prompt.includes('smolpaws: Sure thing'));
 });
 
+test('thread context: leaves non-user identifiers unwrapped', async () => {
+  const deps = makeDeps({
+    fetchThreadMessages: async () => [
+      { user: 'github-actions', text: 'CI passed', ts: '100.001' },
+      { user: 'B123BOT', text: 'release automation', ts: '100.002' },
+      { user: 'U1', text: '<@U0BOT> more help', ts: '100.003' },
+    ],
+  });
+  const ctx = makeCtx({ text: '<@U0BOT> more help', ts: '100.003', threadTs: '100.001' });
+
+  await handleSlackEvent(ctx, deps);
+
+  assert.ok(deps.dispatched[0].prompt.includes('github-actions: CI passed'));
+  assert.ok(deps.dispatched[0].prompt.includes('B123BOT: release automation'));
+  assert.ok(!deps.dispatched[0].prompt.includes('<@github-actions>'));
+  assert.ok(!deps.dispatched[0].prompt.includes('<@B123BOT>'));
+});
+
 test('thread context: gracefully degrades on fetch failure', async () => {
   const deps = makeDeps({
     fetchThreadMessages: async () => { throw new Error('API error'); },

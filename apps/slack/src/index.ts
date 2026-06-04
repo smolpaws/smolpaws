@@ -57,11 +57,11 @@ async function fetchThreadMessages(channel: string, threadTs: string): Promise<T
   if (!result.messages) return [];
   return result.messages
     .filter((m) =>
-      m.user &&
+      (m.user || m.bot_id || m.username) &&
       m.text &&
       m.ts &&
       isThreadContextMessageSubtype(m.subtype))
-    .map((m) => ({ user: m.user!, text: m.text!, ts: m.ts! }));
+    .map((m) => ({ user: m.user ?? m.bot_id ?? m.username!, text: m.text!, ts: m.ts! }));
 }
 
 const deps: SlackDeps = {
