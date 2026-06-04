@@ -1,8 +1,13 @@
+---
+name: apple-instruments
+description: "CLI-first guide to profiling, debugging, and inspecting apps and processes on macOS using xctrace, leaks, sample, fs_usage, and other Apple developer tools."
+---
+
 # Apple Instrumentation & Profiling
 
 CLI-first guide to profiling, debugging, and inspecting apps and processes on macOS. Use these instead of opening GUI tools — agents work better with terminal commands.
 
-This machine: macOS 26.4.1, Xcode 16, `xctrace` 16.0, hostname `windy`.
+Run `system_profiler SPSoftwareDataType` and `xcrun xctrace version` to check the current OS and toolchain versions.
 
 ## Quick Reference
 
@@ -200,15 +205,14 @@ xcodebuild -project SmolPawsBall.xcodeproj -scheme SmolPawsBall -configuration D
 # Run tests
 xcodebuild -project SmolPawsBall.xcodeproj -scheme SmolPawsBall test
 
-# Profile CPU
-PID=$(pgrep SmolPawsBall)
-xcrun xctrace record --template 'Time Profiler' --attach $PID --time-limit 10s --output /tmp/smolpawsball.trace
+# Profile CPU (xctrace accepts process name directly)
+xcrun xctrace record --template 'Time Profiler' --attach 'SmolPawsBall' --time-limit 10s --output /tmp/smolpawsball.trace
 
-# Check for leaks
-leaks $(pgrep SmolPawsBall)
+# Check for leaks (also accepts process name)
+leaks SmolPawsBall
 
 # Profile SwiftUI (if using SwiftUI views)
-xcrun xctrace record --template 'SwiftUI' --attach $(pgrep SmolPawsBall) --time-limit 10s
+xcrun xctrace record --template 'SwiftUI' --attach 'SmolPawsBall' --time-limit 10s --output /tmp/smolpawsball_swiftui.trace
 ```
 
 ## Tips for Agents
