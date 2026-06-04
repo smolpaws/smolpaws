@@ -107,6 +107,13 @@ async function handleSlackEvent(ctx: SlackEventContext): Promise<void> {
     guestLimiter.record(ctx.userId);
   }
 
+  // React with eyes to acknowledge the message immediately
+  app.client.reactions.add({
+    channel: ctx.channelId,
+    timestamp: ctx.ts,
+    name: 'eyes',
+  }).catch(() => {});
+
   const prompt = stripBotMention(ctx.text, ctx.botUserId);
   if (!prompt) {
     const hint = ctx.isDm
