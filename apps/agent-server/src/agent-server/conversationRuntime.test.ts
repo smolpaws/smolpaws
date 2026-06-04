@@ -859,7 +859,9 @@ test('POST /api/conversations resets a reused smolpaws conversation stuck runnin
       ),
       false,
     );
-    assert.deepEqual(getUserMessageTexts(nextRecord.events), ['fresh retry']);
+    const userMessages = getUserMessageTexts(nextRecord.events);
+    assert.equal(userMessages.length, 1);
+    assert.equal(userMessages[0], 'fresh retry');
   } finally {
     await app.close();
     await fakeLlm.close();
@@ -1015,7 +1017,9 @@ test('turn submission resets a reused stale running smolpaws conversation when c
       ),
       false,
     );
-    assert.deepEqual(getUserMessageTexts(nextRecord.events), ['fresh retry through turns']);
+    const userMessages = getUserMessageTexts(nextRecord.events);
+    assert.equal(userMessages.length, 1);
+    assert.equal(userMessages[0], 'fresh retry through turns');
   } finally {
     await app.close();
     await fakeLlm.close();
