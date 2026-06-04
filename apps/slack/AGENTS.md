@@ -44,6 +44,17 @@ Requires `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` in `~/.smolpaws/.env`.
 
 Once the bot is @mentioned in a thread, it responds to all subsequent replies in that thread without requiring another @mention. Tracked in-memory (resets on restart). Requires `channels:history` scope and `message.channels` event subscription.
 
+## Identity
+
+The Slack app is named "paws" — it's smolpaws' Slack bot identity. Same cat, thinner surface: dispatches through the turn API without the full heartbeat/Chrome/memory stack. For the operational details (allowlist, known users, tokens), see `~/.smolpaws/slack/` and `~/.smolpaws/.env`.
+
+## Access Control
+
+- Allowlisted users (in `SLACK_ALLOWED_USER_IDS`): unlimited access
+- Non-allowlisted users (when allowlist is active): 5 conversations max, tracked in `~/.smolpaws/slack/guest-usage.json`
+- User ID → name mapping: `~/.smolpaws/slack/known-users.json`
+- Note: Slack user IDs are per-workspace, not global. Same person has different IDs across workspaces.
+
 ## Documentation
 
 - Architecture plan: [`../../docs/slack/README.md`](../../docs/slack/README.md)
