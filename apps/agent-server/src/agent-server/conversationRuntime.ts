@@ -540,8 +540,15 @@ function shouldRecoverStaleSmolpawsConversation(
   return Boolean(request.smolpaws && request.initial_message);
 }
 
-function isRecoverableStaleConversation(events: Event[]): boolean {
-  if (deriveExecutionStatusFromEvents(events) === "waiting_for_confirmation") {
+function isRecoverableStaleConversation(
+  events: Event[],
+  options?: { hasActiveTurn?: boolean },
+): boolean {
+  const latestStatus = deriveExecutionStatusFromEvents(events);
+  if (latestStatus === "waiting_for_confirmation") {
+    return true;
+  }
+  if (latestStatus === "running" && options?.hasActiveTurn === false) {
     return true;
   }
   return getLatestConversationErrorCode(events) === "max_iterations_exceeded";
@@ -1017,7 +1024,12 @@ export function createConversationRuntime({
 
     if (requestedId && shouldRecoverStaleSmolpawsConversation(request)) {
       const existing = conversations.get(requestedId);
-      if (existing && isRecoverableStaleConversation(existing.events)) {
+      if (
+        existing &&
+        isRecoverableStaleConversation(existing.events, {
+          hasActiveTurn: Boolean(getActiveTurn(getTurnState(requestedId))),
+        })
+      ) {
         await deleteConversation(requestedId);
         wasPersisted = false;
       } else if (!existing && wasPersisted) {
@@ -1033,7 +1045,26 @@ export function createConversationRuntime({
           }
           throw error;
         });
-        if (persistedEvents && isRecoverableStaleConversation(persistedEvents)) {
+        const persistedTurnState = await readPersistedTurnState(
+          requestedId,
+          persistenceRoot,
+        ).catch((error) => {
+          if (
+            error instanceof Error &&
+            error.message === "conversation_not_found"
+          ) {
+            return null;
+          }
+          throw error;
+        });
+        if (
+          persistedEvents &&
+          isRecoverableStaleConversation(persistedEvents, {
+            hasActiveTurn: Boolean(
+              persistedTurnState && getActiveTurn(persistedTurnState),
+            ),
+          })
+        ) {
           await deleteConversation(requestedId);
           wasPersisted = false;
         }
@@ -1332,7 +1363,9 @@ export function createConversationRuntime({
       if (
         !createRequest ||
         !shouldRecoverStaleSmolpawsConversation(createRequest) ||
-        !isRecoverableStaleConversation(existing.events)
+        !isRecoverableStaleConversation(existing.events, {
+          hasActiveTurn: Boolean(getActiveTurn(getTurnState(args.conversationId))),
+        })
       ) {
         return existing;
       }

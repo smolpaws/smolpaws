@@ -803,6 +803,69 @@ test('POST /api/conversations resets a reused smolpaws conversation exhausted by
   }
 });
 
+test('POST /api/conversations resets a reused smolpaws conversation stuck running without an active turn', async () => {
+  const fakeLlm = await startFakeLlmServer('stale running recovery');
+  const { app, fixture, deps } = await createTestApp(fakeLlm.baseUrl);
+  writeVscodeProfileSelection(fixture, 'gpt-5');
+  await saveDefaultProfile('gpt-5', fakeLlm.baseUrl);
+
+  try {
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/conversations',
+      payload: buildCreateConversationBody({
+        conversationId: 'stale-running',
+        initialMessage: 'first message',
+        run: false,
+      }),
+    });
+    assert.equal(createResponse.statusCode, 201);
+
+    const record = deps.conversationRuntime.conversations.get('stale-running');
+    assert(record);
+    const staleConversation = record.conversation;
+    record.events.push({
+      kind: 'ConversationStateUpdateEvent',
+      source: 'agent',
+      agent_status: 'RUNNING',
+      id: 'running-1',
+      timestamp: new Date().toISOString(),
+    } as never);
+    deps.conversationRuntime.turnStates.set('stale-running', {
+      next_sequence: 2,
+      turns: [],
+    });
+
+    const retryResponse = await app.inject({
+      method: 'POST',
+      url: '/api/conversations',
+      payload: buildCreateConversationBody({
+        conversationId: 'stale-running',
+        initialMessage: 'fresh retry',
+        run: false,
+      }),
+    });
+    assert.equal(retryResponse.statusCode, 201);
+
+    const nextRecord = deps.conversationRuntime.conversations.get('stale-running');
+    assert(nextRecord);
+    assert.notEqual(nextRecord.conversation, staleConversation);
+    assert.equal(
+      nextRecord.events.some(
+        (event) =>
+          event.kind === 'ConversationStateUpdateEvent' &&
+          event.source === 'agent' &&
+          event.agent_status === 'RUNNING',
+      ),
+      false,
+    );
+    assert.deepEqual(getUserMessageTexts(nextRecord.events), ['fresh retry']);
+  } finally {
+    await app.close();
+    await fakeLlm.close();
+  }
+});
+
 test('turn submission resets a reused stale smolpaws conversation when create_conversation is provided', async () => {
   const fakeLlm = await startFakeLlmServer('stale turn recovery');
   const { app, fixture, deps } = await createTestApp(fakeLlm.baseUrl);
@@ -869,6 +932,86 @@ test('turn submission resets a reused stale smolpaws conversation when create_co
           event.kind === 'ConversationStateUpdateEvent' &&
           event.source === 'agent' &&
           event.agent_status === 'WAITING_FOR_CONFIRMATION',
+      ),
+      false,
+    );
+    assert.deepEqual(getUserMessageTexts(nextRecord.events), ['fresh retry through turns']);
+  } finally {
+    await app.close();
+    await fakeLlm.close();
+  }
+});
+
+test('turn submission resets a reused stale running smolpaws conversation when create_conversation is provided', async () => {
+  const fakeLlm = await startFakeLlmServer('stale running turn recovery');
+  const { app, fixture, deps } = await createTestApp(fakeLlm.baseUrl);
+  writeVscodeProfileSelection(fixture, 'gpt-5');
+  await saveDefaultProfile('gpt-5', fakeLlm.baseUrl);
+
+  try {
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/conversations',
+      payload: buildCreateConversationBody({
+        conversationId: 'stale-running-turn-submit',
+        initialMessage: 'first message',
+        run: false,
+      }),
+    });
+    assert.equal(createResponse.statusCode, 201);
+
+    const record = deps.conversationRuntime.conversations.get('stale-running-turn-submit');
+    assert(record);
+    const staleConversation = record.conversation;
+    record.events.push({
+      kind: 'ConversationStateUpdateEvent',
+      source: 'agent',
+      agent_status: 'RUNNING',
+      id: 'running-turn-1',
+      timestamp: new Date().toISOString(),
+    } as never);
+    deps.conversationRuntime.turnStates.set('stale-running-turn-submit', {
+      next_sequence: 2,
+      turns: [],
+    });
+
+    const retryResponse = await app.inject({
+      method: 'POST',
+      url: '/api/conversations/stale-running-turn-submit/turns',
+      payload: {
+        idempotency_key: 'fresh-running-turn-submit',
+        user_message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'fresh retry through turns' }],
+          run: false,
+        },
+        create_conversation: {
+          agent: { llm: {} },
+          secrets: { OPENAI_API_KEY: 'test-api-key' },
+          max_iterations: 1,
+          smolpaws: {
+            enable_send_message: true,
+            github: {
+              repository_full_name: 'owner/repo-a',
+              actor_login: 'enyst',
+              event: 'issue_comment',
+              issue_number: 20,
+            },
+          },
+        },
+      },
+    });
+    assert.equal(retryResponse.statusCode, 201);
+
+    const nextRecord = deps.conversationRuntime.conversations.get('stale-running-turn-submit');
+    assert(nextRecord);
+    assert.notEqual(nextRecord.conversation, staleConversation);
+    assert.equal(
+      nextRecord.events.some(
+        (event) =>
+          event.kind === 'ConversationStateUpdateEvent' &&
+          event.source === 'agent' &&
+          event.agent_status === 'RUNNING',
       ),
       false,
     );
