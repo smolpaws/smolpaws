@@ -329,3 +329,13 @@ test('formatThreadContext: leaves non-user identifiers unwrapped', () => {
   assert.ok(!result.includes('<@github-actions>'));
   assert.ok(!result.includes('<@B123BOT>'));
 });
+
+test('formatThreadContext: rewrites bot mentions in prior text', () => {
+  const messages = [
+    { user: 'U1', text: '<@U0BOT> can you help?', ts: '100.001' },
+    { user: 'U2', text: 'current', ts: '100.002' },
+  ];
+  const result = formatThreadContext(messages, '100.002', 'U0BOT');
+  assert.ok(result.includes('@smolpaws can you help?'));
+  assert.ok(!result.includes('<@U0BOT> can you help?'));
+});

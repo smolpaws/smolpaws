@@ -372,7 +372,7 @@ test('thread context: leaves non-user identifiers unwrapped', async () => {
   const deps = makeDeps({
     fetchThreadMessages: async () => [
       { user: 'github-actions', text: 'CI passed', ts: '100.001' },
-      { user: 'B123BOT', text: 'release automation', ts: '100.002' },
+      { user: 'B123BOT', text: '<@U0BOT> release automation', ts: '100.002' },
       { user: 'U1', text: '<@U0BOT> more help', ts: '100.003' },
     ],
   });
@@ -381,9 +381,10 @@ test('thread context: leaves non-user identifiers unwrapped', async () => {
   await handleSlackEvent(ctx, deps);
 
   assert.ok(deps.dispatched[0].prompt.includes('github-actions: CI passed'));
-  assert.ok(deps.dispatched[0].prompt.includes('B123BOT: release automation'));
+  assert.ok(deps.dispatched[0].prompt.includes('B123BOT: @smolpaws release automation'));
   assert.ok(!deps.dispatched[0].prompt.includes('<@github-actions>'));
   assert.ok(!deps.dispatched[0].prompt.includes('<@B123BOT>'));
+  assert.ok(!deps.dispatched[0].prompt.includes('<@U0BOT> release automation'));
 });
 
 test('thread context: gracefully degrades on fetch failure', async () => {
@@ -405,6 +406,23 @@ test('thread context: works without fetchThreadMessages dependency', async () =>
 
   await handleSlackEvent(ctx, deps);
 
+  assert.equal(deps.dispatched.length, 1);
+  assert.equal(deps.dispatched[0].prompt, 'hello');
+});
+
+test('thread context: not fetched when thread_ts matches current message ts', async () => {
+  let fetchCalled = false;
+  const deps = makeDeps({
+    fetchThreadMessages: async () => {
+      fetchCalled = true;
+      return [];
+    },
+  });
+  const ctx = makeCtx({ text: '<@U0BOT> hello', ts: '100.002', threadTs: '100.002' });
+
+  await handleSlackEvent(ctx, deps);
+
+  assert.equal(fetchCalled, false);
   assert.equal(deps.dispatched.length, 1);
   assert.equal(deps.dispatched[0].prompt, 'hello');
 });

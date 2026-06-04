@@ -80,7 +80,8 @@ export function formatThreadContext(messages: ThreadMessage[], currentTs: string
   if (prior.length === 0) return '';
   const lines = prior.map((m) => {
     const who = m.user === botUserId ? 'smolpaws' : isSlackUserMentionId(m.user) ? `<@${m.user}>` : m.user;
-    return `${who}: ${m.text}`;
+    const cleanText = m.text.replace(new RegExp(`<@${botUserId}>`, 'g'), '@smolpaws');
+    return `${who}: ${cleanText}`;
   });
   return `[Thread context]\n${lines.join('\n')}\n\n[Current message]\n`;
 }

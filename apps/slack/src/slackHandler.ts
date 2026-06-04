@@ -104,7 +104,7 @@ export async function handleSlackEvent(ctx: SlackEventContext, deps: SlackDeps):
 
   // Fetch thread context for threaded conversations
   let fullPrompt = prompt;
-  if (ctx.threadTs && deps.fetchThreadMessages) {
+  if (ctx.threadTs && ctx.threadTs !== ctx.ts && deps.fetchThreadMessages) {
     try {
       const threadMessages = await deps.fetchThreadMessages(ctx.channelId, ctx.threadTs);
       const contextPrefix = formatThreadContext(threadMessages, ctx.ts, ctx.botUserId);
