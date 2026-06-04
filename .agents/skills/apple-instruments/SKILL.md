@@ -17,7 +17,7 @@ Run `system_profiler SPSoftwareDataType` and `xcrun xctrace version` to check th
 | Find memory leaks | `leaks PID` |
 | Profile memory allocations | `xcrun xctrace record --template 'Allocations' --attach PID` |
 | Sample a stuck process | `sample PID 5 -f /tmp/sample.txt` |
-| Watch file I/O | `sudo fs_usage -w PID | head -n 200` |
+| Watch file I/O | `sudo fs_usage -w PID \| head -n 200` |
 | Monitor network | `xcrun xctrace record --template 'Network' --attach PID` |
 | System-wide CPU/power | `sudo powermetrics --samplers cpu_power -i 1000 -n 5` |
 | Memory pressure | `vm_stat` |
@@ -222,5 +222,5 @@ xcrun xctrace record --template 'SwiftUI' --attach 'SmolPawsBall' --time-limit 1
 - **Export traces in two steps.** Use `xcrun xctrace export --input file.trace --toc` to discover schemas, then `--xpath` to export the actual data you want.
 - **`sample` is the quickest win** for "what is this process doing right now?" It may need `sudo` for protected processes.
 - **`leaks` needs no setup** — just point at a PID.
-- **Limit streaming commands** like `fs_usage`, `iostat`, and `vm_stat` so the shell does not hang waiting for more samples.
+- **Limit streaming commands** like `fs_usage` and `iostat` so the shell does not hang waiting for more samples.
 - **`sudo` is required** for `fs_usage`, `powermetrics`, `spindump`, and `dtrace`, and is often needed for `sample`.
