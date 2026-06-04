@@ -69,7 +69,8 @@ export async function handleSlackEvent(ctx: SlackEventContext, deps: SlackDeps):
     deps.logger.info({ userId: ctx.userId, channelId: ctx.channelId }, 'Slack event denied by allowlist');
     return;
   }
-  if (access === 'guest') {
+  const isGuest = access === 'guest';
+  if (isGuest) {
     if (!deps.guestLimiter.isWithinLimit(ctx.userId)) {
       deps.logger.info({ userId: ctx.userId }, 'Guest user exceeded conversation limit');
       await deps.postMessage(ctx.channelId,
@@ -77,7 +78,6 @@ export async function handleSlackEvent(ctx: SlackEventContext, deps: SlackDeps):
         replyThreadTs(ctx));
       return;
     }
-    deps.guestLimiter.record(ctx.userId);
   }
 
   deps.addReaction(ctx.channelId, ctx.ts, 'eyes').catch(() => {});
@@ -119,6 +119,10 @@ export async function handleSlackEvent(ctx: SlackEventContext, deps: SlackDeps):
       },
       logger: deps.logger,
     });
+
+    // Record guest usage only after successful dispatch — don't burn a
+    // conversation slot on agent-server failures.
+    if (isGuest) deps.guestLimiter.record(ctx.userId);
 
     for (const msg of result.outboundMessages) {
       if (msg.kind === 'current_thread_message') {

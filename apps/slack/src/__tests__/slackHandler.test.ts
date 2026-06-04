@@ -212,29 +212,28 @@ test('access: denied user gets no response', async () => {
   assert.equal(deps.posted.length, 0);
 });
 
-test('access: guest user gets rate-limited after 5 conversations', async () => {
+test('access: guest user gets rate-limited after 2 conversations', async () => {
   const f = join(tmpdir(), `smolpaws-e2e-${Date.now()}.json`);
-  const deps = makeDeps({
-    config: makeConfig({ allowedUserIds: new Set(['UGOOD']) }),
-    guestLimiter: new GuestRateLimiter(f, 2),
-  });
+  try {
+    const deps = makeDeps({
+      config: makeConfig({ allowedUserIds: new Set(['UGOOD']) }),
+      guestLimiter: new GuestRateLimiter(f, 2),
+    });
 
-  // Guest user sends 2 messages (different ts to avoid dedup)
-  const ctx1 = makeCtx({ userId: 'UGUEST', text: '<@U0BOT> q1', ts: '100.001' });
-  const ctx2 = makeCtx({ userId: 'UGUEST', text: '<@U0BOT> q2', ts: '100.002' });
-  const ctx3 = makeCtx({ userId: 'UGUEST', text: '<@U0BOT> q3', ts: '100.003' });
+    const ctx1 = makeCtx({ userId: 'UGUEST', text: '<@U0BOT> q1', ts: '100.001' });
+    const ctx2 = makeCtx({ userId: 'UGUEST', text: '<@U0BOT> q2', ts: '100.002' });
+    const ctx3 = makeCtx({ userId: 'UGUEST', text: '<@U0BOT> q3', ts: '100.003' });
 
-  await handleSlackEvent(ctx1, deps);
-  await handleSlackEvent(ctx2, deps);
-  await handleSlackEvent(ctx3, deps);
+    await handleSlackEvent(ctx1, deps);
+    await handleSlackEvent(ctx2, deps);
+    await handleSlackEvent(ctx3, deps);
 
-  // First 2 dispatched, 3rd blocked
-  assert.equal(deps.dispatched.length, 2);
-  // 3rd message gets the rate-limit reply
-  const rateLimitMsg = deps.posted.find(p => p.text.includes('guest conversations'));
-  assert.ok(rateLimitMsg);
-
-  try { unlinkSync(f); } catch {}
+    assert.equal(deps.dispatched.length, 2);
+    const rateLimitMsg = deps.posted.find(p => p.text.includes('guest conversations'));
+    assert.ok(rateLimitMsg);
+  } finally {
+    try { unlinkSync(f); } catch {}
+  }
 });
 
 test('access: allowlisted user is never rate-limited', async () => {
