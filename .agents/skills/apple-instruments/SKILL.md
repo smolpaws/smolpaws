@@ -17,12 +17,12 @@ Run `system_profiler SPSoftwareDataType` and `xcrun xctrace version` to check th
 | Find memory leaks | `leaks PID` |
 | Profile memory allocations | `xcrun xctrace record --template 'Allocations' --attach PID` |
 | Sample a stuck process | `sample PID 5 -f /tmp/sample.txt` |
-| Watch file I/O | `sudo fs_usage -w PID` |
+| Watch file I/O | `sudo fs_usage -w PID | head -n 200` |
 | Monitor network | `xcrun xctrace record --template 'Network' --attach PID` |
 | System-wide CPU/power | `sudo powermetrics --samplers cpu_power -i 1000 -n 5` |
-| Memory pressure | `vm_stat 1` |
-| Disk I/O stats | `iostat -w 1` |
-| Spin dump (hang) | `sudo spindump PID -reveal -timeline` |
+| Memory pressure | `vm_stat` |
+| Disk I/O stats | `iostat -w 1 -c 5` |
+| Spin dump (hang) | `sudo spindump PID -o /tmp/spindump.txt -reveal -timeline` |
 | Check app launch time | `xcrun xctrace record --template 'App Launch' --launch -- /path/to/app` |
 | SwiftUI performance | `xcrun xctrace record --template 'SwiftUI' --attach PID` |
 | Energy impact | `xcrun xctrace record --template 'Power Profiler' --attach PID` |
@@ -50,7 +50,7 @@ xcrun xctrace record --template 'Allocations' --attach PID --time-limit 30s --ou
 # Export as XML (parseable)
 xcrun xctrace export --input /tmp/trace.trace --xpath '/trace-toc/run/data/table[@schema="time-profile"]'
 
-# List what's inside a trace
+# List the table of contents and available schemas
 xcrun xctrace export --input /tmp/trace.trace --toc
 ```
 
@@ -117,8 +117,8 @@ Good for quick "what is this process doing?" without a full Instruments trace.
 
 ### spindump — diagnose hangs
 ```bash
-sudo spindump PID -reveal -timeline          # detailed hang report
-sudo spindump PID -reveal -timeline -onlyTarget  # only the target process
+sudo spindump PID -o /tmp/spindump.txt -reveal -timeline
+sudo spindump PID -o /tmp/spindump-target.txt -reveal -timeline -onlyTarget
 ```
 
 ### powermetrics — energy and thermal
@@ -133,7 +133,7 @@ Requires root. Shows power per cluster (E-cores, P-cores), thermal pressure, fre
 
 ### fs_usage — live file system activity
 ```bash
-sudo fs_usage -w PID                # watch file ops for a process
+sudo fs_usage -w PID | head -n 200 # bounded sample of file ops
 sudo fs_usage -w -f filesys PID    # file system calls only
 sudo fs_usage -w -f network PID    # network calls only
 sudo fs_usage -w -f diskio PID     # disk I/O only
@@ -141,15 +141,15 @@ sudo fs_usage -w -f diskio PID     # disk I/O only
 
 ### iostat — disk I/O statistics
 ```bash
-iostat -w 1                         # disk stats every second
-iostat -d -w 1                      # disk only
+iostat -w 1 -c 5                    # disk stats every second, 5 samples
+iostat -d -w 1 -c 5                 # disk only, 5 samples
 ```
 
 ## System Overview
 
 ### vm_stat — memory pressure
 ```bash
-vm_stat 1                           # page-level memory stats every second
+vm_stat                             # one-shot memory snapshot
 ```
 Watch for "Pages speculative" and "Pages purgeable" to gauge memory pressure.
 
@@ -219,7 +219,8 @@ xcrun xctrace record --template 'SwiftUI' --attach 'SmolPawsBall' --time-limit 1
 
 - **Always prefer CLI over GUI.** `xctrace record` over opening Instruments.app.
 - **Use `--time-limit`** to prevent traces from running forever.
-- **Export traces as XML** for parsing: `xcrun xctrace export --input file.trace --toc`
-- **`sample` is the quickest win** for "what is this process doing right now?"
+- **Export traces in two steps.** Use `xcrun xctrace export --input file.trace --toc` to discover schemas, then `--xpath` to export the actual data you want.
+- **`sample` is the quickest win** for "what is this process doing right now?" It may need `sudo` for protected processes.
 - **`leaks` needs no setup** — just point at a PID.
-- **`sudo` is required** for `fs_usage`, `powermetrics`, `spindump`, and `dtrace`.
+- **Limit streaming commands** like `fs_usage`, `iostat`, and `vm_stat` so the shell does not hang waiting for more samples.
+- **`sudo` is required** for `fs_usage`, `powermetrics`, `spindump`, and `dtrace`, and is often needed for `sample`.
