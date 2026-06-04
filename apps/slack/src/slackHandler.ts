@@ -13,7 +13,7 @@ import {
   type SlackEventContext,
 } from './slackContext.js';
 
-const SLACK_MAX_LENGTH = 3900;
+const SLACK_MAX_LENGTH = 5900;
 
 export function splitMessage(text: string): string[] {
   if (text.length <= SLACK_MAX_LENGTH) return [text];
