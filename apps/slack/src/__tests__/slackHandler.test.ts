@@ -323,15 +323,15 @@ test('splitMessage: long text splits at newlines', () => {
   const chunks = splitMessage(text);
   assert.ok(chunks.length >= 2);
   for (const chunk of chunks) {
-    assert.ok(chunk.length <= 3900);
+    assert.ok(chunk.length <= 5900);
   }
 });
 
 test('splitMessage: preserves earlier newline when no space improves on it', () => {
-  // 2000 chars of no-space text, a newline, then 2500 more chars of no-space text
-  // The newline at 2000 is > 30% of 3900 (1170), so it should be used
-  const before = 'a'.repeat(2000);
-  const after = 'b'.repeat(2500);
+  // 4000 chars of no-space text, a newline, then 3000 more chars of no-space text
+  // The newline at 4000 is > 30% of 5900 (1770), so it should be used
+  const before = 'a'.repeat(4000);
+  const after = 'b'.repeat(3000);
   const text = `${before}\n${after}`;
   const chunks = splitMessage(text);
   assert.equal(chunks.length, 2);
