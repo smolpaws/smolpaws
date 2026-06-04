@@ -5,12 +5,14 @@ import type { SmolpawsOutboundMessage } from '../../../src/shared/runner.js';
 import {
   buildConversationId,
   checkAccess,
+  formatThreadContext,
   type GuestRateLimiter,
   type MentionedThreadTracker,
   type MessageDeduplicator,
   replyThreadTs,
   stripBotMention,
   type SlackEventContext,
+  type ThreadMessage,
 } from './slackContext.js';
 
 const SLACK_MAX_LENGTH = 5900;
@@ -46,6 +48,7 @@ export type SlackDeps = {
   logger: Logger;
   postMessage: (channel: string, text: string, threadTs: string) => Promise<void>;
   addReaction: (channel: string, timestamp: string, name: string) => Promise<void>;
+  fetchThreadMessages?: (channel: string, threadTs: string) => Promise<ThreadMessage[]>;
   dispatch: (options: {
     baseUrl: string;
     token?: string;
@@ -99,8 +102,22 @@ export async function handleSlackEvent(ctx: SlackEventContext, deps: SlackDeps):
   const conversationId = buildConversationId(ctx);
   const threadTs = replyThreadTs(ctx);
 
+  // Fetch thread context for threaded conversations
+  let fullPrompt = prompt;
+  if (ctx.threadTs && deps.fetchThreadMessages) {
+    try {
+      const threadMessages = await deps.fetchThreadMessages(ctx.channelId, ctx.threadTs);
+      const contextPrefix = formatThreadContext(threadMessages, ctx.ts, ctx.botUserId);
+      if (contextPrefix) {
+        fullPrompt = contextPrefix + prompt;
+      }
+    } catch (err) {
+      deps.logger.warn({ err, channelId: ctx.channelId, threadTs: ctx.threadTs }, 'Failed to fetch thread context');
+    }
+  }
+
   deps.logger.info(
-    { userId: ctx.userId, channelId: ctx.channelId, conversationId, isDm: ctx.isDm, promptLength: prompt.length },
+    { userId: ctx.userId, channelId: ctx.channelId, conversationId, isDm: ctx.isDm, promptLength: fullPrompt.length },
     'Processing Slack message',
   );
 
@@ -110,7 +127,7 @@ export async function handleSlackEvent(ctx: SlackEventContext, deps: SlackDeps):
       token: deps.config.runnerToken,
       conversationId,
       messageId: dedupKey,
-      prompt,
+      prompt: fullPrompt,
       slack: {
         team_id: ctx.teamId,
         channel_id: ctx.channelId,

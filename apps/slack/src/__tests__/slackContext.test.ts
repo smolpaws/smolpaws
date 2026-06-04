@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   buildConversationId,
   checkAccess,
+  formatThreadContext,
   GuestRateLimiter,
   MentionedThreadTracker,
   MessageDeduplicator,
@@ -241,3 +242,45 @@ test('MentionedThreadTracker: re-tracking refreshes insertion order', () => {
   // thread-1 was oldest after refresh — should be evicted
   assert.equal(t.isTracked('thread-1'), false);
 });
+
+// --- formatThreadContext ---
+
+test('formatThreadContext: returns empty string when no prior messages', () => {
+  const messages = [{ user: 'U1', text: 'hello', ts: '100.001' }];
+  assert.equal(formatThreadContext(messages, '100.001', 'U0BOT'), '');
+});
+
+test('formatThreadContext: formats prior messages with user mentions', () => {
+  const messages = [
+    { user: 'U1', text: 'What is OpenHands?', ts: '100.001' },
+    { user: 'U2', text: 'It is an AI agent platform', ts: '100.002' },
+    { user: 'U1', text: '@smolpaws can you help?', ts: '100.003' },
+  ];
+  const result = formatThreadContext(messages, '100.003', 'U0BOT');
+  assert.ok(result.startsWith('[Thread context]'));
+  assert.ok(result.includes('<@U1>: What is OpenHands?'));
+  assert.ok(result.includes('<@U2>: It is an AI agent platform'));
+  assert.ok(result.endsWith('[Current message]\n'));
+});
+
+test('formatThreadContext: labels bot messages as smolpaws', () => {
+  const messages = [
+    { user: 'U1', text: 'help me', ts: '100.001' },
+    { user: 'U0BOT', text: 'Sure, what do you need?', ts: '100.002' },
+    { user: 'U1', text: 'more help', ts: '100.003' },
+  ];
+  const result = formatThreadContext(messages, '100.003', 'U0BOT');
+  assert.ok(result.includes('smolpaws: Sure, what do you need?'));
+  assert.ok(!result.includes('<@U0BOT>'));
+});
+
+test('formatThreadContext: excludes current message from context', () => {
+  const messages = [
+    { user: 'U1', text: 'first message', ts: '100.001' },
+    { user: 'U1', text: 'current message', ts: '100.002' },
+  ];
+  const result = formatThreadContext(messages, '100.002', 'U0BOT');
+  assert.ok(result.includes('first message'));
+  assert.ok(!result.includes('current message'));
+});
+

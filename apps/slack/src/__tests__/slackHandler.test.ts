@@ -310,6 +310,84 @@ test('error: dispatch failure sends error message to Slack', async () => {
   assert.ok(deps.posted[0].text.includes('Something went wrong'));
 });
 
+// ── Thread context ──
+
+test('thread context: prepends prior messages to prompt when in a thread', async () => {
+  const deps = makeDeps({
+    fetchThreadMessages: async () => [
+      { user: 'U1', text: 'What is OpenHands?', ts: '1717200000.000100' },
+      { user: 'U2', text: 'An AI agent platform', ts: '1717200000.000150' },
+      { user: 'U456', text: '<@U0BOT> can you explain more?', ts: '1717200000.000200' },
+    ],
+  });
+  const ctx = makeCtx({
+    text: '<@U0BOT> can you explain more?',
+    ts: '1717200000.000200',
+    threadTs: '1717200000.000100',
+  });
+
+  await handleSlackEvent(ctx, deps);
+
+  assert.equal(deps.dispatched.length, 1);
+  assert.ok(deps.dispatched[0].prompt.includes('[Thread context]'));
+  assert.ok(deps.dispatched[0].prompt.includes('<@U1>: What is OpenHands?'));
+  assert.ok(deps.dispatched[0].prompt.includes('<@U2>: An AI agent platform'));
+  assert.ok(deps.dispatched[0].prompt.includes('[Current message]'));
+  assert.ok(deps.dispatched[0].prompt.endsWith('can you explain more?'));
+});
+
+test('thread context: not fetched for non-threaded messages', async () => {
+  let fetchCalled = false;
+  const deps = makeDeps({
+    fetchThreadMessages: async () => { fetchCalled = true; return []; },
+  });
+  const ctx = makeCtx({ text: '<@U0BOT> hello', threadTs: undefined });
+
+  await handleSlackEvent(ctx, deps);
+
+  assert.equal(fetchCalled, false);
+  assert.equal(deps.dispatched.length, 1);
+  assert.equal(deps.dispatched[0].prompt, 'hello');
+});
+
+test('thread context: labels bot messages as smolpaws', async () => {
+  const deps = makeDeps({
+    fetchThreadMessages: async () => [
+      { user: 'U1', text: 'help', ts: '100.001' },
+      { user: 'U0BOT', text: 'Sure thing', ts: '100.002' },
+      { user: 'U1', text: '<@U0BOT> more help', ts: '100.003' },
+    ],
+  });
+  const ctx = makeCtx({ text: '<@U0BOT> more help', ts: '100.003', threadTs: '100.001' });
+
+  await handleSlackEvent(ctx, deps);
+
+  assert.ok(deps.dispatched[0].prompt.includes('smolpaws: Sure thing'));
+});
+
+test('thread context: gracefully degrades on fetch failure', async () => {
+  const deps = makeDeps({
+    fetchThreadMessages: async () => { throw new Error('API error'); },
+  });
+  const ctx = makeCtx({ text: '<@U0BOT> help me', ts: '100.002', threadTs: '100.001' });
+
+  await handleSlackEvent(ctx, deps);
+
+  assert.equal(deps.dispatched.length, 1);
+  assert.equal(deps.dispatched[0].prompt, 'help me');
+});
+
+test('thread context: works without fetchThreadMessages dependency', async () => {
+  const deps = makeDeps();
+  // deps.fetchThreadMessages is undefined by default
+  const ctx = makeCtx({ text: '<@U0BOT> hello', ts: '100.002', threadTs: '100.001' });
+
+  await handleSlackEvent(ctx, deps);
+
+  assert.equal(deps.dispatched.length, 1);
+  assert.equal(deps.dispatched[0].prompt, 'hello');
+});
+
 // ── splitMessage ──
 
 test('splitMessage: short text returns single chunk', () => {

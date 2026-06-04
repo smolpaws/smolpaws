@@ -29,6 +29,22 @@ export function stripBotMention(text: string, botUserId: string): string {
   return text.replace(new RegExp(`<@${botUserId}>`, 'g'), '').trim();
 }
 
+export type ThreadMessage = {
+  user: string;
+  text: string;
+  ts: string;
+};
+
+export function formatThreadContext(messages: ThreadMessage[], currentTs: string, botUserId: string): string {
+  const prior = messages.filter((m) => m.ts !== currentTs);
+  if (prior.length === 0) return '';
+  const lines = prior.map((m) => {
+    const who = m.user === botUserId ? 'smolpaws' : `<@${m.user}>`;
+    return `${who}: ${m.text}`;
+  });
+  return `[Thread context]\n${lines.join('\n')}\n\n[Current message]\n`;
+}
+
 export type AllowResult = 'allowed' | 'denied' | 'guest';
 
 export function checkAccess(ctx: SlackEventContext, config: SlackConfig): AllowResult {

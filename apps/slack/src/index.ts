@@ -7,6 +7,7 @@ import {
   MentionedThreadTracker,
   MessageDeduplicator,
   type SlackEventContext,
+  type ThreadMessage,
 } from './slackContext.js';
 import { dispatchToAgentServer } from './agentServerClient.js';
 import { handleSlackEvent, splitMessage, type SlackDeps } from './slackHandler.js';
@@ -46,6 +47,18 @@ async function addReaction(channel: string, timestamp: string, name: string): Pr
   await app.client.reactions.add({ channel, timestamp, name });
 }
 
+async function fetchThreadMessages(channel: string, threadTs: string): Promise<ThreadMessage[]> {
+  const result = await app.client.conversations.replies({
+    channel,
+    ts: threadTs,
+    limit: 50,
+  });
+  if (!result.messages) return [];
+  return result.messages
+    .filter((m) => m.user && m.text && !m.subtype)
+    .map((m) => ({ user: m.user!, text: m.text!, ts: m.ts! }));
+}
+
 const deps: SlackDeps = {
   config,
   dedup,
@@ -54,6 +67,7 @@ const deps: SlackDeps = {
   logger,
   postMessage,
   addReaction,
+  fetchThreadMessages,
   dispatch: dispatchToAgentServer,
 };
 
