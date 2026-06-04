@@ -35,8 +35,19 @@ export type ThreadMessage = {
   ts: string;
 };
 
+function parseSlackTs(ts: string): number {
+  return Number.parseFloat(ts);
+}
+
 export function formatThreadContext(messages: ThreadMessage[], currentTs: string, botUserId: string): string {
-  const prior = messages.filter((m) => m.ts !== currentTs);
+  const currentTsNumber = parseSlackTs(currentTs);
+  const prior = messages.filter((m) => {
+    const messageTsNumber = parseSlackTs(m.ts);
+    if (Number.isFinite(currentTsNumber) && Number.isFinite(messageTsNumber)) {
+      return messageTsNumber < currentTsNumber;
+    }
+    return m.ts !== currentTs;
+  });
   if (prior.length === 0) return '';
   const lines = prior.map((m) => {
     const who = m.user === botUserId ? 'smolpaws' : `<@${m.user}>`;

@@ -332,6 +332,9 @@ test('thread context: prepends prior messages to prompt when in a thread', async
   assert.ok(deps.dispatched[0].prompt.includes('[Thread context]'));
   assert.ok(deps.dispatched[0].prompt.includes('<@U1>: What is OpenHands?'));
   assert.ok(deps.dispatched[0].prompt.includes('<@U2>: An AI agent platform'));
+  const threadContextEnd = deps.dispatched[0].prompt.indexOf('[Current message]');
+  const threadContext = deps.dispatched[0].prompt.slice(0, threadContextEnd);
+  assert.ok(!threadContext.includes('<@U456>: can you explain more?'));
   assert.ok(deps.dispatched[0].prompt.includes('[Current message]'));
   assert.ok(deps.dispatched[0].prompt.endsWith('can you explain more?'));
 });

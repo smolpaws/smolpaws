@@ -274,13 +274,14 @@ test('formatThreadContext: labels bot messages as smolpaws', () => {
   assert.ok(!result.includes('<@U0BOT>'));
 });
 
-test('formatThreadContext: excludes current message from context', () => {
+test('formatThreadContext: excludes current and future messages from context', () => {
   const messages = [
     { user: 'U1', text: 'first message', ts: '100.001' },
     { user: 'U1', text: 'current message', ts: '100.002' },
+    { user: 'U1', text: 'future message', ts: '100.003' },
   ];
   const result = formatThreadContext(messages, '100.002', 'U0BOT');
   assert.ok(result.includes('first message'));
   assert.ok(!result.includes('current message'));
+  assert.ok(!result.includes('future message'));
 });
-

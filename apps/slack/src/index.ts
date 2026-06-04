@@ -55,7 +55,11 @@ async function fetchThreadMessages(channel: string, threadTs: string): Promise<T
   });
   if (!result.messages) return [];
   return result.messages
-    .filter((m) => m.user && m.text && !m.subtype)
+    .filter((m) =>
+      m.user &&
+      m.text &&
+      m.ts &&
+      (!m.subtype || m.subtype === 'thread_broadcast' || m.subtype === 'file_share'))
     .map((m) => ({ user: m.user!, text: m.text!, ts: m.ts! }));
 }
 
