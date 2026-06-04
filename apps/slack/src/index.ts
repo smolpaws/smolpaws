@@ -6,6 +6,7 @@ import {
   GuestRateLimiter,
   MentionedThreadTracker,
   MessageDeduplicator,
+  isThreadContextMessageSubtype,
   type SlackEventContext,
   type ThreadMessage,
 } from './slackContext.js';
@@ -59,7 +60,7 @@ async function fetchThreadMessages(channel: string, threadTs: string): Promise<T
       m.user &&
       m.text &&
       m.ts &&
-      (!m.subtype || m.subtype === 'thread_broadcast' || m.subtype === 'file_share'))
+      isThreadContextMessageSubtype(m.subtype))
     .map((m) => ({ user: m.user!, text: m.text!, ts: m.ts! }));
 }
 

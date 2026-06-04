@@ -35,19 +35,43 @@ export type ThreadMessage = {
   ts: string;
 };
 
-function parseSlackTs(ts: string): number {
-  return Number.parseFloat(ts);
+const EXCLUDED_THREAD_MESSAGE_SUBTYPES = new Set([
+  'channel_join',
+  'channel_leave',
+  'channel_topic',
+  'channel_purpose',
+  'channel_name',
+  'channel_archive',
+  'channel_unarchive',
+  'pinned_item',
+  'tombstone',
+]);
+
+export function isThreadContextMessageSubtype(subtype?: string): boolean {
+  return !subtype || !EXCLUDED_THREAD_MESSAGE_SUBTYPES.has(subtype);
+}
+
+export function isPriorSlackTs(ts: string, currentTs: string): boolean {
+  const [sec1Raw, frac1Raw = ''] = ts.split('.', 2);
+  const [sec2Raw, frac2Raw = ''] = currentTs.split('.', 2);
+  const sec1 = Number.parseInt(sec1Raw, 10);
+  const sec2 = Number.parseInt(sec2Raw, 10);
+  if (!Number.isFinite(sec1) || !Number.isFinite(sec2)) {
+    return false;
+  }
+  if (sec1 !== sec2) {
+    return sec1 < sec2;
+  }
+  const frac1 = Number.parseInt(frac1Raw.padEnd(6, '0'), 10);
+  const frac2 = Number.parseInt(frac2Raw.padEnd(6, '0'), 10);
+  if (!Number.isFinite(frac1) || !Number.isFinite(frac2)) {
+    return false;
+  }
+  return frac1 < frac2;
 }
 
 export function formatThreadContext(messages: ThreadMessage[], currentTs: string, botUserId: string): string {
-  const currentTsNumber = parseSlackTs(currentTs);
-  const prior = messages.filter((m) => {
-    const messageTsNumber = parseSlackTs(m.ts);
-    if (Number.isFinite(currentTsNumber) && Number.isFinite(messageTsNumber)) {
-      return messageTsNumber < currentTsNumber;
-    }
-    return m.ts !== currentTs;
-  });
+  const prior = messages.filter((m) => isPriorSlackTs(m.ts, currentTs));
   if (prior.length === 0) return '';
   const lines = prior.map((m) => {
     const who = m.user === botUserId ? 'smolpaws' : `<@${m.user}>`;

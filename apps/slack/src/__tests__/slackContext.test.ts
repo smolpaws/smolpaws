@@ -5,6 +5,8 @@ import {
   checkAccess,
   formatThreadContext,
   GuestRateLimiter,
+  isPriorSlackTs,
+  isThreadContextMessageSubtype,
   MentionedThreadTracker,
   MessageDeduplicator,
   replyThreadTs,
@@ -284,4 +286,31 @@ test('formatThreadContext: excludes current and future messages from context', (
   assert.ok(result.includes('first message'));
   assert.ok(!result.includes('current message'));
   assert.ok(!result.includes('future message'));
+});
+
+test('formatThreadContext: preserves microsecond ordering without float parsing', () => {
+  const messages = [
+    { user: 'U1', text: 'earlier', ts: '1717200000.000199' },
+    { user: 'U1', text: 'current', ts: '1717200000.000200' },
+    { user: 'U1', text: 'later', ts: '1717200000.000201' },
+  ];
+  const result = formatThreadContext(messages, '1717200000.000200', 'U0BOT');
+  assert.ok(result.includes('earlier'));
+  assert.ok(!result.includes('current'));
+  assert.ok(!result.includes('later'));
+});
+
+test('isPriorSlackTs: compares same-second timestamps by padded fractional part', () => {
+  assert.equal(isPriorSlackTs('100.9', '100.10'), false);
+  assert.equal(isPriorSlackTs('100.000009', '100.000010'), true);
+});
+
+test('isThreadContextMessageSubtype: keeps conversational subtypes and drops system ones', () => {
+  assert.equal(isThreadContextMessageSubtype(undefined), true);
+  assert.equal(isThreadContextMessageSubtype('thread_broadcast'), true);
+  assert.equal(isThreadContextMessageSubtype('file_share'), true);
+  assert.equal(isThreadContextMessageSubtype('me_message'), true);
+  assert.equal(isThreadContextMessageSubtype('channel_join'), false);
+  assert.equal(isThreadContextMessageSubtype('pinned_item'), false);
+  assert.equal(isThreadContextMessageSubtype('tombstone'), false);
 });
