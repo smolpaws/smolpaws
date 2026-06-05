@@ -366,6 +366,65 @@ async function sendMessage(jid: string, text: string): Promise<void> {
   }
 }
 
+const VOICE_OUTBOX = path.join(WHATSAPP_DIR, 'voice-outbox.jsonl');
+
+/**
+ * Drain the voice outbox: read JSONL entries, send each as a WhatsApp voice
+ * note, then truncate the file. Each line: {"jid":"...","oggPath":"/path/to/file.ogg"}
+ * The agent writes entries here from terminal; the router picks them up.
+ */
+async function drainVoiceOutbox(): Promise<void> {
+  if (!fs.existsSync(VOICE_OUTBOX)) return;
+  let raw: string;
+  try {
+    raw = fs.readFileSync(VOICE_OUTBOX, 'utf-8').trim();
+  } catch { return; }
+  if (!raw) return;
+
+  // Truncate immediately so concurrent writes don't get lost
+  fs.writeFileSync(VOICE_OUTBOX, '');
+
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const entry = JSON.parse(line) as { jid: string; oggPath: string };
+      if (entry.jid && entry.oggPath && fs.existsSync(entry.oggPath)) {
+        await sendVoiceNote(entry.jid, entry.oggPath);
+        try { fs.unlinkSync(entry.oggPath); } catch {}
+      }
+    } catch (err) {
+      logger.error({ err, line }, 'Failed to process voice outbox entry');
+    }
+  }
+}
+
+async function sendVoiceNote(jid: string, oggPath: string): Promise<void> {
+  const targetJid = resolveOutboundChatJid(jid, sock.user);
+  const rewritten = targetJid !== jid;
+
+  try {
+    const audio = fs.readFileSync(oggPath);
+    const sent = await sock.sendMessage(targetJid, {
+      audio,
+      mimetype: 'audio/ogg; codecs=opus',
+      ptt: true,
+    });
+    logger.info(
+      {
+        requestedJid: jid,
+        targetJid,
+        rewritten,
+        remoteJid: sent?.key?.remoteJid,
+        messageId: sent?.key?.id,
+        size: audio.length,
+      },
+      'Voice note sent',
+    );
+  } catch (err) {
+    logger.error({ requestedJid: jid, targetJid, rewritten, err }, 'Failed to send voice note');
+  }
+}
+
 async function connectWhatsApp(): Promise<void> {
   const authDir = path.join(WHATSAPP_DIR, 'auth');
   fs.mkdirSync(authDir, { recursive: true });
@@ -489,6 +548,13 @@ async function startMessageLoop(): Promise<void> {
     } catch (err) {
       logger.error({ err }, 'Error in message loop');
     }
+    // Drain voice outbox — agent drops OGG files here for the router to send
+    try {
+      await drainVoiceOutbox();
+    } catch (err) {
+      logger.error({ err }, 'Error draining voice outbox');
+    }
+
     await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL));
   }
 }

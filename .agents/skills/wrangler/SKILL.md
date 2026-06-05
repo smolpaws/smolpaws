@@ -897,3 +897,44 @@ wrangler docs configuration
 6. **Use `.dev.vars` for local secrets**: Never commit secrets to config.
 7. **Test locally first**: `wrangler dev` with local bindings before deploying.
 8. **Use `--dry-run` before major deploys**: Validate changes without deployment.
+
+---
+
+## Cloudflare MCP Servers
+
+Cloudflare provides official remote MCP servers for AI agent integration. OAuth triggers automatically on first use.
+
+| Server | URL | Auth |
+|--------|-----|------|
+| Core API | `https://mcp.cloudflare.com/mcp` | OAuth |
+| Docs | `https://docs.mcp.cloudflare.com/mcp` | Public (no auth) |
+| Bindings | `https://bindings.mcp.cloudflare.com/mcp` | OAuth |
+| Builds | `https://builds.mcp.cloudflare.com/mcp` | OAuth |
+| Observability | `https://observability.mcp.cloudflare.com/mcp` | OAuth |
+
+### OpenHands / Generic Agent Setup
+
+Add to your agent's MCP config (`.vscode/mcp.json`, `.cursor/mcp.json`, or equivalent):
+
+```json
+{
+  "cloudflare": { "url": "https://mcp.cloudflare.com/mcp" },
+  "cloudflare-docs": { "url": "https://docs.mcp.cloudflare.com/mcp" },
+  "cloudflare-bindings": { "url": "https://bindings.mcp.cloudflare.com/mcp" },
+  "cloudflare-builds": { "url": "https://builds.mcp.cloudflare.com/mcp" },
+  "cloudflare-observability": { "url": "https://observability.mcp.cloudflare.com/mcp" }
+}
+```
+
+### Skills-Based Install (Alternative)
+
+```bash
+npx -y skills add cloudflare/skills --skill '*' --yes --global
+```
+
+### Reference
+
+- Official setup prompt: `https://developers.cloudflare.com/agent-setup/prompt.md`
+- Skills repo: `https://github.com/cloudflare/skills`
+- MCP server (Code Mode): `https://github.com/cloudflare/mcp`
+- Other MCP servers: `https://github.com/cloudflare/mcp-server-cloudflare`
