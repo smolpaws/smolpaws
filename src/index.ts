@@ -399,18 +399,21 @@ async function drainVoiceOutbox(): Promise<void> {
 
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
-    try {
-      const entry = JSON.parse(line) as { jid: string; oggPath: string };
-      if (!entry.jid || !entry.oggPath || !fs.existsSync(entry.oggPath)) continue;
 
-      const ok = await sendVoiceNote(entry.jid, entry.oggPath);
-      if (ok) {
-        try { fs.unlinkSync(entry.oggPath); } catch {}
-      } else {
-        failed.push(line);
-      }
+    let entry: { jid: string; oggPath: string };
+    try {
+      entry = JSON.parse(line) as { jid: string; oggPath: string };
     } catch (err) {
-      logger.error({ err, line }, 'Failed to process voice outbox entry');
+      logger.warn({ err, line }, 'Discarding malformed voice outbox entry');
+      continue;
+    }
+
+    if (!entry.jid || !entry.oggPath || !fs.existsSync(entry.oggPath)) continue;
+
+    const ok = await sendVoiceNote(entry.jid, entry.oggPath);
+    if (ok) {
+      try { fs.unlinkSync(entry.oggPath); } catch {}
+    } else {
       failed.push(line);
     }
   }
