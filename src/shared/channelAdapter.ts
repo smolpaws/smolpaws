@@ -244,6 +244,9 @@ class ChannelRegistry {
 
   /** Create and start an adapter. Stores the instance for shutdown. */
   async startAdapter(name: string, config: Omit<ChannelAdapterConfig, 'name'>): Promise<BaseChannelAdapter> {
+    if (this._instances.has(name)) {
+      throw new Error(`Adapter '${name}' is already running`);
+    }
     const factory = this._factories.get(name);
     if (!factory) {
       throw new Error(`No adapter registered for '${name}'`);

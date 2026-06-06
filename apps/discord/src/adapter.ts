@@ -33,7 +33,7 @@ export type DiscordAdapterConfig = ChannelAdapterConfig & {
 };
 
 export class DiscordAdapter extends BaseChannelAdapter {
-  private readonly client: Client;
+  private client?: Client;
   private readonly botToken: string;
   private readonly triggerPattern: RegExp;
   private readonly allowedGuilds: Set<string>;
@@ -52,7 +52,14 @@ export class DiscordAdapter extends BaseChannelAdapter {
     this.allowedGuilds = config.allowedGuilds ?? new Set();
     this.allowedChannels = config.allowedChannels ?? new Set();
     this.allowedUsers = config.allowedUsers ?? new Set();
+  }
 
+  // ── Lifecycle ────────────────────────────────────────────────────
+
+  protected async connect(): Promise<void> {
+    // Fresh client per connection cycle — discord.js doesn't support
+    // reusing a destroyed client, and reusing a live one would
+    // accumulate duplicate event listeners.
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
@@ -62,13 +69,10 @@ export class DiscordAdapter extends BaseChannelAdapter {
       ],
       partials: [Partials.Channel],
     });
-  }
 
-  // ── Lifecycle ────────────────────────────────────────────────────
-
-  protected async connect(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      this.client.once(Events.ClientReady, (readyClient) => {
+      const client = this.client!;
+      client.once(Events.ClientReady, (readyClient) => {
         this.botUserId = readyClient.user.id;
         this.logger.info(
           {
@@ -80,20 +84,21 @@ export class DiscordAdapter extends BaseChannelAdapter {
         resolve();
       });
 
-      this.client.on(Events.MessageCreate, (message) => {
+      client.on(Events.MessageCreate, (message) => {
         void this.onMessage(message);
       });
 
-      this.client.on(Events.Error, (error) => {
+      client.on(Events.Error, (error) => {
         this.logger.error({ error }, 'Discord client error');
       });
 
-      this.client.login(this.botToken).catch(reject);
+      client.login(this.botToken).catch(reject);
     });
   }
 
   protected async disconnect(): Promise<void> {
-    this.client.destroy();
+    this.client?.destroy();
+    this.client = undefined;
   }
 
   // ── Platform I/O ─────────────────────────────────────────────────
