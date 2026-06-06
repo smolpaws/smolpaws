@@ -150,7 +150,7 @@ export class DiscordAdapter extends BaseChannelAdapter {
       await message.reply({
         content: '🐾 You called? Say something after the mention and I\'ll help.',
         allowedMentions: { parse: [] },
-      });
+      }).catch(() => {});
       return;
     }
 

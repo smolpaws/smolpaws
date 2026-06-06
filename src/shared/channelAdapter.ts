@@ -51,8 +51,8 @@ export type IncomingMessage = {
 
 export type ReplyContext = {
   /** The original incoming message — adapter stores whatever it needs. */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  original: any;
+  // Platform-specific original message — subclasses cast at use sites.
+  original: unknown;
   /** Conversation ID for logging. */
   conversationId: string;
 };
@@ -225,6 +225,7 @@ export type ChannelAdapterFactory = (config: ChannelAdapterConfig) => BaseChanne
 class ChannelRegistry {
   private _factories = new Map<string, ChannelAdapterFactory>();
   private _instances = new Map<string, BaseChannelAdapter>();
+  private _pending = new Set<string>();
 
   register(name: string, factory: ChannelAdapterFactory): void {
     this._factories.set(name, factory);
@@ -244,7 +245,7 @@ class ChannelRegistry {
 
   /** Create and start an adapter. Stores the instance for shutdown. */
   async startAdapter(name: string, config: Omit<ChannelAdapterConfig, 'name'>): Promise<BaseChannelAdapter> {
-    if (this._instances.has(name)) {
+    if (this._instances.has(name) || this._pending.has(name)) {
       throw new Error(`Adapter '${name}' is already running`);
     }
     const factory = this._factories.get(name);
@@ -252,17 +253,22 @@ class ChannelRegistry {
       throw new Error(`No adapter registered for '${name}'`);
     }
     const adapter = factory({ ...config, name });
-    await adapter.start();
-    this._instances.set(name, adapter);
-    return adapter;
+    this._pending.add(name);
+    try {
+      await adapter.start();
+      this._instances.set(name, adapter);
+      return adapter;
+    } finally {
+      this._pending.delete(name);
+    }
   }
 
   /** Stop a running adapter. */
   async stopAdapter(name: string): Promise<void> {
     const adapter = this._instances.get(name);
     if (adapter) {
-      await adapter.stop();
       this._instances.delete(name);
+      await adapter.stop();
     }
   }
 
