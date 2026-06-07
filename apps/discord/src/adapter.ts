@@ -279,7 +279,7 @@ function parseLowercaseSet(envValue: string | undefined): Set<string> {
   );
 }
 
-// ── Register with the channel registry ─────────────────────────────
+// ── Register with the bridge registry ─────────────────────────────
 
 bridgeRegistry.register('discord', (config) => {
   const botToken = process.env.DISCORD_BOT_TOKEN?.trim();

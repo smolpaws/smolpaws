@@ -4,7 +4,7 @@
   "kind": "bridge",
   "version": "1.0.0",
   "description": "Discord gateway adapter — connects via discord.js WebSocket.",
-  "entrypoint": "src/adapter.ts",
+  "entrypoint": "src/adapter.js",
   "requiredEnv": ["DISCORD_BOT_TOKEN"],
   "optionalEnv": [
     "DISCORD_TRIGGER",
