@@ -1,0 +1,15 @@
+{
+  "name": "discord",
+  "label": "Discord",
+  "kind": "bridge",
+  "version": "1.0.0",
+  "description": "Discord gateway adapter — connects via discord.js WebSocket.",
+  "entrypoint": "src/adapter.ts",
+  "requiredEnv": ["DISCORD_BOT_TOKEN"],
+  "optionalEnv": [
+    "DISCORD_TRIGGER",
+    "DISCORD_ALLOWED_GUILDS",
+    "DISCORD_ALLOWED_CHANNELS",
+    "DISCORD_ALLOWED_USERS"
+  ]
+}

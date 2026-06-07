@@ -2,7 +2,7 @@
  * Discord channel adapter.
  *
  * Connects to Discord via discord.js, listens for messages, and dispatches
- * to the agent server through BaseChannelAdapter.
+ * to the agent server through BaseBridgeAdapter.
  */
 
 import {
@@ -14,17 +14,17 @@ import {
   ChannelType,
 } from 'discord.js';
 import {
-  BaseChannelAdapter,
-  channelRegistry,
-  type ChannelAdapterConfig,
+  BaseBridgeAdapter,
+  bridgeRegistry,
+  type BridgeAdapterConfig,
   type ReplyContext,
   type IncomingMessage,
-} from '../../../src/shared/channelAdapter.js';
+} from '../../../src/shared/bridgeAdapter.js';
 
 // Discord message limit
 const MAX_MESSAGE_LENGTH = 2000;
 
-export type DiscordAdapterConfig = ChannelAdapterConfig & {
+export type DiscordAdapterConfig = BridgeAdapterConfig & {
   botToken: string;
   trigger?: string;
   allowedGuilds?: Set<string>;
@@ -32,7 +32,7 @@ export type DiscordAdapterConfig = ChannelAdapterConfig & {
   allowedUsers?: Set<string>;
 };
 
-export class DiscordAdapter extends BaseChannelAdapter {
+export class DiscordAdapter extends BaseBridgeAdapter {
   private client?: Client;
   private readonly botToken: string;
   private readonly triggerPattern: RegExp;
@@ -281,7 +281,7 @@ function parseLowercaseSet(envValue: string | undefined): Set<string> {
 
 // ── Register with the channel registry ─────────────────────────────
 
-channelRegistry.register('discord', (config) => {
+bridgeRegistry.register('discord', (config) => {
   const botToken = process.env.DISCORD_BOT_TOKEN?.trim();
   if (!botToken) {
     throw new Error('DISCORD_BOT_TOKEN is required');

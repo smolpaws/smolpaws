@@ -1,7 +1,7 @@
 /**
- * Base channel adapter and registry for SmolPaws ingress apps.
+ * Base bridge adapter and registry for SmolPaws ingress apps.
  *
- * A channel adapter connects a messaging platform (Discord, Slack, etc.)
+ * A bridge connects a messaging platform (Discord, Slack, etc.)
  * to the agent server. The base class handles the agent-server dispatch
  * loop; subclasses implement platform-specific I/O.
  *
@@ -12,8 +12,8 @@
  *   - sendTyping()  → show typing indicator (optional)
  *
  * Usage:
- *   class DiscordAdapter extends BaseChannelAdapter { ... }
- *   channelRegistry.register('discord', (config) => new DiscordAdapter(config));
+ *   class DiscordAdapter extends BaseBridgeAdapter { ... }
+ *   bridgeRegistry.register('discord', (config) => new DiscordAdapter(config));
  */
 
 import type { Logger } from 'pino';
@@ -27,7 +27,7 @@ import {
 
 // ── Types ──────────────────────────────────────────────────────────────
 
-export type ChannelAdapterConfig = {
+export type BridgeAdapterConfig = {
   /** Adapter name (e.g. 'discord', 'slack'). */
   name: string;
   /** Agent-server base URL. */
@@ -74,14 +74,14 @@ const DEFAULT_TOOLS = [
   { name: 'task_tracker' },
 ] as const;
 
-export abstract class BaseChannelAdapter {
+export abstract class BaseBridgeAdapter {
   readonly name: string;
   protected readonly runnerUrl: string;
   protected readonly runnerToken?: string;
   protected readonly logger: Logger;
   private _connected = false;
 
-  constructor(config: ChannelAdapterConfig) {
+  constructor(config: BridgeAdapterConfig) {
     this.name = config.name;
     this.runnerUrl = config.runnerUrl.replace(/\/+$/, '');
     this.runnerToken = config.runnerToken;
@@ -219,20 +219,20 @@ export abstract class BaseChannelAdapter {
   }
 }
 
-// ── Channel Registry ─────────────────────────────────────────────────
+// ── Bridge Registry ─────────────────────────────────────────────────
 
-export type ChannelAdapterFactory = (config: ChannelAdapterConfig) => BaseChannelAdapter;
+export type BridgeAdapterFactory = (config: BridgeAdapterConfig) => BaseBridgeAdapter;
 
-class ChannelRegistry {
-  private _factories = new Map<string, ChannelAdapterFactory>();
-  private _instances = new Map<string, BaseChannelAdapter>();
+class BridgeRegistry {
+  private _factories = new Map<string, BridgeAdapterFactory>();
+  private _instances = new Map<string, BaseBridgeAdapter>();
   private _pending = new Set<string>();
 
-  register(name: string, factory: ChannelAdapterFactory): void {
+  register(name: string, factory: BridgeAdapterFactory): void {
     this._factories.set(name, factory);
   }
 
-  get(name: string): ChannelAdapterFactory | undefined {
+  get(name: string): BridgeAdapterFactory | undefined {
     return this._factories.get(name);
   }
 
@@ -245,7 +245,7 @@ class ChannelRegistry {
   }
 
   /** Create and start an adapter. Stores the instance for shutdown. */
-  async startAdapter(name: string, config: Omit<ChannelAdapterConfig, 'name'>): Promise<BaseChannelAdapter> {
+  async startAdapter(name: string, config: Omit<BridgeAdapterConfig, 'name'>): Promise<BaseBridgeAdapter> {
     if (this._instances.has(name) || this._pending.has(name)) {
       throw new Error(`Adapter '${name}' is already running`);
     }
@@ -285,10 +285,10 @@ class ChannelRegistry {
   }
 
   /** Get a running adapter instance. */
-  getInstance(name: string): BaseChannelAdapter | undefined {
+  getInstance(name: string): BaseBridgeAdapter | undefined {
     return this._instances.get(name);
   }
 }
 
 /** Module-level singleton registry. */
-export const channelRegistry = new ChannelRegistry();
+export const bridgeRegistry = new BridgeRegistry();

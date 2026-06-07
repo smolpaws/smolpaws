@@ -6,9 +6,9 @@
  */
 
 import pino from 'pino';
-import { channelRegistry } from '../../../src/shared/channelAdapter.js';
+import { bridgeRegistry } from '../../../src/shared/bridgeAdapter.js';
 
-// Import the adapter module to trigger registration with channelRegistry
+// Import the adapter module to trigger registration with bridgeRegistry
 import './adapter.js';
 
 const logger = pino({
@@ -23,7 +23,7 @@ const RUNNER_TOKEN = process.env.SMOLPAWS_RUNNER_TOKEN?.trim();
 
 async function main() {
   try {
-    await channelRegistry.startAdapter('discord', {
+    await bridgeRegistry.startAdapter('discord', {
       runnerUrl: RUNNER_URL,
       runnerToken: RUNNER_TOKEN,
       logger,
@@ -37,7 +37,7 @@ async function main() {
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
     logger.info({ signal }, 'Shutting down');
-    void channelRegistry.stopAll().finally(() => process.exit(0));
+    void bridgeRegistry.stopAll().finally(() => process.exit(0));
   });
 }
 
