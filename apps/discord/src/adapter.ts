@@ -104,6 +104,7 @@ export class DiscordAdapter extends BaseChannelAdapter {
   // ── Platform I/O ─────────────────────────────────────────────────
 
   protected async sendReply(ctx: ReplyContext, text: string): Promise<void> {
+    if (!text.trim()) return;
     const message = ctx.original as Message;
     for (const chunk of splitMessage(text)) {
       await message.reply({

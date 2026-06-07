@@ -165,9 +165,9 @@ export abstract class BaseChannelAdapter {
     const typingInterval = setInterval(() => {
       void this.sendTyping(replyCtx).catch(() => {});
     }, 8000);
-    await this.sendTyping(replyCtx).catch(() => {});
 
     try {
+      await this.sendTyping(replyCtx).catch(() => {});
       const submitResult = await submitConversationMessage({
         baseUrl: this.runnerUrl,
         authToken: this.runnerToken,
@@ -211,6 +211,7 @@ export abstract class BaseChannelAdapter {
         await this.sendReply(replyCtx, monitored.reply);
       } else if (outbound.length === 0 && !monitored.reply) {
         this.logger.warn({ conversationId: msg.conversationId }, 'No reply from agent');
+        await this.sendReply(replyCtx, '🐾 Done — nothing to report back.');
       }
     } finally {
       clearInterval(typingInterval);
@@ -258,6 +259,11 @@ class ChannelRegistry {
       await adapter.start();
       this._instances.set(name, adapter);
       return adapter;
+    } catch (error) {
+      // Cleanup partially-initialized adapter (e.g. Discord client
+      // may have started background connection before the failure).
+      await adapter.stop().catch(() => {});
+      throw error;
     } finally {
       this._pending.delete(name);
     }
