@@ -1,0 +1,16 @@
+{
+  "name": "slack",
+  "label": "Slack",
+  "kind": "bridge",
+  "version": "1.0.0",
+  "description": "Slack Socket Mode ingress \u2014 connects via @slack/bolt WebSocket with thread tracking and access control.",
+  "requiredEnv": [
+    "SLACK_BOT_TOKEN",
+    "SLACK_APP_TOKEN"
+  ],
+  "optionalEnv": [
+    "SLACK_ALLOWED_TEAM_IDS",
+    "SLACK_ALLOWED_CHANNEL_IDS",
+    "SLACK_ALLOWED_USER_IDS"
+  ]
+}

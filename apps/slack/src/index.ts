@@ -1,177 +1,45 @@
-import { App } from '@slack/bolt';
-import type { GenericMessageEvent } from '@slack/types';
-import pino from 'pino';
-import { loadConfig } from './config.js';
-import {
-  GuestRateLimiter,
-  MentionedThreadTracker,
-  MessageDeduplicator,
-  isThreadContextMessageSubtype,
-  type SlackEventContext,
-  type ThreadMessage,
-} from './slackContext.js';
-import { dispatchToAgentServer } from './agentServerClient.js';
-import { handleSlackEvent, splitMessage, type SlackDeps } from './slackHandler.js';
+/**
+ * Slack ingress — thin entry point that starts the Slack channel adapter.
+ *
+ * All platform logic lives in adapter.ts (lifecycle) and slackHandler.ts
+ * (ingress logic). This file just wires config and handles process
+ * lifecycle, matching the apps/discord pattern.
+ */
 
-const config = loadConfig();
+import pino from 'pino';
+import { bridgeRegistry } from '../../../src/shared/bridgeAdapter.js';
+
+// Import the adapter module to trigger registration with bridgeRegistry
+import './adapter.js';
 
 const logger = pino({
-  level: config.logLevel,
+  level: process.env.LOG_LEVEL || 'info',
   transport: { target: 'pino-pretty', options: { colorize: true } },
 });
 
-const dedup = new MessageDeduplicator();
-const guestLimiter = new GuestRateLimiter();
-const mentionedThreads = new MentionedThreadTracker();
+const RUNNER_URL = (
+  process.env.SMOLPAWS_RUNNER_URL || 'http://127.0.0.1:8788'
+).replace(/\/+$/, '');
+const RUNNER_TOKEN = process.env.SMOLPAWS_RUNNER_TOKEN?.trim();
 
-const app = new App({
-  token: config.botToken,
-  appToken: config.appToken,
-  socketMode: true,
-});
-
-let botUserId = '';
-
-async function postMessage(channel: string, text: string, threadTs: string): Promise<void> {
-  for (const chunk of splitMessage(text)) {
-    await app.client.chat.postMessage({
-      channel,
-      text: chunk,
-      thread_ts: threadTs,
-      unfurl_links: false,
-      unfurl_media: false,
+async function main() {
+  try {
+    await bridgeRegistry.startAdapter('slack', {
+      runnerUrl: RUNNER_URL,
+      runnerToken: RUNNER_TOKEN,
+      logger,
     });
+  } catch (error) {
+    logger.fatal({ error }, 'Failed to start Slack adapter');
+    process.exit(1);
   }
 }
 
-async function addReaction(channel: string, timestamp: string, name: string): Promise<void> {
-  await app.client.reactions.add({ channel, timestamp, name });
-}
-
-async function fetchThreadMessages(channel: string, threadTs: string): Promise<ThreadMessage[]> {
-  const result = await app.client.conversations.replies({
-    channel,
-    ts: threadTs,
-    limit: 50,
-  });
-  if (!result.messages) return [];
-  return result.messages
-    .filter((m) =>
-      (m.user || m.bot_id || m.username) &&
-      m.text &&
-      m.ts &&
-      isThreadContextMessageSubtype(m.subtype))
-    .map((m) => ({ user: m.user ?? m.bot_id ?? m.username!, text: m.text!, ts: m.ts! }));
-}
-
-const deps: SlackDeps = {
-  config,
-  dedup,
-  guestLimiter,
-  mentionedThreads,
-  logger,
-  postMessage,
-  addReaction,
-  fetchThreadMessages,
-  dispatch: dispatchToAgentServer,
-};
-
-// --- Event handlers ---
-
-app.event('app_mention', async ({ event, context }) => {
-  if (!botUserId) return;
-  if (!event.user) return;
-  // Prevent bot loops: ignore bot messages and self-mentions
-  if (event.bot_id) return;
-  if (event.user === botUserId) return;
-
-  const teamId = context.teamId;
-  if (!teamId) {
-    logger.warn('app_mention event missing team context');
-    return;
-  }
-
-  const ctx: SlackEventContext = {
-    teamId,
-    channelId: event.channel,
-    userId: event.user,
-    ts: event.ts,
-    threadTs: event.thread_ts,
-    text: event.text ?? '',
-    isDm: false,
-    botUserId,
-  };
-
-  await handleSlackEvent(ctx, deps);
-});
-
-app.event('message', async ({ event, context }) => {
-  if (!botUserId) return;
-  const msg = event as GenericMessageEvent;
-
-  // Skip bot messages, self-messages, edits, and subtypes
-  if (msg.subtype) return;
-  if (msg.bot_id) return;
-  if (!msg.user) return;
-  if (msg.user === botUserId) return;
-
-  const isDm = msg.channel_type === 'im';
-
-  // For channel messages: only process thread replies in mentioned threads
-  if (!isDm) {
-    if (!msg.thread_ts || !mentionedThreads.isTracked(msg.thread_ts)) return;
-  }
-
-  const teamId = context.teamId;
-  if (!teamId) {
-    logger.warn('message event missing team context');
-    return;
-  }
-
-  const ctx: SlackEventContext = {
-    teamId,
-    channelId: msg.channel,
-    userId: msg.user,
-    ts: msg.ts,
-    threadTs: msg.thread_ts,
-    text: msg.text ?? '',
-    isDm,
-    botUserId,
-  };
-
-  await handleSlackEvent(ctx, deps);
-});
-
-// --- Startup ---
-
-async function start(): Promise<void> {
-  // Resolve bot identity before starting Socket Mode so event handlers
-  // have botUserId available from the first event.
-  const auth = await app.client.auth.test();
-  botUserId = (auth.user_id as string) ?? '';
-
-  await app.start();
-
-  logger.info(
-    {
-      botUserId,
-      team: auth.team,
-      runnerUrl: config.runnerUrl,
-    },
-    'SmolPaws Slack bot is ready 🐾',
-  );
-}
-
-// Graceful shutdown
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(signal, async () => {
+  process.on(signal, () => {
     logger.info({ signal }, 'Shutting down');
-    await app.stop().catch(() => {});
-    process.exit(0);
+    void bridgeRegistry.stopAll().finally(() => process.exit(0));
   });
 }
 
-start().catch((error) => {
-  logger.fatal({ err: error }, 'Failed to start Slack bot');
-  process.exit(1);
-});
+main();

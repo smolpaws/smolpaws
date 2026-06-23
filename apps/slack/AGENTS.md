@@ -10,24 +10,31 @@ Phase 1 implementation: DMs (`message.im`) and channel mentions (`app_mention`) 
 
 ```text
 Slack Socket Mode (WebSocket)
-  → apps/slack (Bolt)
+  → apps/slack (Bolt) — SlackAdapter (bridge)
   → src/shared/turnClient.ts
   → agent-server (127.0.0.1:8788)
   → outbound messages claimed by delivery owner
   → chat.postMessage with thread_ts
 ```
 
-Same thin-ingress pattern as `apps/discord`.
+Same bridge pattern as `apps/discord`. The adapter self-registers with
+`bridgeRegistry` and is discovered by the bridge loader via `plugin.json`.
+When `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` are present, the agent-server
+starts it automatically at startup; `npm start` also runs it standalone.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Bolt app, event handlers, delivery loop |
+| `plugin.json` | Bridge manifest — `kind: "bridge"`, requiredEnv, discovered by the loader |
+| `src/adapter.ts` | `SlackAdapter extends BaseBridgeAdapter` — lifecycle, event handlers, registry registration |
+| `src/index.ts` | Thin entry point — starts the adapter via `bridgeRegistry.startAdapter('slack', ...)` |
 | `src/config.ts` | Env parsing and allowlists |
+| `src/slackHandler.ts` | Ingress logic — access checks, dedup, thread context, dispatch |
 | `src/slackContext.ts` | Conversation ID generation, mention stripping, dedup |
 | `src/agentServerClient.ts` | Turn submission via shared `turnClient.ts` |
 | `src/__tests__/slackContext.test.ts` | Context helper tests |
+| `src/__tests__/slackHandler.test.ts` | Ingress handler tests |
 | `src/__tests__/agentServerClient.test.ts` | Dispatch tests |
 
 ## Local Dev
