@@ -22,6 +22,7 @@
     "name": "OpenHands",
     "folder": "openhands",
     "trigger": "@smolpaws",
+    "triggerFree": true,
     "added_at": "2026-06-05T12:30:00.000Z"
   }
 }
