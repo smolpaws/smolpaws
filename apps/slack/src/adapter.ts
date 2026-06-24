@@ -63,45 +63,14 @@ export class SlackAdapter extends BaseBridgeAdapter {
     const deps = this.buildDeps();
 
     app.event('app_mention', async ({ event, context }) => {
-      if (!this.botUserId) return;
-      if (!event.user) return;
-      // Prevent bot loops: ignore bot messages and self-mentions
-      if (event.bot_id) return;
-      if (event.user === this.botUserId) return;
-
-      const teamId = context.teamId;
-      if (!teamId) {
-        this.logger.warn('app_mention event missing team context');
-        return;
-      }
-
-      const ctx: SlackEventContext = {
-        teamId,
-        channelId: event.channel,
-        userId: event.user,
-        ts: event.ts,
-        threadTs: event.thread_ts,
-        text: event.text ?? '',
-        isDm: false,
-        botUserId: this.botUserId,
-      };
-
-      try {
-        await handleSlackEvent(ctx, deps);
-      } catch (err) {
-        this.logger.error({ err, event }, 'Failed to handle app_mention event');
-      }
+      await this.processEvent(event, context.teamId, false, deps);
     });
 
     app.event('message', async ({ event, context }) => {
-      if (!this.botUserId) return;
       const msg = event as GenericMessageEvent;
 
-      // Skip bot messages, self-messages, edits, and subtypes
+      // Skip edits and other message subtypes
       if (msg.subtype) return;
-      if (msg.bot_id) return;
-      if (!msg.user) return;
-      if (msg.user === this.botUserId) return;
 
       const isDm = msg.channel_type === 'im';
 
@@ -110,28 +79,7 @@ export class SlackAdapter extends BaseBridgeAdapter {
         if (!msg.thread_ts || !this.mentionedThreads.isTracked(msg.thread_ts)) return;
       }
 
-      const teamId = context.teamId;
-      if (!teamId) {
-        this.logger.warn('message event missing team context');
-        return;
-      }
-
-      const ctx: SlackEventContext = {
-        teamId,
-        channelId: msg.channel,
-        userId: msg.user,
-        ts: msg.ts,
-        threadTs: msg.thread_ts,
-        text: msg.text ?? '',
-        isDm,
-        botUserId: this.botUserId,
-      };
-
-      try {
-        await handleSlackEvent(ctx, deps);
-      } catch (err) {
-        this.logger.error({ err, event: msg }, 'Failed to handle message event');
-      }
+      await this.processEvent(msg, context.teamId, isDm, deps);
     });
 
     // Resolve bot identity before starting Socket Mode so event handlers
@@ -158,6 +106,47 @@ export class SlackAdapter extends BaseBridgeAdapter {
       this.logger.warn({ err }, 'Failed to stop Slack Socket Mode app cleanly');
     } finally {
       this.app = undefined;
+    }
+  }
+
+  /**
+   * Shared event pipeline for app_mention and message events: applies the
+   * common bot-loop guards, builds the SlackEventContext, and dispatches
+   * through handleSlackEvent with structured error logging. Each event
+   * handler keeps its own type-specific pre-filters before calling this.
+   */
+  private async processEvent(
+    event: SlackEventLike,
+    teamId: string | undefined,
+    isDm: boolean,
+    deps: SlackDeps,
+  ): Promise<void> {
+    if (!this.botUserId) return;
+    if (!event.user) return;
+    // Prevent bot loops: ignore bot messages and self-mentions
+    if (event.bot_id) return;
+    if (event.user === this.botUserId) return;
+
+    if (!teamId) {
+      this.logger.warn({ event }, 'Slack event missing team context');
+      return;
+    }
+
+    const ctx: SlackEventContext = {
+      teamId,
+      channelId: event.channel,
+      userId: event.user,
+      ts: event.ts,
+      threadTs: event.thread_ts,
+      text: event.text ?? '',
+      isDm,
+      botUserId: this.botUserId,
+    };
+
+    try {
+      await handleSlackEvent(ctx, deps);
+    } catch (err) {
+      this.logger.error({ err, event }, 'Failed to handle Slack event');
     }
   }
 
@@ -243,6 +232,19 @@ type SlackThreadReply = {
   text?: string;
   ts?: string;
   subtype?: string;
+};
+
+/**
+ * Common shape across app_mention and message events for the fields the
+ * shared pipeline reads. Both Bolt event types are structurally assignable.
+ */
+type SlackEventLike = {
+  user?: string;
+  bot_id?: string;
+  channel: string;
+  ts: string;
+  thread_ts?: string;
+  text?: string;
 };
 
 // ── Register with the bridge registry ─────────────────────────────
