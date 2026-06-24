@@ -185,9 +185,11 @@ export class SlackAdapter extends BaseBridgeAdapter {
   }
 
   private async postMessage(channel: string, text: string, threadTs?: string): Promise<void> {
-    if (!this.app) return;
+    // Capture a local reference: disconnect() may null this.app mid-loop.
+    const app = this.app;
+    if (!app) return;
     for (const chunk of splitMessage(text)) {
-      await this.app.client.chat.postMessage({
+      await app.client.chat.postMessage({
         channel,
         text: chunk,
         thread_ts: threadTs,
@@ -198,13 +200,15 @@ export class SlackAdapter extends BaseBridgeAdapter {
   }
 
   private async addReaction(channel: string, timestamp: string, name: string): Promise<void> {
-    if (!this.app) return;
-    await this.app.client.reactions.add({ channel, timestamp, name });
+    const app = this.app;
+    if (!app) return;
+    await app.client.reactions.add({ channel, timestamp, name });
   }
 
   private async fetchThreadMessages(channel: string, threadTs: string): Promise<ThreadMessage[]> {
-    if (!this.app) return [];
-    const result = await this.app.client.conversations.replies({
+    const app = this.app;
+    if (!app) return [];
+    const result = await app.client.conversations.replies({
       channel,
       ts: threadTs,
       limit: 50,
