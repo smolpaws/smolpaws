@@ -144,8 +144,13 @@ export class SlackAdapter extends BaseBridgeAdapter {
   }
 
   protected async disconnect(): Promise<void> {
-    await this.app?.stop().catch(() => {});
-    this.app = undefined;
+    try {
+      await this.app?.stop();
+    } catch (err) {
+      this.logger.warn({ err }, 'Failed to stop Slack Socket Mode app cleanly');
+    } finally {
+      this.app = undefined;
+    }
   }
 
   // ── Platform I/O ─────────────────────────────────────────────────
