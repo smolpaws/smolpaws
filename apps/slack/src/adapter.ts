@@ -86,7 +86,11 @@ export class SlackAdapter extends BaseBridgeAdapter {
         botUserId: this.botUserId,
       };
 
-      await handleSlackEvent(ctx, deps);
+      try {
+        await handleSlackEvent(ctx, deps);
+      } catch (err) {
+        this.logger.error({ err, event }, 'Failed to handle app_mention event');
+      }
     });
 
     app.event('message', async ({ event, context }) => {
@@ -123,7 +127,11 @@ export class SlackAdapter extends BaseBridgeAdapter {
         botUserId: this.botUserId,
       };
 
-      await handleSlackEvent(ctx, deps);
+      try {
+        await handleSlackEvent(ctx, deps);
+      } catch (err) {
+        this.logger.error({ err, event: msg }, 'Failed to handle message event');
+      }
     });
 
     // Resolve bot identity before starting Socket Mode so event handlers
@@ -163,7 +171,11 @@ export class SlackAdapter extends BaseBridgeAdapter {
    */
   protected async sendReply(ctx: ReplyContext, text: string): Promise<void> {
     const replyText = text.trim() || '🐾 Done — nothing to report back.';
-    const event = ctx.original as { channel: string; ts: string; thread_ts?: string };
+    const event = ctx.original as { channel?: string; ts?: string; thread_ts?: string } | undefined;
+    if (!event?.channel || !event?.ts) {
+      this.logger.error({ original: ctx.original }, 'Cannot send reply: missing channel or ts in original event');
+      return;
+    }
     await this.postMessage(event.channel, replyText, event.thread_ts ?? event.ts);
   }
 
