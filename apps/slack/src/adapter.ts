@@ -128,7 +128,11 @@ export class SlackAdapter extends BaseBridgeAdapter {
     if (event.user === this.botUserId) return;
 
     if (!teamId) {
-      this.logger.warn({ event }, 'Slack event missing team context');
+      // Log only safe metadata — never the raw event (contains message text).
+      this.logger.warn(
+        { channel: event.channel, ts: event.ts, user: event.user },
+        'Slack event missing team context',
+      );
       return;
     }
 
@@ -146,7 +150,11 @@ export class SlackAdapter extends BaseBridgeAdapter {
     try {
       await handleSlackEvent(ctx, deps);
     } catch (err) {
-      this.logger.error({ err, event }, 'Failed to handle Slack event');
+      // Log only safe metadata — never the raw event (contains message text).
+      this.logger.error(
+        { err, channel: event.channel, ts: event.ts, user: event.user },
+        'Failed to handle Slack event',
+      );
     }
   }
 
