@@ -127,9 +127,13 @@ export class SlackAdapter extends BaseBridgeAdapter {
     });
 
     // Resolve bot identity before starting Socket Mode so event handlers
-    // have botUserId available from the first event.
+    // have botUserId available from the first event. Fail fast if it's
+    // missing — otherwise every handler silently no-ops on the empty id.
     const auth = await app.client.auth.test();
-    this.botUserId = (auth.user_id as string) ?? '';
+    if (!auth.user_id) {
+      throw new Error('Slack auth.test succeeded but returned no user_id');
+    }
+    this.botUserId = auth.user_id;
 
     await app.start();
 
@@ -149,12 +153,13 @@ export class SlackAdapter extends BaseBridgeAdapter {
   /**
    * Satisfies the BaseBridgeAdapter contract. Slack ingress posts through
    * the injected handler (deps.postMessage), but this provides a direct
-   * reply path keyed on the originating event.
+   * reply path keyed on the originating event. Slack/Bolt events use
+   * snake_case; fall back to the message ts to start/reply in a thread.
    */
   protected async sendReply(ctx: ReplyContext, text: string): Promise<void> {
-    if (!text.trim()) return;
-    const event = ctx.original as { channel: string; threadTs: string };
-    await this.postMessage(event.channel, text, event.threadTs);
+    const replyText = text.trim() || '🐾 Done — nothing to report back.';
+    const event = ctx.original as { channel: string; ts: string; thread_ts?: string };
+    await this.postMessage(event.channel, replyText, event.thread_ts ?? event.ts);
   }
 
   // ── Handler wiring ───────────────────────────────────────────────
@@ -173,7 +178,7 @@ export class SlackAdapter extends BaseBridgeAdapter {
     };
   }
 
-  private async postMessage(channel: string, text: string, threadTs: string): Promise<void> {
+  private async postMessage(channel: string, text: string, threadTs?: string): Promise<void> {
     if (!this.app) return;
     for (const chunk of splitMessage(text)) {
       await this.app.client.chat.postMessage({
@@ -200,15 +205,17 @@ export class SlackAdapter extends BaseBridgeAdapter {
     });
     if (!result.messages) return [];
     // Slack's MessageElement union doesn't surface username/subtype on the
-    // top-level type; narrow to the fields we read.
+    // top-level type; narrow to the fields we read. A for...of keeps the
+    // value extraction type-safe without non-null assertions.
     const messages = result.messages as ReadonlyArray<SlackThreadReply>;
-    return messages
-      .filter((m) =>
-        (m.user || m.bot_id || m.username) &&
-        m.text &&
-        m.ts &&
-        isThreadContextMessageSubtype(m.subtype))
-      .map((m) => ({ user: m.user ?? m.bot_id ?? m.username!, text: m.text!, ts: m.ts! }));
+    const threadMessages: ThreadMessage[] = [];
+    for (const m of messages) {
+      const user = m.user ?? m.bot_id ?? m.username;
+      if (user && m.text && m.ts && isThreadContextMessageSubtype(m.subtype)) {
+        threadMessages.push({ user, text: m.text, ts: m.ts });
+      }
+    }
+    return threadMessages;
   }
 }
 
