@@ -24,6 +24,8 @@ import {
   submitConversationMessage,
   type ConversationMessagePayload,
 } from './turnClient.js';
+import { MessageCoalescer } from './messageCoalescer.js';
+import { resolveCoalesceWindowMs } from './bridgeCoalesceConfig.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -36,6 +38,9 @@ export type BridgeAdapterConfig = {
   runnerToken?: string;
   /** Logger instance. */
   logger: Logger;
+  /** Burst-coalescing window in ms. Defaults to the BRIDGE_COALESCE_WINDOW_MS
+   * env (or a built-in default); 0 disables coalescing. */
+  coalesceWindowMs?: number;
 };
 
 export type IncomingMessage = {
@@ -79,6 +84,7 @@ export abstract class BaseBridgeAdapter {
   protected readonly runnerUrl: string;
   protected readonly runnerToken?: string;
   protected readonly logger: Logger;
+  protected readonly coalescer: MessageCoalescer;
   private _connected = false;
 
   constructor(config: BridgeAdapterConfig) {
@@ -86,6 +92,11 @@ export abstract class BaseBridgeAdapter {
     this.runnerUrl = config.runnerUrl.replace(/\/+$/, '');
     this.runnerToken = config.runnerToken;
     this.logger = config.logger.child({ adapter: config.name });
+    this.coalescer = new MessageCoalescer({
+      windowMs: resolveCoalesceWindowMs(config.coalesceWindowMs),
+      onError: (error) =>
+        this.logger.error({ error }, 'Coalesced dispatch failed'),
+    });
   }
 
   get connected(): boolean {
@@ -103,6 +114,9 @@ export abstract class BaseBridgeAdapter {
   /** Stop the platform connection. */
   async stop(): Promise<void> {
     this.logger.info({ adapter: this.name }, 'Disconnecting');
+    // Drop any buffered bursts so a shutdown doesn't fire dispatches against a
+    // torn-down connection.
+    this.coalescer.clear();
     await this.disconnect();
     this._connected = false;
     this.logger.info({ adapter: this.name }, 'Disconnected');
@@ -145,10 +159,31 @@ export abstract class BaseBridgeAdapter {
   // ── Agent-server dispatch (shared) ─────────────────────────────────
 
   /**
+   * Buffer an incoming message through the burst coalescer, then dispatch.
+   *
+   * Rapid messages on the same conversation are merged into a single agent
+   * turn (newline-joined), replying through the most recent message's context.
+   * With coalescing disabled (window 0) this dispatches immediately, exactly
+   * like calling dispatch() directly. Subclasses should prefer this over
+   * dispatch() so they get burst handling for free.
+   */
+  protected submitForDispatch(
+    msg: IncomingMessage,
+    replyCtx: ReplyContext,
+  ): void {
+    this.coalescer.submit(
+      msg.conversationId,
+      msg.prompt,
+      (combinedText) => this.dispatch({ ...msg, prompt: combinedText }, replyCtx),
+    );
+  }
+
+  /**
    * Dispatch an incoming message to the agent server, stream typing
    * indicators, and deliver the response via sendReply().
    *
-   * Subclasses call this from their platform event handler.
+   * Subclasses call this from their platform event handler (directly, or via
+   * submitForDispatch() to get burst coalescing).
    */
   protected async dispatch(
     msg: IncomingMessage,
@@ -213,9 +248,22 @@ export abstract class BaseBridgeAdapter {
         this.logger.warn({ conversationId: msg.conversationId }, 'No reply from agent');
         await this.sendReply(replyCtx, '🐾 Done — nothing to report back.');
       }
+    } catch (error) {
+      // Own error handling here so it survives the fire-and-forget coalescer
+      // path (submitForDispatch) as well as direct dispatch() calls.
+      this.logger.error({ error, conversationId: msg.conversationId }, 'Error processing message');
+      await this.sendErrorReply(replyCtx).catch(() => {});
     } finally {
       clearInterval(typingInterval);
     }
+  }
+
+  /**
+   * Deliver a user-facing error notice. Defaults to a plain reply; subclasses
+   * may override for platform-specific formatting.
+   */
+  protected async sendErrorReply(replyCtx: ReplyContext): Promise<void> {
+    await this.sendReply(replyCtx, '🐾 Something went wrong on my end. Try again in a moment.');
   }
 }
 

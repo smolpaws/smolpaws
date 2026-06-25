@@ -40,6 +40,12 @@ export function splitMessage(text: string): string[] {
   return chunks;
 }
 
+/** Minimal coalescer surface the handler needs (see src/shared/messageCoalescer).
+ * Optional: when absent, the handler dispatches immediately as before. */
+export type SlackCoalescer = {
+  submit: (key: string, text: string, flush: (combinedText: string) => Promise<void>) => void;
+};
+
 export type SlackDeps = {
   config: SlackConfig;
   dedup: MessageDeduplicator;
@@ -49,6 +55,9 @@ export type SlackDeps = {
   postMessage: (channel: string, text: string, threadTs: string) => Promise<void>;
   addReaction: (channel: string, timestamp: string, name: string) => Promise<void>;
   fetchThreadMessages?: (channel: string, threadTs: string) => Promise<ThreadMessage[]>;
+  /** Optional burst coalescer. When present, rapid messages on the same
+   * conversation merge into one agent turn. When absent, dispatch is immediate. */
+  coalescer?: SlackCoalescer;
   dispatch: (options: {
     baseUrl: string;
     token?: string;
@@ -121,41 +130,54 @@ export async function handleSlackEvent(ctx: SlackEventContext, deps: SlackDeps):
     'Processing Slack message',
   );
 
-  try {
-    const result = await deps.dispatch({
-      baseUrl: deps.config.runnerUrl,
-      token: deps.config.runnerToken,
-      conversationId,
-      messageId: dedupKey,
-      prompt: fullPrompt,
-      slack: {
-        team_id: ctx.teamId,
-        channel_id: ctx.channelId,
-        user_id: ctx.userId,
-        thread_ts: threadTs,
-      },
-      logger: deps.logger,
-    });
+  // Dispatch + reply tail, parameterized on the (possibly coalesced) prompt
+  // text so it can run immediately or be deferred by the burst coalescer.
+  const runDispatch = async (promptText: string): Promise<void> => {
+    try {
+      const result = await deps.dispatch({
+        baseUrl: deps.config.runnerUrl,
+        token: deps.config.runnerToken,
+        conversationId,
+        messageId: dedupKey,
+        prompt: promptText,
+        slack: {
+          team_id: ctx.teamId,
+          channel_id: ctx.channelId,
+          user_id: ctx.userId,
+          thread_ts: threadTs,
+        },
+        logger: deps.logger,
+      });
 
-    // Record guest usage only after successful dispatch — don't burn a
-    // conversation slot on agent-server failures.
-    if (isGuest) deps.guestLimiter.record(ctx.userId);
+      // Record guest usage only after successful dispatch — don't burn a
+      // conversation slot on agent-server failures.
+      if (isGuest) deps.guestLimiter.record(ctx.userId);
 
-    for (const msg of result.outboundMessages) {
-      if (msg.kind === 'current_thread_message') {
-        await deps.postMessage(ctx.channelId, msg.text, threadTs);
+      for (const msg of result.outboundMessages) {
+        if (msg.kind === 'current_thread_message') {
+          await deps.postMessage(ctx.channelId, msg.text, threadTs);
+        }
       }
+      if (result.reply) {
+        await deps.postMessage(ctx.channelId, result.reply, threadTs);
+      }
+      if (!result.reply && result.outboundMessages.length === 0) {
+        deps.logger.warn({ conversationId }, 'No reply from agent');
+      }
+    } catch (error) {
+      deps.logger.error({ err: error, conversationId }, 'Error processing Slack message');
+      await deps.postMessage(ctx.channelId,
+        '🐾 Something went wrong on my end. Try again in a moment.',
+        threadTs).catch(() => {});
     }
-    if (result.reply) {
-      await deps.postMessage(ctx.channelId, result.reply, threadTs);
-    }
-    if (!result.reply && result.outboundMessages.length === 0) {
-      deps.logger.warn({ conversationId }, 'No reply from agent');
-    }
-  } catch (error) {
-    deps.logger.error({ err: error, conversationId }, 'Error processing Slack message');
-    await deps.postMessage(ctx.channelId,
-      '🐾 Something went wrong on my end. Try again in a moment.',
-      threadTs).catch(() => {});
+  };
+
+  if (deps.coalescer) {
+    // Buffer rapid messages on the same conversation into one turn. The
+    // coalescer joins their text and runs the latest closure (this one),
+    // so the reply lands on the most recent message's thread.
+    deps.coalescer.submit(conversationId, fullPrompt, runDispatch);
+  } else {
+    await runDispatch(fullPrompt);
   }
 }

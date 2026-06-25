@@ -47,6 +47,10 @@ npm --prefix apps/slack run test   # unit tests
 
 Requires `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` in `~/.smolpaws/.env`.
 
+## Burst coalescing
+
+Rapid messages on the same conversation are merged into a single agent turn by the shared `MessageCoalescer` (see `src/shared/messageCoalescer.ts`), so firing three quick lines produces one combined turn rather than three racing ones. The reply lands on the most recent message's thread. Tune the debounce window with `BRIDGE_COALESCE_WINDOW_MS` (default 1200ms; `0` disables coalescing and dispatches immediately). This is shared with Discord and any future bridge.
+
 ## Thread Follow-ups
 
 Once the bot is @mentioned in a thread, it responds to all subsequent replies in that thread without requiring another @mention. Tracked in-memory (resets on restart). Requires `channels:history` scope and `message.channels` event subscription.

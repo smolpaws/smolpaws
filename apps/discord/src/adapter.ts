@@ -172,28 +172,32 @@ export class DiscordAdapter extends BaseBridgeAdapter {
       'Processing Discord message',
     );
 
-    try {
-      await this.dispatch(
-        {
-          conversationId,
-          prompt,
-          messageId: message.id,
-          platformContext: {
-            guild_id: message.guildId ?? undefined,
-            channel_id: message.channelId,
-            author_id: message.author.id,
-            author_name: message.author.tag,
-          },
+    // Buffer through the burst coalescer: rapid messages on the same channel
+    // merge into a single agent turn. Error handling (including the user-facing
+    // notice) lives in the base dispatch(), so it survives this fire-and-forget
+    // path. sendErrorReply is overridden below for Discord formatting.
+    this.submitForDispatch(
+      {
+        conversationId,
+        prompt,
+        messageId: message.id,
+        platformContext: {
+          guild_id: message.guildId ?? undefined,
+          channel_id: message.channelId,
+          author_id: message.author.id,
+          author_name: message.author.tag,
         },
-        replyCtx,
-      );
-    } catch (error) {
-      this.logger.error({ error, conversationId }, 'Error processing message');
-      await message.reply({
-        content: '🐾 Something went wrong on my end. Try again in a moment.',
-        allowedMentions: { parse: [] },
-      }).catch(() => {});
-    }
+      },
+      replyCtx,
+    );
+  }
+
+  protected override async sendErrorReply(ctx: ReplyContext): Promise<void> {
+    const message = ctx.original as Message;
+    await message.reply({
+      content: '🐾 Something went wrong on my end. Try again in a moment.',
+      allowedMentions: { parse: [] },
+    });
   }
 
   private shouldRespond(message: Message): boolean {

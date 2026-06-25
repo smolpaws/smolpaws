@@ -10,6 +10,7 @@ import {
 } from '../slackContext.js';
 import type { SlackConfig } from '../config.js';
 import type { DispatchResult } from '../agentServerClient.js';
+import { MessageCoalescer } from '../../../../src/shared/messageCoalescer.js';
 import { unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -453,4 +454,102 @@ test('splitMessage: preserves earlier newline when no space improves on it', () 
   const chunks = splitMessage(text);
   assert.equal(chunks.length, 2);
   assert.equal(chunks[0], before);
+});
+
+// ── Burst coalescing (deps.coalescer) ──
+
+function createFakeClock() {
+  let now = 0;
+  let nextId = 1;
+  const timers = new Map<number, { due: number; cb: () => void }>();
+  return {
+    setTimer: (cb: () => void, ms: number) => {
+      const id = nextId++;
+      timers.set(id, { due: now + ms, cb });
+      return id as unknown as ReturnType<typeof setTimeout>;
+    },
+    clearTimer: (h: ReturnType<typeof setTimeout>) => { timers.delete(h as unknown as number); },
+    advance: (ms: number) => {
+      now += ms;
+      for (const [id, t] of [...timers.entries()].filter(([, t]) => t.due <= now).sort((a, b) => a[1].due - b[1].due)) {
+        timers.delete(id);
+        t.cb();
+      }
+    },
+  };
+}
+
+test('coalescer: rapid DMs on one conversation merge into a single dispatch', async () => {
+  const clock = createFakeClock();
+  const coalescer = new MessageCoalescer({ windowMs: 1000, setTimer: clock.setTimer, clearTimer: clock.clearTimer });
+  const deps = makeDeps({ coalescer });
+
+  // Three quick messages in the same DM, each a distinct ts (not dedup'd).
+  await handleSlackEvent(makeCtx({ isDm: true, channelId: 'D08X', text: 'one', ts: '1.001' }), deps);
+  await handleSlackEvent(makeCtx({ isDm: true, channelId: 'D08X', text: 'two', ts: '1.002' }), deps);
+  await handleSlackEvent(makeCtx({ isDm: true, channelId: 'D08X', text: 'three', ts: '1.003' }), deps);
+
+  // Nothing dispatched yet — still inside the debounce window.
+  assert.equal(deps.dispatched.length, 0);
+  // But each message was acknowledged with an eyes reaction immediately.
+  assert.equal(deps.reactions.length, 3);
+
+  clock.advance(1000);
+  // Let the fire-and-forget flush settle.
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(deps.dispatched.length, 1);
+  assert.equal(deps.dispatched[0].prompt, 'one\ntwo\nthree');
+  assert.equal(deps.dispatched[0].conversationId, 'slack-im-T06P-D08X');
+  // Reply posted once, on the latest message's context.
+  assert.equal(deps.posted.length, 1);
+  assert.equal(deps.posted[0].text, 'Reply to: one\ntwo\nthree');
+});
+
+test('coalescer: distinct conversations dispatch independently', async () => {
+  const clock = createFakeClock();
+  const coalescer = new MessageCoalescer({ windowMs: 1000, setTimer: clock.setTimer, clearTimer: clock.clearTimer });
+  const deps = makeDeps({ coalescer });
+
+  await handleSlackEvent(makeCtx({ isDm: true, channelId: 'D-A', text: 'a-one', ts: '1.001' }), deps);
+  await handleSlackEvent(makeCtx({ isDm: true, channelId: 'D-B', text: 'b-one', ts: '2.001' }), deps);
+
+  clock.advance(1000);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(deps.dispatched.length, 2);
+  const byConv = Object.fromEntries(deps.dispatched.map((d) => [d.conversationId, d.prompt]));
+  assert.equal(byConv['slack-im-T06P-D-A'], 'a-one');
+  assert.equal(byConv['slack-im-T06P-D-B'], 'b-one');
+});
+
+test('coalescer: a guest burst burns a single conversation slot', async () => {
+  const clock = createFakeClock();
+  const coalescer = new MessageCoalescer({ windowMs: 1000, setTimer: clock.setTimer, clearTimer: clock.clearTimer });
+  // Allowlist active (so a non-listed user is a rate-limited guest), limit 2.
+  const guestLimiter = new GuestRateLimiter(join(tmpdir(), `smolpaws-guest-${Date.now()}-${Math.random()}.json`), 2);
+  const deps = makeDeps({
+    coalescer,
+    guestLimiter,
+    config: makeConfig({ allowedUserIds: new Set(['U-ALLOWED']) }),
+  });
+
+  // Guest U456 fires three quick DMs — should coalesce to one turn = one slot.
+  await handleSlackEvent(makeCtx({ isDm: true, channelId: 'D08X', userId: 'U456', text: 'g1', ts: '1.001' }), deps);
+  await handleSlackEvent(makeCtx({ isDm: true, channelId: 'D08X', userId: 'U456', text: 'g2', ts: '1.002' }), deps);
+
+  clock.advance(1000);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(deps.dispatched.length, 1);
+  assert.equal(deps.dispatched[0].prompt, 'g1\ng2');
+});
+
+test('without a coalescer, each message dispatches immediately (legacy behavior)', async () => {
+  const deps = makeDeps(); // no coalescer
+  await handleSlackEvent(makeCtx({ isDm: true, channelId: 'D08X', text: 'one', ts: '1.001' }), deps);
+  await handleSlackEvent(makeCtx({ isDm: true, channelId: 'D08X', text: 'two', ts: '1.002' }), deps);
+
+  assert.equal(deps.dispatched.length, 2);
+  assert.deepEqual(deps.dispatched.map((d) => d.prompt), ['one', 'two']);
 });

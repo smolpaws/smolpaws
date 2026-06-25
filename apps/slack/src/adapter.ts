@@ -188,6 +188,9 @@ export class SlackAdapter extends BaseBridgeAdapter {
       postMessage: (channel, text, threadTs) => this.postMessage(channel, text, threadTs),
       addReaction: (channel, timestamp, name) => this.addReaction(channel, timestamp, name),
       fetchThreadMessages: (channel, threadTs) => this.fetchThreadMessages(channel, threadTs),
+      // Share the base adapter's burst coalescer so rapid Slack messages on
+      // the same conversation merge into one agent turn (cleared on stop()).
+      coalescer: this.coalescer,
       dispatch: dispatchToAgentServer,
     };
   }
