@@ -34,8 +34,19 @@ SmolPaws is an OpenHands agent in TypeScript, with inspiration from NanoClaw, Op
 | `/setup` | First-time installation, authentication, service configuration |
 | `/customize` | Adding channels, integrations, changing behavior |
 | `/debug` | Container issues, logs, troubleshooting |
+| `/improve-codebase-architecture` | Scan a codebase for deepening opportunities, present a visual HTML report, then grill through the chosen one. Full pass is explicit-only, but nudge when you hit real shallow-module friction during normal work |
+| `/codebase-design` | Shared deep-module vocabulary (module, interface, seam, adapter, depth, leverage, locality) for designing/restructuring code |
+| `/grilling` | Interview relentlessly to stress-test a plan or design before building |
+| `/domain-modeling` | Build/sharpen a project's domain glossary (`CONTEXT.md`) and record decisions as ADRs (`docs/adr/`) |
 
 Reference skills for GitHub/Cloudflare/Fastify/Daytona work also live under `.agents/skills/`.
+
+### Architecture conventions (used by the design skills)
+
+The ported design family (`/codebase-design`, `/improve-codebase-architecture`, `/domain-modeling`) reads and writes two per-repo conventions. Create both lazily — only when there's something real to record:
+
+- **`CONTEXT.md`** (repo root, or per-context when a root `CONTEXT-MAP.md` exists) — the domain glossary / ubiquitous language. A glossary and nothing else: no implementation details, no specs. See `.agents/skills/domain-modeling/CONTEXT-FORMAT.md`.
+- **`docs/adr/NNNN-slug.md`** — Architectural Decision Records for hard-to-reverse, surprising, trade-off decisions the design skills should not re-litigate. See `.agents/skills/domain-modeling/ADR-FORMAT.md`.
 
 ## Working Style
 
