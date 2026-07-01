@@ -5,8 +5,6 @@ triggers:
 - /grilling
 - /grill
 - /grill-me
-- stress-test this plan
-- poke holes in this
 license: MIT
 metadata:
   tags: design, planning, interview, socratic
