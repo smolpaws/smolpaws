@@ -95,10 +95,35 @@ function shouldStartFreshConversationAfterError(
   errorCode: string | undefined,
   errorMessage: string | undefined,
 ): boolean {
+  if (errorCode === 'conversation_not_found') {
+    return true;
+  }
   if (errorCode === 'max_iterations_exceeded') {
     return true;
   }
   return errorCode === 'llm_bad_request' && /budget_exceeded/i.test(errorMessage ?? '');
+}
+
+function classifyRunnerError(error: unknown): string | undefined {
+  if (!(error instanceof Error)) {
+    return undefined;
+  }
+  if (
+    error.message.includes('Agent-server error (404):') &&
+    error.message.includes('Conversation not found')
+  ) {
+    return 'conversation_not_found';
+  }
+  return undefined;
+}
+
+function toRunnerError(error: unknown): Error & { errorCode?: string } {
+  if (error instanceof Error) {
+    return Object.assign(error, { errorCode: classifyRunnerError(error) });
+  }
+  return Object.assign(new Error(String(error)), {
+    errorCode: classifyRunnerError(error),
+  });
 }
 
 async function retryRunnerOperation<T>(
@@ -275,7 +300,9 @@ async function executeConversationAttempt(
     baseUrl,
     'submit turn message',
     submit,
-  );
+  ).catch((error: unknown) => {
+    throw toRunnerError(error);
+  });
 
   return await monitorConversationTurn({
     baseUrl,
@@ -319,11 +346,49 @@ export async function runLocalAgentServerAgent(
     }
     return firstAttempt;
   } catch (error) {
+    const runnerError =
+      typeof error === 'object' &&
+      error !== null &&
+      'message' in error
+        ? error as Error & { errorCode?: string }
+        : undefined;
+    if (
+      input.conversationId &&
+      shouldStartFreshConversationAfterError(runnerError?.errorCode, runnerError?.message)
+    ) {
+      logger.warn(
+        {
+          scopeId: scope.scopeId,
+          conversationId: input.conversationId,
+          errorCode: runnerError?.errorCode,
+        },
+        'Reused conversation is unavailable; starting a fresh conversation',
+      );
+      try {
+        const baseUrl = await ensureLocalRunnerReady();
+        return await executeConversationAttempt(
+          baseUrl,
+          scope,
+          {
+            ...input,
+            conversationId: undefined,
+          },
+          options,
+        );
+      } catch (retryError) {
+        return {
+          status: 'error',
+          result: null,
+          conversationId: input.conversationId,
+          error: retryError instanceof Error ? retryError.message : String(retryError),
+        };
+      }
+    }
     return {
       status: 'error',
       result: null,
       conversationId: input.conversationId,
-      error: error instanceof Error ? error.message : String(error),
+      error: runnerError?.message ?? (error instanceof Error ? error.message : String(error)),
     };
   }
 }

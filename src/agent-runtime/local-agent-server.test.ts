@@ -783,3 +783,107 @@ test('runLocalAgentServerAgent starts fresh after budget_exceeded on a reused co
     delete process.env.SMOLPAWS_RUNNER_URL;
   }
 });
+
+test('runLocalAgentServerAgent starts fresh after conversation_not_found on a reused conversation', async () => {
+  initDatabase();
+  process.env.SMOLPAWS_RUNNER_URL = 'http://127.0.0.1:8788';
+
+  const submitBodies: Array<{ create_conversation: { conversation_id?: string } }> = [];
+  let submitCount = 0;
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = buildFetchStub({
+    '/ready': () =>
+      new Response(JSON.stringify({ status: 'ready' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    '/api/conversations/reused-missing-conv/turns': (_url, init) => {
+      submitBodies.push(JSON.parse(String(init?.body)));
+      submitCount += 1;
+      return new Response(JSON.stringify({ error: 'Conversation not found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    },
+    '/api/conversations/main-': (_url, init) => {
+      submitBodies.push(JSON.parse(String(init?.body)));
+      submitCount += 1;
+      return new Response(
+        JSON.stringify({
+          conversation_id: 'fresh-missing-conv',
+          turn_id: 'turn-8',
+          message_event_id: 'msg-8',
+          started_new_turn: true,
+          status: 'running',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+    '/turns/turn-8?delivery_owner_id=': () =>
+      new Response(
+        JSON.stringify({
+          conversation_id: 'fresh-missing-conv',
+          turn_id: 'turn-8',
+          status: 'completed',
+          started_at: '2026-03-27T00:00:02.000Z',
+          updated_at: '2026-03-27T00:00:03.000Z',
+          completed_at: '2026-03-27T00:00:03.000Z',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    '/turns/turn-8/task_commands/claim': () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    '/turns/turn-8/outbound_messages/claim': () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    '/turns/turn-8/result': () =>
+      new Response(
+        JSON.stringify({
+          conversation_id: 'fresh-missing-conv',
+          turn_id: 'turn-8',
+          status: 'completed',
+          reply: 'fresh reply after missing conversation reset',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+  });
+
+  try {
+    const result = await runLocalAgentServerAgent(TEST_SCOPE, {
+      prompt: 'continue please',
+      conversationId: 'reused-missing-conv',
+      scopeId: TEST_SCOPE.scopeId,
+      chatJid: TEST_SCOPE.chatJid,
+      isControlScope: TEST_SCOPE.isControlScope,
+    });
+
+    assert.deepEqual(result, {
+      status: 'success',
+      result: 'fresh reply after missing conversation reset',
+      conversationId: 'fresh-missing-conv',
+    });
+    assert.equal(submitCount, 2);
+    assert.equal(submitBodies[0]?.create_conversation.conversation_id, 'reused-missing-conv');
+    assert.equal(submitBodies[1]?.create_conversation.conversation_id, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.SMOLPAWS_RUNNER_URL;
+  }
+});
