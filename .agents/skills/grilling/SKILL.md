@@ -4,7 +4,7 @@ description: Interview the user relentlessly about a plan or design. Use when th
 triggers:
 - /grilling
 - /grill
-- grill me
+- /grill-me
 - stress-test this plan
 - poke holes in this
 license: MIT
