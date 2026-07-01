@@ -38,6 +38,7 @@ SmolPaws is an OpenHands agent in TypeScript, with inspiration from NanoClaw, Op
 | `/codebase-design` | Shared deep-module vocabulary (module, interface, seam, adapter, depth, leverage, locality) for designing/restructuring code |
 | `/grilling` | Interview relentlessly to stress-test a plan or design before building |
 | `/domain-modeling` | Build/sharpen a project's domain glossary (`CONTEXT.md`) and record decisions as ADRs (`docs/adr/`) |
+| `/show-me` | Turn a repo, change, or tricky mechanism into one skimmable self-contained HTML page — big picture, before/after or trace, every claim grounded to code |
 
 Reference skills for GitHub/Cloudflare/Fastify/Daytona work also live under `.agents/skills/`.
 
