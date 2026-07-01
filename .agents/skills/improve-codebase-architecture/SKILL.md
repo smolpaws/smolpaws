@@ -4,8 +4,6 @@ description: Scan a codebase for deepening opportunities, present them as a visu
 triggers:
 - /improve-codebase-architecture
 - /architecture-review
-- find deepening opportunities
-- architecture review
 license: MIT
 metadata:
   tags: architecture, review, refactoring, deep-modules, html-report
