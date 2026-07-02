@@ -48,7 +48,7 @@ Apply the **deletion test** to anything you suspect is shallow: would deleting i
 
 ### 2. Present candidates as an HTML report
 
-Write a self-contained HTML file to the OS temp directory so nothing lands in the repo. Resolve the temp dir from $TMPDIR, falling back to /tmp (or %TEMP% on Windows), and write to <tmpdir>/architecture-review-<timestamp>.html so each run gets a fresh file. Open it for the user — xdg-open <path> on Linux, open <path> on macOS, start <path> (via shell) or explorer <path> on Windows — and tell them the absolute path. (For a cross-machine reader, use the `htmlpreview` / local-serve delivery in the `/show-me` craft instead.)
+Write a self-contained HTML file. For a quick local look, write it to the OS temp directory (resolve from $TMPDIR, falling back to /tmp or %TEMP% on Windows) as architecture-review-<timestamp>.html, open it (xdg-open on Linux, open on macOS, start via shell or explorer on Windows), and tell the user the path. **To share a link, publish it to the `enyst.github.io` Pages site under `arch/` and hand back the clean `https://enyst.github.io/arch/<slug>.html` URL — see the "HTML artifact delivery" convention in the repo `AGENTS.md`.**
 
 **Render the page on the `/show-me` craft** — read [`../show-me/references/html-craft.md`](../show-me/references/html-craft.md) and build on it: the editorial light-theme shell, a 15-second first screen, **hand-drawn inline SVG** for the carrying before/after diagram (Mermaid only for auxiliary graphs), and code grounded to `path:line`. Each candidate gets a **before/after deepening visualisation**. Be visual.
 

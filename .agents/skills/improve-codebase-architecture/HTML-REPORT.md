@@ -4,18 +4,17 @@ The architecture review is one self-contained HTML page. **Build it on the `/sho
 craft — don't reinvent the rendering.** Read
 [`../show-me/references/html-craft.md`](../show-me/references/html-craft.md) for the base:
 the editorial light-theme CSS system (the `:root` palette, sticky numbered TOC, callouts),
-self-containment/offline rules, the hand-drawn inline-SVG technique, code grounding
-(`path:line`, clickable to a pinned blob URL), and how to hand the page to the human
-(`htmlpreview.github.io` link, or the local-serve fallback).
+self-containment/offline rules, the hand-drawn inline-SVG technique, and code grounding
+(`path:line`, clickable to a pinned blob URL). For delivery, use the SmolPaws convention
+below, not html-craft's.
 
 This file only adds the **architecture-review specialization** on top of that craft: the
 candidate cards, the badges, the before→after *deepening* semantics, and the vocabulary.
 
-> **Delivery (SmolPaws).** For the shareable link, ignore html-craft's generic `htmlpreview`
-> default and follow the "HTML artifact delivery" convention in the repo `AGENTS.md`: publish
-> to the `enyst.github.io` Pages site under `arch/` and hand back the clean
-> `https://enyst.github.io/arch/<slug>.html` URL. A `$TMPDIR` file + `open` is fine for a
-> quick local look.
+> **Delivery (SmolPaws).** Publish the page to the `enyst.github.io` GitHub Pages site under
+> `arch/` and hand back the clean `https://enyst.github.io/arch/<slug>.html` URL — it renders
+> directly. See the "HTML artifact delivery" convention in the repo `AGENTS.md`; disregard
+> html-craft's `htmlpreview` guidance. A `$TMPDIR` file + `open` is fine for a quick local look.
 
 ## What the review page inherits from `html-craft.md`
 
@@ -28,8 +27,8 @@ candidate cards, the badges, the before→after *deepening* semantics, and the v
 - **Hand-drawn inline SVG for the carrying diagram**, per html-craft's SVG section. Auto-layout
   (Mermaid) is auxiliary only; the before/after that carries the argument is hand-drawn so the
   two states stay aligned and the delta is unmistakable.
-- **Code grounding + serving** — every box/claim names a real symbol + `path:line`, clickable
-  to the source; deliver via the htmlpreview or local-serve path in html-craft.
+- **Code grounding** — every box/claim names a real symbol + `path:line`, clickable to the
+  source. (Delivery follows the SmolPaws convention above, not html-craft's.)
 
 ## The review-specific layer
 

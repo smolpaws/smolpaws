@@ -51,12 +51,11 @@ The ported design family (`/codebase-design`, `/improve-codebase-architecture`, 
 
 ### HTML artifact delivery (SmolPaws)
 
-The HTML skills (`/show-me`, `/improve-codebase-architecture`) produce a self-contained page. This is SmolPaws' delivery preference; it overrides the generic `htmlpreview` default in those skills' craft docs.
+The HTML skills (`/show-me`, `/improve-codebase-architecture`) produce a self-contained page. SmolPaws delivers it by **publishing to GitHub Pages** — ignore the `htmlpreview` guidance in those skills' craft docs; we serve pages directly.
 
-- **Quick local look:** write to `$TMPDIR` and `open` it. Nothing lands in a repo; fine when the reader is at this machine.
-- **Shareable link (preferred):** publish to the `enyst.github.io` GitHub Pages site (repo `~/repos/enyst.github.io`, public, `main`, `.nojekyll` so raw HTML renders as-is). Commit the page under a topic dir — `arch/` for architecture reviews, alongside the existing study pages — push, and hand back the clean `https://enyst.github.io/<path>` URL. No `htmlpreview.github.io/?…` wrapper needed, and no private-repo problem since the site is public.
+- **Shareable link (default):** publish to the `enyst.github.io` Pages site (repo `~/repos/enyst.github.io`, public, `main`, `.nojekyll` so raw HTML renders as-is). Commit the page under a topic dir — `arch/` for architecture reviews, alongside the existing study pages — push, and hand back the clean `https://enyst.github.io/<path>` URL. Pages serves it with the right content-type, so it renders directly: no `htmlpreview` wrapper, no private-repo problem.
+- **Quick local look:** write to `$TMPDIR` and `open` it — fine when the reader is at this machine and nothing needs sharing.
 - **Later:** once the `liberty-labs.org` pages are done, these will move there. Until then, `enyst.github.io` is the target.
-- Use the local-serve fallback (in `html-craft.md`) only when you can't/shouldn't publish.
 
 ## Working Style
 
