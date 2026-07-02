@@ -40,7 +40,7 @@ Calm, readable, document-like — not a dark dashboard. Skeleton:
   code{font-family:var(--mono);font-size:.88em;background:var(--code-bg);padding:1px 5px;border-radius:3px}
   pre{font-family:var(--mono);font-size:13px;background:var(--code-bg);padding:14px 16px;border-radius:6px;overflow-x:auto;border:1px solid var(--rule)}
   pre code{background:transparent;padding:0}
-  .kw{color:#7048a8}.str{color:#2f7a3a}.com{color:#8a8a82;font-style:italic}
+  .kw{color:#7048a8}.str{color:var(--ok)}.com{color:var(--subtle);font-style:italic}
   table{border-collapse:collapse;width:100%;font-size:14px;margin:12px 0}
   th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
   th{font-weight:600;background:var(--code-bg)}
@@ -52,6 +52,7 @@ Calm, readable, document-like — not a dark dashboard. Skeleton:
   a.src{font-family:var(--mono);font-size:12px;color:var(--accent);text-decoration:none;border-bottom:1px dotted var(--accent)}
   details{border:1px solid var(--rule);border-radius:6px;margin:12px 0}
   details>summary{cursor:pointer;padding:8px 12px;color:var(--muted);font-size:13px;list-style:none}
+  details>summary::-webkit-details-marker{display:none}
   details>summary::before{content:"▸ "} details[open]>summary::before{content:"▾ "}
   .ba{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
   @media(max-width:760px){.wrap{grid-template-columns:1fr}.ba{grid-template-columns:1fr}}
@@ -462,9 +463,11 @@ Example shape:
 
 Anyone clicks it and sees the rendered page — no download, no server, works across machines.
 Caveats: works best for self-contained pages (inline CSS/SVG — what this skill produces);
-CDN `<script>` (e.g. Mermaid) still load over the network but render fine; private repos
-need the viewer to be authed to GitHub. (GitHub Pages on the repo is an alternative if you
-want a stable URL without the `htmlpreview` prefix.)
+CDN `<script>` (e.g. Mermaid) still load over the network but render fine; **private repos
+cannot be previewed** — `htmlpreview` fetches the raw file with client-side requests that
+can't reach private repo contents (auth + CORS), even if the viewer is logged in to GitHub.
+For private repos, use the local-serve fallback below or GitHub Pages (if configured on the
+repo — also a stable URL without the `htmlpreview` prefix).
 
 ### Local alternative: serve over HTTP
 
@@ -473,7 +476,7 @@ LAN / tunnel IP — not `localhost`, since the human is often on another machine
 
 ```bash
 cd <dir> && (python3 -m http.server <port> >/dev/null 2>&1 &)
-ip -4 addr show | grep -oP 'inet \K[0-9.]+' | grep -v 127.0.0.1   # LAN / overlay IPs
+python3 -c "import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.connect(('8.8.8.8',80));print(s.getsockname()[0]);s.close()"  # LAN IP (portable: Linux + macOS)
 command -v tailscale >/dev/null && tailscale ip -4 | head -1       # tunnel IP (cross-net)
 ```
 
