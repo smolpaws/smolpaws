@@ -1,107 +1,80 @@
 # HTML Report Format
 
-The architectural review is rendered as a single self-contained HTML file in the OS temp directory. Tailwind and Mermaid both come from CDNs. Mermaid handles graph-shaped diagrams reliably; hand-built divs and inline SVG handle the more editorial visuals (mass diagrams, cross-sections). Mix the two — don't lean on Mermaid for everything, it'll start to look generic.
+The architecture review is one self-contained HTML page. **Build it on the `/show-me`
+craft — don't reinvent the rendering.** Read
+[`../show-me/references/html-craft.md`](../show-me/references/html-craft.md) for the base:
+the editorial light-theme CSS system (the `:root` palette, sticky numbered TOC, callouts),
+self-containment/offline rules, the hand-drawn inline-SVG technique, code grounding
+(`path:line`, clickable to a pinned blob URL), and how to hand the page to the human
+(`htmlpreview.github.io` link, or the local-serve fallback).
 
-## Scaffold
+This file only adds the **architecture-review specialization** on top of that craft: the
+candidate cards, the badges, the before→after *deepening* semantics, and the vocabulary.
 
-```html
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Architecture review — {{repo name}}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script type="module">
-      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
-      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
-    </script>
-    <style>
-      /* small custom layer for things Tailwind doesn't cover cleanly:
-         dashed seam lines, hand-drawn-feeling arrow heads, etc. */
-      .seam { stroke-dasharray: 4 4; }
-      .leak { stroke: #dc2626; }
-      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
-    </style>
-  </head>
-  <body class="bg-stone-50 text-slate-900 font-sans">
-    <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
-      <header>...</header>
-      <section id="candidates" class="space-y-10">...</section>
-      <section id="top-recommendation">...</section>
-    </main>
-  </body>
-</html>
-```
+## What the review page inherits from `html-craft.md`
 
-## Header
+- **The look and shell** — the light editorial theme, readable width, sticky numbered TOC,
+  `.callout` / `.callout.warn` / `.callout.note` styles. Use its `:root` variables; don't
+  hardcode a second palette.
+- **First screen (15-second orientation).** Eyebrow (`Architecture review`), title that
+  states the finding, a one-paragraph mental model, and a `★` key-takeaway callout naming
+  the top recommendation — before any candidate detail.
+- **Hand-drawn inline SVG for the carrying diagram**, per html-craft's SVG section. Auto-layout
+  (Mermaid) is auxiliary only; the before/after that carries the argument is hand-drawn so the
+  two states stay aligned and the delta is unmistakable.
+- **Code grounding + serving** — every box/claim names a real symbol + `path:line`, clickable
+  to the source; deliver via the htmlpreview or local-serve path in html-craft.
 
-Repo name, date, and a compact legend: solid box = module, dashed line = seam, red arrow = leakage, thick dark box = deep module. No introduction paragraph — straight into the candidates.
+## The review-specific layer
 
-## Candidate card
+### Header
 
-The diagrams carry the weight. Prose is sparse, plain, and uses the glossary terms (from the `/codebase-design` skill) without ceremony.
+Eyebrow `Architecture review`, repo name, date, and a compact legend for the diagram
+vocabulary: solid box = module, dashed line = seam, red = leakage/duplication, thick dark box
+= deep module. Then the mental model + `★` top-recommendation callout. No process narration.
 
-Each candidate is one `<article>`:
+### Candidate card
 
-- **Title** — short, names the deepening (e.g. "Collapse the Order intake pipeline").
-- **Badge row** — recommendation strength (`Strong` = emerald, `Worth exploring` = amber, `Speculative` = slate), plus a tag for the dependency category (`in-process`, `local-substitutable`, `ports & adapters`, `mock`).
-- **Files** — monospaced list, `font-mono text-sm`.
-- **Before / After diagram** — the centrepiece. Two columns, side by side. See patterns below.
+One `<section>` per candidate, with a claim-making heading (e.g. "Collapse the Order intake
+pipeline" — not "Candidate 1"). The diagram carries the weight; prose is sparse and uses the
+`/codebase-design` glossary exactly.
+
+- **Badge row** — recommendation strength (`Strong`, `Worth exploring`, `Speculative`) plus a
+  dependency-category tag (`in-process`, `local-substitutable`, `ports & adapters`, `mock`).
+  Colour the strength badge with an accent scale (e.g. strong = `--ok`, speculative = `--muted`).
+- **Files** — monospaced, each a clickable `path:line` source link (html-craft's `a.src`).
+- **Before / After diagram** — the centrepiece hand-SVG. See the deepening patterns below.
 - **Problem** — one sentence. What hurts.
 - **Solution** — one sentence. What changes.
-- **Wins** — bullets, ≤6 words each. e.g. "Tests hit one interface", "Pricing logic stops leaking", "Delete 4 shallow wrappers".
-- **ADR callout** (if applicable) — one line in an amber-tinted box.
+- **Wins** — bullets, ≤6 words each, in glossary terms ("Tests hit one interface", "Pricing
+  stops leaking across the seam", "Delete 4 shallow wrappers").
+- **ADR callout** (if applicable) — one line in a `.callout.warn` box.
 
-No paragraphs of explanation. If the diagram needs a paragraph to be understood, redraw the diagram.
+No paragraphs of explanation. If a diagram needs a paragraph to be understood, redraw it.
 
-## Diagram patterns
+### Before → after: the deepening diagram
 
-Pick the pattern that fits the candidate. Mix them. Don't make every diagram look the same — variety is part of the point.
+Follow html-craft's before/after convention (dashed-gray = before/context, solid-accent =
+after, a third colour for the change) and pick the pattern that fits the candidate:
 
-### Mermaid graph (the workhorse for dependencies / call flow)
+- **Boxes-and-arrows** — the workhorse. Before: shallow modules with leakage across a seam
+  (dashed red edge). After: one thick-bordered **deep** module (`--fg`/dark fill) with the
+  now-internal parts greyed inside it.
+- **Mass diagram** (for "interface as wide as implementation") — two rectangles per module,
+  interface vs implementation. Before: interface rectangle nearly as tall as implementation
+  (shallow). After: interface short, implementation tall (deep).
+- **Cross-section** (for layered shallowness) — stacked bands showing the layers a call passes
+  through. Before: 6 thin pass-through layers. After: 1 thick band with the consolidated
+  responsibility.
+- **Call-graph collapse** — before: a tree of calls as nested boxes; after: collapsed into one
+  box with the internal calls faded inside.
 
-Use a Mermaid `flowchart` or `graph` when the point is "X calls Y calls Z, and look at the mess." Wrap it in a Tailwind-styled card so it doesn't feel parachuted in. Style with classDef to colour leakage edges red and the deep module dark. Sequence diagrams work well for "before: 6 round-trips; after: 1."
+Mermaid is fine for a quick auxiliary dependency graph, but the carrying before/after is
+hand-SVG — Mermaid's auto-layout breaks the side-by-side alignment that makes the delta legible.
 
-```html
-<div class="rounded-lg border border-slate-200 bg-white p-4">
-  <pre class="mermaid">
-    flowchart LR
-      A[OrderHandler] --> B[OrderValidator]
-      B --> C[OrderRepo]
-      C -. leak .-> D[PricingClient]
-      classDef leak stroke:#dc2626,stroke-width:2px;
-      class C,D leak
-  </pre>
-</div>
-```
+### Top recommendation section
 
-### Hand-built boxes-and-arrows (when Mermaid's layout fights you)
-
-Modules as `<div>`s with borders and labels. Arrows as inline SVG `<line>` or `<path>` elements positioned absolutely over a relative container. Reach for this when you want the "after" diagram to feel like one thick-bordered deep module with greyed-out internals — Mermaid won't render that with the right weight.
-
-### Cross-section (good for layered shallowness)
-
-Stack horizontal bands (`h-12 border-l-4`) to show layers a call passes through. Before: 6 thin layers each doing nothing. After: 1 thick band labelled with the consolidated responsibility.
-
-### Mass diagram (good for "interface as wide as implementation")
-
-Two rectangles per module — one for interface surface area, one for implementation. Before: interface rectangle is nearly as tall as the implementation rectangle (shallow). After: interface rectangle is short, implementation rectangle is tall (deep).
-
-### Call-graph collapse
-
-Before: a tree of function calls rendered as nested boxes. After: the same tree collapsed into one box, with the now-internal calls shown faded inside it.
-
-## Style guidance
-
-- Lean editorial, not corporate-dashboard. Generous whitespace. Serif optional for headings (`font-serif` works well with stone/slate).
-- Colour sparingly: one accent (emerald or indigo) plus red for leakage and amber for warnings.
-- Keep diagrams ~320px tall so before/after sits comfortably side by side without scrolling.
-- Use `text-xs uppercase tracking-wider` for module labels inside diagrams — they should read as schematic, not as UI.
-- The only scripts are the Tailwind CDN and the Mermaid ESM import. The report is otherwise static — no app code, no interactivity beyond Mermaid's own rendering.
-
-## Top recommendation section
-
-One larger card. Candidate name, one sentence on why, anchor link to its card. That's it.
+One `★` callout / larger card: candidate name, one sentence on why, anchor link to its card.
 
 ## Tone
 
