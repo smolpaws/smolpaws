@@ -118,12 +118,14 @@ function classifyRunnerError(error: unknown): string | undefined {
 }
 
 function toRunnerError(error: unknown): Error & { errorCode?: string } {
-  if (error instanceof Error) {
-    return Object.assign(error, { errorCode: classifyRunnerError(error) });
-  }
-  return Object.assign(new Error(String(error)), {
-    errorCode: classifyRunnerError(error),
-  });
+  const err = error instanceof Error ? error : new Error(String(error));
+  const runnerLikeError = err as Error & { errorCode?: unknown };
+  const existingErrorCode =
+    typeof runnerLikeError.errorCode === 'string'
+      ? runnerLikeError.errorCode
+      : undefined;
+  const errorCode = existingErrorCode ?? classifyRunnerError(err);
+  return errorCode === undefined ? err : Object.assign(err, { errorCode });
 }
 
 async function retryRunnerOperation<T>(
@@ -318,6 +320,7 @@ export async function runLocalAgentServerAgent(
   input: AgentRuntimeInput,
   options?: { registeredGroups?: Record<string, RegisteredGroup> },
 ): Promise<AgentRuntimeOutput> {
+  let startedFreshConversationRetry = false;
   try {
     const baseUrl = await ensureLocalRunnerReady();
     const firstAttempt = await executeConversationAttempt(baseUrl, scope, input, options);
@@ -334,6 +337,7 @@ export async function runLocalAgentServerAgent(
         },
         'Reused conversation is exhausted; starting a fresh conversation',
       );
+      startedFreshConversationRetry = true;
       return await executeConversationAttempt(
         baseUrl,
         scope,
@@ -352,15 +356,17 @@ export async function runLocalAgentServerAgent(
       'message' in error
         ? error as Error & { errorCode?: string }
         : undefined;
+    const errorCode = runnerError?.errorCode ?? classifyRunnerError(error);
     if (
+      !startedFreshConversationRetry &&
       input.conversationId &&
-      shouldStartFreshConversationAfterError(runnerError?.errorCode, runnerError?.message)
+      shouldStartFreshConversationAfterError(errorCode, runnerError?.message)
     ) {
       logger.warn(
         {
           scopeId: scope.scopeId,
           conversationId: input.conversationId,
-          errorCode: runnerError?.errorCode,
+          errorCode,
         },
         'Reused conversation is unavailable; starting a fresh conversation',
       );
