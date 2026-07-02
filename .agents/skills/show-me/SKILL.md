@@ -67,10 +67,12 @@ grounding, serving) — that lives in [`references/html-craft.md`](references/ht
 8. **Editorial, not dashboard.** Calm document aesthetic (see craft ref): readable
    width, numbered sticky table of contents, claim-carrying section titles, callouts —
    a thing a person can skim or read top to bottom, not a wall of widgets.
-9. **Hand back a clickable link.** People look from a different machine. Prefer pushing the
-   self-contained page to GitHub and returning an `htmlpreview.github.io/?<blob-url>` link —
-   anyone clicks and sees it rendered, no download, no reachable server. Fall back to
-   `python3 -m http.server` + a LAN/tunnel IP only when you can't push. (See craft ref.)
+9. **Hand back a clickable link.** People look from a different machine. **SmolPaws
+   delivery:** publish to the `enyst.github.io` Pages site and hand back the clean
+   `https://enyst.github.io/<path>` URL — see the "HTML artifact delivery" convention in the
+   repo `AGENTS.md`. That convention overrides the generic `htmlpreview.github.io/?<blob-url>`
+   default described in the craft ref. Fall back to `python3 -m http.server` + a LAN/tunnel IP
+   only when you can't publish.
 
 ## Anti-patterns
 

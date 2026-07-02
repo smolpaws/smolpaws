@@ -11,6 +11,12 @@ self-containment/offline rules, the hand-drawn inline-SVG technique, code ground
 This file only adds the **architecture-review specialization** on top of that craft: the
 candidate cards, the badges, the before→after *deepening* semantics, and the vocabulary.
 
+> **Delivery (SmolPaws).** For the shareable link, ignore html-craft's generic `htmlpreview`
+> default and follow the "HTML artifact delivery" convention in the repo `AGENTS.md`: publish
+> to the `enyst.github.io` Pages site under `arch/` and hand back the clean
+> `https://enyst.github.io/arch/<slug>.html` URL. A `$TMPDIR` file + `open` is fine for a
+> quick local look.
+
 ## What the review page inherits from `html-craft.md`
 
 - **The look and shell** — the light editorial theme, readable width, sticky numbered TOC,
