@@ -38,13 +38,14 @@ running untrusted third-party code, per SmolPaws' security policy:
 - The catalog is community-generated and the library repo has **no license / no guarantees**. The `pp-espn`, `pp-stripe`, etc. entries are printed from upstream APIs and unofficial sniffing — some are "unofficial" or "seed" quality. Read the entry's README/quality label before trusting it.
 - **Never pipe secrets into a freshly installed CLI on first run.** Confirm which env vars / API keys it needs first (without printing secret values), and surface that to Engel.
 - Pin/verify: prefer a specific tool you've inspected; check `release.version` from the catalog. Don't blanket-install a "family" of adjacent tools.
+- **Supply-chain (rug-pull) risk.** `npx -y @mvanhorn/printing-press-library@latest` and `go install <module>@latest` both fetch the newest published version, so a compromised upstream update runs on your machine. Prefer pinning to a known-good version once you've settled on one — `npx -y @mvanhorn/printing-press-library@<version> …` and note the tool's `release.version` — rather than tracking `@latest` indefinitely. This is also why unattended auto-updates need approval.
 - A scheduled auto-update job is a durable side effect — **only create one with explicit approval** (see Updates).
 
 ## Prerequisites
 
 - `npx` (Node) — drives the library installer.
 - Go 1.26+ on PATH — the printed CLIs are Go binaries (`go install ...`).
-- The installed binary lands in a per-user bin dir (e.g. `~/.local/bin`); make sure that's on PATH for the smolpaws runtime, not just an interactive shell.
+- The installed binary lands in Go's bin dir by default (`$GOBIN`, else `$GOPATH/bin`, typically `~/go/bin`). The installer can retarget it with `--bin-dir` (e.g. `--bin-dir ~/.local/bin`). Either way, make sure the chosen dir is on PATH for the smolpaws runtime, not just an interactive shell.
 
 ## Discovery-first workflow
 
