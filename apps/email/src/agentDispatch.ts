@@ -129,7 +129,7 @@ export function resolveEmailReplyBody(result: EmailAgentResult): string | undefi
   const outbound = result.outbound_messages ?? [];
   const texts = outbound
     .filter((m) => m.kind === 'current_thread_message')
-    .map((m) => (m as { text: string }).text.trim())
+    .map((m) => (m as { text?: string }).text?.trim() ?? '')
     .filter(Boolean);
   if (texts.length > 0) {
     return texts.join('\n\n');

@@ -82,6 +82,11 @@ export async function verifySvixSignature(options: {
     return { valid: false, reason: 'missing_svix_headers' };
   }
 
+  // Strict: reject anything that isn't purely digits (parseInt would happily
+  // accept "1700000000xyz").
+  if (!/^\d+$/.test(timestamp.trim())) {
+    return { valid: false, reason: 'invalid_timestamp' };
+  }
   const ts = Number.parseInt(timestamp, 10);
   if (!Number.isFinite(ts)) {
     return { valid: false, reason: 'invalid_timestamp' };

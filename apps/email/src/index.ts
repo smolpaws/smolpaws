@@ -62,6 +62,27 @@ function log(stage: string, details: Record<string, unknown>): void {
   console.log(`email.${stage}`, details);
 }
 
+/**
+ * Mask a sender address for logs — email addresses are PII and Worker logs may
+ * flow to a sink with its own retention. Keeps enough to debug the allowlist
+ * boundary (first char of local part + domain) without logging the full PII.
+ * e.g. `engel@enyst.org` → `e***@enyst.org`.
+ */
+function maskSender(sender: string): string {
+  if (!sender) return '(none)';
+  const at = sender.indexOf('@');
+  if (at <= 0) return '***';
+  return `${sender[0]}***${sender.slice(at)}`;
+}
+
+const RETRY_BASE_DELAY_SECONDS = 30;
+const RETRY_MAX_DELAY_SECONDS = 900;
+
+function retryDelaySeconds(attempts: number): number {
+  const attempt = Math.max(1, attempts);
+  return Math.min(RETRY_BASE_DELAY_SECONDS * 2 ** (attempt - 1), RETRY_MAX_DELAY_SECONDS);
+}
+
 function dedupeKey(emailId: string): Request {
   return new Request(
     `https://smolpaws.internal/dedupe/email/${encodeURIComponent(emailId)}`,
@@ -95,9 +116,9 @@ export default {
       return new Response('Not found', { status: 404 });
     }
 
-    if (!env.RESEND_WEBHOOK_SECRET) {
-      log('config.error', { reason: 'missing_webhook_secret' });
-      return new Response('Webhook secret not configured', { status: 500 });
+    if (!env.RESEND_WEBHOOK_SECRET || !env.RESEND_API_KEY) {
+      log('config.error', { reason: 'missing_secret_or_api_key' });
+      return new Response('Email ingress not configured', { status: 500 });
     }
 
     const rawBody = await request.text();
@@ -134,7 +155,7 @@ export default {
     const decision = decideAllowlist(event.data.from, allowed);
     if (!decision.allowed) {
       // Drop silently with 200 so Resend does not retry. No agent processing.
-      log('rejected', { sender: decision.sender, reason: decision.reason });
+      log('rejected', { sender: maskSender(decision.sender), reason: decision.reason });
       return new Response('OK', { status: 200 });
     }
 
@@ -157,7 +178,7 @@ export default {
     });
     await markEnqueued(emailId);
 
-    log('queued', { emailId, sender: decision.sender });
+    log('queued', { emailId, sender: maskSender(decision.sender) });
     return new Response('Queued', { status: 202 });
   },
 
@@ -175,7 +196,7 @@ async function processMessage(
 ): Promise<void> {
   const { emailId, sender } = message.body;
   try {
-    log('process.start', { emailId, sender });
+    log('process.start', { emailId, sender: maskSender(sender) });
 
     // Fetch full content (webhook carried only metadata).
     const email = await retrieveReceivedEmail({
@@ -213,14 +234,15 @@ async function processMessage(
         inReplyTo: originalMessageId,
         references: originalMessageId,
       });
-      log('process.replied', { emailId, sender });
+      log('process.replied', { emailId, sender: maskSender(sender) });
     } else {
       log('process.no_reply', { emailId });
     }
 
     message.ack();
   } catch (error) {
-    log('process.error', { emailId, error: String(error) });
-    message.retry({ delaySeconds: 30 });
+    const delaySeconds = retryDelaySeconds(message.attempts ?? 1);
+    log('process.error', { emailId, error: String(error), delaySeconds });
+    message.retry({ delaySeconds });
   }
 }

@@ -101,6 +101,22 @@ test('verifySvixSignature accepts when one of several signatures matches', async
   assert.equal(result.valid, true);
 });
 
+test('verifySvixSignature rejects a timestamp with trailing garbage', async () => {
+  const id = 'msg_123';
+  const ts = '1700000000';
+  const body = '{}';
+  const signature = sign(SECRET, id, ts, body);
+
+  const result = await verifySvixSignature({
+    secret: SECRET,
+    headers: { id, timestamp: `${ts}xyz`, signature },
+    body,
+    nowSeconds: 1700000000,
+  });
+  assert.equal(result.valid, false);
+  assert.equal(result.reason, 'invalid_timestamp');
+});
+
 test('timingSafeEqual basic behavior', () => {
   assert.equal(timingSafeEqual('abc', 'abc'), true);
   assert.equal(timingSafeEqual('abc', 'abd'), false);

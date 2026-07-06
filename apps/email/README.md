@@ -46,8 +46,13 @@ Inbound email is **untrusted input**. Only emails whose `from` address is on
 - **Fail closed:** an empty allowlist rejects everyone.
 - **Signature first:** spoofed webhook events are rejected with `401` before any
   parsing or allowlist logic.
-- **Body is data, not instructions:** the prompt wraps the email body in a
-  clearly-delimited, explicitly-untrusted block.
+- **Body is data, not instructions:** the prompt wraps the email body in an
+  explicitly-untrusted block fenced with a per-email **random** boundary token,
+  so body content cannot forge the closing delimiter and inject fake prompt
+  lines.
+- **PII-aware logging:** sender addresses are masked in logs (`e***@enyst.org`).
+- **Fetches are time-bounded** and the queue consumer retries with exponential
+  backoff, so a slow/hanging Resend or agent-server can't stall or hammer.
 
 Default allowlist (Engel's own addresses):
 `engel.nyst@gmail.com, engel@enyst.org, anarresian@icloud.com`.

@@ -8,6 +8,7 @@
  */
 
 const RESEND_API_BASE = 'https://api.resend.com';
+const REQUEST_TIMEOUT_MS = 15_000;
 
 export type ReceivedEmail = {
   id: string;
@@ -31,6 +32,7 @@ export async function retrieveReceivedEmail(options: {
     {
       method: 'GET',
       headers: { Authorization: `Bearer ${options.apiKey}` },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     },
   );
   if (!resp.ok) {
@@ -61,6 +63,7 @@ export async function sendEmail(options: {
       Authorization: `Bearer ${options.apiKey}`,
       'Content-Type': 'application/json',
     },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     body: JSON.stringify({
       from: options.from,
       to: [options.to],
