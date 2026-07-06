@@ -1,0 +1,23 @@
+name = "smolpaws-email"
+main = "src/index.ts"
+compatibility_date = "2026-02-08"
+
+[[routes]]
+pattern = "email.liberty-labs.org"
+custom_domain = true
+
+[[queues.producers]]
+queue = "smolpaws-email-queue"
+binding = "EMAIL_QUEUE"
+
+[[queues.consumers]]
+queue = "smolpaws-email-queue"
+max_batch_size = 1
+max_batch_timeout = 5
+
+# Non-secret defaults. Secrets (RESEND_WEBHOOK_SECRET, RESEND_API_KEY) are set
+# via `wrangler secret put`. SMOLPAWS_RUNNER_URL / SMOLPAWS_RUNNER_TOKEN are set
+# for the deployment environment that can reach the agent server.
+[vars]
+EMAIL_ALLOWED_SENDERS = "engel.nyst@gmail.com,engel@enyst.org,anarresian@icloud.com"
+EMAIL_FROM_ADDRESS = "smolpaws <smolpaws@mail.enyst.org>"

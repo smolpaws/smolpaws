@@ -21,6 +21,7 @@ SmolPaws is an OpenHands agent in TypeScript, with inspiration from NanoClaw, Op
 | `src/config.ts` | Trigger pattern, paths, intervals |
 | `src/agent-runtime/shared-runner.ts` | AppleWorkspace-backed runner client |
 | `apps/github/` | Cloudflare Worker for GitHub webhook + notification ingress |
+| `apps/email/` | Cloudflare Worker for Resend inbound-email ingress (Svix-verified webhook, strict sender allowlist) |
 | `apps/agent-server/` | Shared Fastify agent-server app and runner image source |
 | `src/task-scheduler.ts` | Runs scheduled tasks |
 | `src/db.ts` | SQLite operations |
@@ -133,6 +134,7 @@ npm run github:dev   # Run the GitHub Worker locally
 npm run runner:dev   # Run the shared agent-server locally
 npm run runner:image:build
 npm --prefix apps/discord run test  # Run Discord ingress regression tests
+npm run email:test   # Run Resend email ingress tests
 ```
 
 Service management:

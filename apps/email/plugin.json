@@ -1,0 +1,21 @@
+{
+  "name": "email",
+  "label": "Email (Resend)",
+  "kind": "webhook",
+  "version": "1.0.0",
+  "description": "Resend inbound email ingress — a Cloudflare Worker that verifies the Svix webhook signature, enforces a strict sender allowlist, and dispatches allowed emails to the agent server. Replies are sent back through Resend.",
+  "requiredEnv": [
+    "RESEND_WEBHOOK_SECRET",
+    "RESEND_API_KEY",
+    "EMAIL_ALLOWED_SENDERS"
+  ],
+  "secretEnv": [
+    "RESEND_WEBHOOK_SECRET",
+    "RESEND_API_KEY"
+  ],
+  "optionalEnv": [
+    "EMAIL_FROM_ADDRESS",
+    "SMOLPAWS_RUNNER_URL",
+    "SMOLPAWS_RUNNER_TOKEN"
+  ]
+}
