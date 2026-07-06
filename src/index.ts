@@ -37,6 +37,7 @@ import { ConnectionGuards } from './connection-guards.js';
 import { shouldSendFinalReplyAfterOutbound } from './outbound-reply-policy.js';
 import { resolveOutboundChatJid } from './whatsapp-jid.js';
 import { isReadableDocumentMedia, readDocumentText } from './document-text.js';
+import { isTransientNetworkError } from './network-errors.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MEDIA_DIR = path.join(WHATSAPP_DIR, 'media');
@@ -178,24 +179,40 @@ async function downloadAndSaveMedia(
     return undefined;
   }
 
-  try {
-    const buffer = await downloadMediaMessage(msg, 'buffer', {}, {
-      reuploadRequest: sock.updateMediaMessage,
-      logger,
-    });
+  // Large media (e.g. long voice notes) can have their CDN socket closed
+  // mid-download by WhatsApp, surfacing as a transient `UND_ERR_SOCKET` /
+  // "terminated". Retry a few times with backoff before giving up — a re-fetch
+  // almost always succeeds. (A hard failure here must never crash the bridge;
+  // see the process-level guard installed in main().)
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const buffer = await downloadMediaMessage(msg, 'buffer', {}, {
+        reuploadRequest: sock.updateMediaMessage,
+        logger,
+      });
 
-    fs.mkdirSync(MEDIA_DIR, { recursive: true });
-    const ext = mime.split('/')[1]?.split(';')[0] || 'bin';
-    const filename = `${crypto.randomUUID()}.${ext}`;
-    const filePath = path.join(MEDIA_DIR, filename);
-    fs.writeFileSync(filePath, buffer);
+      fs.mkdirSync(MEDIA_DIR, { recursive: true });
+      const ext = mime.split('/')[1]?.split(';')[0] || 'bin';
+      const filename = `${crypto.randomUUID()}.${ext}`;
+      const filePath = path.join(MEDIA_DIR, filename);
+      fs.writeFileSync(filePath, buffer);
 
-    logger.debug({ filePath, mime, size: buffer.length }, 'Saved inbound media');
-    return { path: filePath, type: mime };
-  } catch (err) {
-    logger.warn({ err }, 'Failed to download media from WhatsApp');
-    return undefined;
+      logger.debug({ filePath, mime, size: buffer.length, attempt }, 'Saved inbound media');
+      return { path: filePath, type: mime };
+    } catch (err) {
+      const transient = isTransientNetworkError(err);
+      if (transient && attempt < MAX_ATTEMPTS) {
+        const delayMs = 500 * attempt;
+        logger.warn({ err, attempt, delayMs }, 'Transient media download error, retrying');
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+      logger.warn({ err, attempt }, 'Failed to download media from WhatsApp');
+      return undefined;
+    }
   }
+  return undefined;
 }
 
 /** Read a saved image file and return a base64 data URL suitable for the LLM. */
@@ -591,7 +608,37 @@ async function startMessageLoop(): Promise<void> {
   }
 }
 
+/**
+ * Last-resort guard so a transient network failure can never take the whole
+ * bridge down. Baileys/undici can emit an async `'error'` event on an internal
+ * media-download stream (e.g. when WhatsApp closes the CDN socket mid-transfer
+ * on a long voice note). Such an event is emitted in a later tick and is NOT
+ * caught by the `try/catch` around the `await`, so Node would otherwise crash
+ * the process. We swallow *only* known-transient network errors here and log
+ * them; anything else is a real bug and is left to crash, so we never mask it.
+ */
+function installNetworkErrorGuard(): void {
+  process.on('uncaughtException', (err) => {
+    if (isTransientNetworkError(err)) {
+      logger.warn({ err }, 'Swallowed transient network error (would have crashed the bridge)');
+      return;
+    }
+    logger.fatal({ err }, 'Uncaught exception — exiting');
+    process.exit(1);
+  });
+
+  process.on('unhandledRejection', (reason) => {
+    if (isTransientNetworkError(reason)) {
+      logger.warn({ err: reason }, 'Swallowed transient network rejection');
+      return;
+    }
+    logger.fatal({ err: reason }, 'Unhandled rejection — exiting');
+    process.exit(1);
+  });
+}
+
 async function main(): Promise<void> {
+  installNetworkErrorGuard();
   initDatabase();
   logger.info('Database initialized');
   logger.info({ agentSdkVersion: AGENT_SDK_VERSION }, 'Loaded @smolpaws/agent-sdk');
