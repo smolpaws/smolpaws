@@ -20,7 +20,7 @@ Inbound email → Resend (MX: mail.enyst.org) → email.received webhook
       3. strict allowlist on `from`        (else 200 drop, no processing)
       4. dedupe by email_id + enqueue      (202)
    → queue consumer
-      5. GET full email via Receiving API
+      5. GET full email via Receiving API (text, or HTML→text fallback)
       6. dispatch to agent server (shared turnClient)
       7. send reply via Resend (threaded with In-Reply-To/References)
 ```

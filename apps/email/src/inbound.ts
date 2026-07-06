@@ -137,6 +137,31 @@ export function buildEmailPrompt(options: {
   ].join('\n');
 }
 
+/**
+ * Best-effort plain text from an HTML email body, for the case where a message
+ * has no `text/plain` part (HTML-only senders are common). Strips scripts,
+ * styles, and tags, decodes a few common entities, and collapses whitespace.
+ * Not a full HTML parser — just enough to give the agent readable content.
+ */
+export function htmlToText(html: string | undefined | null): string {
+  if (!html) return '';
+  return html
+    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<br\s*\/?>(?=\s*)/gi, '\n')
+    .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]*\n[ \t]*/g, '\n')
+    .trim();
+}
+
 function randomBoundaryToken(): string {
   // crypto.randomUUID is available in Cloudflare Workers and Node >= 19.
   const uuid =

@@ -19,6 +19,7 @@
 import { verifySvixSignature } from './svix.js';
 import {
   decideAllowlist,
+  htmlToText,
   parseAllowedSenders,
   type ResendWebhookEvent,
 } from './inbound.js';
@@ -204,11 +205,15 @@ async function processMessage(
       emailId,
     });
 
+    // Prefer plain text; fall back to text extracted from HTML for HTML-only
+    // emails so the agent still gets the content.
+    const body = email.text?.trim() ? email.text : htmlToText(email.html);
+
     const agentResult = await dispatchEmailToAgentServer(
       {
         sender,
         subject: email.subject ?? message.body.subject,
-        text: email.text,
+        text: body,
         emailId,
       },
       env,

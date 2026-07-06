@@ -4,6 +4,7 @@ import {
   buildConversationId,
   buildEmailPrompt,
   decideAllowlist,
+  htmlToText,
   parseAllowedSenders,
   parseEmailAddress,
 } from '../inbound.js';
@@ -109,4 +110,23 @@ test('buildEmailPrompt uses a random token by default (unguessable fence)', () =
   const a = buildEmailPrompt({ from: 'e@x.com', text: 'hi' });
   const b = buildEmailPrompt({ from: 'e@x.com', text: 'hi' });
   assert.notEqual(a, b);
+});
+
+test('htmlToText extracts readable text from HTML-only bodies', () => {
+  const html = '<p>Hello <b>Engel</b>,</p><p>Please review &amp; reply.</p>';
+  assert.equal(htmlToText(html), 'Hello Engel ,\nPlease review & reply.');
+});
+
+test('htmlToText strips scripts/styles and handles breaks', () => {
+  const html = '<style>p{color:red}</style><div>line one<br>line two</div><script>alert(1)</script>';
+  const out = htmlToText(html);
+  assert.match(out, /line one\nline two/);
+  assert.doesNotMatch(out, /alert/);
+  assert.doesNotMatch(out, /color:red/);
+});
+
+test('htmlToText returns empty string for empty/nullish input', () => {
+  assert.equal(htmlToText(''), '');
+  assert.equal(htmlToText(null), '');
+  assert.equal(htmlToText(undefined), '');
 });
