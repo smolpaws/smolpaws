@@ -35,3 +35,12 @@ test('handles null / undefined / non-error values safely', () => {
   assert.equal(isTransientNetworkError('some string'), false);
   assert.equal(isTransientNetworkError(42), false);
 });
+
+test('does not throw on non-string code/message (classifier must never crash)', () => {
+  // The classifier runs inside the crash guard, so it must tolerate any shape.
+  assert.doesNotThrow(() => isTransientNetworkError({ message: 12345 }));
+  assert.doesNotThrow(() => isTransientNetworkError({ message: { nested: 'obj' } }));
+  assert.doesNotThrow(() => isTransientNetworkError({ code: 500 }));
+  assert.doesNotThrow(() => isTransientNetworkError({ cause: { code: null } }));
+  assert.equal(isTransientNetworkError({ message: 12345, code: 42 }), false);
+});

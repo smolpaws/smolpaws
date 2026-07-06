@@ -618,13 +618,19 @@ async function startMessageLoop(): Promise<void> {
  * them; anything else is a real bug and is left to crash, so we never mask it.
  */
 function installNetworkErrorGuard(): void {
+  // Exit only after giving pino a tick to flush its transport, so the fatal
+  // log line isn't dropped by an immediate process.exit().
+  const fatalExit = (err: unknown, label: string): void => {
+    logger.fatal({ err }, label);
+    setTimeout(() => process.exit(1), 100);
+  };
+
   process.on('uncaughtException', (err) => {
     if (isTransientNetworkError(err)) {
       logger.warn({ err }, 'Swallowed transient network error (would have crashed the bridge)');
       return;
     }
-    logger.fatal({ err }, 'Uncaught exception — exiting');
-    process.exit(1);
+    fatalExit(err, 'Uncaught exception — exiting');
   });
 
   process.on('unhandledRejection', (reason) => {
@@ -632,8 +638,7 @@ function installNetworkErrorGuard(): void {
       logger.warn({ err: reason }, 'Swallowed transient network rejection');
       return;
     }
-    logger.fatal({ err: reason }, 'Unhandled rejection — exiting');
-    process.exit(1);
+    fatalExit(reason, 'Unhandled rejection — exiting');
   });
 }
 
