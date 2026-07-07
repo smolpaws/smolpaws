@@ -23,9 +23,11 @@ test('domainOf extracts the domain', () => {
   assert.equal(domainOf('trailing@'), '');
 });
 
-test('getHeader is case-insensitive and joins arrays', () => {
+test('getHeader is case-insensitive and returns the first element of arrays', () => {
   assert.equal(getHeader({ 'X-SES-Spam-Verdict': 'PASS' }, 'x-ses-spam-verdict'), 'PASS');
-  assert.equal(getHeader({ received: ['a', 'b'] }, 'received'), 'a b');
+  // First element only — never join (a sender-injected duplicate must not smuggle values).
+  assert.equal(getHeader({ received: ['a', 'b'] }, 'received'), 'a');
+  assert.equal(getHeader({ received: [] }, 'received'), '');
   assert.equal(getHeader(undefined, 'x'), '');
   assert.equal(getHeader({}, 'x'), '');
 });
@@ -75,6 +77,35 @@ test('checkInboundAuth fails closed when authentication-results is missing', () 
   assert.equal(v.reason, 'no_authentication_results');
 });
 
+test('checkInboundAuth fails closed when spam/virus verdicts are absent', () => {
+  const noSpam = checkInboundAuth({
+    headers: { 'x-ses-virus-verdict': 'PASS', 'authentication-results': GMAIL_AUTH_RESULTS },
+    senderDomain: 'gmail.com',
+  });
+  assert.equal(noSpam.authenticated, false);
+  assert.equal(noSpam.reason, 'spam_verdict_missing');
+
+  const noVirus = checkInboundAuth({
+    headers: { 'x-ses-spam-verdict': 'PASS', 'authentication-results': GMAIL_AUTH_RESULTS },
+    senderDomain: 'gmail.com',
+  });
+  assert.equal(noVirus.authenticated, false);
+  assert.equal(noVirus.reason, 'virus_verdict_missing');
+});
+
+test('checkInboundAuth rejects a forged Authentication-Results (wrong authserv-id)', () => {
+  // Sender injects their own A-R claiming dmarc=pass, but the authserv-id is
+  // not our trusted receiving MTA.
+  const v = checkInboundAuth({
+    headers: gmailHeaders({
+      'authentication-results': 'evil.example.com; spf=pass; dmarc=pass header.from=gmail.com;',
+    }),
+    senderDomain: 'gmail.com',
+  });
+  assert.equal(v.authenticated, false);
+  assert.equal(v.reason, 'untrusted_authserv_id');
+});
+
 test('checkInboundAuth rejects spam/virus failures', () => {
   const spam = checkInboundAuth({
     headers: gmailHeaders({ 'x-ses-spam-verdict': 'FAIL' }),
@@ -94,5 +125,6 @@ test('checkInboundAuth rejects spam/virus failures', () => {
 test('checkInboundAuth fails closed with no headers at all', () => {
   const v = checkInboundAuth({ headers: undefined, senderDomain: 'gmail.com' });
   assert.equal(v.authenticated, false);
-  assert.equal(v.reason, 'no_authentication_results');
+  // With no headers, the spam verdict is the first thing that fails closed.
+  assert.equal(v.reason, 'spam_verdict_missing');
 });

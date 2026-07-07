@@ -25,15 +25,29 @@ export type AuthVerdict = {
   reason: string;
 };
 
-/** Case-insensitive header lookup returning a trimmed string, or ''. */
+/**
+ * The receiving MTA that stamps the trusted verdict headers. SES prepends its
+ * own `Authentication-Results` (with this authserv-id) at the top of the
+ * header set, so a sender-forged `Authentication-Results` further down must not
+ * be trusted.
+ */
+export const TRUSTED_AUTHSERV_ID = 'amazonses.com';
+
+/**
+ * Case-insensitive header lookup returning a trimmed string, or ''.
+ *
+ * When a header appears multiple times (array), return the **first** value
+ * only — never join. The trusted receiving MTA (SES) prepends its verdict
+ * headers, so the first value is the trusted one; joining would let a
+ * sender-injected duplicate header smuggle e.g. a fake `dmarc=pass`.
+ */
 export function getHeader(headers: InboundHeaders | undefined, name: string): string {
   if (!headers) return '';
   const lower = name.toLowerCase();
   for (const key of Object.keys(headers)) {
     if (key.toLowerCase() === lower) {
       const v = headers[key];
-      if (typeof v === 'string') return v.trim();
-      if (Array.isArray(v)) return v.map((x) => String(x)).join(' ').trim();
+      if (Array.isArray(v)) return v.length > 0 ? String(v[0]).trim() : '';
       if (v == null) return '';
       return String(v).trim();
     }
@@ -72,19 +86,29 @@ export function checkInboundAuth(options: {
 }): AuthVerdict {
   const { headers, senderDomain } = options;
 
+  // Fail closed: verdict headers must be present AND PASS. A missing verdict
+  // means the message was not scanned by our trusted MTA — do not trust it.
   const spam = getHeader(headers, 'x-ses-spam-verdict').toUpperCase();
-  if (spam && spam !== 'PASS') {
-    return { authenticated: false, reason: `spam_verdict_${spam.toLowerCase()}` };
+  if (spam !== 'PASS') {
+    return { authenticated: false, reason: spam ? `spam_verdict_${spam.toLowerCase()}` : 'spam_verdict_missing' };
   }
 
   const virus = getHeader(headers, 'x-ses-virus-verdict').toUpperCase();
-  if (virus && virus !== 'PASS') {
-    return { authenticated: false, reason: `virus_verdict_${virus.toLowerCase()}` };
+  if (virus !== 'PASS') {
+    return { authenticated: false, reason: virus ? `virus_verdict_${virus.toLowerCase()}` : 'virus_verdict_missing' };
   }
 
   const authResults = getHeader(headers, 'authentication-results');
   if (!authResults) {
     return { authenticated: false, reason: 'no_authentication_results' };
+  }
+
+  // Trust only the Authentication-Results stamped by our receiving MTA (SES).
+  // The authserv-id is the first token of the header; a sender-forged A-R block
+  // would carry a different (or no) authserv-id.
+  const authservId = authResults.split(/[;\s]/, 1)[0]?.trim().toLowerCase() ?? '';
+  if (authservId !== TRUSTED_AUTHSERV_ID) {
+    return { authenticated: false, reason: 'untrusted_authserv_id' };
   }
 
   const { result, headerFrom } = parseDmarc(authResults);
