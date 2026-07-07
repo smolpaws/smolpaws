@@ -10,10 +10,10 @@ import {
 } from '../inbound.js';
 
 test('parseEmailAddress handles display names, angle brackets, and plain', () => {
-  assert.equal(parseEmailAddress('Engel Nyst <engel@enyst.org>'), 'engel@enyst.org');
-  assert.equal(parseEmailAddress('<engel@enyst.org>'), 'engel@enyst.org');
-  assert.equal(parseEmailAddress('engel@enyst.org'), 'engel@enyst.org');
-  assert.equal(parseEmailAddress('  ENGEL@Enyst.ORG '), 'engel@enyst.org');
+  assert.equal(parseEmailAddress('Bob Example <bob@example.org>'), 'bob@example.org');
+  assert.equal(parseEmailAddress('<bob@example.org>'), 'bob@example.org');
+  assert.equal(parseEmailAddress('bob@example.org'), 'bob@example.org');
+  assert.equal(parseEmailAddress('  BOB@Example.ORG '), 'bob@example.org');
 });
 
 test('parseEmailAddress rejects non-addresses', () => {
@@ -24,37 +24,37 @@ test('parseEmailAddress rejects non-addresses', () => {
 });
 
 test('parseAllowedSenders normalizes a comma list', () => {
-  const set = parseAllowedSenders('engel.nyst@gmail.com, Engel <engel@enyst.org> , anarresian@icloud.com');
-  assert.ok(set.has('engel.nyst@gmail.com'));
-  assert.ok(set.has('engel@enyst.org'));
-  assert.ok(set.has('anarresian@icloud.com'));
+  const set = parseAllowedSenders('alice@example.com, Bob <bob@example.org> , carol@example.net');
+  assert.ok(set.has('alice@example.com'));
+  assert.ok(set.has('bob@example.org'));
+  assert.ok(set.has('carol@example.net'));
   assert.equal(set.size, 3);
 });
 
 test('decideAllowlist allows only listed senders (case-insensitive)', () => {
-  const allowed = parseAllowedSenders('engel@enyst.org');
-  assert.equal(decideAllowlist('Engel <ENGEL@enyst.org>', allowed).allowed, true);
+  const allowed = parseAllowedSenders('bob@example.org');
+  assert.equal(decideAllowlist('Bob <BOB@example.org>', allowed).allowed, true);
   assert.equal(decideAllowlist('stranger@evil.com', allowed).reason, 'sender_not_allowed');
 });
 
 test('decideAllowlist fails closed on empty allowlist', () => {
-  const decision = decideAllowlist('engel@enyst.org', new Set());
+  const decision = decideAllowlist('bob@example.org', new Set());
   assert.equal(decision.allowed, false);
   assert.equal(decision.reason, 'empty_allowlist');
 });
 
 test('decideAllowlist rejects unparseable senders', () => {
-  const allowed = parseAllowedSenders('engel@enyst.org');
+  const allowed = parseAllowedSenders('bob@example.org');
   const decision = decideAllowlist('garbage', allowed);
   assert.equal(decision.allowed, false);
   assert.equal(decision.reason, 'unparseable_sender');
 });
 
 test('buildConversationId is stable and slugged per sender', () => {
-  assert.match(buildConversationId('engel.nyst@gmail.com'), /^email-engel-nyst-gmail-com-[0-9a-f]{8}$/);
+  assert.match(buildConversationId('alice@example.com'), /^email-alice-example-com-[0-9a-f]{8}$/);
   assert.equal(
-    buildConversationId('engel.nyst@gmail.com'),
-    buildConversationId('ENGEL.NYST@GMAIL.COM'),
+    buildConversationId('alice@example.com'),
+    buildConversationId('ALICE@EXAMPLE.COM'),
   );
 });
 
@@ -68,12 +68,12 @@ test('buildConversationId keeps slug-colliding addresses distinct', () => {
 
 test('buildEmailPrompt delimits untrusted body and includes subject/sender', () => {
   const prompt = buildEmailPrompt({
-    from: 'engel@enyst.org',
+    from: 'bob@example.org',
     subject: 'hello',
     text: 'do a thing',
     boundaryToken: 'FIXED',
   });
-  assert.match(prompt, /from engel@enyst\.org/);
+  assert.match(prompt, /from bob@example\.org/);
   assert.match(prompt, /Subject: hello/);
   assert.match(prompt, /untrusted input/);
   assert.match(prompt, /do a thing/);
@@ -82,7 +82,7 @@ test('buildEmailPrompt delimits untrusted body and includes subject/sender', () 
 });
 
 test('buildEmailPrompt tolerates empty subject and body', () => {
-  const prompt = buildEmailPrompt({ from: 'engel@enyst.org', boundaryToken: 'X' });
+  const prompt = buildEmailPrompt({ from: 'bob@example.org', boundaryToken: 'X' });
   assert.match(prompt, /\(no subject\)/);
   assert.match(prompt, /\(empty body\)/);
 });
@@ -113,8 +113,8 @@ test('buildEmailPrompt uses a random token by default (unguessable fence)', () =
 });
 
 test('htmlToText extracts readable text from HTML-only bodies', () => {
-  const html = '<p>Hello <b>Engel</b>,</p><p>Please review &amp; reply.</p>';
-  assert.equal(htmlToText(html), 'Hello Engel ,\nPlease review & reply.');
+  const html = '<p>Hello <b>Bob</b>,</p><p>Please review &amp; reply.</p>';
+  assert.equal(htmlToText(html), 'Hello Bob ,\nPlease review & reply.');
 });
 
 test('htmlToText strips scripts/styles and handles breaks', () => {

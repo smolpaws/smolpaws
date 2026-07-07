@@ -2,23 +2,24 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { checkInboundAuth, domainOf, getHeader, parseDmarc } from '../authcheck.js';
 
-// Real header shape captured from an SES→Resend inbound (gmail sender).
+// Representative SES→Resend inbound Authentication-Results header shape
+// (gmail.com here is just a public example domain, not a real user address).
 const GMAIL_AUTH_RESULTS =
-  'amazonses.com; spf=pass (spfCheck: domain of _spf.google.com designates 209.85.219.46 as permitted sender) client-ip=209.85.219.46; envelope-from=engel.nyst@gmail.com; helo=mail-qv1-f46.google.com; dkim=pass header.i=@gmail.com; dmarc=pass header.from=gmail.com;';
+  'amazonses.com; spf=pass (spfCheck: domain of _spf.google.com designates 209.85.219.46 as permitted sender) client-ip=209.85.219.46; envelope-from=alice@gmail.com; helo=mail-qv1-f46.google.com; dkim=pass header.i=@gmail.com; dmarc=pass header.from=gmail.com;';
 
 function gmailHeaders(overrides: Record<string, unknown> = {}) {
   return {
     'x-ses-spam-verdict': 'PASS',
     'x-ses-virus-verdict': 'PASS',
     'authentication-results': GMAIL_AUTH_RESULTS,
-    from: '"Engel Nyst" <engel.nyst@gmail.com>',
+    from: '"Alice Example" <alice@gmail.com>',
     ...overrides,
   };
 }
 
 test('domainOf extracts the domain', () => {
-  assert.equal(domainOf('engel.nyst@gmail.com'), 'gmail.com');
-  assert.equal(domainOf('a@b@enyst.org'), 'enyst.org');
+  assert.equal(domainOf('alice@example.com'), 'example.com');
+  assert.equal(domainOf('a@b@example.org'), 'example.org');
   assert.equal(domainOf('nope'), '');
   assert.equal(domainOf('trailing@'), '');
 });
@@ -45,9 +46,9 @@ test('checkInboundAuth passes for an authenticated, aligned gmail message', () =
 });
 
 test('checkInboundAuth rejects when DMARC domain does not match the sender', () => {
-  // dmarc=pass for gmail.com, but the allowlisted sender claims enyst.org →
+  // dmarc=pass for gmail.com, but the allowlisted sender claims example.org →
   // this is the spoofing case the gate exists to catch.
-  const v = checkInboundAuth({ headers: gmailHeaders(), senderDomain: 'enyst.org' });
+  const v = checkInboundAuth({ headers: gmailHeaders(), senderDomain: 'example.org' });
   assert.equal(v.authenticated, false);
   assert.equal(v.reason, 'dmarc_domain_mismatch');
 });

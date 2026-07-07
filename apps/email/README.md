@@ -65,8 +65,8 @@ Inbound email is **untrusted input**. Only emails whose `from` address is on
 - **Fetches are time-bounded** and the queue consumer retries with exponential
   backoff, so a slow/hanging Resend or agent-server can't stall or hammer.
 
-Default allowlist (Engel's own addresses):
-`engel.nyst@gmail.com, engel@enyst.org, anarresian@icloud.com`.
+The allowlist is the owner's own addresses, set as the `EMAIL_ALLOWED_SENDERS`
+secret (not committed to this public repo).
 
 ## Environment variables
 
@@ -74,7 +74,7 @@ Default allowlist (Engel's own addresses):
 |----------|----------|---------|-------------|
 | `RESEND_WEBHOOK_SECRET` | ✅ | — | Svix signing secret (`whsec_...`) from the Resend webhook |
 | `RESEND_API_KEY` | ✅ | — | Resend key able to **read received emails** and **send** replies |
-| `EMAIL_ALLOWED_SENDERS` | ✅ | (set in `wrangler.toml`) | Comma-separated allowed sender addresses |
+| `EMAIL_ALLOWED_SENDERS` | ✅ | — | Comma-separated allowed sender addresses (set as a secret) |
 | `EMAIL_FROM_ADDRESS` | — | `smolpaws <smolpaws@mail.enyst.org>` | Reply From address |
 | `SMOLPAWS_RUNNER_URL` | — | — | Agent-server base URL (no `/run` suffix). Absent ⇒ no dispatch |
 | `SMOLPAWS_RUNNER_TOKEN` | — | — | Agent-server auth token |
@@ -97,6 +97,7 @@ receiving enabled** and the inbound MX in Cloudflare. Remaining steps:
 2. **Set secrets:**
    ```bash
    npx wrangler secret put RESEND_API_KEY          # RESEND_API_KEY_FULL value
+   npx wrangler secret put EMAIL_ALLOWED_SENDERS   # comma-separated allowlist
    # RESEND_WEBHOOK_SECRET is set after step 4 (registering the webhook)
    ```
    Set `SMOLPAWS_RUNNER_URL` / `SMOLPAWS_RUNNER_TOKEN` for the deployment that

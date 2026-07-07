@@ -68,7 +68,7 @@ function log(stage: string, details: Record<string, unknown>): void {
  * Mask a sender address for logs — email addresses are PII and Worker logs may
  * flow to a sink with its own retention. Keeps enough to debug the allowlist
  * boundary (first char of local part + domain) without logging the full PII.
- * e.g. `engel@enyst.org` → `e***@enyst.org`.
+ * e.g. `alice@example.com` → `a***@example.com`.
  */
 function maskSender(sender: string): string {
   if (!sender) return '(none)';
