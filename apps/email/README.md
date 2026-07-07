@@ -20,9 +20,11 @@ Inbound email → Resend (MX: mail.enyst.org) → email.received webhook
       3. strict allowlist on `from`        (else 200 drop, no processing)
       4. dedupe by email_id + enqueue      (202)
    → queue consumer
-      5. GET full email via Receiving API (text, or HTML→text fallback)
-      6. dispatch to agent server (shared turnClient)
-      7. send reply via Resend (threaded with In-Reply-To/References)
+      5. GET full email via Receiving API (headers + text/HTML)
+      6. auth gate: SES spam/virus PASS + DMARC pass aligned to sender domain
+                    (else drop, no dispatch)
+      7. dispatch to agent server (shared turnClient)  [text, or HTML→text]
+      8. send reply via Resend (threaded with In-Reply-To/References)
 ```
 
 ### Files
@@ -46,6 +48,15 @@ Inbound email is **untrusted input**. Only emails whose `from` address is on
 - **Fail closed:** an empty allowlist rejects everyone.
 - **Signature first:** spoofed webhook events are rejected with `401` before any
   parsing or allowlist logic.
+- **Anti-spoofing auth gate (`src/authcheck.ts`):** the allowlist trusts the
+  `From` address, which can be forged. Before dispatch, the consumer requires
+  the upstream receiver (Amazon SES, in front of Resend) to have authenticated
+  the message — **SES spam + virus verdict PASS**, **DMARC = pass**, and the
+  DMARC-aligned `header.from` domain **matches the allowlisted sender's domain**.
+  DMARC is the standard that defeats `From:` spoofing (authenticated + aligned).
+  Fails closed if any header is missing. (Requires the sender's domain to
+  publish DMARC; `enyst.org` now has a `p=none` record so Engel's own mail
+  evaluates to `dmarc=pass`.)
 - **Body is data, not instructions:** the prompt wraps the email body in an
   explicitly-untrusted block fenced with a per-email **random** boundary token,
   so body content cannot forge the closing delimiter and inject fake prompt

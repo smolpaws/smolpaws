@@ -23,6 +23,7 @@ import {
   parseAllowedSenders,
   type ResendWebhookEvent,
 } from './inbound.js';
+import { checkInboundAuth, domainOf } from './authcheck.js';
 import {
   dispatchEmailToAgentServer,
   resolveEmailReplyBody,
@@ -204,6 +205,24 @@ async function processMessage(
       apiKey: env.RESEND_API_KEY,
       emailId,
     });
+
+    // Authentication gate: the allowlist trusts the `From` address, which can
+    // be spoofed. Require the upstream receiver (SES) to have authenticated the
+    // message — spam/virus PASS + DMARC pass aligned to the sender's domain —
+    // before any agent dispatch. Drop (ack, no retry) otherwise.
+    const authVerdict = checkInboundAuth({
+      headers: email.headers,
+      senderDomain: domainOf(sender),
+    });
+    if (!authVerdict.authenticated) {
+      log('auth.rejected', {
+        emailId,
+        sender: maskSender(sender),
+        reason: authVerdict.reason,
+      });
+      message.ack();
+      return;
+    }
 
     // Prefer plain text; fall back to text extracted from HTML for HTML-only
     // emails so the agent still gets the content.
