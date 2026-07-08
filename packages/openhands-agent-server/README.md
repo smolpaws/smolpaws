@@ -6,11 +6,28 @@ the REST/WebSocket server layer that sits on top of the SDK.
 
 ## Status
 
-**Empty scaffold — transpilation not started.** This directory is the agreed home for the
-fresh TypeScript transpile of the upstream agent-server. It is the server-layer sibling to
+**First buildable TypeScript slice.** This package now contains the upstream-shaped
+Fastify REST/WebSocket skeleton for conversations, events, pub/sub, and OpenAPI schema
+generation. It is the server-layer sibling to
 [`@smolpaws/openhands-agent`](https://github.com/smolpaws/openhands-agent) (the SDK transpile),
 which deliberately shipped only the client side of the server boundary
 (`RemoteConversation`/`RemoteWorkspace`) and left the server itself unported.
+
+Implemented in this slice:
+
+- `/alive`, `/health`, `/ready`, `/server_info`, `/openapi.json`
+- `/api/conversations` search/count/batch/start/get/update/delete
+- upstream `/run`, `/pause`, `/interrupt`, `/agent_final_response`, `/fork`
+- `/api/conversations/{conversation_id}/events` search/count/batch/get/post
+- `/sockets/events/{conversation_id}` event streaming with replay modes
+- zod-backed contracts, tsup/vitest/type-checked eslint, and OpenAPI CLI generation
+
+Still intentionally stubbed/deferred:
+
+- ACP runtime/model switching, goal loops, confirmation responses, conversation secrets,
+  condensation, and ask-agent helpers
+- bash/file/git/workspace/skills/settings/profile routers
+- durable persistence/leases and the future message-queue layer that replaces SmolPaws turns
 
 ## Provenance
 
