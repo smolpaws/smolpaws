@@ -3,7 +3,10 @@ import { randomUUID } from 'node:crypto';
 import {
   Agent,
   ConversationState,
+  EventLog,
+  EVENTS_DIR,
   LocalConversation,
+  LocalFileStore,
   conversationStateUpdateEventSchema,
   interruptEventSchema,
   llmProfileSchema,
@@ -14,9 +17,9 @@ import {
   type Message,
 } from '@smolpaws/openhands-agent';
 
+import { resolvePersistenceRoot } from './conversationMetadata.js';
 import { type ConfirmationResponseRequest, type EventPage, type EventSortOrder, textFromContent } from './models.js';
 import type { StoredConversation } from './models.js';
-import type { ConversationPersistence } from './persistence.js';
 import { PubSub, type Subscriber } from './pubSub.js';
 
 export interface AgentFactoryContext {
@@ -29,30 +32,34 @@ export interface EventServiceOptions {
   readonly stored: StoredConversation;
   readonly agentFactory?: AgentFactory;
   readonly events?: readonly Event[];
-  readonly persistence?: ConversationPersistence;
+  readonly eventLog?: EventLog;
+  readonly saveConversation?: (stored: StoredConversation) => Promise<void>;
 }
 
 export class EventService {
   readonly stored: StoredConversation;
+  readonly eventLog: EventLog;
   readonly state: ConversationState;
   private readonly pubSub = new PubSub<Event>(50);
-  private readonly persistence: ConversationPersistence | undefined;
+  private readonly saveConversation: (stored: StoredConversation) => Promise<void>;
   private readonly conversationPromise: Promise<LocalConversation>;
   private runPromise: Promise<void> | null = null;
 
   constructor(options: EventServiceOptions) {
     this.stored = options.stored;
-    this.persistence = options.persistence;
-    this.state = new ConversationState({ events: options.events ?? [] });
+    this.eventLog = options.eventLog ?? createEventLog(options.stored);
+    this.state = new ConversationState({ eventLog: this.eventLog, events: options.events ?? [] });
+    this.saveConversation = options.saveConversation ?? (async () => undefined);
     this.conversationPromise = this.createConversation(options.agentFactory);
   }
 
   async getEvent(eventId: string): Promise<Event | null> {
-    return this.state.events.find((event) => event.id === eventId) ?? null;
+    return this.events().find((event) => event.id === eventId) ?? null;
   }
 
   async batchGetEvents(eventIds: readonly string[]): Promise<Array<Event | null>> {
-    return eventIds.map((eventId) => this.state.events.find((event) => event.id === eventId) ?? null);
+    const events = this.events();
+    return eventIds.map((eventId) => events.find((event) => event.id === eventId) ?? null);
   }
 
   async searchEvents(
@@ -151,7 +158,7 @@ export class EventService {
   }
 
   async generateTitle(maxLength = 50): Promise<string> {
-    const firstUserMessage = this.state.events.find((event) => event.kind === 'MessageEvent' && event.llm_message.role === 'user');
+    const firstUserMessage = this.events().find((event) => event.kind === 'MessageEvent' && event.llm_message.role === 'user');
     if (firstUserMessage?.kind !== 'MessageEvent') {
       return 'New conversation';
     }
@@ -168,8 +175,9 @@ export class EventService {
   }
 
   async getAgentFinalResponse(): Promise<string> {
-    for (let index = this.state.events.length - 1; index >= 0; index -= 1) {
-      const event = this.state.events[index];
+    const events = this.events();
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index];
       if (event?.kind === 'MessageEvent' && event.llm_message.role === 'assistant') {
         return textFromContent(event.llm_message.content);
       }
@@ -199,13 +207,12 @@ export class EventService {
 
   private async runAndPublish(): Promise<void> {
     const conversation = await this.conversationPromise;
-    const startIndex = this.state.events.length;
+    const startIndex = this.events().length;
     await conversation.run();
     this.touch();
-    await this.persistence?.saveConversation(this.stored);
-    const newEvents = this.state.events.slice(startIndex);
+    await this.saveConversation(this.stored);
+    const newEvents = this.events().slice(startIndex);
     for (const event of newEvents) {
-      await this.persistence?.appendEvent(this.stored, event);
       await this.pubSub.publish(event);
     }
     await this.pubSub.publish(this.createStateUpdateEvent());
@@ -214,14 +221,13 @@ export class EventService {
   private async appendAndPublish(event: Event): Promise<void> {
     this.state.appendEvent(event);
     this.touch();
-    await this.persistence?.saveConversation(this.stored);
-    await this.persistence?.appendEvent(this.stored, event);
+    await this.saveConversation(this.stored);
     await this.pubSub.publish(event);
   }
 
   private filteredEvents(kind: string | null, source: string | null, body: string | null, timestampGte: Date | null, timestampLt: Date | null): Event[] {
     const bodyNeedle = body?.toLowerCase() ?? null;
-    return this.state.events.filter((event) => {
+    return this.events().filter((event) => {
       if (kind !== null && event.kind !== kind && !kind.endsWith(`.${event.kind}`)) {
         return false;
       }
@@ -242,6 +248,11 @@ export class EventService {
     });
   }
 
+  private events(): Event[] {
+    this.state.syncFromDisk();
+    return this.state.events;
+  }
+
   private createStateUpdateEvent(): Event {
     return conversationStateUpdateEventSchema.parse({
       id: randomUUID(),
@@ -255,6 +266,19 @@ export class EventService {
   private touch(): void {
     this.stored.updated_at = new Date().toISOString();
   }
+}
+
+function createEventLog(stored: StoredConversation): EventLog {
+  const root = resolvePersistenceRoot(stored.request.persistence_dir, 'workspace/conversations');
+  return new EventLog(new LocalFileStore(root), conversationEventDir(stored.id));
+}
+
+function conversationEventDir(conversationId: string): string {
+  const safeConversationId = conversationId.replace(/^\/+|\/+$/gu, '');
+  if (safeConversationId.length === 0 || safeConversationId.includes('..')) {
+    throw new Error(`Invalid conversationId: ${conversationId}`);
+  }
+  return `${safeConversationId}/${EVENTS_DIR}`;
 }
 
 function eventBody(event: Event): string {

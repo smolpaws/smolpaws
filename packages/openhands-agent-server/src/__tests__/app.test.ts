@@ -1,10 +1,10 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { describe, expect, test } from 'vitest';
 
-import { Agent, FinishTool, TestLLM, textContent } from '@smolpaws/openhands-agent';
+import { Agent, EventLog, FinishTool, LocalFileStore, TestLLM, textContent } from '@smolpaws/openhands-agent';
 
 import { createAgentServerApp } from '../app.js';
 import { generateOpenApiSchema } from '../openapi.js';
@@ -80,6 +80,15 @@ describe('createAgentServerApp', () => {
       expect(start.statusCode).toBe(201);
       await first.app.inject({ method: 'POST', url: '/api/conversations/11111111-1111-4111-8111-111111111111/events', payload: { role: 'user', content: [textContent('after restart')], run: false } });
       await first.app.close();
+
+      const sdkLog = new EventLog(new LocalFileStore(root), '11111111-1111-4111-8111-111111111111/events');
+      expect(sdkLog.length).toBe(2);
+      const eventFiles = await readdir(path.join(root, '11111111-1111-4111-8111-111111111111', 'events'));
+      expect(eventFiles.filter((file) => file.startsWith('event-') && file.endsWith('.json'))).toHaveLength(2);
+      expect(eventFiles).not.toContain('events.jsonl');
+      const conversationFiles = await readdir(path.join(root, '11111111-1111-4111-8111-111111111111'));
+      expect(conversationFiles).toContain('meta.json');
+      expect(conversationFiles).not.toContain('events.jsonl');
 
       const second = await createAgentServerApp({ config: { conversationsPath: root } });
       const restored = await second.app.inject({ method: 'GET', url: '/api/conversations/11111111-1111-4111-8111-111111111111' });

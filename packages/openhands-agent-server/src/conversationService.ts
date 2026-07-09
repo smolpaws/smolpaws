@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 
 import { conversationExecutionStatus } from '@smolpaws/openhands-agent';
 
+import { ConversationMetadataStore } from './conversationMetadata.js';
 import { EventService, type AgentFactory, type EventServiceOptions } from './eventService.js';
-import { ConversationPersistence } from './persistence.js';
 import {
   type ConversationInfo,
   type ConversationPage,
@@ -26,11 +26,11 @@ export interface ConversationServiceOptions {
 export class ConversationService {
   private readonly conversations = new Map<string, StoredConversation>();
   private readonly eventServices = new Map<string, EventService>();
-  private readonly persistence: ConversationPersistence;
+  private readonly metadataStore: ConversationMetadataStore;
   private readonly readyPromise: Promise<void>;
 
   constructor(private readonly options: ConversationServiceOptions = {}) {
-    this.persistence = new ConversationPersistence(options.persistenceDir ?? 'workspace/conversations');
+    this.metadataStore = new ConversationMetadataStore(options.persistenceDir ?? 'workspace/conversations');
     this.readyPromise = this.loadPersistedConversations();
   }
 
@@ -38,7 +38,7 @@ export class ConversationService {
     await this.readyPromise;
     const request = startConversationRequestSchema.parse({
       ...requestInput,
-      ...((requestInput.persistence_dir === undefined || requestInput.persistence_dir === 'workspace/conversations') && this.options.persistenceDir !== undefined ? { persistence_dir: this.options.persistenceDir } : {}),
+      ...((requestInput.persistence_dir === undefined || requestInput.persistence_dir === null || requestInput.persistence_dir === 'workspace/conversations') && this.options.persistenceDir !== undefined ? { persistence_dir: this.options.persistenceDir } : {}),
     });
     const id = request.id ?? request.conversation_id ?? randomUUID();
     const existing = this.conversations.get(id);
@@ -56,10 +56,10 @@ export class ConversationService {
       created_at: now,
       updated_at: now,
     };
-    const eventService = new EventService(eventServiceOptions(stored, this.persistence, this.options.agentFactory));
+    const eventService = new EventService(eventServiceOptions(stored, this.metadataStore, this.options.agentFactory));
     this.conversations.set(id, stored);
     this.eventServices.set(id, eventService);
-    await this.persistence.saveConversation(stored);
+    await this.metadataStore.saveConversation(stored);
 
     if (request.initial_message !== undefined) {
       await this.sendInitialMessage(eventService, request.initial_message);
@@ -142,7 +142,7 @@ export class ConversationService {
     this.eventServices.delete(conversationId);
     this.conversations.delete(conversationId);
     if (stored !== undefined) {
-      await this.persistence.deleteConversation(stored);
+      await this.metadataStore.deleteConversation(stored);
     }
     return true;
   }
@@ -160,7 +160,7 @@ export class ConversationService {
       stored.tags = request.tags;
     }
     stored.updated_at = new Date().toISOString();
-    await this.persistence.saveConversation(stored);
+    await this.metadataStore.saveConversation(stored);
     return true;
   }
 
@@ -175,7 +175,7 @@ export class ConversationService {
     if (stored !== undefined) {
       stored.title = title;
       stored.updated_at = new Date().toISOString();
-      await this.persistence.saveConversation(stored);
+      await this.metadataStore.saveConversation(stored);
     }
     return title;
   }
@@ -221,11 +221,10 @@ export class ConversationService {
       created_at: now,
       updated_at: now,
     };
-    const eventService = new EventService(eventServiceOptions(stored, this.persistence, this.options.agentFactory, sourceService.state.events));
+    const eventService = new EventService(eventServiceOptions(stored, this.metadataStore, this.options.agentFactory, sourceService.state.events));
     this.conversations.set(id, stored);
     this.eventServices.set(id, eventService);
-    await this.persistence.saveConversation(stored);
-    await this.persistence.replaceEvents(stored, sourceService.state.events);
+    await this.metadataStore.saveConversation(stored);
     return this.toConversationInfo(stored);
   }
 
@@ -269,11 +268,11 @@ export class ConversationService {
   }
 
   private async loadPersistedConversations(): Promise<void> {
-    const persisted = await this.persistence.loadAll();
-    for (const { stored, events } of persisted) {
+    const persisted = await this.metadataStore.loadAll();
+    for (const stored of persisted) {
       if (this.conversations.has(stored.id)) continue;
       this.conversations.set(stored.id, stored);
-      this.eventServices.set(stored.id, new EventService(eventServiceOptions(stored, this.persistence, this.options.agentFactory, events)));
+      this.eventServices.set(stored.id, new EventService(eventServiceOptions(stored, this.metadataStore, this.options.agentFactory)));
     }
   }
 
@@ -290,10 +289,10 @@ function sortConversations(items: readonly ConversationInfo[], sortOrder: Conver
   });
 }
 
-function eventServiceOptions(stored: StoredConversation, persistence: ConversationPersistence, agentFactory?: AgentFactory, events?: readonly Event[]): EventServiceOptions {
+function eventServiceOptions(stored: StoredConversation, metadataStore: ConversationMetadataStore, agentFactory?: AgentFactory, events?: readonly Event[]): EventServiceOptions {
   return {
     stored,
-    persistence,
+    saveConversation: (conversation) => metadataStore.saveConversation(conversation),
     ...(agentFactory === undefined ? {} : { agentFactory }),
     ...(events === undefined ? {} : { events }),
   };

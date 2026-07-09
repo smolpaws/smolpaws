@@ -1,10 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { eventSchema, startConversationRequestSchema, type Event, type StartConversationRequest, type StoredConversation } from './models.js';
+import { startConversationRequestSchema, type StartConversationRequest, type StoredConversation } from './models.js';
 
-const CONVERSATION_META_FILE = 'conversation.json';
-const EVENTS_FILE = 'events.jsonl';
+const CONVERSATION_META_FILE = 'meta.json';
+const LEGACY_CONVERSATION_META_FILE = 'conversation.json';
 
 interface PersistedConversationFile {
   readonly id: string;
@@ -14,11 +14,6 @@ interface PersistedConversationFile {
   readonly tags?: Record<string, string>;
   readonly created_at?: string;
   readonly updated_at?: string;
-}
-
-export interface PersistedConversation {
-  readonly stored: StoredConversation;
-  readonly events: readonly Event[];
 }
 
 export function isSafeConversationId(id: string): boolean {
@@ -34,10 +29,10 @@ export function conversationDirectory(stored: StoredConversation, fallbackRoot: 
   return path.join(resolvePersistenceRoot(stored.request.persistence_dir, fallbackRoot), stored.id);
 }
 
-export class ConversationPersistence {
+export class ConversationMetadataStore {
   constructor(readonly defaultRoot: string) {}
 
-  async loadAll(): Promise<PersistedConversation[]> {
+  async loadAll(): Promise<StoredConversation[]> {
     const root = resolvePersistenceRoot(this.defaultRoot, this.defaultRoot);
     const entries = await fs.readdir(root, { withFileTypes: true }).catch((error: unknown) => {
       if (isErrno(error, 'ENOENT')) return [];
@@ -48,7 +43,7 @@ export class ConversationPersistence {
         .filter((entry) => entry.isDirectory() && isSafeConversationId(entry.name))
         .map(async (entry) => this.load(entry.name, root)),
     );
-    return loaded.filter((item): item is PersistedConversation => item !== null);
+    return loaded.filter((item): item is StoredConversation => item !== null);
   }
 
   async saveConversation(stored: StoredConversation): Promise<void> {
@@ -66,39 +61,23 @@ export class ConversationPersistence {
     await writeJsonAtomic(path.join(dir, CONVERSATION_META_FILE), payload);
   }
 
-  async appendEvent(stored: StoredConversation, event: Event): Promise<void> {
-    const dir = conversationDirectory(stored, this.defaultRoot);
-    await fs.mkdir(dir, { recursive: true });
-    await fs.appendFile(path.join(dir, EVENTS_FILE), `${JSON.stringify(event)}\n`, 'utf8');
-  }
-
-  async replaceEvents(stored: StoredConversation, events: readonly Event[]): Promise<void> {
-    const dir = conversationDirectory(stored, this.defaultRoot);
-    await fs.mkdir(dir, { recursive: true });
-    const content = events.map((event) => JSON.stringify(event)).join('\n');
-    await writeFileAtomic(path.join(dir, EVENTS_FILE), content.length > 0 ? `${content}\n` : '');
-  }
-
   async deleteConversation(stored: StoredConversation): Promise<void> {
     await fs.rm(conversationDirectory(stored, this.defaultRoot), { recursive: true, force: true });
   }
 
-  private async load(id: string, root: string): Promise<PersistedConversation | null> {
+  private async load(id: string, root: string): Promise<StoredConversation | null> {
     const dir = path.join(root, id);
-    const meta = await readJson(path.join(dir, CONVERSATION_META_FILE));
-    const events = await readEvents(path.join(dir, EVENTS_FILE));
-    if (meta === null && events.length === 0) return null;
+    const meta = (await readJson(path.join(dir, CONVERSATION_META_FILE))) ?? (await readJson(path.join(dir, LEGACY_CONVERSATION_META_FILE)));
+    const hasEvents = await hasSdkEventFiles(dir);
+    if (meta === null && !hasEvents) return null;
 
     const now = new Date().toISOString();
     const parsedMeta = parseMeta(id, meta, this.defaultRoot, now);
-    const stats = await statTimes([path.join(dir, CONVERSATION_META_FILE), path.join(dir, EVENTS_FILE)], now);
+    const stats = await statTimes([path.join(dir, CONVERSATION_META_FILE), path.join(dir, LEGACY_CONVERSATION_META_FILE), path.join(dir, 'events')], now);
     return {
-      stored: {
-        ...parsedMeta,
-        created_at: parsedMeta.created_at || stats.created_at,
-        updated_at: parsedMeta.updated_at || stats.updated_at,
-      },
-      events,
+      ...parsedMeta,
+      created_at: parsedMeta.created_at || stats.created_at,
+      updated_at: parsedMeta.updated_at || stats.updated_at,
     };
   }
 }
@@ -112,22 +91,12 @@ async function readJson(filePath: string): Promise<Record<string, unknown> | nul
   }
 }
 
-async function readEvents(filePath: string): Promise<Event[]> {
-  const content = await fs.readFile(filePath, 'utf8').catch((error: unknown) => {
-    if (isErrno(error, 'ENOENT')) return '';
+async function hasSdkEventFiles(conversationDir: string): Promise<boolean> {
+  const entries = await fs.readdir(path.join(conversationDir, 'events')).catch((error: unknown) => {
+    if (isErrno(error, 'ENOENT')) return [];
     throw error;
   });
-  const events: Event[] = [];
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) continue;
-    try {
-      events.push(eventSchema.parse(JSON.parse(trimmed)));
-    } catch (error) {
-      console.error('Skipping corrupted persisted event', error);
-    }
-  }
-  return events;
+  return entries.some((entry) => entry.startsWith('event-') && entry.endsWith('.json'));
 }
 
 function parseMeta(id: string, raw: unknown, defaultRoot: string, now: string): StoredConversation {
@@ -162,12 +131,8 @@ async function statTimes(files: readonly string[], fallback: string): Promise<{ 
 }
 
 async function writeJsonAtomic(filePath: string, value: unknown): Promise<void> {
-  await writeFileAtomic(filePath, `${JSON.stringify(value, null, 2)}\n`);
-}
-
-async function writeFileAtomic(filePath: string, content: string): Promise<void> {
   const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  await fs.writeFile(tmp, content, 'utf8');
+  await fs.writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
   await fs.rename(tmp, filePath);
 }
 
@@ -186,4 +151,3 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 function isErrno(error: unknown, code: string): error is { readonly code: string } {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
 }
-
