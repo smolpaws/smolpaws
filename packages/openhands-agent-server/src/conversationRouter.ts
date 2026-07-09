@@ -16,6 +16,7 @@ import {
   arrayQuery,
   eventServiceOr404,
   intQuery,
+  acceptedDeviation,
   notImplemented,
   param,
   parseBody,
@@ -112,14 +113,14 @@ export function registerConversationRoutes(app: FastifyInstance, service: Conver
     const eventService = await eventServiceOr404(reply, service, param(request, 'conversation_id'));
     if (eventService === null) return undefined;
     parseBody(setConfirmationPolicyRequestSchema, request.body);
-    return notImplemented(reply, 'confirmation_policy_not_implemented');
+    return acceptedDeviation(reply, 'confirmation_policy');
   });
 
   app.post('/api/conversations/:conversation_id/security_analyzer', async (request, reply) => {
     const eventService = await eventServiceOr404(reply, service, param(request, 'conversation_id'));
     if (eventService === null) return undefined;
     parseBody(setSecurityAnalyzerRequestSchema, request.body);
-    return notImplemented(reply, 'security_analyzer_not_implemented');
+    return acceptedDeviation(reply, 'security_analyzer');
   });
 
   app.post('/api/conversations/:conversation_id/ask_agent', async (request, reply) => {

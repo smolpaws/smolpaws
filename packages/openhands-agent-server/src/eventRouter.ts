@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 
 import type { ConversationService } from './conversationService.js';
 import { eventSortOrderSchema, messageFromSendRequest, sendMessageRequestSchema, confirmationResponseRequestSchema } from './models.js';
-import { arrayQuery, dateQuery, eventServiceOr404, intQuery, notImplemented, param, parseBody, queryRecord, stringQuery } from './routeUtils.js';
+import { acceptedDeviation, arrayQuery, dateQuery, eventServiceOr404, intQuery, param, parseBody, queryRecord, stringQuery } from './routeUtils.js';
 
 export function registerEventRoutes(app: FastifyInstance, service: ConversationService): void {
   app.get('/api/conversations/:conversation_id/events/search', async (request, reply) => {
@@ -57,6 +57,6 @@ export function registerEventRoutes(app: FastifyInstance, service: ConversationS
     const eventService = await eventServiceOr404(reply, service, param(request, 'conversation_id'));
     if (eventService === null) return undefined;
     parseBody(confirmationResponseRequestSchema, request.body);
-    return notImplemented(reply, 'confirmation_responses_not_implemented');
+    return acceptedDeviation(reply, 'confirmation_responses');
   });
 }

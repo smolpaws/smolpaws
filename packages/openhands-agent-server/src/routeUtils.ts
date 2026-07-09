@@ -71,3 +71,13 @@ export function notImplemented(reply: FastifyReply, detail: string): { detail: s
   reply.status(501);
   return { detail };
 }
+
+export function acceptedDeviation(reply: FastifyReply, feature: string): { readonly detail: string; readonly accepted_deviation: true; readonly feature: string } {
+  reply.status(410);
+  return {
+    detail: `${feature} is intentionally not supported in the TypeScript port by design`,
+    accepted_deviation: true,
+    feature,
+  };
+}
+

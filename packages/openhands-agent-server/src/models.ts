@@ -198,13 +198,28 @@ export const serverErrorEventSchema = z
   .strict();
 export type ServerErrorEvent = z.infer<typeof serverErrorEventSchema>;
 
-export const healthStatusSchema = z.object({ status: z.literal('ok') }).strict();
+export const healthStatusSchema = z.object({ status: z.string() }).passthrough();
 export const serverInfoSchema = z
   .object({
     status: z.literal('ok').default('ok'),
-    version: z.string(),
     uptime: z.number(),
-    initialized: z.boolean(),
+    idle_time: z.number().default(0),
+    title: z.string().default('OpenHands Agent Server'),
+    version: z.string(),
+    sdk_version: z.string().default('unknown'),
+    tools_version: z.string().default('unknown'),
+    workspace_version: z.string().default('unknown'),
+    build_git_sha: z.string().default('unknown'),
+    build_git_ref: z.string().default('unknown'),
+    python_version: z.string().default(process.version),
+    usable_tools: z.array(z.string()).default([]),
+    runtime_idle_timeout_seconds: z.number().nullable().default(null),
+    max_foreground_terminal_timeout_seconds: z.number().nullable().default(null),
+    docs: z.string().default('/docs'),
+    redoc: z.string().default('/redoc'),
+    initialized: z.boolean().default(true),
+    web_url: z.string().nullable().default(null),
+
   })
   .strict();
 export type HealthStatus = z.infer<typeof healthStatusSchema>;
@@ -246,6 +261,8 @@ export const bashErrorSchema = z
   })
   .strict();
 export const bashEventSchema = z.discriminatedUnion('kind', [bashCommandSchema, bashOutputSchema, bashErrorSchema]);
+export type BashCommand = z.infer<typeof bashCommandSchema>;
+export type BashOutput = z.infer<typeof bashOutputSchema>;
 export type BashEvent = z.infer<typeof bashEventSchema>;
 
 export const bashEventPageSchema = z
@@ -254,6 +271,41 @@ export const bashEventPageSchema = z
     next_page_id: z.string().nullable().default(null),
   })
   .strict();
+export type BashEventPage = z.infer<typeof bashEventPageSchema>;
+
+export const gitChangeSchema = z
+  .object({
+    status: z.enum(['ADDED', 'DELETED', 'UPDATED']),
+    path: z.string(),
+  })
+  .strict();
+export const gitDiffSchema = z
+  .object({
+    modified: z.string().nullable(),
+    original: z.string().nullable(),
+  })
+  .strict();
+export const gitPathQuerySchema = z.object({ path: z.string(), ref: z.string().optional() }).strict();
+export type GitChange = z.infer<typeof gitChangeSchema>;
+export type GitDiff = z.infer<typeof gitDiffSchema>;
+
+export const fileBrowserEntrySchema = z.object({ label: z.string(), path: z.string() }).strict();
+export const homeResponseSchema = z
+  .object({
+    home: z.string(),
+    favorites: z.array(fileBrowserEntrySchema).default([]),
+    locations: z.array(fileBrowserEntrySchema).default([]),
+  })
+  .strict();
+export const subdirectoryEntrySchema = z.object({ name: z.string(), path: z.string() }).strict();
+export const subdirectoryPageSchema = z
+  .object({
+    items: z.array(subdirectoryEntrySchema),
+    next_page_id: z.string().nullable().default(null),
+  })
+  .strict();
+export type HomeResponse = z.infer<typeof homeResponseSchema>;
+export type SubdirectoryPage = z.infer<typeof subdirectoryPageSchema>;
 
 export function messageFromSendRequest(request: SendMessageRequest): Message {
   return messageSchema.parse({

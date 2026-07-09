@@ -4,14 +4,21 @@ import {
   agentResponseResultSchema,
   askAgentRequestSchema,
   askAgentResponseSchema,
+  bashEventPageSchema,
+  bashEventSchema,
+  executeBashRequestSchema,
   conversationInfoSchema,
   conversationPageSchema,
   forkConversationRequestSchema,
+  gitChangeSchema,
+  gitDiffSchema,
   healthStatusSchema,
+  homeResponseSchema,
   serverInfoSchema,
   setConfirmationPolicyRequestSchema,
   setSecurityAnalyzerRequestSchema,
   startGoalRequestSchema,
+  subdirectoryPageSchema,
   successSchema,
   updateConversationRequestSchema,
   updateSecretsRequestSchema,
@@ -59,6 +66,10 @@ const openApiStartConversationRequestSchema = z
 const openApiEventSchema = z.object({ kind: z.string() }).passthrough();
 const openApiEventPageSchema = z.object({ items: z.array(openApiEventSchema), next_page_id: z.string().nullable().default(null) }).strict();
 const eventBatchSchema = z.array(openApiEventSchema.nullable());
+const acceptedDeviationSchema = z.object({ detail: z.string(), accepted_deviation: z.literal(true), feature: z.string() }).strict();
+const bashClearResponseSchema = z.object({ cleared_count: z.number().int().nonnegative() }).strict();
+
+
 const conversationBatchSchema = z.array(conversationInfoSchema.nullable());
 
 export const routeSpecs = [
@@ -83,8 +94,8 @@ export const routeSpecs = [
   { method: 'post', path: '/api/conversations/{conversation_id}/goal/stop', tags: ['Conversations'], summary: 'Stop goal loop', responses: { 200: successSchema, 404: null, 501: null } },
   { method: 'post', path: '/api/conversations/{conversation_id}/goal/resume', tags: ['Conversations'], summary: 'Resume goal loop', responses: { 200: successSchema, 404: null, 501: null } },
   { method: 'post', path: '/api/conversations/{conversation_id}/secrets', tags: ['Conversations'], summary: 'Update conversation secrets', requestBody: updateSecretsRequestSchema, responses: { 200: successSchema, 404: null, 501: null } },
-  { method: 'post', path: '/api/conversations/{conversation_id}/confirmation_policy', tags: ['Conversations'], summary: 'Set confirmation policy', requestBody: setConfirmationPolicyRequestSchema, responses: { 200: successSchema, 404: null, 501: null } },
-  { method: 'post', path: '/api/conversations/{conversation_id}/security_analyzer', tags: ['Conversations'], summary: 'Set security analyzer', requestBody: setSecurityAnalyzerRequestSchema, responses: { 200: successSchema, 404: null, 501: null } },
+  { method: 'post', path: '/api/conversations/{conversation_id}/confirmation_policy', tags: ['Conversations'], summary: 'Accepted deviation: confirmation policy is intentionally unsupported', requestBody: setConfirmationPolicyRequestSchema, responses: { 410: acceptedDeviationSchema, 404: null } },
+  { method: 'post', path: '/api/conversations/{conversation_id}/security_analyzer', tags: ['Conversations'], summary: 'Accepted deviation: security analyzer is intentionally unsupported', requestBody: setSecurityAnalyzerRequestSchema, responses: { 410: acceptedDeviationSchema, 404: null } },
   { method: 'post', path: '/api/conversations/{conversation_id}/ask_agent', tags: ['Conversations'], summary: 'Ask agent out of band', requestBody: askAgentRequestSchema, responses: { 200: askAgentResponseSchema, 404: null, 501: null } },
   { method: 'post', path: '/api/conversations/{conversation_id}/condense', tags: ['Conversations'], summary: 'Condense conversation', responses: { 200: successSchema, 404: null, 501: null } },
   { method: 'post', path: '/api/conversations/{conversation_id}/fork', tags: ['Conversations'], summary: 'Fork conversation', requestBody: forkConversationRequestSchema, responses: { 201: conversationInfoSchema, 404: null, 409: null } },
@@ -94,7 +105,26 @@ export const routeSpecs = [
   { method: 'get', path: '/api/conversations/{conversation_id}/events', tags: ['Events'], summary: 'Batch get conversation events', responses: { 200: eventBatchSchema, 404: null } },
   { method: 'post', path: '/api/conversations/{conversation_id}/events', tags: ['Events'], summary: 'Send a message', requestBody: openApiSendMessageRequestSchema, responses: { 200: successSchema, 404: null } },
   { method: 'get', path: '/api/conversations/{conversation_id}/events/{event_id}', tags: ['Events'], summary: 'Get conversation event', responses: { 200: openApiEventSchema, 404: null } },
-  { method: 'post', path: '/api/conversations/{conversation_id}/events/respond_to_confirmation', tags: ['Events'], summary: 'Respond to confirmation', requestBody: confirmationResponseRequestSchema, responses: { 200: successSchema, 404: null, 501: null } },
+  { method: 'post', path: '/api/conversations/{conversation_id}/events/respond_to_confirmation', tags: ['Events'], summary: 'Accepted deviation: confirmation responses are intentionally unsupported', requestBody: confirmationResponseRequestSchema, responses: { 410: acceptedDeviationSchema, 404: null } },
+
+  { method: 'get', path: '/api/bash/bash_events/search', tags: ['Bash'], summary: 'Search bash events', responses: { 200: bashEventPageSchema } },
+  { method: 'get', path: '/api/bash/bash_events/{event_id}', tags: ['Bash'], summary: 'Get bash event', responses: { 200: bashEventSchema, 404: null } },
+  { method: 'get', path: '/api/bash/bash_events', tags: ['Bash'], summary: 'Batch get bash events', responses: { 200: z.array(bashEventSchema.nullable()) } },
+  { method: 'post', path: '/api/bash/start_bash_command', tags: ['Bash'], summary: 'Start bash command', requestBody: executeBashRequestSchema, responses: { 200: bashEventSchema } },
+  { method: 'post', path: '/api/bash/execute_bash_command', tags: ['Bash'], summary: 'Execute bash command', requestBody: executeBashRequestSchema, responses: { 200: bashEventSchema } },
+  { method: 'delete', path: '/api/bash/bash_events', tags: ['Bash'], summary: 'Clear bash events', responses: { 200: bashClearResponseSchema } },
+
+  { method: 'get', path: '/api/git/changes', tags: ['Git'], summary: 'Get git changes', responses: { 200: z.array(gitChangeSchema), 400: null } },
+  { method: 'get', path: '/api/git/diff', tags: ['Git'], summary: 'Get git diff', responses: { 200: gitDiffSchema, 400: null } },
+  { method: 'get', path: '/api/git/changes/{path}', tags: ['Git'], summary: 'Get git changes for path', responses: { 200: z.array(gitChangeSchema), 400: null } },
+  { method: 'get', path: '/api/git/diff/{path}', tags: ['Git'], summary: 'Get git diff for path', responses: { 200: gitDiffSchema, 400: null } },
+
+  { method: 'post', path: '/api/file/upload', tags: ['File'], summary: 'Upload file', responses: { 200: successSchema, 400: null } },
+  { method: 'get', path: '/api/file/download', tags: ['File'], summary: 'Download file', responses: { 200: z.unknown(), 400: null, 404: null } },
+  { method: 'post', path: '/api/file/upload/{path}', tags: ['File'], summary: 'Upload file by path', responses: { 200: successSchema, 400: null } },
+  { method: 'get', path: '/api/file/download/{path}', tags: ['File'], summary: 'Download file by path', responses: { 200: z.unknown(), 400: null, 404: null } },
+  { method: 'get', path: '/api/file/home', tags: ['File'], summary: 'Get home and favorite directories', responses: { 200: homeResponseSchema } },
+  { method: 'get', path: '/api/file/search_subdirs', tags: ['File'], summary: 'Search subdirectories', responses: { 200: subdirectoryPageSchema, 400: null, 404: null } },
 ] as const satisfies readonly RouteSpec[];
 
 export interface OpenAPISchema {

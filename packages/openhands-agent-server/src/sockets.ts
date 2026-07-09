@@ -1,19 +1,26 @@
+import { randomUUID } from 'node:crypto';
+
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
+import type { BashEventService } from './bashService.js';
 import type { AgentServerConfig } from './config.js';
 import type { ConversationService } from './conversationService.js';
-import { messageFromSendRequest, sendMessageRequestSchema, type Event } from './models.js';
+import { bashErrorSchema, executeBashRequestSchema, messageFromSendRequest, sendMessageRequestSchema, type BashEvent, type Event } from './models.js';
 
 const OPEN_SOCKET_STATE = 1;
 
 export interface SocketRouteDeps {
   readonly config: AgentServerConfig;
   readonly conversationService: ConversationService;
+  readonly bashEventService: BashEventService;
 }
 
 export function registerSocketRoutes(app: FastifyInstance, deps: SocketRouteDeps): void {
   app.get('/sockets/events/:conversation_id', { websocket: true }, (socket, request) => {
     void handleEventsSocket(socket as SocketLike, request, deps);
+  });
+  app.get('/sockets/bash-events', { websocket: true }, (socket, request) => {
+    void handleBashEventsSocket(socket as SocketLike, request, deps);
   });
 }
 
@@ -61,6 +68,38 @@ async function handleEventsSocket(socket: SocketLike, request: FastifyRequest, d
   });
   socket.on('close', () => void eventService.unsubscribeFromEvents(subscriberId));
   socket.on('error', () => void eventService.unsubscribeFromEvents(subscriberId));
+}
+
+async function handleBashEventsSocket(socket: SocketLike, request: FastifyRequest, deps: SocketRouteDeps): Promise<void> {
+  if (!isSocketAuthorized(request, deps.config)) {
+    socket.close(1008, 'Invalid or missing session API key');
+    return;
+  }
+
+  const sendEvent = (event: BashEvent): void => {
+    if (socket.readyState === OPEN_SOCKET_STATE) socket.send(JSON.stringify(event));
+  };
+  const subscriberId = await deps.bashEventService.subscribeToEvents(sendEvent);
+  const query = request.query as Record<string, unknown>;
+  const resendMode = typeof query.resend_mode === 'string' ? query.resend_mode : null;
+  const resendAll = query.resend_all === 'true' || query.resend_all === true;
+  if (resendMode === 'all' || (resendMode === null && resendAll)) {
+    const page = await deps.bashEventService.searchBashEvents({ limit: 100 });
+    for (const event of page.items) sendEvent(event);
+  }
+
+  socket.on('message', (data: unknown) => {
+    void (async () => {
+      const payload = JSON.parse(bufferToString(data)) as unknown;
+      const requestBody = executeBashRequestSchema.parse(payload);
+      await deps.bashEventService.startBashCommand(requestBody);
+    })().catch((error: unknown) => {
+      const errorEvent = bashErrorSchema.parse({ id: randomUUID(), timestamp: new Date().toISOString(), code: error instanceof Error ? error.name : 'WebSocketMessageError', detail: error instanceof Error ? error.message : String(error) });
+      if (socket.readyState === OPEN_SOCKET_STATE) socket.send(JSON.stringify(errorEvent));
+    });
+  });
+  socket.on('close', () => void deps.bashEventService.unsubscribeFromEvents(subscriberId));
+  socket.on('error', () => void deps.bashEventService.unsubscribeFromEvents(subscriberId));
 }
 
 function isSocketAuthorized(request: FastifyRequest, config: AgentServerConfig): boolean {

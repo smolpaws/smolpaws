@@ -16,6 +16,7 @@ import {
 
 import { type ConfirmationResponseRequest, type EventPage, type EventSortOrder, textFromContent } from './models.js';
 import type { StoredConversation } from './models.js';
+import type { ConversationPersistence } from './persistence.js';
 import { PubSub, type Subscriber } from './pubSub.js';
 
 export interface AgentFactoryContext {
@@ -28,17 +29,20 @@ export interface EventServiceOptions {
   readonly stored: StoredConversation;
   readonly agentFactory?: AgentFactory;
   readonly events?: readonly Event[];
+  readonly persistence?: ConversationPersistence;
 }
 
 export class EventService {
   readonly stored: StoredConversation;
   readonly state: ConversationState;
   private readonly pubSub = new PubSub<Event>(50);
+  private readonly persistence: ConversationPersistence | undefined;
   private readonly conversationPromise: Promise<LocalConversation>;
   private runPromise: Promise<void> | null = null;
 
   constructor(options: EventServiceOptions) {
     this.stored = options.stored;
+    this.persistence = options.persistence;
     this.state = new ConversationState({ events: options.events ?? [] });
     this.conversationPromise = this.createConversation(options.agentFactory);
   }
@@ -81,9 +85,7 @@ export class EventService {
 
   async sendMessage(message: Message, run = true): Promise<Event> {
     const event = messageEventSchema.parse({ source: message.role === 'user' ? 'user' : 'agent', llm_message: message });
-    this.state.appendEvent(event);
-    this.touch();
-    await this.pubSub.publish(event);
+    await this.appendAndPublish(event);
     if (run) {
       await this.run();
     }
@@ -120,22 +122,16 @@ export class EventService {
   async pause(): Promise<void> {
     const conversation = await this.conversationPromise;
     conversation.pause();
-    const event = pauseEventSchema.parse({});
-    this.state.appendEvent(event);
-    this.touch();
-    await this.pubSub.publish(event);
+    await this.appendAndPublish(pauseEventSchema.parse({}));
   }
 
   async interrupt(): Promise<void> {
     await this.pause();
-    const event = interruptEventSchema.parse({});
-    this.state.appendEvent(event);
-    this.touch();
-    await this.pubSub.publish(event);
+    await this.appendAndPublish(interruptEventSchema.parse({}));
   }
 
   async respondToConfirmation(_request: ConfirmationResponseRequest): Promise<void> {
-    throw new Error('confirmation_responses_not_implemented');
+    throw new Error('accepted_deviation:confirmation_responses');
   }
 
   async updateSecrets(_secrets: Record<string, unknown>): Promise<void> {
@@ -143,11 +139,11 @@ export class EventService {
   }
 
   async setConfirmationPolicy(_policy: unknown): Promise<void> {
-    throw new Error('confirmation_policy_not_implemented');
+    throw new Error('accepted_deviation:confirmation_policy');
   }
 
   async setSecurityAnalyzer(_securityAnalyzer: unknown): Promise<void> {
-    throw new Error('security_analyzer_not_implemented');
+    throw new Error('accepted_deviation:security_analyzer');
   }
 
   async switchAcpModel(_model: string): Promise<void> {
@@ -206,10 +202,21 @@ export class EventService {
     const startIndex = this.state.events.length;
     await conversation.run();
     this.touch();
-    for (const event of this.state.events.slice(startIndex)) {
+    await this.persistence?.saveConversation(this.stored);
+    const newEvents = this.state.events.slice(startIndex);
+    for (const event of newEvents) {
+      await this.persistence?.appendEvent(this.stored, event);
       await this.pubSub.publish(event);
     }
     await this.pubSub.publish(this.createStateUpdateEvent());
+  }
+
+  private async appendAndPublish(event: Event): Promise<void> {
+    this.state.appendEvent(event);
+    this.touch();
+    await this.persistence?.saveConversation(this.stored);
+    await this.persistence?.appendEvent(this.stored, event);
+    await this.pubSub.publish(event);
   }
 
   private filteredEvents(kind: string | null, source: string | null, body: string | null, timestampGte: Date | null, timestampLt: Date | null): Event[] {

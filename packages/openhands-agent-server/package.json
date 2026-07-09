@@ -28,6 +28,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fastify/multipart": "^9.4.0",
     "@fastify/websocket": "^11.2.0",
     "@smolpaws/openhands-agent": "file:../../../openhands-agent",
     "fastify": "^5.7.4",

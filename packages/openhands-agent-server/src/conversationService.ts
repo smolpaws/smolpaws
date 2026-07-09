@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { conversationExecutionStatus } from '@smolpaws/openhands-agent';
 
 import { EventService, type AgentFactory, type EventServiceOptions } from './eventService.js';
+import { ConversationPersistence } from './persistence.js';
 import {
   type ConversationInfo,
   type ConversationPage,
@@ -19,16 +20,26 @@ import {
 
 export interface ConversationServiceOptions {
   readonly agentFactory?: AgentFactory;
+  readonly persistenceDir?: string;
 }
 
 export class ConversationService {
   private readonly conversations = new Map<string, StoredConversation>();
   private readonly eventServices = new Map<string, EventService>();
+  private readonly persistence: ConversationPersistence;
+  private readonly readyPromise: Promise<void>;
 
-  constructor(private readonly options: ConversationServiceOptions = {}) {}
+  constructor(private readonly options: ConversationServiceOptions = {}) {
+    this.persistence = new ConversationPersistence(options.persistenceDir ?? 'workspace/conversations');
+    this.readyPromise = this.loadPersistedConversations();
+  }
 
   async startConversation(requestInput: StartConversationRequest): Promise<{ readonly info: ConversationInfo; readonly isNew: boolean }> {
-    const request = startConversationRequestSchema.parse(requestInput);
+    await this.readyPromise;
+    const request = startConversationRequestSchema.parse({
+      ...requestInput,
+      ...((requestInput.persistence_dir === undefined || requestInput.persistence_dir === 'workspace/conversations') && this.options.persistenceDir !== undefined ? { persistence_dir: this.options.persistenceDir } : {}),
+    });
     const id = request.id ?? request.conversation_id ?? randomUUID();
     const existing = this.conversations.get(id);
     if (existing !== undefined) {
@@ -45,9 +56,10 @@ export class ConversationService {
       created_at: now,
       updated_at: now,
     };
-    const eventService = new EventService(eventServiceOptions(stored, this.options.agentFactory));
+    const eventService = new EventService(eventServiceOptions(stored, this.persistence, this.options.agentFactory));
     this.conversations.set(id, stored);
     this.eventServices.set(id, eventService);
+    await this.persistence.saveConversation(stored);
 
     if (request.initial_message !== undefined) {
       await this.sendInitialMessage(eventService, request.initial_message);
@@ -57,6 +69,7 @@ export class ConversationService {
   }
 
   async getConversation(conversationId: string): Promise<ConversationInfo | null> {
+    await this.readyPromise;
     const stored = this.conversations.get(conversationId);
     return stored === undefined ? null : this.toConversationInfo(stored);
   }
@@ -71,6 +84,7 @@ export class ConversationService {
     status: string | null = null,
     sortOrder: ConversationSortOrder = 'CREATED_AT_DESC',
   ): Promise<ConversationPage> {
+    await this.readyPromise;
     const filtered = [...this.conversations.values()]
       .map((stored) => this.toConversationInfo(stored))
       .filter((info) => status === null || info.execution_status === status);
@@ -82,6 +96,7 @@ export class ConversationService {
   }
 
   async countConversations(status: string | null = null): Promise<number> {
+    await this.readyPromise;
     return [...this.conversations.keys()].filter((conversationId) => {
       if (status === null) {
         return true;
@@ -92,10 +107,12 @@ export class ConversationService {
   }
 
   async getEventService(conversationId: string): Promise<EventService | null> {
+    await this.readyPromise;
     return this.eventServices.get(conversationId) ?? null;
   }
 
   async pauseConversation(conversationId: string): Promise<boolean> {
+    await this.readyPromise;
     const service = this.eventServices.get(conversationId);
     if (service === undefined) {
       return false;
@@ -105,6 +122,7 @@ export class ConversationService {
   }
 
   async interruptConversation(conversationId: string): Promise<boolean> {
+    await this.readyPromise;
     const service = this.eventServices.get(conversationId);
     if (service === undefined) {
       return false;
@@ -114,17 +132,23 @@ export class ConversationService {
   }
 
   async deleteConversation(conversationId: string): Promise<boolean> {
+    await this.readyPromise;
     const service = this.eventServices.get(conversationId);
     if (service === undefined) {
       return false;
     }
+    const stored = this.conversations.get(conversationId);
     await service.close();
     this.eventServices.delete(conversationId);
     this.conversations.delete(conversationId);
+    if (stored !== undefined) {
+      await this.persistence.deleteConversation(stored);
+    }
     return true;
   }
 
   async updateConversation(conversationId: string, request: UpdateConversationRequest): Promise<boolean> {
+    await this.readyPromise;
     const stored = this.conversations.get(conversationId);
     if (stored === undefined) {
       return false;
@@ -136,10 +160,12 @@ export class ConversationService {
       stored.tags = request.tags;
     }
     stored.updated_at = new Date().toISOString();
+    await this.persistence.saveConversation(stored);
     return true;
   }
 
   async generateConversationTitle(conversationId: string, maxLength: number): Promise<string | null> {
+    await this.readyPromise;
     const service = this.eventServices.get(conversationId);
     if (service === undefined) {
       return null;
@@ -149,11 +175,13 @@ export class ConversationService {
     if (stored !== undefined) {
       stored.title = title;
       stored.updated_at = new Date().toISOString();
+      await this.persistence.saveConversation(stored);
     }
     return title;
   }
 
   async askAgent(conversationId: string, question: string): Promise<string | null> {
+    await this.readyPromise;
     const service = this.eventServices.get(conversationId);
     if (service === undefined) {
       return null;
@@ -162,6 +190,7 @@ export class ConversationService {
   }
 
   async condense(conversationId: string): Promise<boolean> {
+    await this.readyPromise;
     const service = this.eventServices.get(conversationId);
     if (service === undefined) {
       return false;
@@ -171,6 +200,7 @@ export class ConversationService {
   }
 
   async forkConversation(sourceConversationId: string, request: ForkConversationRequest): Promise<ConversationInfo | null> {
+    await this.readyPromise;
     const source = this.conversations.get(sourceConversationId);
     const sourceService = this.eventServices.get(sourceConversationId);
     if (source === undefined || sourceService === undefined) {
@@ -191,13 +221,16 @@ export class ConversationService {
       created_at: now,
       updated_at: now,
     };
-    const eventService = new EventService(eventServiceOptions(stored, this.options.agentFactory, sourceService.state.events));
+    const eventService = new EventService(eventServiceOptions(stored, this.persistence, this.options.agentFactory, sourceService.state.events));
     this.conversations.set(id, stored);
     this.eventServices.set(id, eventService);
+    await this.persistence.saveConversation(stored);
+    await this.persistence.replaceEvents(stored, sourceService.state.events);
     return this.toConversationInfo(stored);
   }
 
   async close(): Promise<void> {
+    await this.readyPromise;
     await Promise.all([...this.eventServices.values()].map((service) => service.close()));
     this.eventServices.clear();
     this.conversations.clear();
@@ -235,6 +268,15 @@ export class ConversationService {
     };
   }
 
+  private async loadPersistedConversations(): Promise<void> {
+    const persisted = await this.persistence.loadAll();
+    for (const { stored, events } of persisted) {
+      if (this.conversations.has(stored.id)) continue;
+      this.conversations.set(stored.id, stored);
+      this.eventServices.set(stored.id, new EventService(eventServiceOptions(stored, this.persistence, this.options.agentFactory, events)));
+    }
+  }
+
   private async sendInitialMessage(eventService: EventService, request: SendMessageRequest): Promise<void> {
     await eventService.sendMessage(messageFromSendRequest(request), request.run);
   }
@@ -248,9 +290,10 @@ function sortConversations(items: readonly ConversationInfo[], sortOrder: Conver
   });
 }
 
-function eventServiceOptions(stored: StoredConversation, agentFactory?: AgentFactory, events?: readonly Event[]): EventServiceOptions {
+function eventServiceOptions(stored: StoredConversation, persistence: ConversationPersistence, agentFactory?: AgentFactory, events?: readonly Event[]): EventServiceOptions {
   return {
     stored,
+    persistence,
     ...(agentFactory === undefined ? {} : { agentFactory }),
     ...(events === undefined ? {} : { events }),
   };
