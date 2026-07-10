@@ -20,14 +20,18 @@ Implemented in this slice:
 - upstream `/run`, `/pause`, `/interrupt`, `/agent_final_response`, `/fork`
 - `/api/conversations/{conversation_id}/events` search/count/batch/get/post
 - `/sockets/events/{conversation_id}` event streaming with replay modes
+- bash command/event routes and `/sockets/bash-events`
+- git changes/diff routes
+- file home/search/download/upload routes
+- SDK `EventLog` durability with server-owned `meta.json`
 - zod-backed contracts, tsup/vitest/type-checked eslint, and OpenAPI CLI generation
 
 Still intentionally stubbed/deferred:
 
 - ACP runtime/model switching, goal loops, confirmation responses, conversation secrets,
   condensation, and ask-agent helpers
-- bash/file/git/workspace/skills/settings/profile routers
-- durable persistence/leases and the future message-queue layer that replaces SmolPaws turns
+- workspace/skills/settings/profile routers and deeper bash/git/file edge-case parity
+- leases and the future message-queue layer that replaces SmolPaws turns
 
 ## Provenance
 
@@ -35,6 +39,12 @@ Still intentionally stubbed/deferred:
 - **Pinned base commit:** `966340979be26c2162e9ab8805557b715e1f1a78`
   (same commit the SDK transpile was cut from — keep both in lockstep).
 - **Local Python source:** `~/repos/agent-sdk/openhands-agent-server/openhands/agent_server/`.
+
+## Architecture and criteria
+
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the server-specific
+transpilation rules, fulfilled criteria, accepted deviations, persistence ownership,
+and next parity checklist.
 
 ## References the transpile should follow
 
