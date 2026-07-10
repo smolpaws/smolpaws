@@ -89,7 +89,8 @@ export class ConversationService {
       .map((stored) => this.toConversationInfo(stored))
       .filter((info) => status === null || info.execution_status === status);
     const sorted = sortConversations(filtered, sortOrder);
-    const start = pageId === null ? 0 : Math.max(0, Number.parseInt(pageId, 10));
+    const parsedPageId = pageId === null ? 0 : Number.parseInt(pageId, 10);
+    const start = Number.isNaN(parsedPageId) ? 0 : Math.max(0, parsedPageId);
     const items = sorted.slice(start, start + limit);
     const next_page_id = start + limit < sorted.length ? String(start + limit) : null;
     return { items, next_page_id };

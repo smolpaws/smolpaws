@@ -96,13 +96,17 @@ export class BashEventService {
       let stderr = '';
       let finished = false;
       let order = 0;
+      let writeQueue = Promise.resolve();
 
       const finalize = (exitCode: number, extraStderr = ''): void => {
         if (finished) return;
         finished = true;
         clearTimeout(timeout);
-        void this.saveOutput({ command_id: command.id, order, exit_code: exitCode, stdout: stdout || null, stderr: `${stderr}${extraStderr}` || null })
+        const currentOrder = order;
+        writeQueue = writeQueue
+          .then(() => this.saveOutput({ command_id: command.id, order: currentOrder, exit_code: exitCode, stdout: stdout || null, stderr: `${stderr}${extraStderr}` || null }))
           .then((event) => this.pubSub.publish(event))
+          .catch((error: unknown) => console.error('Failed to save final bash output', error))
           .finally(resolve);
       };
 
@@ -114,7 +118,11 @@ export class BashEventService {
           const stderrChunk = stderr.length > MAX_OUTPUT_CHARS ? stderr.slice(0, MAX_OUTPUT_CHARS) : null;
           if (stdoutChunk !== null) stdout = stdout.slice(MAX_OUTPUT_CHARS);
           if (stderrChunk !== null) stderr = stderr.slice(MAX_OUTPUT_CHARS);
-          void this.saveOutput({ command_id: command.id, order, stdout: stdoutChunk, stderr: stderrChunk }).then((event) => this.pubSub.publish(event));
+          const currentOrder = order;
+          writeQueue = writeQueue
+            .then(() => this.saveOutput({ command_id: command.id, order: currentOrder, stdout: stdoutChunk, stderr: stderrChunk }))
+            .then((event) => this.pubSub.publish(event))
+            .catch((error: unknown) => console.error('Failed to save bash output chunk', error));
           order += 1;
         }
       };

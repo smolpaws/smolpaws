@@ -1,3 +1,4 @@
+import { createReadStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -34,7 +35,7 @@ async function uploadFile(reply: ReplyLike, rawPath: string | null, request: Fas
   return { success: true };
 }
 
-async function downloadFile(reply: ReplyLike, rawPath: string | null): Promise<Buffer | undefined> {
+async function downloadFile(reply: ReplyLike, rawPath: string | null): Promise<unknown> {
   const targetPath = validateAbsolutePath(reply, rawPath);
   if (targetPath === null) return undefined;
   const stats = await fs.stat(targetPath).catch((error: unknown) => {
@@ -51,7 +52,7 @@ async function downloadFile(reply: ReplyLike, rawPath: string | null): Promise<B
   }
   reply.header('content-type', 'application/octet-stream');
   reply.header('content-disposition', `attachment; filename="${path.basename(targetPath)}"`);
-  return fs.readFile(targetPath);
+  return createReadStream(targetPath);
 }
 
 async function homeResponse(includeHidden: boolean): Promise<HomeResponse> {

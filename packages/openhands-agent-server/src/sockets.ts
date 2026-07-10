@@ -48,11 +48,13 @@ async function handleEventsSocket(socket: SocketLike, request: FastifyRequest, d
   const query = request.query as Record<string, unknown>;
   const resendMode = typeof query.resend_mode === 'string' ? query.resend_mode : null;
   const resendAll = query.resend_all === 'true' || query.resend_all === true;
+  eventService.state.syncFromDisk();
+  const events = eventService.state.events;
   if (resendMode === 'all' || (resendMode === null && resendAll)) {
-    for (const event of eventService.state.events) sendEvent(event);
+    for (const event of events) sendEvent(event);
   } else if (resendMode === 'since' && typeof query.after_timestamp === 'string') {
     const after = Date.parse(query.after_timestamp);
-    for (const event of eventService.state.events) {
+    for (const event of events) {
       if (Date.parse(event.timestamp) >= after) sendEvent(event);
     }
   }

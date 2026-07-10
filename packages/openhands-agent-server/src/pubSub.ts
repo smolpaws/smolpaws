@@ -32,15 +32,16 @@ export class PubSub<T> {
 
   async publish(event: T): Promise<void> {
     const subscribers = [...this.subscribers.entries()];
-    await Promise.all(
-      subscribers.map(async ([subscriberId, subscriber]) => {
-        try {
-          await subscriber(event);
-        } catch (error) {
-          console.error('pubsub_subscriber_error', { subscriberId, error });
+    for (const [subscriberId, subscriber] of subscribers) {
+      try {
+        const result = subscriber(event);
+        if (result instanceof Promise) {
+          result.catch((error: unknown) => console.error('pubsub_subscriber_error', { subscriberId, error }));
         }
-      }),
-    );
+      } catch (error) {
+        console.error('pubsub_subscriber_error', { subscriberId, error });
+      }
+    }
   }
 
   async close(): Promise<void> {

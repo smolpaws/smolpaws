@@ -74,7 +74,8 @@ export class EventService {
   ): Promise<EventPage> {
     const filtered = this.filteredEvents(kind, source, body, timestampGte, timestampLt);
     const ordered = sortOrder === 'TIMESTAMP_DESC' ? [...filtered].reverse() : filtered;
-    const start = pageId === null ? 0 : Math.max(0, Number.parseInt(pageId, 10));
+    const parsedPageId = pageId === null ? 0 : Number.parseInt(pageId, 10);
+    const start = Number.isNaN(parsedPageId) ? 0 : Math.max(0, parsedPageId);
     const items = ordered.slice(start, start + limit);
     const next_page_id = start + limit < ordered.length ? String(start + limit) : null;
     return { items, next_page_id };
