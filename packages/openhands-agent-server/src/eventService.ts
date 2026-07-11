@@ -43,7 +43,9 @@ export class EventService {
   private readonly pubSub = new PubSub<Event>(50);
   private readonly saveConversation: (stored: StoredConversation) => Promise<void>;
   private readonly conversationPromise: Promise<LocalConversation>;
+  private readonly publishedEventIds = new Set<string>();
   private runPromise: Promise<void> | null = null;
+  private rerunRequested = false;
 
   constructor(options: EventServiceOptions) {
     this.stored = options.stored;
@@ -95,7 +97,12 @@ export class EventService {
     const event = messageEventSchema.parse({ source: message.role === 'user' ? 'user' : 'agent', llm_message: message });
     await this.appendAndPublish(event);
     if (run) {
-      await this.run();
+      try {
+        await this.run();
+      } catch (error) {
+        if (!isConversationAlreadyRunning(error)) throw error;
+        this.rerunRequested = true;
+      }
     }
     return event;
   }
@@ -208,21 +215,30 @@ export class EventService {
 
   private async runAndPublish(): Promise<void> {
     const conversation = await this.conversationPromise;
-    const startIndex = this.events().length;
-    await conversation.run();
-    this.touch();
-    await this.saveConversation(this.stored);
-    const newEvents = this.events().slice(startIndex);
-    for (const event of newEvents) {
-      await this.pubSub.publish(event);
-    }
-    await this.pubSub.publish(this.createStateUpdateEvent());
+    do {
+      this.rerunRequested = false;
+      const startIndex = this.events().length;
+      await conversation.run();
+      this.touch();
+      await this.saveConversation(this.stored);
+      const newEvents = this.events().slice(startIndex);
+      for (const event of newEvents) {
+        await this.publishEventOnce(event);
+      }
+      await this.pubSub.publish(this.createStateUpdateEvent());
+    } while (this.rerunRequested);
   }
 
   private async appendAndPublish(event: Event): Promise<void> {
     this.state.appendEvent(event);
     this.touch();
     await this.saveConversation(this.stored);
+    await this.publishEventOnce(event);
+  }
+
+  private async publishEventOnce(event: Event): Promise<void> {
+    if (this.publishedEventIds.has(event.id)) return;
+    this.publishedEventIds.add(event.id);
     await this.pubSub.publish(event);
   }
 
@@ -280,6 +296,10 @@ function conversationEventDir(conversationId: string): string {
     throw new Error(`Invalid conversationId: ${conversationId}`);
   }
   return `${safeConversationId}/${EVENTS_DIR}`;
+}
+
+function isConversationAlreadyRunning(error: unknown): boolean {
+  return error instanceof Error && error.message === 'conversation_already_running';
 }
 
 function eventBody(event: Event): string {

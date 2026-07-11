@@ -119,12 +119,12 @@ export const routeSpecs = [
   { method: 'get', path: '/api/git/changes/{path}', tags: ['Git'], summary: 'Get git changes for path', responses: { 200: z.array(gitChangeSchema), 400: null } },
   { method: 'get', path: '/api/git/diff/{path}', tags: ['Git'], summary: 'Get git diff for path', responses: { 200: gitDiffSchema, 400: null } },
 
-  { method: 'post', path: '/api/file/upload', tags: ['File'], summary: 'Upload file', responses: { 200: successSchema, 400: null } },
-  { method: 'get', path: '/api/file/download', tags: ['File'], summary: 'Download file', responses: { 200: z.unknown(), 400: null, 404: null } },
-  { method: 'post', path: '/api/file/upload/{path}', tags: ['File'], summary: 'Upload file by path', responses: { 200: successSchema, 400: null } },
-  { method: 'get', path: '/api/file/download/{path}', tags: ['File'], summary: 'Download file by path', responses: { 200: z.unknown(), 400: null, 404: null } },
+  { method: 'post', path: '/api/file/upload', tags: ['File'], summary: 'Upload file', responses: { 200: successSchema, 400: null, 403: null } },
+  { method: 'get', path: '/api/file/download', tags: ['File'], summary: 'Download file', responses: { 200: z.unknown(), 400: null, 403: null, 404: null } },
+  { method: 'post', path: '/api/file/upload/{path}', tags: ['File'], summary: 'Upload file by path', responses: { 200: successSchema, 400: null, 403: null } },
+  { method: 'get', path: '/api/file/download/{path}', tags: ['File'], summary: 'Download file by path', responses: { 200: z.unknown(), 400: null, 403: null, 404: null } },
   { method: 'get', path: '/api/file/home', tags: ['File'], summary: 'Get home and favorite directories', responses: { 200: homeResponseSchema } },
-  { method: 'get', path: '/api/file/search_subdirs', tags: ['File'], summary: 'Search subdirectories', responses: { 200: subdirectoryPageSchema, 400: null, 404: null } },
+  { method: 'get', path: '/api/file/search_subdirs', tags: ['File'], summary: 'Search subdirectories', responses: { 200: subdirectoryPageSchema, 400: null, 403: null, 404: null } },
 ] as const satisfies readonly RouteSpec[];
 
 export interface OpenAPISchema {

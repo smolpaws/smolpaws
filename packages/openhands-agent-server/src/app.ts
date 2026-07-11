@@ -32,11 +32,15 @@ export interface AgentServerApp {
 export async function createAgentServerApp(options: AgentServerAppOptions = {}): Promise<AgentServerApp> {
   const defaultConfig = getDefaultConfig();
   const conversationsPath = options.config?.conversationsPath ?? defaultConfig.conversationsPath;
+  const workspaceRoot = options.config?.workspaceRoot ?? defaultConfig.workspaceRoot;
+  const allowedFileRoots = options.config?.allowedFileRoots ?? (options.config?.workspaceRoot === undefined ? defaultConfig.allowedFileRoots : [workspaceRoot]);
   const config: AgentServerConfig = {
     ...defaultConfig,
     ...options.config,
     conversationsPath,
     bashEventsPath: options.config?.bashEventsPath ?? path.join(conversationsPath, 'bash_events'),
+    workspaceRoot,
+    allowedFileRoots,
   };
   const serviceOptions: ConversationServiceOptions = {
     persistenceDir: config.conversationsPath,
@@ -54,7 +58,7 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
   registerEventRoutes(app, conversationService);
   registerBashRoutes(app, bashEventService);
   registerGitRoutes(app);
-  registerFileRoutes(app);
+  registerFileRoutes(app, config);
   registerSocketRoutes(app, { config, conversationService, bashEventService });
   app.addHook('onClose', () => Promise.all([conversationService.close(), bashEventService.close()]).then(() => undefined));
   registerErrorHandler(app);
