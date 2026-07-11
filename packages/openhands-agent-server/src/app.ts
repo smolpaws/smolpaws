@@ -1,5 +1,3 @@
-import path from 'node:path';
-
 import multipart from '@fastify/multipart';
 import websocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -38,7 +36,7 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
     ...defaultConfig,
     ...options.config,
     conversationsPath,
-    bashEventsPath: options.config?.bashEventsPath ?? path.join(conversationsPath, 'bash_events'),
+    bashEventsPath: options.config?.bashEventsPath ?? defaultConfig.bashEventsPath,
     workspaceRoot,
     allowedFileRoots,
   };

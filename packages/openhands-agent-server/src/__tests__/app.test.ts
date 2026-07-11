@@ -223,6 +223,27 @@ describe('createAgentServerApp', () => {
     }
   });
 
+  test('preserves OPENHANDS_BASH_EVENTS_PATH when conversationsPath is overridden', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
+    const previous = process.env.OPENHANDS_BASH_EVENTS_PATH;
+    const customBashEventsPath = path.join(root, 'custom-bash-events');
+    const conversationsPath = path.join(root, 'conversations');
+    process.env.OPENHANDS_BASH_EVENTS_PATH = customBashEventsPath;
+    const { app } = await createAgentServerApp({ config: { conversationsPath } });
+    try {
+      const output = await app.inject({ method: 'POST', url: '/api/bash/execute_bash_command', payload: { command: 'printf ok', timeout: 2 } });
+      expect(output.statusCode).toBe(200);
+      expect((await readdir(customBashEventsPath)).some((file) => file.endsWith('.json'))).toBe(true);
+      const derivedBashEventsPath = path.join(conversationsPath, 'bash_events');
+      await expect(readdir(derivedBashEventsPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      if (previous === undefined) delete process.env.OPENHANDS_BASH_EVENTS_PATH;
+      else process.env.OPENHANDS_BASH_EVENTS_PATH = previous;
+      await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('enforces X-Session-API-Key when configured', async () => {
     const { app } = await createAgentServerApp({ config: { sessionApiKey: 'secret' } });
     const denied = await app.inject({ method: 'GET', url: '/api/conversations/count' });
