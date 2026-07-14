@@ -25,9 +25,19 @@ class TestSlackAdapter extends SlackAdapter {
   async dispatchMessage(message: IncomingMessage, replyContext: ReplyContext): Promise<void> {
     await this.dispatch(message, replyContext);
   }
+
+  async sendReplyForTest(replyContext: ReplyContext, text: string): Promise<void> {
+    await this.sendReply(replyContext, text);
+  }
 }
 
-type PostedMessage = { channel: string; text: string; thread_ts?: string };
+type PostedMessage = {
+  channel: string;
+  text: string;
+  thread_ts?: string;
+  unfurl_links?: boolean;
+  unfurl_media?: boolean;
+};
 
 async function readJson(req: HttpIncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -134,6 +144,17 @@ const replyContext: ReplyContext = {
   conversationId: 'slack-thread-T06P-C123-100.001',
 };
 
+test('SlackAdapter ignores malformed reply contexts safely', async () => {
+  const posted: PostedMessage[] = [];
+  const adapter = makeAdapter('http://127.0.0.1:1', posted);
+
+  await assert.doesNotReject(
+    adapter.sendReplyForTest({ original: undefined, conversationId: 'slack-invalid' }, 'reply'),
+  );
+
+  assert.equal(posted.length, 0);
+});
+
 test('SlackAdapter uses BaseBridgeAdapter dispatch and nests Slack create metadata', async () => {
   await withAgentServer([], 'final answer', async (baseUrl, requests) => {
     const posted: PostedMessage[] = [];
@@ -142,13 +163,11 @@ test('SlackAdapter uses BaseBridgeAdapter dispatch and nests Slack create metada
     await adapter.dispatchMessage(incomingMessage(), replyContext);
 
     assert.equal(posted.length, 1);
-    assert.deepEqual(posted[0], {
-      channel: 'C123',
-      text: 'final answer',
-      thread_ts: '100.001',
-      unfurl_links: false,
-      unfurl_media: false,
-    });
+    assert.equal(posted[0].channel, 'C123');
+    assert.equal(posted[0].text, 'final answer');
+    assert.equal(posted[0].thread_ts, '100.001');
+    assert.equal(posted[0].unfurl_links, false);
+    assert.equal(posted[0].unfurl_media, false);
     const body = requests[0] as {
       idempotency_key: string;
       create_conversation: { smolpaws: Record<string, unknown> };
@@ -173,8 +192,11 @@ test('SlackAdapter delivers send_message output and suppresses duplicate final f
 
       await adapter.dispatchMessage(incomingMessage(), replyContext);
 
-      assert.deepEqual(posted.map(({ text }) => text), ['progress 1', 'progress 2']);
-      assert.ok(posted.every(({ thread_ts }) => thread_ts === '100.001'));
+      assert.equal(posted.length, 2);
+      assert.equal(posted[0].text, 'progress 1');
+      assert.equal(posted[1].text, 'progress 2');
+      assert.equal(posted[0].thread_ts, '100.001');
+      assert.equal(posted[1].thread_ts, '100.001');
     },
   );
 });
@@ -186,7 +208,7 @@ test('SlackAdapter does not deliver a fallback when it is not the delivery owner
 
     await adapter.dispatchMessage(incomingMessage(), replyContext);
 
-    assert.deepEqual(posted, []);
+    assert.equal(posted.length, 0);
   }, false);
 });
 
@@ -197,6 +219,7 @@ test('SlackAdapter posts the shared no-output final fallback', async () => {
 
     await adapter.dispatchMessage(incomingMessage(), replyContext);
 
-    assert.deepEqual(posted.map(({ text }) => text), ['🐾 Done — nothing to report back.']);
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].text, '🐾 Done — nothing to report back.');
   });
 });

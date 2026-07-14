@@ -157,7 +157,14 @@ export class SlackAdapter extends BaseBridgeAdapter {
   // ── Platform I/O ─────────────────────────────────────────────────
 
   protected async sendReply(ctx: ReplyContext, text: string): Promise<void> {
-    const event = ctx.original as SlackEventContext;
+    const event = ctx.original as SlackEventContext | undefined;
+    if (!event?.channelId || !event.ts) {
+      this.logger.error(
+        { conversationId: ctx.conversationId },
+        'Cannot send Slack reply: missing event context',
+      );
+      return;
+    }
     await this.postMessage(event.channelId, text, replyThreadTs(event));
   }
 
