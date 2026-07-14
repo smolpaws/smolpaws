@@ -60,7 +60,7 @@ Phase 1 should **not** try to solve everything:
 Use stable Slack-scoped conversation ids:
 
 - DM: `slack-im-{team_id}-{channel_id}`
-- channel root message: `slack-channel-{team_id}-{channel_id}-{ts}`
+- channel root message: `slack-thread-{team_id}-{channel_id}-{ts}`
 - threaded reply chain: `slack-thread-{team_id}-{channel_id}-{thread_ts}`
 
 This keeps continuity aligned with Slack's own thread model.
@@ -71,14 +71,14 @@ The Slack app should use the existing turn API, not bespoke conversation plumbin
 
 Expected flow:
 
-1. Build a `create_conversation` payload with `ingress: "slack"` and Slack metadata.
-2. Submit the user message through `POST /api/conversations/:id/turns`.
-3. Poll turn status or monitor completion.
-4. If the app is the delivery owner, claim turn-scoped outbound messages.
-5. Post claimed outbound messages first.
-6. Post the final reply if it exists and is not just a duplicate of the last outbound text.
+1. Slack policy code normalizes the event into the shared bridge message shape.
+2. `BaseBridgeAdapter` builds a `create_conversation` payload with `ingress: "slack"` and Slack metadata.
+3. Shared dispatch submits the user message through `POST /api/conversations/:id/turns` and monitors it.
+4. If the app is the delivery owner, shared dispatch claims turn-scoped outbound messages.
+5. `SlackAdapter` posts claimed outbound messages through `chat.postMessage`.
+6. The final reply is the fallback when no outbound message was delivered.
 
-This should mirror the modern GitHub/Discord delivery pattern rather than the older local-only shortcuts.
+This mirrors Discord's shared bridge dispatch path while leaving Slack policy and delivery in Slack.
 
 ## Slack Permissions Strategy
 
@@ -123,18 +123,14 @@ After the basic bot works, a second phase can explore:
 
 Those should be optional polish layers over the same turn API, not a separate execution model.
 
-## Planned App Layout
+## App Layout
 
-The new app should live under `apps/slack/`.
-
-Proposed initial files:
-
-- `apps/slack/src/index.ts` - Bolt app entrypoint, event handlers, delivery loop
+- `apps/slack/src/index.ts` - thin standalone entrypoint
+- `apps/slack/src/adapter.ts` - Socket Mode lifecycle, shared dispatch seam, and Slack delivery
 - `apps/slack/src/config.ts` - env parsing and allowlist config
+- `apps/slack/src/slackHandler.ts` - access, deduplication, thread context, and normalization
 - `apps/slack/src/slackContext.ts` - conversation-id and metadata helpers
-- `apps/slack/src/threadContext.ts` - bounded DM/thread context fetch helpers
-- `apps/slack/src/agentServerClient.ts` - turn API adapter for Slack
-- `apps/slack/src/__tests__/...` - regression tests
+- `apps/slack/src/__tests__/...` - policy, normalization, and shared-dispatch regression tests
 - `apps/slack/package.json` - isolated app scripts
 - `apps/slack/AGENTS.md` - app-local guidance
 

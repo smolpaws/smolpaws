@@ -14,6 +14,7 @@ import {
   BaseBridgeAdapter,
   bridgeRegistry,
   type BridgeAdapterConfig,
+  type IncomingMessage,
   type ReplyContext,
 } from '../../../src/shared/bridgeAdapter.js';
 import { loadConfig, type SlackConfig } from './config.js';
@@ -22,10 +23,10 @@ import {
   MentionedThreadTracker,
   MessageDeduplicator,
   isThreadContextMessageSubtype,
+  replyThreadTs,
   type SlackEventContext,
   type ThreadMessage,
 } from './slackContext.js';
-import { dispatchToAgentServer } from './agentServerClient.js';
 import { handleSlackEvent, splitMessage, type SlackDeps } from './slackHandler.js';
 
 export type SlackAdapterConfig = BridgeAdapterConfig & {
@@ -42,12 +43,7 @@ export class SlackAdapter extends BaseBridgeAdapter {
 
   constructor(config: SlackAdapterConfig) {
     super(config);
-    // The bridge loader is the source of truth for runner connection.
-    this.slackConfig = {
-      ...config.slackConfig,
-      runnerUrl: this.runnerUrl,
-      runnerToken: this.runnerToken,
-    };
+    this.slackConfig = config.slackConfig;
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────
@@ -160,20 +156,20 @@ export class SlackAdapter extends BaseBridgeAdapter {
 
   // ── Platform I/O ─────────────────────────────────────────────────
 
-  /**
-   * Satisfies the BaseBridgeAdapter contract. Slack ingress posts through
-   * the injected handler (deps.postMessage), but this provides a direct
-   * reply path keyed on the originating event. Slack/Bolt events use
-   * snake_case; fall back to the message ts to start/reply in a thread.
-   */
   protected async sendReply(ctx: ReplyContext, text: string): Promise<void> {
-    const replyText = text.trim() || '🐾 Done — nothing to report back.';
-    const event = ctx.original as { channel?: string; ts?: string; thread_ts?: string } | undefined;
-    if (!event?.channel || !event?.ts) {
-      this.logger.error({ original: ctx.original }, 'Cannot send reply: missing channel or ts in original event');
-      return;
-    }
-    await this.postMessage(event.channel, replyText, event.thread_ts ?? event.ts);
+    const event = ctx.original as SlackEventContext;
+    await this.postMessage(event.channelId, text, replyThreadTs(event));
+  }
+
+  protected override buildCreateConversation(msg: IncomingMessage) {
+    const base = super.buildCreateConversation({ ...msg, platformContext: undefined });
+    return {
+      ...base,
+      smolpaws: {
+        ...base.smolpaws,
+        slack: msg.platformContext,
+      },
+    };
   }
 
   // ── Handler wiring ───────────────────────────────────────────────
@@ -188,7 +184,7 @@ export class SlackAdapter extends BaseBridgeAdapter {
       postMessage: (channel, text, threadTs) => this.postMessage(channel, text, threadTs),
       addReaction: (channel, timestamp, name) => this.addReaction(channel, timestamp, name),
       fetchThreadMessages: (channel, threadTs) => this.fetchThreadMessages(channel, threadTs),
-      dispatch: dispatchToAgentServer,
+      dispatch: (message, replyContext) => this.dispatch(message, replyContext),
     };
   }
 

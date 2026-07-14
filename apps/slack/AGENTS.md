@@ -27,15 +27,14 @@ starts it automatically at startup; `npm start` also runs it standalone.
 | File | Purpose |
 |------|---------|
 | `plugin.json` | Bridge manifest — `kind: "bridge"`, requiredEnv, discovered by the loader |
-| `src/adapter.ts` | `SlackAdapter extends BaseBridgeAdapter` — lifecycle, event handlers, registry registration |
+| `src/adapter.ts` | `SlackAdapter extends BaseBridgeAdapter` — lifecycle, shared dispatch, delivery, registry registration |
 | `src/index.ts` | Thin entry point — starts the adapter via `bridgeRegistry.startAdapter('slack', ...)` |
 | `src/config.ts` | Env parsing and allowlists |
-| `src/slackHandler.ts` | Ingress logic — access checks, dedup, thread context, dispatch |
+| `src/slackHandler.ts` | Ingress policy — access checks, dedup, thread context, normalization |
 | `src/slackContext.ts` | Conversation ID generation, mention stripping, dedup |
-| `src/agentServerClient.ts` | Turn submission via shared `turnClient.ts` |
 | `src/__tests__/slackContext.test.ts` | Context helper tests |
-| `src/__tests__/slackHandler.test.ts` | Ingress handler tests |
-| `src/__tests__/agentServerClient.test.ts` | Dispatch tests |
+| `src/__tests__/slackHandler.test.ts` | Ingress policy and normalization tests |
+| `src/__tests__/slackAdapter.test.ts` | Shared dispatch and delivery integration tests |
 
 ## Local Dev
 

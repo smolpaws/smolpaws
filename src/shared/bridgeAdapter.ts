@@ -200,6 +200,8 @@ export abstract class BaseBridgeAdapter {
         },
       });
 
+      if (!monitored.isDeliveryOwner) return;
+
       // Deliver outbound messages first (send_message tool results)
       for (const m of outbound) {
         if (m.kind === 'current_thread_message') {

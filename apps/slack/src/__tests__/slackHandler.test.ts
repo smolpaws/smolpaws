@@ -1,18 +1,18 @@
 import assert from 'node:assert/strict';
+import { unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import type { Logger } from 'pino';
+import type { IncomingMessage, ReplyContext } from '../../../../src/shared/bridgeAdapter.js';
 import { handleSlackEvent, splitMessage, type SlackDeps } from '../slackHandler.js';
+import type { SlackConfig } from '../config.js';
 import {
   GuestRateLimiter,
   MentionedThreadTracker,
   MessageDeduplicator,
   type SlackEventContext,
 } from '../slackContext.js';
-import type { SlackConfig } from '../config.js';
-import type { DispatchResult } from '../agentServerClient.js';
-import { unlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 
 function noopLogger(): Logger {
   const noop = () => {};
@@ -23,7 +23,6 @@ function makeConfig(overrides: Partial<SlackConfig> = {}): SlackConfig {
   return {
     botToken: 'xoxb-test',
     appToken: 'xapp-test',
-    runnerUrl: 'http://127.0.0.1:8788',
     allowedTeamIds: new Set(),
     allowedChannelIds: new Set(),
     allowedUserIds: new Set(),
@@ -47,7 +46,7 @@ function makeCtx(overrides: Partial<SlackEventContext> = {}): SlackEventContext 
 
 type PostedMessage = { channel: string; text: string; threadTs: string };
 type AddedReaction = { channel: string; timestamp: string; name: string };
-type DispatchCall = { conversationId: string; prompt: string; messageId: string };
+type DispatchCall = { message: IncomingMessage; replyContext: ReplyContext };
 
 function makeDeps(overrides: Partial<SlackDeps> = {}): SlackDeps & {
   posted: PostedMessage[];
@@ -57,6 +56,9 @@ function makeDeps(overrides: Partial<SlackDeps> = {}): SlackDeps & {
   const posted: PostedMessage[] = [];
   const reactions: AddedReaction[] = [];
   const dispatched: DispatchCall[] = [];
+  const postMessage = async (channel: string, text: string, threadTs: string) => {
+    posted.push({ channel, text, threadTs });
+  };
 
   return {
     config: makeConfig(),
@@ -64,11 +66,12 @@ function makeDeps(overrides: Partial<SlackDeps> = {}): SlackDeps & {
     guestLimiter: new GuestRateLimiter(join(tmpdir(), `smolpaws-test-${Date.now()}-${Math.random()}.json`), 5),
     mentionedThreads: new MentionedThreadTracker(),
     logger: noopLogger(),
-    postMessage: async (channel, text, threadTs) => { posted.push({ channel, text, threadTs }); },
+    postMessage,
     addReaction: async (channel, timestamp, name) => { reactions.push({ channel, timestamp, name }); },
-    dispatch: async (opts) => {
-      dispatched.push({ conversationId: opts.conversationId, prompt: opts.prompt, messageId: opts.messageId });
-      return { reply: `Reply to: ${opts.prompt}`, outboundMessages: [], conversationId: opts.conversationId };
+    dispatch: async (message, replyContext) => {
+      dispatched.push({ message, replyContext });
+      const original = replyContext.original as SlackEventContext;
+      await postMessage(original.channelId, `Reply to: ${message.prompt}`, original.threadTs ?? original.ts);
     },
     posted,
     reactions,
@@ -86,8 +89,8 @@ test('DM: dispatches to agent and posts reply in DM', async () => {
   await handleSlackEvent(ctx, deps);
 
   assert.equal(deps.dispatched.length, 1);
-  assert.equal(deps.dispatched[0].conversationId, 'slack-im-T06P-D08X');
-  assert.equal(deps.dispatched[0].prompt, 'hello paws');
+  assert.equal(deps.dispatched[0].message.conversationId, 'slack-im-T06P-D08X');
+  assert.equal(deps.dispatched[0].message.prompt, 'hello paws');
   assert.equal(deps.posted.length, 1);
   assert.equal(deps.posted[0].text, 'Reply to: hello paws');
   assert.equal(deps.posted[0].channel, 'D08X');
@@ -113,8 +116,8 @@ test('app_mention: dispatches with thread conversation ID and posts reply', asyn
   await handleSlackEvent(ctx, deps);
 
   assert.equal(deps.dispatched.length, 1);
-  assert.equal(deps.dispatched[0].conversationId, 'slack-thread-T06P-C123-1717200000.000100');
-  assert.equal(deps.dispatched[0].prompt, 'explain this code');
+  assert.equal(deps.dispatched[0].message.conversationId, 'slack-thread-T06P-C123-1717200000.000100');
+  assert.equal(deps.dispatched[0].message.prompt, 'explain this code');
   assert.equal(deps.posted.length, 1);
   assert.equal(deps.posted[0].threadTs, '1717200000.000100');
 });
@@ -149,7 +152,7 @@ test('app_mention: threaded reply uses thread_ts as root', async () => {
 
   await handleSlackEvent(ctx, deps);
 
-  assert.equal(deps.dispatched[0].conversationId, 'slack-thread-T06P-C123-1717200000.000100');
+  assert.equal(deps.dispatched[0].message.conversationId, 'slack-thread-T06P-C123-1717200000.000100');
   assert.equal(deps.posted[0].threadTs, '1717200000.000100');
 });
 
@@ -172,8 +175,8 @@ test('thread follow-up: responds without mention in tracked thread', async () =>
   await handleSlackEvent(followUp, deps);
 
   assert.equal(deps.dispatched.length, 2);
-  assert.equal(deps.dispatched[1].prompt, 'what about this part?');
-  assert.equal(deps.dispatched[1].conversationId, 'slack-thread-T06P-C123-1717200000.000100');
+  assert.equal(deps.dispatched[1].message.prompt, 'what about this part?');
+  assert.equal(deps.dispatched[1].message.conversationId, 'slack-thread-T06P-C123-1717200000.000100');
 });
 
 test('thread follow-up: does NOT track DM threads', async () => {
@@ -249,6 +252,34 @@ test('access: allowlisted user is never rate-limited', async () => {
   assert.equal(deps.dispatched.length, 10);
 });
 
+test('access: failed dispatch does not consume a guest conversation', async () => {
+  const f = join(tmpdir(), `smolpaws-guest-failure-test-${Date.now()}.json`);
+  let shouldFail = true;
+  const dispatched: DispatchCall[] = [];
+  const deps = makeDeps({
+    config: makeConfig({ allowedUserIds: new Set(['UGOOD']) }),
+    guestLimiter: new GuestRateLimiter(f, 1),
+    dispatch: async (message, replyContext) => {
+      dispatched.push({ message, replyContext });
+      if (shouldFail) {
+        shouldFail = false;
+        throw new Error('agent server down');
+      }
+    },
+  });
+
+  try {
+    await handleSlackEvent(makeCtx({ userId: 'UGUEST', ts: '100.001' }), deps);
+    await handleSlackEvent(makeCtx({ userId: 'UGUEST', ts: '100.002' }), deps);
+    await handleSlackEvent(makeCtx({ userId: 'UGUEST', ts: '100.003' }), deps);
+
+    assert.equal(dispatched.length, 2);
+    assert.ok(deps.posted.some(({ text }) => text.includes('guest conversations')));
+  } finally {
+    try { unlinkSync(f); } catch {}
+  }
+});
+
 // ── Eyes reaction ──
 
 test('eyes reaction: added on accepted messages', async () => {
@@ -273,27 +304,31 @@ test('eyes reaction: NOT added for denied users', async () => {
   assert.equal(deps.reactions.length, 0);
 });
 
-// ── Outbound messages ──
+// ── Shared dispatch seam ──
 
-test('outbound: delivers outbound messages before final reply', async () => {
-  const deps = makeDeps({
-    dispatch: async (opts) => ({
-      reply: 'final answer',
-      outboundMessages: [
-        { kind: 'current_thread_message', text: 'progress 1' },
-        { kind: 'current_thread_message', text: 'progress 2' },
-      ],
-      conversationId: opts.conversationId,
-    }),
+test('dispatch: normalizes Slack metadata for BaseBridgeAdapter', async () => {
+  const deps = makeDeps();
+  const ctx = makeCtx({
+    text: '<@U0BOT> do complex thing',
+    ts: '1717200099.000200',
+    threadTs: '1717200000.000100',
   });
-  const ctx = makeCtx({ text: '<@U0BOT> do complex thing' });
 
   await handleSlackEvent(ctx, deps);
 
-  assert.equal(deps.posted.length, 3);
-  assert.equal(deps.posted[0].text, 'progress 1');
-  assert.equal(deps.posted[1].text, 'progress 2');
-  assert.equal(deps.posted[2].text, 'final answer');
+  assert.equal(deps.dispatched.length, 1);
+  assert.deepEqual(deps.dispatched[0].message.platformContext, {
+    team_id: 'T06P',
+    channel_id: 'C123',
+    user_id: 'U456',
+    thread_ts: '1717200000.000100',
+  });
+  assert.equal(deps.dispatched[0].message.messageId, 'C123:1717200099.000200');
+  assert.equal(deps.dispatched[0].replyContext.original, ctx);
+  assert.equal(
+    deps.dispatched[0].replyContext.conversationId,
+    'slack-thread-T06P-C123-1717200000.000100',
+  );
 });
 
 // ── Error handling ──
@@ -329,14 +364,14 @@ test('thread context: prepends prior messages to prompt when in a thread', async
   await handleSlackEvent(ctx, deps);
 
   assert.equal(deps.dispatched.length, 1);
-  assert.ok(deps.dispatched[0].prompt.includes('[Thread context]'));
-  assert.ok(deps.dispatched[0].prompt.includes('<@U1>: What is OpenHands?'));
-  assert.ok(deps.dispatched[0].prompt.includes('<@U2>: An AI agent platform'));
-  const threadContextEnd = deps.dispatched[0].prompt.indexOf('[Current message]');
-  const threadContext = deps.dispatched[0].prompt.slice(0, threadContextEnd);
+  assert.ok(deps.dispatched[0].message.prompt.includes('[Thread context]'));
+  assert.ok(deps.dispatched[0].message.prompt.includes('<@U1>: What is OpenHands?'));
+  assert.ok(deps.dispatched[0].message.prompt.includes('<@U2>: An AI agent platform'));
+  const threadContextEnd = deps.dispatched[0].message.prompt.indexOf('[Current message]');
+  const threadContext = deps.dispatched[0].message.prompt.slice(0, threadContextEnd);
   assert.ok(!threadContext.includes('<@U456>: can you explain more?'));
-  assert.ok(deps.dispatched[0].prompt.includes('[Current message]'));
-  assert.ok(deps.dispatched[0].prompt.endsWith('can you explain more?'));
+  assert.ok(deps.dispatched[0].message.prompt.includes('[Current message]'));
+  assert.ok(deps.dispatched[0].message.prompt.endsWith('can you explain more?'));
 });
 
 test('thread context: not fetched for non-threaded messages', async () => {
@@ -350,7 +385,7 @@ test('thread context: not fetched for non-threaded messages', async () => {
 
   assert.equal(fetchCalled, false);
   assert.equal(deps.dispatched.length, 1);
-  assert.equal(deps.dispatched[0].prompt, 'hello');
+  assert.equal(deps.dispatched[0].message.prompt, 'hello');
 });
 
 test('thread context: labels bot messages as smolpaws', async () => {
@@ -365,7 +400,7 @@ test('thread context: labels bot messages as smolpaws', async () => {
 
   await handleSlackEvent(ctx, deps);
 
-  assert.ok(deps.dispatched[0].prompt.includes('smolpaws: Sure thing'));
+  assert.ok(deps.dispatched[0].message.prompt.includes('smolpaws: Sure thing'));
 });
 
 test('thread context: leaves non-user identifiers unwrapped', async () => {
@@ -380,11 +415,11 @@ test('thread context: leaves non-user identifiers unwrapped', async () => {
 
   await handleSlackEvent(ctx, deps);
 
-  assert.ok(deps.dispatched[0].prompt.includes('github-actions: CI passed'));
-  assert.ok(deps.dispatched[0].prompt.includes('B123BOT: @smolpaws release automation'));
-  assert.ok(!deps.dispatched[0].prompt.includes('<@github-actions>'));
-  assert.ok(!deps.dispatched[0].prompt.includes('<@B123BOT>'));
-  assert.ok(!deps.dispatched[0].prompt.includes('<@U0BOT> release automation'));
+  assert.ok(deps.dispatched[0].message.prompt.includes('github-actions: CI passed'));
+  assert.ok(deps.dispatched[0].message.prompt.includes('B123BOT: @smolpaws release automation'));
+  assert.ok(!deps.dispatched[0].message.prompt.includes('<@github-actions>'));
+  assert.ok(!deps.dispatched[0].message.prompt.includes('<@B123BOT>'));
+  assert.ok(!deps.dispatched[0].message.prompt.includes('<@U0BOT> release automation'));
 });
 
 test('thread context: gracefully degrades on fetch failure', async () => {
@@ -396,7 +431,7 @@ test('thread context: gracefully degrades on fetch failure', async () => {
   await handleSlackEvent(ctx, deps);
 
   assert.equal(deps.dispatched.length, 1);
-  assert.equal(deps.dispatched[0].prompt, 'help me');
+  assert.equal(deps.dispatched[0].message.prompt, 'help me');
 });
 
 test('thread context: works without fetchThreadMessages dependency', async () => {
@@ -407,7 +442,7 @@ test('thread context: works without fetchThreadMessages dependency', async () =>
   await handleSlackEvent(ctx, deps);
 
   assert.equal(deps.dispatched.length, 1);
-  assert.equal(deps.dispatched[0].prompt, 'hello');
+  assert.equal(deps.dispatched[0].message.prompt, 'hello');
 });
 
 test('thread context: not fetched when thread_ts matches current message ts', async () => {
@@ -424,7 +459,7 @@ test('thread context: not fetched when thread_ts matches current message ts', as
 
   assert.equal(fetchCalled, false);
   assert.equal(deps.dispatched.length, 1);
-  assert.equal(deps.dispatched[0].prompt, 'hello');
+  assert.equal(deps.dispatched[0].message.prompt, 'hello');
 });
 
 // ── splitMessage ──

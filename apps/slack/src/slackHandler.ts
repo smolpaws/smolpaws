@@ -1,7 +1,9 @@
 import type { Logger } from 'pino';
+import type {
+  IncomingMessage,
+  ReplyContext,
+} from '../../../src/shared/bridgeAdapter.js';
 import type { SlackConfig } from './config.js';
-import type { DispatchResult } from './agentServerClient.js';
-import type { SmolpawsOutboundMessage } from '../../../src/shared/runner.js';
 import {
   buildConversationId,
   checkAccess,
@@ -49,15 +51,7 @@ export type SlackDeps = {
   postMessage: (channel: string, text: string, threadTs: string) => Promise<void>;
   addReaction: (channel: string, timestamp: string, name: string) => Promise<void>;
   fetchThreadMessages?: (channel: string, threadTs: string) => Promise<ThreadMessage[]>;
-  dispatch: (options: {
-    baseUrl: string;
-    token?: string;
-    conversationId: string;
-    messageId: string;
-    prompt: string;
-    slack: { team_id: string; channel_id: string; user_id: string; thread_ts?: string };
-    logger: Logger;
-  }) => Promise<DispatchResult>;
+  dispatch: (message: IncomingMessage, replyContext: ReplyContext) => Promise<void>;
 };
 
 export async function handleSlackEvent(ctx: SlackEventContext, deps: SlackDeps): Promise<void> {
@@ -122,36 +116,24 @@ export async function handleSlackEvent(ctx: SlackEventContext, deps: SlackDeps):
   );
 
   try {
-    const result = await deps.dispatch({
-      baseUrl: deps.config.runnerUrl,
-      token: deps.config.runnerToken,
-      conversationId,
-      messageId: dedupKey,
-      prompt: fullPrompt,
-      slack: {
-        team_id: ctx.teamId,
-        channel_id: ctx.channelId,
-        user_id: ctx.userId,
-        thread_ts: threadTs,
+    await deps.dispatch(
+      {
+        conversationId,
+        messageId: dedupKey,
+        prompt: fullPrompt,
+        platformContext: {
+          team_id: ctx.teamId,
+          channel_id: ctx.channelId,
+          user_id: ctx.userId,
+          thread_ts: threadTs,
+        },
       },
-      logger: deps.logger,
-    });
+      { original: ctx, conversationId },
+    );
 
     // Record guest usage only after successful dispatch — don't burn a
     // conversation slot on agent-server failures.
     if (isGuest) deps.guestLimiter.record(ctx.userId);
-
-    for (const msg of result.outboundMessages) {
-      if (msg.kind === 'current_thread_message') {
-        await deps.postMessage(ctx.channelId, msg.text, threadTs);
-      }
-    }
-    if (result.reply) {
-      await deps.postMessage(ctx.channelId, result.reply, threadTs);
-    }
-    if (!result.reply && result.outboundMessages.length === 0) {
-      deps.logger.warn({ conversationId }, 'No reply from agent');
-    }
   } catch (error) {
     deps.logger.error({ err: error, conversationId }, 'Error processing Slack message');
     await deps.postMessage(ctx.channelId,

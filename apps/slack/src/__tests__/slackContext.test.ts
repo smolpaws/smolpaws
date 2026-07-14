@@ -35,7 +35,6 @@ function makeConfig(overrides: Partial<SlackConfig> = {}): SlackConfig {
   return {
     botToken: 'xoxb-test',
     appToken: 'xapp-test',
-    runnerUrl: 'http://127.0.0.1:8788',
     allowedTeamIds: new Set(),
     allowedChannelIds: new Set(),
     allowedUserIds: new Set(),
