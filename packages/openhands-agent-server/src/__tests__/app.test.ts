@@ -374,6 +374,33 @@ describe('createAgentServerApp', () => {
     }
   });
 
+  test('accepts a message while a run is actively writing events', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
+    const { app } = await createAgentServerApp({ agentFactory: delayedFinishAgentFactory, config: { conversationsPath: root } });
+    try {
+      const start = await app.inject({ method: 'POST', url: '/api/conversations', payload: {} });
+      const id = start.json<{ id: string }>().id;
+      await app.inject({ method: 'POST', url: `/api/conversations/${id}/events`, payload: { role: 'user', content: [textContent('first active message')], run: false } });
+      const run = await app.inject({ method: 'POST', url: `/api/conversations/${id}/run` });
+      expect(run.statusCode).toBe(200);
+      await sleep(20);
+      const queued = await app.inject({ method: 'POST', url: `/api/conversations/${id}/events`, payload: { role: 'user', content: [textContent('queued active message')], run: true } });
+      expect(queued.statusCode).toBe(200);
+      await waitFor(async () => {
+        const final = await app.inject({ method: 'GET', url: `/api/conversations/${id}/agent_final_response` });
+        expect(final.json<{ response: string }>().response).toBe('first done');
+      });
+      const events = await app.inject({ method: 'GET', url: `/api/conversations/${id}/events/search?kind=MessageEvent&source=user` });
+      const body = JSON.stringify(events.json());
+      expect(body).toContain('first active message');
+      expect(body).toContain('queued active message');
+    } finally {
+      await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+
   test('accepts WebSocket session API key as the first message', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
     const { app } = await createAgentServerApp({ config: { conversationsPath: path.join(root, 'conversations'), sessionApiKey: 'secret' } });

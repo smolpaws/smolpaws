@@ -24,6 +24,10 @@ config/
 .idea/
 .vscode/
 
+# Package-local generated smoke/test artifacts
+packages/openhands-agent-server/coverage/
+packages/openhands-agent-server/workspace/
+
 # Generated binaries
 apps/agent-server/bin/
 

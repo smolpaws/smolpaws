@@ -28,6 +28,7 @@ Implemented in this slice:
 - settings, profiles, agent-profiles, skills, and keychain-backed secret metadata routes
 - keychain-backed conversation secret flows without plaintext metadata/event persistence
 - zod-backed contracts, tsup/vitest/type-checked eslint, coverage, OpenAPI CLI generation, route-parity checks, and packed-consumer smoke testing
+- credential-free local endpoint smoke workflow (`npm run smoke:local`) covering the real Fastify REST/WebSocket surface without `RemoteConversation`/`RemoteWorkspace`
 - package-local manual LLM smoke workflow (`npm run manual:llm` with `OPENAI_API_KEY`)
 
 Required next parity work:
@@ -72,7 +73,15 @@ Package-local validation:
 npm run ci
 ```
 
-The package CI includes a `npm pack --dry-run`, real tarball pack, throwaway consumer install, TypeScript import check, and runtime import smoke through `npm run test:pack`.
+The package CI includes a `npm pack --dry-run`, real tarball pack, throwaway consumer install, TypeScript import check, runtime import smoke through `npm run test:pack`, and the credential-free local endpoint smoke.
+
+Run the broad real local endpoint smoke directly with:
+
+```sh
+npm run smoke:local
+```
+
+It starts an in-process Fastify app, uses deterministic SDK `TestLLM`, hits the REST and WebSocket endpoints directly, verifies async user messages are preserved separately, and checks dummy `OH_SECRET` values are not persisted as plaintext metadata/events. It intentionally does not use `RemoteConversation` or `RemoteWorkspace`.
 
 Generate this package's OpenAPI schema with:
 

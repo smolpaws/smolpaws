@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   Agent,
   type SecretStore,
+  conversationExecutionStatus,
   ConversationState,
   EventLog,
   EVENTS_DIR,
@@ -101,6 +102,9 @@ export class EventService {
   async sendMessage(message: Message, run = true): Promise<Event> {
     const event = messageEventSchema.parse({ source: message.role === 'user' ? 'user' : 'agent', llm_message: message });
     await this.appendAndPublish(event);
+    if (message.role === 'user' && this.state.executionStatus !== conversationExecutionStatus.RUNNING) {
+      this.state.executionStatus = conversationExecutionStatus.IDLE;
+    }
     if (run) {
       try {
         await this.run();
@@ -128,6 +132,9 @@ export class EventService {
   }
 
   async run(): Promise<void> {
+    if (this.state.executionStatus === conversationExecutionStatus.FINISHED && this.hasUserMessageAfterLastFinish()) {
+      this.state.executionStatus = conversationExecutionStatus.IDLE;
+    }
     if (this.runPromise !== null) {
       throw new Error('conversation_already_running');
     }
@@ -252,10 +259,36 @@ export class EventService {
   }
 
   private async appendAndPublish(event: Event): Promise<void> {
-    this.state.appendEvent(event);
+    await this.appendStateEvent(event);
     this.touch();
     await this.saveConversation(this.stored);
     await this.publishEventOnce(event);
+  }
+
+  private async appendStateEvent(event: Event): Promise<void> {
+    const deadline = Date.now() + 2_000;
+    while (true) {
+      try {
+        await this.state.appendEventAsync(event);
+        return;
+      } catch (error) {
+        if (!isEventLogDeadlock(error) || Date.now() >= deadline) throw error;
+        await sleep(20);
+      }
+    }
+  }
+
+  private hasUserMessageAfterLastFinish(): boolean {
+    let lastFinish = -1;
+    let lastUserMessage = -1;
+    this.state.events.forEach((event, index) => {
+      if (event.kind === 'ObservationEvent' && event.tool_name === 'finish' && event.observation.is_error !== true) {
+        lastFinish = index;
+      } else if (event.kind === 'MessageEvent' && event.source === 'user') {
+        lastUserMessage = index;
+      }
+    });
+    return lastUserMessage > lastFinish;
   }
 
   private async publishEventOnce(event: Event): Promise<void> {
@@ -318,6 +351,16 @@ function conversationEventDir(conversationId: string): string {
     throw new Error(`Invalid conversationId: ${conversationId}`);
   }
   return `${safeConversationId}/${EVENTS_DIR}`;
+}
+
+function isEventLogDeadlock(error: unknown): boolean {
+  if (error instanceof Error && error.message.startsWith('Deadlock detected: lock already held for ')) return true;
+  if (error instanceof Error && error.message.includes('.eventlog.lock')) return true;
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'EEXIST';
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isConversationAlreadyRunning(error: unknown): boolean {
