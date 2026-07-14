@@ -51,31 +51,31 @@ let conversationsPath = '';
 let statePath = '';
 let bashEventsPath = '';
 let secretStore = new InMemorySecretStore();
-let server: Awaited<ReturnType<typeof createAgentServerApp>>;
+let server: Awaited<ReturnType<typeof createAgentServerApp>> | null = null;
 let host = '';
 
 async function main(): Promise<void> {
   root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-local-endpoints-'));
-  workspaceRoot = path.join(root, 'workspace');
-  conversationsPath = path.join(root, 'conversations');
-  statePath = path.join(root, 'state');
-  bashEventsPath = path.join(root, 'bash-events');
-  await mkdir(workspaceRoot, { recursive: true });
-
-  secretStore = new InMemorySecretStore();
-  server = await createAgentServerApp({
-    agentFactory: localAgentFactory,
-    secretStore,
-    config: {
-      conversationsPath,
-      statePath,
-      bashEventsPath,
-      workspaceRoot,
-      allowedFileRoots: [workspaceRoot],
-      sessionApiKey,
-    },
-  });
   try {
+    workspaceRoot = path.join(root, 'workspace');
+    conversationsPath = path.join(root, 'conversations');
+    statePath = path.join(root, 'state');
+    bashEventsPath = path.join(root, 'bash-events');
+    await mkdir(workspaceRoot, { recursive: true });
+
+    secretStore = new InMemorySecretStore();
+    server = await createAgentServerApp({
+      agentFactory: localAgentFactory,
+      secretStore,
+      config: {
+        conversationsPath,
+        statePath,
+        bashEventsPath,
+        workspaceRoot,
+        allowedFileRoots: [workspaceRoot],
+        sessionApiKey,
+      },
+    });
     host = await listen(server.app);
     const client = new LocalClient(host);
 
@@ -106,7 +106,7 @@ async function main(): Promise<void> {
       ],
     }, null, 2));
   } finally {
-    await server.app.close().catch(() => undefined);
+    await server?.app.close().catch(() => undefined);
     await rm(root, { recursive: true, force: true });
   }
 }
@@ -350,7 +350,7 @@ async function coverForkDeleteLeaseAndRestart(client: LocalClient, conversationI
     await second.app.close();
   }
 
-  await server.app.close();
+  await server!.app.close();
   server = await createAgentServerApp({
     agentFactory: localAgentFactory,
     secretStore,

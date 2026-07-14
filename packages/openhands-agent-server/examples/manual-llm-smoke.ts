@@ -45,20 +45,21 @@ async function main(): Promise<void> {
 async function runModelSmoke(model: string): Promise<SmokeResult> {
   const profile = openAiProfile(model);
   const root = await mkdtemp(path.join(os.tmpdir(), `openhands-agent-server-live-${safeName(model)}-`));
-  const conversationsPath = path.join(root, 'conversations');
-  const workspaceRoot = path.join(root, 'workspace');
-  const statePath = path.join(root, 'state');
-  const secretStore = new InMemorySecretStore();
-  await secretStore.set(llmProfileSecretRef(profile.profileId), apiKey);
-  const llm = await createClientFromProfile(profile, secretStore);
-  const agentFactory = () => new Agent({ llm, tools: [FinishTool.create()] });
-  const server = await createAgentServerApp({
-    agentFactory,
-    secretStore,
-    config: { conversationsPath, workspaceRoot, statePath, sessionApiKey },
-  });
+  let server: Awaited<ReturnType<typeof createAgentServerApp>> | null = null;
 
   try {
+    const conversationsPath = path.join(root, 'conversations');
+    const workspaceRoot = path.join(root, 'workspace');
+    const statePath = path.join(root, 'state');
+    const secretStore = new InMemorySecretStore();
+    await secretStore.set(llmProfileSecretRef(profile.profileId), apiKey);
+    const llm = await createClientFromProfile(profile, secretStore);
+    const agentFactory = () => new Agent({ llm, tools: [FinishTool.create()] });
+    server = await createAgentServerApp({
+      agentFactory,
+      secretStore,
+      config: { conversationsPath, workspaceRoot, statePath, sessionApiKey },
+    });
     await server.app.listen({ host: '127.0.0.1', port: 0 });
     const client = new LocalClient(localHost(server.app.server.address()));
 
@@ -96,7 +97,7 @@ async function runModelSmoke(model: string): Promise<SmokeResult> {
       dummy_oh_secret_plaintext_persisted: false,
     };
   } finally {
-    await server.app.close().catch(() => undefined);
+    await server?.app.close().catch(() => undefined);
     await rm(root, { recursive: true, force: true });
   }
 }
