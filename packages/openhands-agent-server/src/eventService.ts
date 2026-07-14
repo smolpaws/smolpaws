@@ -338,9 +338,7 @@ function conversationEventDir(conversationId: string): string {
 }
 
 function isEventLogDeadlock(error: unknown): boolean {
-  if (error instanceof Error && error.message.startsWith('Deadlock detected: lock already held for ')) return true;
-  if (error instanceof Error && error.message.includes('.eventlog.lock')) return true;
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'EEXIST';
+  return error instanceof Error && error.message.startsWith('Deadlock detected: lock already held for ');
 }
 
 function sleep(ms: number): Promise<void> {
