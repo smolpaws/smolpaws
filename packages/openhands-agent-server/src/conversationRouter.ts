@@ -11,6 +11,7 @@ import {
   updateSecretsRequestSchema,
   setConfirmationPolicyRequestSchema,
   setSecurityAnalyzerRequestSchema,
+  type StartConversationRequest,
 } from './models.js';
 import {
   arrayQuery,
@@ -25,7 +26,11 @@ import {
   successOrNotFound,
 } from './routeUtils.js';
 
-export function registerConversationRoutes(app: FastifyInstance, service: ConversationService): void {
+interface ConversationRouteOptions {
+  readonly prepareStartRequest?: (input: unknown) => StartConversationRequest | Promise<StartConversationRequest>;
+}
+
+export function registerConversationRoutes(app: FastifyInstance, service: ConversationService, options: ConversationRouteOptions = {}): void {
   app.get('/api/conversations/search', async (request) => {
     const query = queryRecord(request);
     return service.searchConversations(
@@ -49,7 +54,10 @@ export function registerConversationRoutes(app: FastifyInstance, service: Conver
   });
 
   app.post('/api/conversations', async (request, reply) => {
-    const result = await service.startConversation(parseBody(startConversationRequestSchema, request.body));
+    const startRequest = options.prepareStartRequest === undefined
+      ? parseBody(startConversationRequestSchema, request.body)
+      : await options.prepareStartRequest(request.body);
+    const result = await service.startConversation(startRequest);
     reply.status(result.isNew ? 201 : 200);
     return result.info;
   });

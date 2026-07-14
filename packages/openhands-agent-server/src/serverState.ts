@@ -47,9 +47,15 @@ export class ServerStateService {
 
   async updateSettings(update: SettingsUpdateRequest): Promise<SettingsResponse> {
     const state = await this.load();
+    const activeProfileId = update.active_profile_id === undefined ? state.settings.active_profile_id : update.active_profile_id;
+    if (activeProfileId !== null && state.llmProfiles[activeProfileId] === undefined) throw new Error('profile_not_found');
+    const requestedAgentSettings = update.agent_settings === undefined ? state.settings.agent_settings : validateAgentSettings(update.agent_settings);
+    const agentSettings = update.agent_settings === undefined && activeProfileId !== null && requestedAgentSettings.agent_kind === 'openhands'
+      ? { ...requestedAgentSettings, llm_profile_ref: activeProfileId }
+      : requestedAgentSettings;
     const settings: SettingsResponse = {
       ...state.settings,
-      ...(update.agent_settings === undefined ? {} : { agent_settings: validateAgentSettings(update.agent_settings) }),
+      agent_settings: agentSettings,
       ...(update.conversation_settings === undefined ? {} : { conversation_settings: validateConversationSettings(update.conversation_settings) }),
       ...(update.active_profile_id === undefined ? {} : { active_profile_id: update.active_profile_id }),
       ...(update.active_agent_profile_id === undefined ? {} : { active_agent_profile_id: update.active_agent_profile_id }),
@@ -96,14 +102,20 @@ export class ServerStateService {
     const profiles = withoutKey(state.llmProfiles, name);
     profiles[newName] = { ...profile, profileId: newName };
     const active_profile_id = state.settings.active_profile_id === name ? newName : state.settings.active_profile_id;
-    this.state = { ...state, llmProfiles: profiles, settings: { ...state.settings, active_profile_id } };
+    const agentSettings = state.settings.agent_settings.agent_kind === 'openhands' && state.settings.agent_settings.llm_profile_ref === name
+      ? { ...state.settings.agent_settings, llm_profile_ref: newName }
+      : state.settings.agent_settings;
+    this.state = { ...state, llmProfiles: profiles, settings: { ...state.settings, agent_settings: agentSettings, active_profile_id } };
     await this.save();
   }
 
   async activateProfile(name: string): Promise<void> {
     const state = await this.load();
     if (state.llmProfiles[name] === undefined) throw new Error('profile_not_found');
-    this.state = { ...state, settings: { ...state.settings, active_profile_id: name } };
+    const agentSettings = state.settings.agent_settings.agent_kind === 'openhands'
+      ? { ...state.settings.agent_settings, llm_profile_ref: name }
+      : state.settings.agent_settings;
+    this.state = { ...state, settings: { ...state.settings, agent_settings: agentSettings, active_profile_id: name } };
     await this.save();
   }
 

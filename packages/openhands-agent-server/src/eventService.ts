@@ -47,7 +47,8 @@ export class EventService {
   private readonly pubSub = new PubSub<Event>(50);
   private readonly saveConversation: (stored: StoredConversation) => Promise<void>;
   private readonly secretStore: SecretStore | undefined;
-  private readonly conversationPromise: Promise<LocalConversation>;
+  private readonly agentFactory: AgentFactory | undefined;
+  private conversationPromise: Promise<LocalConversation> | null = null;
   private readonly publishedEventIds = new Set<string>();
   private runPromise: Promise<void> | null = null;
   private rerunRequested = false;
@@ -58,7 +59,7 @@ export class EventService {
     this.state = new ConversationState({ eventLog: this.eventLog, events: options.events ?? [] });
     this.saveConversation = options.saveConversation ?? (async () => undefined);
     this.secretStore = options.secretStore;
-    this.conversationPromise = this.createConversation(options.agentFactory);
+    this.agentFactory = options.agentFactory;
   }
 
   async getEvent(eventId: string): Promise<Event | null> {
@@ -146,7 +147,7 @@ export class EventService {
   }
 
   async pause(): Promise<void> {
-    const conversation = await this.conversationPromise;
+    const conversation = await this.conversation();
     conversation.pause();
     await this.appendAndPublish(pauseEventSchema.parse({}));
   }
@@ -229,8 +230,18 @@ export class EventService {
     await this.pubSub.close();
   }
 
-  private async createConversation(agentFactory: AgentFactory | undefined): Promise<LocalConversation> {
-    const agent = agentFactory === undefined ? defaultUnconfiguredAgent() : await agentFactory(this.stored.request.agent, { stored: this.stored });
+  private conversation(): Promise<LocalConversation> {
+    if (this.conversationPromise !== null) return this.conversationPromise;
+    const promise = this.createConversation();
+    this.conversationPromise = promise;
+    void promise.catch(() => {
+      if (this.conversationPromise === promise) this.conversationPromise = null;
+    });
+    return promise;
+  }
+
+  private async createConversation(): Promise<LocalConversation> {
+    const agent = this.agentFactory === undefined ? defaultUnconfiguredAgent() : await this.agentFactory(this.stored.request.agent, { stored: this.stored });
     return new LocalConversation({
       agent,
       state: this.state,
@@ -240,7 +251,7 @@ export class EventService {
   }
 
   private async runAndPublish(): Promise<void> {
-    const conversation = await this.conversationPromise;
+    const conversation = await this.conversation();
     do {
       this.rerunRequested = false;
       const startIndex = this.events().length;

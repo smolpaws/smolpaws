@@ -16,6 +16,7 @@ import { registerEventRoutes } from './eventRouter.js';
 import { registerFileRoutes } from './fileRouter.js';
 import { registerGitRoutes } from './gitRouter.js';
 import { generateOpenApiSchema } from './openapi.js';
+import { createProfileAgentFactory, prepareProfileStartRequest, type ProfileLlmClientFactory } from './profileAgentFactory.js';
 import { registerProfileRoutes } from './profilesRouter.js';
 import { ServerStateService } from './serverState.js';
 import { registerSettingsRoutes } from './settingsRouter.js';
@@ -29,6 +30,7 @@ export interface AgentServerAppOptions extends ConversationServiceOptions {
   readonly conversationService?: ConversationService;
   readonly secretStore?: SecretStore;
   readonly serverStateService?: ServerStateService;
+  readonly llmClientFactory?: ProfileLlmClientFactory;
   readonly logger?: boolean;
 }
 
@@ -53,21 +55,26 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
     allowedFileRoots,
   };
   const secretStore = options.secretStore ?? new MacOSKeychainSecretStore();
+  const serverStateService = options.serverStateService ?? new ServerStateService({ stateDir: config.statePath, secretStore });
+  const agentFactory = options.agentFactory ?? createProfileAgentFactory({
+    state: serverStateService,
+    secretStore,
+    ...(options.llmClientFactory === undefined ? {} : { llmClientFactory: options.llmClientFactory }),
+  });
   const serviceOptions: ConversationServiceOptions = {
     persistenceDir: config.conversationsPath,
     secretStore,
-    ...(options.agentFactory === undefined ? {} : { agentFactory: options.agentFactory }),
+    agentFactory,
   };
   const conversationService = options.conversationService ?? new ConversationService(serviceOptions);
   const bashEventService = new BashEventService({ bashEventsDir: config.bashEventsPath });
-  const serverStateService = options.serverStateService ?? new ServerStateService({ stateDir: config.statePath, secretStore });
   const app = Fastify({ logger: options.logger ?? false, bodyLimit: 25 * 1024 * 1024 });
 
   await app.register(multipart);
   await app.register(websocket);
   registerAuth(app, config);
   registerServerDetailsRoutes(app, config);
-  registerConversationRoutes(app, conversationService);
+  registerConversationRoutes(app, conversationService, { prepareStartRequest: (input) => prepareProfileStartRequest(input, serverStateService) });
   registerEventRoutes(app, conversationService);
   registerBashRoutes(app, bashEventService);
   registerGitRoutes(app);
