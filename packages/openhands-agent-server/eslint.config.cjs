@@ -9,14 +9,14 @@ module.exports = [
     ignores: ['dist/**', 'coverage/**'],
   },
   {
-    files: ['src/**/*.ts', 'scripts/**/*.ts'],
+    files: ['src/**/*.ts', 'scripts/**/*.ts', 'examples/**/*.ts'],
     ignores: ['src/**/__tests__/**', 'src/**/*.test.ts', 'src/**/*.spec.ts'],
     languageOptions: {
       parser: tsparser,
       parserOptions: {
         ecmaVersion: 2022,
         sourceType: 'module',
-        project: ['./tsconfig.json'],
+        project: ['./tsconfig.json', './tsconfig.examples.json'],
         tsconfigRootDir: __dirname,
       },
       globals: globals.node,

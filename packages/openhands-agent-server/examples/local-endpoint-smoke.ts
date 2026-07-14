@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-import { Agent, FinishTool, InMemorySecretStore, TestLLM, ToolDefinition, type LLMProfile, type Message } from '@smolpaws/openhands-agent';
+import { Agent, FinishTool, InMemorySecretStore, TestLLM, ToolDefinition, messageSchema, type LLMProfile, type Message } from '@smolpaws/openhands-agent';
 import { z } from 'zod';
 
 import { createAgentServerApp } from '../src/app.js';
@@ -418,7 +418,7 @@ class LocalClient {
     const headers = new Headers();
     if (auth) headers.set('x-session-api-key', sessionApiKey);
     if (body !== undefined) headers.set('content-type', 'application/json');
-    const response = await fetch(`${this.baseUrl}${route}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    const response = await fetch(`${this.baseUrl}${route}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     const text = await response.text();
     assertEqual(response.status, expected, `${method} ${route} status: ${text}`);
     return (text.length === 0 ? null : JSON.parse(text)) as T;
@@ -435,17 +435,21 @@ function localAgentFactory(): Agent {
 }
 
 function assistantToolCall(id: string, name: string, args: Record<string, unknown>): Message {
-  return {
+  return messageSchema.parse({
     role: 'assistant',
     content: [],
-    tool_calls: [{ id, name, arguments: JSON.stringify(args), origin: 'completion' }],
-  };
+    tool_calls: [{ id, responses_item_id: null, name, arguments: JSON.stringify(args), origin: 'completion' }],
+  });
 }
 
 function eventText(event: EventLike): string {
   const content = event.llm_message?.content;
   if (!Array.isArray(content)) return '';
-  return content.map((item) => typeof item === 'object' && item !== null && 'text' in item && typeof item.text === 'string' ? item.text : '').join('\n');
+  return content.map((item: unknown) => {
+    if (typeof item !== 'object' || item === null || !('text' in item)) return '';
+    const text: unknown = item.text;
+    return typeof text === 'string' ? text : '';
+  }).join('\n');
 }
 
 async function assertNoPlaintextSecretPersisted(searchRoot: string): Promise<void> {

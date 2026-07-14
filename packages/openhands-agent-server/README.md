@@ -26,10 +26,11 @@ Implemented in this slice:
 - SDK `EventLog` durability with server-owned, lease-guarded `meta.json`
 - per-conversation lease ownership safeguards for multi-instance/restart overlap
 - settings, profiles, agent-profiles, skills, and keychain-backed secret metadata routes
+- settings-backed agent creation from the active LLM profile, with per-conversation profile and iteration-limit snapshots
 - keychain-backed conversation secret flows without plaintext metadata/event persistence
-- zod-backed contracts, tsup/vitest/type-checked eslint, coverage, OpenAPI CLI generation, route-parity checks, and packed-consumer smoke testing
+- zod-backed contracts, tsup/vitest/type-checked eslint, coverage, strict example typechecking, OpenAPI CLI generation, route-parity checks, and packed-consumer smoke testing
 - credential-free local endpoint smoke workflow (`npm run smoke:local`) covering the real Fastify REST/WebSocket surface without `RemoteConversation`/`RemoteWorkspace`
-- package-local manual LLM smoke workflow (`npm run manual:llm` with `OPENAI_API_KEY`)
+- package-local profile-driven LLM workflow (`npm run manual:llm` with `OPENAI_API_KEY`)
 
 Required next parity work:
 
@@ -73,7 +74,7 @@ Package-local validation:
 npm run ci
 ```
 
-The package CI includes a `npm pack --dry-run`, real tarball pack, throwaway consumer install, TypeScript import check, runtime import smoke through `npm run test:pack`, and the credential-free local endpoint smoke.
+The package CI includes strict source and example typechecks, a `npm pack --dry-run`, real tarball pack, throwaway consumer install, TypeScript import check, runtime import smoke through `npm run test:pack`, and the credential-free local endpoint smoke.
 
 Run the broad real local endpoint smoke directly with:
 
@@ -95,13 +96,15 @@ Generate all current SmolPaws OpenAPI artifacts from the repository root with:
 scripts/generate-openapi.sh
 ```
 
-Run the manual live-LLM smoke only when you intentionally want to spend real OpenAI model calls:
+Run the manual profile-driven workflow only when you intentionally want to spend real OpenAI model calls:
 
 ```sh
-OPENAI_API_KEY=... OPENAI_MODELS=gpt-5-nano,gpt-5-mini npm run manual:llm
+OPENAI_API_KEY=... npm run manual:llm
 ```
 
-The manual smoke starts local Fastify servers and uses direct `fetch` calls to the REST API; it intentionally does not use `RemoteConversation` or `RemoteWorkspace`. It creates distinct local LLM profiles for each model, verifies the server profile endpoints, binds the injected `agentFactory` to the matching profile/model, exercises dummy `OH_SECRET` writes through settings and conversation secret routes, and scans the temporary server root to prove the dummy secret value was not persisted as plaintext. The profile endpoints currently persist/activate metadata but do not themselves replace the injected `agentFactory`; that seam is reported explicitly in the smoke output.
+The workflow starts one local Fastify server and loads the `gpt-nano` and `gpt-mini` definitions from `examples/llm-profiles.json`. It creates both profiles through the REST API, deletes and re-adds one, activates `gpt-nano`, stores `OPENAI_API_KEY` through normal settings into an in-memory `SecretStore`, and starts a conversation without an injected `agentFactory` or serialized agent. That conversation reads and summarizes a README, then receives a follow-up that replaces the README with its summary. The workflow verifies events, final state, file download, git changes/diff, fork/delete, profile/settings snapshots, and that the agent did not commit.
+
+It then activates `gpt-mini`, changes the conversation iteration setting, and starts a second independent conversation in a second git workspace. Both conversation IDs and persistence directories must differ, the second request must capture the new profile and settings, and the second README must remain unchanged. The final scan proves neither `OPENAI_API_KEY` nor the dummy `OH_SECRET` value appears in the temporary server tree. Direct `fetch` is intentional: this exercises the server contract rather than `RemoteConversation` or `RemoteWorkspace` convenience clients.
 
 ## References the transpile should follow
 

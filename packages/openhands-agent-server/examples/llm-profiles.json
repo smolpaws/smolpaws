@@ -1,0 +1,38 @@
+{
+  "profiles": [
+    {
+      "profileId": "gpt-nano",
+      "providerId": "openai",
+      "model": "gpt-5-nano",
+      "baseUrl": null,
+      "openAiApiMode": "responses",
+      "temperature": null,
+      "topP": null,
+      "topK": null,
+      "maxInputTokens": null,
+      "maxOutputTokens": null,
+      "timeoutSeconds": 180,
+      "reasoningEffort": null,
+      "reasoningSummary": null,
+      "headers": {},
+      "useProfileKeyOverride": true
+    },
+    {
+      "profileId": "gpt-mini",
+      "providerId": "openai",
+      "model": "gpt-5-mini",
+      "baseUrl": null,
+      "openAiApiMode": "responses",
+      "temperature": null,
+      "topP": null,
+      "topK": null,
+      "maxInputTokens": null,
+      "maxOutputTokens": null,
+      "timeoutSeconds": 180,
+      "reasoningEffort": null,
+      "reasoningSummary": null,
+      "headers": {},
+      "useProfileKeyOverride": true
+    }
+  ]
+}
