@@ -6,10 +6,10 @@ on:
 jobs:
   manual-llm-smoke:
     runs-on: macos-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     environment: LLM
     env:
-      OPENAI_MODEL: gpt-5-nano
+      OPENAI_MODELS: gpt-5-nano,gpt-5-mini
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
@@ -28,5 +28,5 @@ jobs:
             exit 1
           fi
 
-      - name: Run manual LLM smoke
+      - name: Run direct local server OpenAI smoke
         run: npm run manual:llm --prefix packages/openhands-agent-server

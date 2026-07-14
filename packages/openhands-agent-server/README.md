@@ -95,13 +95,13 @@ Generate all current SmolPaws OpenAPI artifacts from the repository root with:
 scripts/generate-openapi.sh
 ```
 
-Run the manual live-LLM smoke only when you intentionally want to spend a real model call:
+Run the manual live-LLM smoke only when you intentionally want to spend real OpenAI model calls:
 
 ```sh
-OPENAI_API_KEY=... npm run manual:llm
+OPENAI_API_KEY=... OPENAI_MODELS=gpt-5-nano,gpt-5-mini npm run manual:llm
 ```
 
-The manual smoke stores the supplied API key in macOS Keychain for its process-local profile; it does not write plaintext secrets to package files.
+The manual smoke starts local Fastify servers and uses direct `fetch` calls to the REST API; it intentionally does not use `RemoteConversation` or `RemoteWorkspace`. It creates distinct local LLM profiles for each model, verifies the server profile endpoints, binds the injected `agentFactory` to the matching profile/model, exercises dummy `OH_SECRET` writes through settings and conversation secret routes, and scans the temporary server root to prove the dummy secret value was not persisted as plaintext. The profile endpoints currently persist/activate metadata but do not themselves replace the injected `agentFactory`; that seam is reported explicitly in the smoke output.
 
 ## References the transpile should follow
 

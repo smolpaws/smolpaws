@@ -557,10 +557,7 @@ function assertAcceptedDeviation(response: AcceptedDeviation, feature: string): 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
-
 function assertEqual<T>(actual: T, expected: T, message: string): void {
   if (!Object.is(actual, expected)) throw new Error(`${message}: expected ${String(expected)}, got ${String(actual)}`);
 }
-
 await main();
-

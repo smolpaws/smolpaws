@@ -132,9 +132,6 @@ export class EventService {
   }
 
   async run(): Promise<void> {
-    if (this.state.executionStatus === conversationExecutionStatus.FINISHED && this.hasUserMessageAfterLastFinish()) {
-      this.state.executionStatus = conversationExecutionStatus.IDLE;
-    }
     if (this.runPromise !== null) {
       throw new Error('conversation_already_running');
     }
@@ -276,19 +273,6 @@ export class EventService {
         await sleep(20);
       }
     }
-  }
-
-  private hasUserMessageAfterLastFinish(): boolean {
-    let lastFinish = -1;
-    let lastUserMessage = -1;
-    this.state.events.forEach((event, index) => {
-      if (event.kind === 'ObservationEvent' && event.tool_name === 'finish' && event.observation.is_error !== true) {
-        lastFinish = index;
-      } else if (event.kind === 'MessageEvent' && event.source === 'user') {
-        lastUserMessage = index;
-      }
-    });
-    return lastUserMessage > lastFinish;
   }
 
   private async publishEventOnce(event: Event): Promise<void> {
