@@ -11,7 +11,6 @@ import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
   makeCacheableSignalKeyStore,
-  fetchLatestWaWebVersion,
 } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
@@ -19,6 +18,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { WHATSAPP_DIR } from './config.js';
+import { resolveWhatsAppVersion } from './whatsapp-version.js';
 
 const AUTH_DIR = path.join(WHATSAPP_DIR, 'auth');
 const HOME_DIR = process.env.HOME || '';
@@ -41,7 +41,7 @@ async function authenticate(): Promise<void> {
   }
 
   console.log('Starting WhatsApp authentication...\n');
-  const { version } = await fetchLatestWaWebVersion();
+  const { version } = await resolveWhatsAppVersion();
 
   const sock = makeWASocket({
     auth: {

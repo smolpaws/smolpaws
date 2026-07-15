@@ -2,7 +2,6 @@ import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
   makeCacheableSignalKeyStore,
-  fetchLatestWaWebVersion,
   downloadMediaMessage,
   WASocket,
   type WAMessage,
@@ -38,6 +37,7 @@ import { shouldSendFinalReplyAfterOutbound } from './outbound-reply-policy.js';
 import { resolveOutboundChatJid } from './whatsapp-jid.js';
 import { isReadableDocumentMedia, readDocumentText } from './document-text.js';
 import { isTransientNetworkError } from './network-errors.js';
+import { resolveWhatsAppVersion } from './whatsapp-version.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MEDIA_DIR = path.join(WHATSAPP_DIR, 'media');
@@ -479,7 +479,8 @@ async function connectWhatsApp(): Promise<void> {
   fs.mkdirSync(authDir, { recursive: true });
 
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
-  const { version } = await fetchLatestWaWebVersion();
+  const { version, source: versionSource } = await resolveWhatsAppVersion();
+  logger.info({ version, versionSource }, 'Resolved WhatsApp client version');
 
   sock = makeWASocket({
     auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, logger) },
