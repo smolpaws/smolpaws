@@ -32,17 +32,29 @@ const defaultFetchers: VersionFetchers = {
 export async function resolveWhatsAppVersion(
   fetchers: VersionFetchers = defaultFetchers,
 ): Promise<WhatsAppVersionResolution> {
-  const web = await fetchers.fetchWhatsAppWebVersion();
-  if (web.isLatest) {
-    return { version: web.version, source: 'whatsapp-web' };
+  let webError: unknown;
+  try {
+    const web = await fetchers.fetchWhatsAppWebVersion();
+    if (web.isLatest) {
+      return { version: web.version, source: 'whatsapp-web' };
+    }
+    webError = web.error;
+  } catch (error) {
+    webError = error;
   }
 
-  const upstream = await fetchers.fetchBaileysVersion();
-  if (upstream.isLatest) {
-    return { version: upstream.version, source: 'baileys-upstream' };
+  let upstreamError: unknown;
+  try {
+    const upstream = await fetchers.fetchBaileysVersion();
+    if (upstream.isLatest) {
+      return { version: upstream.version, source: 'baileys-upstream' };
+    }
+    upstreamError = upstream.error;
+  } catch (error) {
+    upstreamError = error;
   }
 
   throw new Error('Unable to resolve a current WhatsApp Web client version', {
-    cause: upstream.error ?? web.error,
+    cause: upstreamError ?? webError,
   });
 }

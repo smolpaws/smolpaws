@@ -15,10 +15,8 @@ test('uses the live WhatsApp Web revision when available', async () => {
     },
   });
 
-  assert.deepEqual(result, {
-    version: [2, 3000, 111],
-    source: 'whatsapp-web',
-  });
+  assert.equal(result.source, 'whatsapp-web');
+  assert.deepEqual(result.version, [2, 3000, 111]);
   assert.equal(fallbackCalls, 0);
 });
 
@@ -35,10 +33,23 @@ test('falls back to Baileys upstream when WhatsApp sw.js is unavailable', async 
     }),
   });
 
-  assert.deepEqual(result, {
-    version: [2, 3000, 222],
-    source: 'baileys-upstream',
+  assert.equal(result.source, 'baileys-upstream');
+  assert.deepEqual(result.version, [2, 3000, 222]);
+});
+
+test('falls back when the WhatsApp Web fetcher throws', async () => {
+  const result = await resolveWhatsAppVersion({
+    fetchWhatsAppWebVersion: async () => {
+      throw new Error('network timeout');
+    },
+    fetchBaileysVersion: async () => ({
+      version: [2, 3000, 222],
+      isLatest: true,
+    }),
   });
+
+  assert.equal(result.source, 'baileys-upstream');
+  assert.deepEqual(result.version, [2, 3000, 222]);
 });
 
 test('fails closed when neither source can provide a current revision', async () => {
