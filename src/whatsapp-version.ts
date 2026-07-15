@@ -53,6 +53,7 @@ export async function resolveWhatsAppVersion(
     }
     upstreamError = upstream?.error ?? new Error(
       `Baileys upstream returned non-current client version ${upstream?.version?.join('.') ?? 'unknown'}`,
+      { cause: webError },
     );
   } catch (error) {
     upstreamError = error;

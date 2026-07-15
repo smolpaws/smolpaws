@@ -97,6 +97,11 @@ test('fails closed when neither source can provide a current revision', async ()
         String(error.cause),
         /Baileys upstream returned non-current client version 2\.3000\.222/,
       );
+      assert(error.cause instanceof Error);
+      assert.match(
+        String(error.cause.cause),
+        /WhatsApp Web returned non-current client version 2\.3000\.111/,
+      );
       return true;
     },
   );
