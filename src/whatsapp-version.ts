@@ -53,13 +53,15 @@ export async function resolveWhatsAppVersion(
     }
     upstreamError = upstream?.error ?? new Error(
       `Baileys upstream returned non-current client version ${upstream?.version?.join('.') ?? 'unknown'}`,
-      { cause: webError },
     );
   } catch (error) {
     upstreamError = error;
   }
 
   throw new Error('Unable to resolve a current WhatsApp Web client version', {
-    cause: upstreamError ?? webError,
+    cause: new AggregateError(
+      [webError, upstreamError],
+      'WhatsApp Web and Baileys upstream version lookups failed',
+    ),
   });
 }

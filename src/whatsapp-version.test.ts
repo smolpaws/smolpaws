@@ -12,6 +12,13 @@ function assertVersion(
   assert.equal(actual[2], expected[2]);
 }
 
+function readAggregateFailures(error: Error): unknown[] {
+  const cause = error.cause;
+  assert(cause && typeof cause === 'object');
+  assert('errors' in cause);
+  return Array.from((cause as { errors: Iterable<unknown> }).errors);
+}
+
 test('uses the live WhatsApp Web revision when available', async () => {
   let fallbackCalls = 0;
   const result = await resolveWhatsAppVersion({
@@ -93,15 +100,40 @@ test('fails closed when neither source can provide a current revision', async ()
         error.message,
         /Unable to resolve a current WhatsApp Web client version/,
       );
+      const failures = readAggregateFailures(error);
+      assert.equal(failures.length, 2);
       assert.match(
-        String(error.cause),
+        String(failures[1]),
         /Baileys upstream returned non-current client version 2\.3000\.222/,
       );
-      assert(error.cause instanceof Error);
       assert.match(
-        String(error.cause.cause),
+        String(failures[0]),
         /WhatsApp Web returned non-current client version 2\.3000\.111/,
       );
+      return true;
+    },
+  );
+});
+
+test('preserves both failures when the Baileys upstream fetcher throws', async () => {
+  const webFailure = new Error('HTTP 500');
+  const upstreamFailure = { message: 'DNS lookup failed' };
+
+  await assert.rejects(
+    resolveWhatsAppVersion({
+      fetchWhatsAppWebVersion: async () => {
+        throw webFailure;
+      },
+      fetchBaileysVersion: async () => {
+        throw upstreamFailure;
+      },
+    }),
+    (error: unknown) => {
+      assert(error instanceof Error);
+      const failures = readAggregateFailures(error);
+      assert.equal(failures.length, 2);
+      assert.equal(failures[0], webFailure);
+      assert.equal(failures[1], upstreamFailure);
       return true;
     },
   );
