@@ -62,6 +62,19 @@ test('falls back when the WhatsApp Web fetcher throws', async () => {
   assertVersion(result.version, [2, 3000, 222]);
 });
 
+test('falls back when the WhatsApp Web fetcher returns no result', async () => {
+  const result = await resolveWhatsAppVersion({
+    fetchWhatsAppWebVersion: async () => undefined as never,
+    fetchBaileysVersion: async () => ({
+      version: [2, 3000, 222],
+      isLatest: true,
+    }),
+  });
+
+  assert.equal(result.source, 'baileys-upstream');
+  assertVersion(result.version, [2, 3000, 222]);
+});
+
 test('fails closed when neither source can provide a current revision', async () => {
   await assert.rejects(
     resolveWhatsAppVersion({
