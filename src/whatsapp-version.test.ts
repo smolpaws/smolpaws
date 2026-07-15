@@ -58,14 +58,23 @@ test('fails closed when neither source can provide a current revision', async ()
       fetchWhatsAppWebVersion: async () => ({
         version: [2, 3000, 111],
         isLatest: false,
-        error: new Error('web unavailable'),
       }),
       fetchBaileysVersion: async () => ({
-        version: [2, 3000, 111],
+        version: [2, 3000, 222],
         isLatest: false,
-        error: new Error('upstream unavailable'),
       }),
     }),
-    /Unable to resolve a current WhatsApp Web client version/,
+    (error: unknown) => {
+      assert(error instanceof Error);
+      assert.match(
+        error.message,
+        /Unable to resolve a current WhatsApp Web client version/,
+      );
+      assert.match(
+        String(error.cause),
+        /Baileys upstream returned non-current client version 2\.3000\.222/,
+      );
+      return true;
+    },
   );
 });

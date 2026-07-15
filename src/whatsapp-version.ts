@@ -38,7 +38,9 @@ export async function resolveWhatsAppVersion(
     if (web.isLatest) {
       return { version: web.version, source: 'whatsapp-web' };
     }
-    webError = web.error;
+    webError = web.error ?? new Error(
+      `WhatsApp Web returned non-current client version ${web.version.join('.')}`,
+    );
   } catch (error) {
     webError = error;
   }
@@ -49,7 +51,9 @@ export async function resolveWhatsAppVersion(
     if (upstream.isLatest) {
       return { version: upstream.version, source: 'baileys-upstream' };
     }
-    upstreamError = upstream.error;
+    upstreamError = upstream.error ?? new Error(
+      `Baileys upstream returned non-current client version ${upstream.version.join('.')}`,
+    );
   } catch (error) {
     upstreamError = error;
   }
