@@ -82,6 +82,22 @@ test('falls back when the WhatsApp Web fetcher returns no result', async () => {
   assertVersion(result.version, [2, 3000, 222]);
 });
 
+test('falls back when WhatsApp Web marks a malformed version as latest', async () => {
+  const result = await resolveWhatsAppVersion({
+    fetchWhatsAppWebVersion: async () => ({
+      version: [2, 3000] as never,
+      isLatest: true,
+    }),
+    fetchBaileysVersion: async () => ({
+      version: [2, 3000, 222],
+      isLatest: true,
+    }),
+  });
+
+  assert.equal(result.source, 'baileys-upstream');
+  assertVersion(result.version, [2, 3000, 222]);
+});
+
 test('fails closed when neither source can provide a current revision', async () => {
   await assert.rejects(
     resolveWhatsAppVersion({
@@ -104,11 +120,36 @@ test('fails closed when neither source can provide a current revision', async ()
       assert.equal(failures.length, 2);
       assert.match(
         String(failures[1]),
-        /Baileys upstream returned non-current client version 2\.3000\.222/,
+        /Baileys upstream returned unusable client version 2\.3000\.222/,
       );
       assert.match(
         String(failures[0]),
-        /WhatsApp Web returned non-current client version 2\.3000\.111/,
+        /WhatsApp Web returned unusable client version 2\.3000\.111/,
+      );
+      return true;
+    },
+  );
+});
+
+test('fails closed when Baileys marks a malformed version as latest', async () => {
+  await assert.rejects(
+    resolveWhatsAppVersion({
+      fetchWhatsAppWebVersion: async () => ({
+        version: [2, 3000, 111],
+        isLatest: false,
+      }),
+      fetchBaileysVersion: async () => ({
+        version: [2, 3000] as never,
+        isLatest: true,
+      }),
+    }),
+    (error: unknown) => {
+      assert(error instanceof Error);
+      const failures = readAggregateFailures(error);
+      assert.equal(failures.length, 2);
+      assert.match(
+        String(failures[1]),
+        /Baileys upstream returned unusable client version unknown/,
       );
       return true;
     },

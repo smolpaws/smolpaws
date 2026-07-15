@@ -25,6 +25,16 @@ const defaultFetchers: VersionFetchers = {
   fetchBaileysVersion: fetchLatestBaileysVersion,
 };
 
+function isWhatsAppVersion(value: unknown): value is WAVersion {
+  return Array.isArray(value)
+    && value.length === 3
+    && value.every((part) => Number.isSafeInteger(part) && part >= 0);
+}
+
+function formatWhatsAppVersion(value: unknown): string {
+  return isWhatsAppVersion(value) ? value.join('.') : 'unknown';
+}
+
 /**
  * Prefer WhatsApp Web's live client revision, but fall back to Baileys'
  * upstream revision when WhatsApp's sw.js endpoint is unavailable.
@@ -35,11 +45,11 @@ export async function resolveWhatsAppVersion(
   let webError: unknown;
   try {
     const web = await fetchers.fetchWhatsAppWebVersion();
-    if (web?.isLatest) {
+    if (web?.isLatest && isWhatsAppVersion(web.version)) {
       return { version: web.version, source: 'whatsapp-web' };
     }
     webError = web?.error ?? new Error(
-      `WhatsApp Web returned non-current client version ${web?.version?.join('.') ?? 'unknown'}`,
+      `WhatsApp Web returned unusable client version ${formatWhatsAppVersion(web?.version)}`,
     );
   } catch (error) {
     webError = error;
@@ -48,11 +58,11 @@ export async function resolveWhatsAppVersion(
   let upstreamError: unknown;
   try {
     const upstream = await fetchers.fetchBaileysVersion();
-    if (upstream?.isLatest) {
+    if (upstream?.isLatest && isWhatsAppVersion(upstream.version)) {
       return { version: upstream.version, source: 'baileys-upstream' };
     }
     upstreamError = upstream?.error ?? new Error(
-      `Baileys upstream returned non-current client version ${upstream?.version?.join('.') ?? 'unknown'}`,
+      `Baileys upstream returned unusable client version ${formatWhatsAppVersion(upstream?.version)}`,
     );
   } catch (error) {
     upstreamError = error;
