@@ -5375,6 +5375,38 @@
                               }
                             ]
                           },
+                          "promptCacheRetention": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "const": "24h"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "disabled"
+                                  }
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "promptCacheKey": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "headers": {
                             "default": {},
                             "type": "object",
@@ -5404,6 +5436,8 @@
                           "timeoutSeconds",
                           "reasoningEffort",
                           "reasoningSummary",
+                          "promptCacheRetention",
+                          "promptCacheKey",
                           "headers",
                           "useProfileKeyOverride"
                         ],
@@ -5609,6 +5643,38 @@
                       }
                     ]
                   },
+                  "promptCacheRetention": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "const": "24h"
+                          },
+                          {
+                            "type": "string",
+                            "const": "disabled"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "promptCacheKey": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "headers": {
                     "default": {},
                     "type": "object",
@@ -5638,6 +5704,8 @@
                   "timeoutSeconds",
                   "reasoningEffort",
                   "reasoningSummary",
+                  "promptCacheRetention",
+                  "promptCacheKey",
                   "headers",
                   "useProfileKeyOverride"
                 ],
@@ -5817,6 +5885,38 @@
                         }
                       ]
                     },
+                    "promptCacheRetention": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "24h"
+                            },
+                            {
+                              "type": "string",
+                              "const": "disabled"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "promptCacheKey": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "headers": {
                       "default": {},
                       "type": "object",
@@ -5846,6 +5946,8 @@
                     "timeoutSeconds",
                     "reasoningEffort",
                     "reasoningSummary",
+                    "promptCacheRetention",
+                    "promptCacheKey",
                     "headers",
                     "useProfileKeyOverride"
                   ],
@@ -6047,6 +6149,38 @@
                         }
                       ]
                     },
+                    "promptCacheRetention": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "24h"
+                            },
+                            {
+                              "type": "string",
+                              "const": "disabled"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "promptCacheKey": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "headers": {
                       "default": {},
                       "type": "object",
@@ -6076,6 +6210,8 @@
                     "timeoutSeconds",
                     "reasoningEffort",
                     "reasoningSummary",
+                    "promptCacheRetention",
+                    "promptCacheKey",
                     "headers",
                     "useProfileKeyOverride"
                   ],
@@ -6274,6 +6410,38 @@
                       }
                     ]
                   },
+                  "promptCacheRetention": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "const": "24h"
+                          },
+                          {
+                            "type": "string",
+                            "const": "disabled"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "promptCacheKey": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "headers": {
                     "default": {},
                     "type": "object",
@@ -6303,6 +6471,8 @@
                   "timeoutSeconds",
                   "reasoningEffort",
                   "reasoningSummary",
+                  "promptCacheRetention",
+                  "promptCacheKey",
                   "headers",
                   "useProfileKeyOverride"
                 ],
@@ -6482,6 +6652,38 @@
                         }
                       ]
                     },
+                    "promptCacheRetention": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "24h"
+                            },
+                            {
+                              "type": "string",
+                              "const": "disabled"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "promptCacheKey": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "headers": {
                       "default": {},
                       "type": "object",
@@ -6511,6 +6713,8 @@
                     "timeoutSeconds",
                     "reasoningEffort",
                     "reasoningSummary",
+                    "promptCacheRetention",
+                    "promptCacheKey",
                     "headers",
                     "useProfileKeyOverride"
                   ],

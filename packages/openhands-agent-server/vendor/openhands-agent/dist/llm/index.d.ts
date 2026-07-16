@@ -6,6 +6,7 @@ export declare const llmProviderIdSchema: z.ZodString;
 export declare const openAiApiModeSchema: z.ZodUnion<readonly [z.ZodLiteral<"chat_completions">, z.ZodLiteral<"responses">]>;
 export declare const reasoningEffortSchema: z.ZodUnion<readonly [z.ZodLiteral<"low">, z.ZodLiteral<"medium">, z.ZodLiteral<"high">]>;
 export declare const reasoningSummarySchema: z.ZodUnion<readonly [z.ZodLiteral<"auto">, z.ZodLiteral<"concise">, z.ZodLiteral<"detailed">]>;
+export declare const promptCacheRetentionSchema: z.ZodUnion<readonly [z.ZodLiteral<"24h">, z.ZodLiteral<"disabled">]>;
 export declare const llmProfileSchema: z.ZodObject<{
     profileId: z.ZodString;
     providerId: z.ZodString;
@@ -20,6 +21,8 @@ export declare const llmProfileSchema: z.ZodObject<{
     timeoutSeconds: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
     reasoningEffort: z.ZodDefault<z.ZodNullable<z.ZodUnion<readonly [z.ZodLiteral<"low">, z.ZodLiteral<"medium">, z.ZodLiteral<"high">]>>>;
     reasoningSummary: z.ZodDefault<z.ZodNullable<z.ZodUnion<readonly [z.ZodLiteral<"auto">, z.ZodLiteral<"concise">, z.ZodLiteral<"detailed">]>>>;
+    promptCacheRetention: z.ZodDefault<z.ZodNullable<z.ZodUnion<readonly [z.ZodLiteral<"24h">, z.ZodLiteral<"disabled">]>>>;
+    promptCacheKey: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     headers: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodString>>;
     useProfileKeyOverride: z.ZodDefault<z.ZodBoolean>;
 }, z.core.$strict>;
@@ -27,6 +30,7 @@ export type LLMProfile = z.infer<typeof llmProfileSchema>;
 export type OpenAiApiMode = z.infer<typeof openAiApiModeSchema>;
 export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>;
 export type ReasoningSummary = z.infer<typeof reasoningSummarySchema>;
+export type PromptCacheRetention = z.infer<typeof promptCacheRetentionSchema>;
 export declare function resolveLlmProfileApiKeyRef(profile: LLMProfile, store: SecretStore): Promise<SecretRef | null>;
 export declare const thinkingBlockSchema: z.ZodObject<{
     type: z.ZodDefault<z.ZodLiteral<"thinking">>;

@@ -232,6 +232,8 @@ function defaultState(): PersistedState {
     timeoutSeconds: null,
     reasoningEffort: null,
     reasoningSummary: null,
+    promptCacheRetention: null,
+    promptCacheKey: null,
     headers: {},
     useProfileKeyOverride: false,
   };

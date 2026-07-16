@@ -120,6 +120,7 @@ var llmProviderIdSchema = z.string().min(1).regex(/^[A-Za-z0-9._-]+$/u);
 var openAiApiModeSchema = z.union([z.literal("chat_completions"), z.literal("responses")]);
 var reasoningEffortSchema = z.union([z.literal("low"), z.literal("medium"), z.literal("high")]);
 var reasoningSummarySchema = z.union([z.literal("auto"), z.literal("concise"), z.literal("detailed")]);
+var promptCacheRetentionSchema = z.union([z.literal("24h"), z.literal("disabled")]);
 var llmProfileSchema = z.object({
   profileId: llmProfileIdSchema,
   providerId: llmProviderIdSchema,
@@ -134,6 +135,8 @@ var llmProfileSchema = z.object({
   timeoutSeconds: z.number().positive().nullable().default(null),
   reasoningEffort: reasoningEffortSchema.nullable().default(null),
   reasoningSummary: reasoningSummarySchema.nullable().default(null),
+  promptCacheRetention: promptCacheRetentionSchema.nullable().default(null),
+  promptCacheKey: z.string().min(1).nullable().default(null),
   headers: z.record(z.string(), z.string()).default({}),
   useProfileKeyOverride: z.boolean().default(false)
 }).strict();
@@ -3071,7 +3074,7 @@ var Agent = class {
     if (messages === null) {
       return [state.events.at(-1)].filter((event) => event !== void 0);
     }
-    const response = await this.llm.complete(messages);
+    const response = await this.llm.complete(messages, this.tools.filter((tool) => tool.usable));
     return dispatchLlmResponse(response, state, (action) => this.runTool(action), {
       maxConcurrency: this.toolConcurrencyLimit
     });
@@ -4082,6 +4085,33 @@ var PROMPT_CACHE_MODELS = [
 function isGpt5Model(model) {
   return model?.trim().toLowerCase().includes("gpt-5") === true;
 }
+function isGpt56Model(model) {
+  const normalized = model?.trim().toLowerCase().replace(/^openai\//u, "") ?? "";
+  return /^gpt-5\.6(?:[-.]|$)/u.test(normalized);
+}
+function isOpenAISubscriptionEndpoint(profile) {
+  const baseUrl = profile.baseUrl?.trim().toLowerCase() ?? "";
+  return baseUrl.includes("chatgpt.com/backend-api/codex");
+}
+function supportsOpenAIPromptCacheRetention(profile) {
+  if (profile.providerId !== "openai" || isOpenAISubscriptionEndpoint(profile) || !isGpt56Model(profile.model)) {
+    return false;
+  }
+  const baseUrl = profile.baseUrl?.trim().toLowerCase();
+  return baseUrl === void 0 || baseUrl === "" || baseUrl.startsWith("https://api.openai.com/");
+}
+function resolveOpenAIPromptCacheRetention(profile) {
+  if (!supportsOpenAIPromptCacheRetention(profile) || profile.promptCacheRetention === "disabled") {
+    return void 0;
+  }
+  return profile.promptCacheRetention ?? "24h";
+}
+function resolveOpenAIPromptCacheKey(profile) {
+  if (!supportsOpenAIPromptCacheRetention(profile)) {
+    return void 0;
+  }
+  return profile.promptCacheKey ?? void 0;
+}
 function hasExtendedThinking(profile) {
   return profile.reasoningEffort !== null;
 }
@@ -4538,8 +4568,8 @@ var OpenAIChatClient = class {
     this.apiKey = apiKey;
     this.fetchImpl = fetchImpl;
   }
-  async complete(messages) {
-    const body = buildChatCompletionsBody(this.profile, messages);
+  async complete(messages, tools) {
+    const body = buildChatCompletionsBody(this.profile, messages, tools);
     const response = await this.fetchImpl(`${resolveBaseUrl3(this.profile)}/chat/completions`, {
       method: "POST",
       headers: buildHeaders3(this.profile, this.apiKey),
@@ -4561,11 +4591,11 @@ var OpenAIResponsesClient = class {
     this.apiKey = apiKey;
     this.fetchImpl = fetchImpl;
   }
-  async complete(messages) {
+  async complete(messages, tools) {
     const response = await this.fetchImpl(`${resolveBaseUrl3(this.profile)}/responses`, {
       method: "POST",
       headers: buildHeaders3(this.profile, this.apiKey),
-      body: JSON.stringify(buildOpenAIResponsesBody(this.profile, messages))
+      body: JSON.stringify(buildOpenAIResponsesBody(this.profile, messages, tools))
     });
     if (!response.ok) {
       const text = await response.text();
@@ -4606,12 +4636,25 @@ async function createOpenAIResponsesClientFromProfile(profile, store, options = 
   }
   return new OpenAIResponsesClient(profile, apiKey, options.fetch ?? defaultFetch3);
 }
-function buildChatCompletionsBody(profile, messages) {
+function applyOpenAIPromptCacheOptions(body, profile) {
+  const retention = resolveOpenAIPromptCacheRetention(profile);
+  if (retention !== void 0) {
+    body.prompt_cache_retention = retention;
+  }
+  const cacheKey = resolveOpenAIPromptCacheKey(profile);
+  if (cacheKey !== void 0) {
+    body.prompt_cache_key = cacheKey;
+  }
+}
+function buildChatCompletionsBody(profile, messages, tools = []) {
   const normalizedProfile = normalizeGenerationParamsForModel(profile);
   const body = {
     model: normalizedProfile.model,
     messages: messages.map((message) => toOpenAIChatMessage(messageSchema.parse(message)))
   };
+  if (tools.length > 0) {
+    body.tools = tools.map(toOpenAIChatTool);
+  }
   if (normalizedProfile.temperature !== null) {
     body.temperature = normalizedProfile.temperature;
   }
@@ -4627,9 +4670,10 @@ function buildChatCompletionsBody(profile, messages) {
   if (normalizedProfile.reasoningEffort !== null) {
     body.reasoning_effort = normalizedProfile.reasoningEffort;
   }
+  applyOpenAIPromptCacheOptions(body, normalizedProfile);
   return body;
 }
-function buildOpenAIResponsesBody(profile, messages) {
+function buildOpenAIResponsesBody(profile, messages, tools = []) {
   const normalizedProfile = normalizeGenerationParamsForModel(profile);
   const parsedMessages = messages.map((message) => messageSchema.parse(message));
   const instructions = parsedMessages.filter((message) => message.role === "system").flatMap((message) => contentToString(message.content));
@@ -4641,6 +4685,9 @@ function buildOpenAIResponsesBody(profile, messages) {
   };
   if (instructions.length > 0) {
     body.instructions = instructions.join("\n");
+  }
+  if (tools.length > 0) {
+    body.tools = tools.map((tool) => tool.toResponsesTool());
   }
   if (normalizedProfile.maxOutputTokens !== null) {
     body.max_output_tokens = normalizedProfile.maxOutputTokens;
@@ -4657,6 +4704,7 @@ function buildOpenAIResponsesBody(profile, messages) {
       ...normalizedProfile.reasoningSummary === null ? {} : { summary: normalizedProfile.reasoningSummary }
     };
   }
+  applyOpenAIPromptCacheOptions(body, normalizedProfile);
   return body;
 }
 function toOpenAIResponsesInputItems(message) {
@@ -4713,6 +4761,18 @@ function toOpenAIResponsesFunctionCallInputItem(toolCall) {
 }
 function normalizeResponsesCallId(value) {
   return value.startsWith("call_") ? value : `call_${value.replace(/[^a-zA-Z0-9_-]/gu, "_")}`;
+}
+function toOpenAIChatTool(tool) {
+  const responsesTool = tool.toResponsesTool();
+  return {
+    type: "function",
+    function: {
+      name: responsesTool.name,
+      description: responsesTool.description,
+      parameters: responsesTool.parameters,
+      strict: responsesTool.strict
+    }
+  };
 }
 function toOpenAIChatMessage(message) {
   const out = {
@@ -5389,6 +5449,8 @@ var RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED = [
   "maxOutputTokens",
   "reasoningEffort",
   "reasoningSummary",
+  "promptCacheRetention",
+  "promptCacheKey",
   "inputCostPerToken",
   "outputCostPerToken"
 ];
@@ -5451,6 +5513,8 @@ function clearRawLlmFieldsWhenProfileSelected(llm) {
     maxOutputTokens: void 0,
     reasoningEffort: void 0,
     reasoningSummary: void 0,
+    promptCacheRetention: void 0,
+    promptCacheKey: void 0,
     inputCostPerToken: void 0,
     outputCostPerToken: void 0
   };
@@ -6631,6 +6695,6 @@ function isExecError3(error) {
 // src/index.ts
 var VERSION = "0.2.0";
 
-export { AGENT_PROFILE_SCHEMA_VERSION, AGENT_SETTINGS_SCHEMA_VERSION, Agent, AgentContext, AgentDefinition, AgentFinishedCritic, AnthropicMessagesClient, AsyncCallbackWrapper, AsyncProcessManager, BUILT_IN_TOOLS, BUILT_IN_TOOL_FACTORIES, BrowserTool, CONVERSATION_SETTINGS_SCHEMA_VERSION, ConversationState, CriticBase, CriticResult, DEFAULT_TEXT_CONTENT_LIMIT, DEFAULT_TRUNCATE_NOTICE, DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST, DuplicateEventError, EVENTS_DIR, EVENT_FILE_PATTERN, EmptyPatchCritic, EventLog, ExtensionFetchError, FULL_STATE_KEY, FileEditorExecutor, FileEditorTool, FinishTool, GIT_EMPTY_TREE_HASH, GeminiClient, GitChangeStatus, GitCommandError, GitError, GitPathError, GitRepositoryError, GlobExecutor, GlobTool, GrepExecutor, GrepTool, HookConfig, HookDecision, HookDefinition, HookExecutor, HookManager, HookMatcher, HookResult, HookEventType as HookTriggerEventType, HookType, InMemoryFileStore, InMemorySecretStore, InstallationInfo, InstallationMetadata, LLM_PROFILE_ID_PATTERN, LOCK_FILE_NAME, LOCK_TIMEOUT_SECONDS, LocalConversation, LocalFileStore, LocalWorkspace, LogLevel, MAX_FILE_SIZE_FOR_GIT_DIFF, MCPError, MCPTimeoutError, MCPToolAction, MCPToolDefinition, MCPToolExecutor, MCPToolObservation, MacOSKeychainSecretStore, MemoryLRUCache, N_CHAR_PREVIEW, NoCondensationAvailableError, NoOpCondenser, OPENHANDS_KEYRING_SERVICE, OpenAIChatClient, OpenAIResponsesClient, ParallelToolExecutor, PassCritic, PendingActionsQueue, PipelineCondenser, RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED, RemoteConversation, RemoteWorkspace, RepoSource, RollingCondenser, RootSpan, SECRET_KEY_PATTERNS, SENSITIVE_URL_PARAMS, Skill, StuckDetector, TaskTrackerExecutor, TaskTrackerTool, TerminalExecutor, TerminalTool, TestLLM, TestLLMExhaustedError, ThinkTool, ToolDefinition, ToolRegistry, VERSION, ValueError, View, acpAgentProfileSchema, acpAgentSettingsSchema, acpServerKindSchema, acpToolCallEventSchema, actionEventSchema, actionEventsFromMessage, agentErrorEventSchema, agentProfileSchema, agentSettingsSchema, baseObservationSchema, baseToolObservationSchema, browserActionSchema, browserObservationSchema, buildAnthropicMessagesBody, buildChatCompletionsBody, buildCloneUrl, buildGeminiGenerateContentBody, buildOpenAIResponsesBody, cancellationToken, classifyResponse, clearRawLlmFieldsWhenProfileSelected, condensationRequestSchema, condensationRequirement, condensationSchema, condensationSummaryEventSchema, contentSchema, contentToString, conversationErrorEventSchema, conversationExecutionStatus, conversationSettingsSchema, conversationStateUpdateEventSchema, createAnthropicClientFromProfile, createClientFromProfile, createGeminiClientFromProfile, createMcpTools, createOpenAIChatClientFromProfile, createOpenAIResponsesClientFromProfile, criticModeSchema, defaultAgentSettings, detectProviderFromBaseUrl, disableLogger, dispatchLlmResponse, displayJson, dumps, endRootSpan, eventSchema, eventsToMessages, executeCommand, extractActionName, extractRepoName, fetchExtension, fetchWithResolution, fileEditorActionSchema, fileEditorObservationSchema, finishActionSchema, getAgentFactory, getCachePath, getChangesInRepo, getClosestGitRepo, getEnv, getFactoryInfo, getGitDiff, getLlmApiKey, getLogger, getRegisteredAgentDefinitions, getReposContext, getValidRef, globActionSchema, globObservationSchema, globalToolRegistry, grepActionSchema, grepMatchSchema, grepObservationSchema, handleDeprecatedModelFields, hookEventSchema, hookEventTypeSchema, hookExecutionEventSchema, imageContent, imageContentSchema, inputMetadataSchema, interruptEventSchema, isAbsolutePathSource, isAcpPatchEdit, isConversationStateUpdateEvent, isEnabledFor, isGitUrl, isHostAbsolutePath, isLocalPathSource, isMessageEvent, isSecretKey, keywordTriggerSchema, listRegisteredTools, listUsableTools, llmCompletionLogEventSchema, llmCompletionResponseSchema, llmConvertibleEventSchema, llmProfileIdSchema, llmProfileSchema, llmProfileSecretRef, llmProviderIdSchema, llmProviderSecretRef, llmResponseType, llmUsageSchema, loadAgentsFromDir, loadAgentsFromDirs, loadProjectAgents, loadSkillsFromDir, loadUserAgents, loads, maybeInitLaminar, maybeTruncate, mergeSkillsByName, messageEventSchema, messageSchema, messageToolCallSchema, normalizeGitUrl, observabilityEnvKeys, observabilityMetadataSchema, observabilityTagsSchema, observationEventSchema, observe, openAiApiModeSchema, openHandsAgentProfileSchema, openHandsAgentSettingsSchema, pageIterator, parseExtensionSource, pauseEventSchema, posixPathName, profileVerificationSettingsSchema, reasoningEffortSchema, reasoningItemSchema, reasoningSummarySchema, redactTextSecrets, redactUrlCredentials, redactUrlCredentialsInText, redactUrlParams, redactedThinkingBlockSchema, reduceTextContent, registerAgent, registerAgentIfAbsent, registerTool, registerToolFactory, resetAgentRegistryForTests, resolveLlmApiKeyRef, resolveLlmProfileApiKeyRef, resolveProviderFromProfile, resolveTool, restoreConversationState, resumeTranscriptEventSchema, runGitCommand, sanitizeOpenHandsMentions, sanitizedEnv, secretRefSchema, setupLogging, shouldEnableObservability, skillResourcesSchema, skillSchema, skillsToPrompt, sourceTypeSchema, startRootSpan, streamingDeltaEventSchema, systemPromptEventSchema, taskItemSchema, taskTrackerActionSchema, taskTrackerObservationSchema, taskTriggerSchema, terminalActionSchema, terminalObservationSchema, textContent, textContentSchema, thinkActionSchema, thinkingBlockSchema, toCamelCase, toLLMMessage, toPosixPath, tokenEventSchema, toolAnnotationsSchema, toolSpecSchema, triggerSchema, userRejectObservationSchema, utcNow, validateAgentProfile, validateAgentSettings, validateConversationSettings, validateExtensionName, validateGitRepository, workspace };
+export { AGENT_PROFILE_SCHEMA_VERSION, AGENT_SETTINGS_SCHEMA_VERSION, Agent, AgentContext, AgentDefinition, AgentFinishedCritic, AnthropicMessagesClient, AsyncCallbackWrapper, AsyncProcessManager, BUILT_IN_TOOLS, BUILT_IN_TOOL_FACTORIES, BrowserTool, CONVERSATION_SETTINGS_SCHEMA_VERSION, ConversationState, CriticBase, CriticResult, DEFAULT_TEXT_CONTENT_LIMIT, DEFAULT_TRUNCATE_NOTICE, DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST, DuplicateEventError, EVENTS_DIR, EVENT_FILE_PATTERN, EmptyPatchCritic, EventLog, ExtensionFetchError, FULL_STATE_KEY, FileEditorExecutor, FileEditorTool, FinishTool, GIT_EMPTY_TREE_HASH, GeminiClient, GitChangeStatus, GitCommandError, GitError, GitPathError, GitRepositoryError, GlobExecutor, GlobTool, GrepExecutor, GrepTool, HookConfig, HookDecision, HookDefinition, HookExecutor, HookManager, HookMatcher, HookResult, HookEventType as HookTriggerEventType, HookType, InMemoryFileStore, InMemorySecretStore, InstallationInfo, InstallationMetadata, LLM_PROFILE_ID_PATTERN, LOCK_FILE_NAME, LOCK_TIMEOUT_SECONDS, LocalConversation, LocalFileStore, LocalWorkspace, LogLevel, MAX_FILE_SIZE_FOR_GIT_DIFF, MCPError, MCPTimeoutError, MCPToolAction, MCPToolDefinition, MCPToolExecutor, MCPToolObservation, MacOSKeychainSecretStore, MemoryLRUCache, N_CHAR_PREVIEW, NoCondensationAvailableError, NoOpCondenser, OPENHANDS_KEYRING_SERVICE, OpenAIChatClient, OpenAIResponsesClient, ParallelToolExecutor, PassCritic, PendingActionsQueue, PipelineCondenser, RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED, RemoteConversation, RemoteWorkspace, RepoSource, RollingCondenser, RootSpan, SECRET_KEY_PATTERNS, SENSITIVE_URL_PARAMS, Skill, StuckDetector, TaskTrackerExecutor, TaskTrackerTool, TerminalExecutor, TerminalTool, TestLLM, TestLLMExhaustedError, ThinkTool, ToolDefinition, ToolRegistry, VERSION, ValueError, View, acpAgentProfileSchema, acpAgentSettingsSchema, acpServerKindSchema, acpToolCallEventSchema, actionEventSchema, actionEventsFromMessage, agentErrorEventSchema, agentProfileSchema, agentSettingsSchema, baseObservationSchema, baseToolObservationSchema, browserActionSchema, browserObservationSchema, buildAnthropicMessagesBody, buildChatCompletionsBody, buildCloneUrl, buildGeminiGenerateContentBody, buildOpenAIResponsesBody, cancellationToken, classifyResponse, clearRawLlmFieldsWhenProfileSelected, condensationRequestSchema, condensationRequirement, condensationSchema, condensationSummaryEventSchema, contentSchema, contentToString, conversationErrorEventSchema, conversationExecutionStatus, conversationSettingsSchema, conversationStateUpdateEventSchema, createAnthropicClientFromProfile, createClientFromProfile, createGeminiClientFromProfile, createMcpTools, createOpenAIChatClientFromProfile, createOpenAIResponsesClientFromProfile, criticModeSchema, defaultAgentSettings, detectProviderFromBaseUrl, disableLogger, dispatchLlmResponse, displayJson, dumps, endRootSpan, eventSchema, eventsToMessages, executeCommand, extractActionName, extractRepoName, fetchExtension, fetchWithResolution, fileEditorActionSchema, fileEditorObservationSchema, finishActionSchema, getAgentFactory, getCachePath, getChangesInRepo, getClosestGitRepo, getEnv, getFactoryInfo, getGitDiff, getLlmApiKey, getLogger, getRegisteredAgentDefinitions, getReposContext, getValidRef, globActionSchema, globObservationSchema, globalToolRegistry, grepActionSchema, grepMatchSchema, grepObservationSchema, handleDeprecatedModelFields, hookEventSchema, hookEventTypeSchema, hookExecutionEventSchema, imageContent, imageContentSchema, inputMetadataSchema, interruptEventSchema, isAbsolutePathSource, isAcpPatchEdit, isConversationStateUpdateEvent, isEnabledFor, isGitUrl, isHostAbsolutePath, isLocalPathSource, isMessageEvent, isSecretKey, keywordTriggerSchema, listRegisteredTools, listUsableTools, llmCompletionLogEventSchema, llmCompletionResponseSchema, llmConvertibleEventSchema, llmProfileIdSchema, llmProfileSchema, llmProfileSecretRef, llmProviderIdSchema, llmProviderSecretRef, llmResponseType, llmUsageSchema, loadAgentsFromDir, loadAgentsFromDirs, loadProjectAgents, loadSkillsFromDir, loadUserAgents, loads, maybeInitLaminar, maybeTruncate, mergeSkillsByName, messageEventSchema, messageSchema, messageToolCallSchema, normalizeGitUrl, observabilityEnvKeys, observabilityMetadataSchema, observabilityTagsSchema, observationEventSchema, observe, openAiApiModeSchema, openHandsAgentProfileSchema, openHandsAgentSettingsSchema, pageIterator, parseExtensionSource, pauseEventSchema, posixPathName, profileVerificationSettingsSchema, promptCacheRetentionSchema, reasoningEffortSchema, reasoningItemSchema, reasoningSummarySchema, redactTextSecrets, redactUrlCredentials, redactUrlCredentialsInText, redactUrlParams, redactedThinkingBlockSchema, reduceTextContent, registerAgent, registerAgentIfAbsent, registerTool, registerToolFactory, resetAgentRegistryForTests, resolveLlmApiKeyRef, resolveLlmProfileApiKeyRef, resolveProviderFromProfile, resolveTool, restoreConversationState, resumeTranscriptEventSchema, runGitCommand, sanitizeOpenHandsMentions, sanitizedEnv, secretRefSchema, setupLogging, shouldEnableObservability, skillResourcesSchema, skillSchema, skillsToPrompt, sourceTypeSchema, startRootSpan, streamingDeltaEventSchema, systemPromptEventSchema, taskItemSchema, taskTrackerActionSchema, taskTrackerObservationSchema, taskTriggerSchema, terminalActionSchema, terminalObservationSchema, textContent, textContentSchema, thinkActionSchema, thinkingBlockSchema, toCamelCase, toLLMMessage, toPosixPath, tokenEventSchema, toolAnnotationsSchema, toolSpecSchema, triggerSchema, userRejectObservationSchema, utcNow, validateAgentProfile, validateAgentSettings, validateConversationSettings, validateExtensionName, validateGitRepository, workspace };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

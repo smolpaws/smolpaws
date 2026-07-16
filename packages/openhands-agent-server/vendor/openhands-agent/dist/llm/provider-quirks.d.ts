@@ -1,7 +1,12 @@
-import type { LLMProfile, ReasoningEffort } from './index.js';
+import type { LLMProfile, PromptCacheRetention, ReasoningEffort } from './index.js';
 export declare const ANTHROPIC_THINKING_MIN_BUDGET = 1024;
 export declare const ANTHROPIC_THINKING_MAX_BUDGET = 128000;
 export declare function isGpt5Model(model: string | null | undefined): boolean;
+export declare function isGpt56Model(model: string | null | undefined): boolean;
+export declare function isOpenAISubscriptionEndpoint(profile: LLMProfile): boolean;
+export declare function supportsOpenAIPromptCacheRetention(profile: LLMProfile): boolean;
+export declare function resolveOpenAIPromptCacheRetention(profile: LLMProfile): PromptCacheRetention | undefined;
+export declare function resolveOpenAIPromptCacheKey(profile: LLMProfile): string | undefined;
 export declare function hasExtendedThinking(profile: LLMProfile): boolean;
 export declare function isAnthropicModel(profile: LLMProfile): boolean;
 export declare function supportsThinkingBlocks(profile: LLMProfile): boolean;

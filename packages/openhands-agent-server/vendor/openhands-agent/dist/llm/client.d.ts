@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ToolDefinition } from '../tool/index.js';
 import { type LLMProfile, type Message } from './index.js';
 export interface FetchResponseLike {
     readonly ok: boolean;
@@ -13,7 +14,7 @@ export type FetchLike = (url: string, init: {
 }) => Promise<FetchResponseLike>;
 export interface LLMClient {
     readonly profile: LLMProfile;
-    complete(messages: readonly Message[]): Promise<LLMCompletionResponse>;
+    complete(messages: readonly Message[], tools?: readonly ToolDefinition[]): Promise<LLMCompletionResponse>;
 }
 export declare const llmUsageSchema: z.ZodObject<{
     promptTokens: z.ZodDefault<z.ZodNumber>;

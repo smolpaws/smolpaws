@@ -1,5 +1,5 @@
 import { z } from 'zod';
-export declare const RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED: readonly ["provider", "model", "openaiApiMode", "baseUrl", "apiVersion", "timeout", "temperature", "topP", "topK", "maxInputTokens", "maxOutputTokens", "reasoningEffort", "reasoningSummary", "inputCostPerToken", "outputCostPerToken"];
+export declare const RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED: readonly ["provider", "model", "openaiApiMode", "baseUrl", "apiVersion", "timeout", "temperature", "topP", "topK", "maxInputTokens", "maxOutputTokens", "reasoningEffort", "reasoningSummary", "promptCacheRetention", "promptCacheKey", "inputCostPerToken", "outputCostPerToken"];
 export type RawLlmFieldIgnoredWhenProfileSelected = (typeof RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED)[number];
 export type ProfileSelectedLlmSettings = {
     readonly profileId?: string | null;
