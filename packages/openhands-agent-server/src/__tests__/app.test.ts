@@ -186,7 +186,7 @@ describe('createAgentServerApp', () => {
   test('restores persisted conversations and events after restart', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
     try {
-      const first = await createAgentServerApp({ config: { conversationsPath: root } });
+      const first = await createAgentServerApp({ config: { conversationsPath: root }, secretStore: new InMemorySecretStore() });
       const start = await first.app.inject({
         method: 'POST',
         url: '/api/conversations',
@@ -423,7 +423,7 @@ describe('createAgentServerApp', () => {
 
   test('does not retry an event append after lock cleanup fails post-write', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
-    const { app } = await createAgentServerApp({ config: { conversationsPath: root } });
+    const { app } = await createAgentServerApp({ config: { conversationsPath: root }, secretStore: new InMemorySecretStore() });
     const originalLockAsync = LocalFileStore.prototype.lockAsync;
     let eventLogCallbacks = 0;
     LocalFileStore.prototype.lockAsync = async function lockAsyncWithCleanupFailure<T>(
@@ -462,7 +462,7 @@ describe('createAgentServerApp', () => {
 
   test('accepts WebSocket session API key as the first message', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
-    const { app } = await createAgentServerApp({ config: { conversationsPath: path.join(root, 'conversations'), sessionApiKey: 'secret' } });
+    const { app } = await createAgentServerApp({ config: { conversationsPath: path.join(root, 'conversations'), sessionApiKey: 'secret' }, secretStore: new InMemorySecretStore() });
     let socket: WebSocket | null = null;
     try {
       const start = await app.inject({ method: 'POST', url: '/api/conversations', headers: { 'x-session-api-key': 'secret' }, payload: {} });
