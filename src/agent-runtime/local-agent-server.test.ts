@@ -3,7 +3,10 @@ import path from 'node:path';
 import test from 'node:test';
 import { initDatabase } from '../db.js';
 import type { ExecutionScope } from '../scope.js';
-import { runLocalAgentServerAgent } from './local-agent-server.js';
+import {
+  resolveWhatsAppTurnTimeoutMs,
+  runLocalAgentServerAgent,
+} from './local-agent-server.js';
 
 const TEST_SCOPE: ExecutionScope = {
   kind: 'whatsapp',
@@ -14,6 +17,16 @@ const TEST_SCOPE: ExecutionScope = {
   trigger: '@Andy',
   isControlScope: true,
 };
+
+test('WhatsApp turn monitoring waits up to two hours by default', () => {
+  assert.equal(resolveWhatsAppTurnTimeoutMs(undefined), 2 * 60 * 60 * 1000);
+});
+
+test('WhatsApp turn monitoring accepts a positive millisecond override', () => {
+  assert.equal(resolveWhatsAppTurnTimeoutMs('10800000'), 3 * 60 * 60 * 1000);
+  assert.equal(resolveWhatsAppTurnTimeoutMs('invalid'), 2 * 60 * 60 * 1000);
+  assert.equal(resolveWhatsAppTurnTimeoutMs('0'), 2 * 60 * 60 * 1000);
+});
 
 function buildFetchStub(
   handlers: Record<string, (url: string, init?: RequestInit) => Response | Promise<Response>>,

@@ -32,7 +32,7 @@ const DEFAULT_AGENT_TOOLS = [
 ] as const;
 const WHATSAPP_MAX_ITERATIONS = 5000;
 const TURN_POLL_INTERVAL_MS = 2_000;
-const TURN_TIMEOUT_MS = 30 * 60 * 1000;
+const DEFAULT_WHATSAPP_TURN_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 const TERMINAL_STATUSES = new Set<TurnTerminalStatus>([
   'completed',
   'waiting_for_confirmation',
@@ -40,6 +40,15 @@ const TERMINAL_STATUSES = new Set<TurnTerminalStatus>([
   'error',
   'stuck',
 ]);
+
+export function resolveWhatsAppTurnTimeoutMs(
+  value = process.env.SMOLPAWS_WHATSAPP_TURN_TIMEOUT_MS,
+): number {
+  const timeoutMs = Math.trunc(Number(value));
+  return Number.isFinite(timeoutMs) && timeoutMs > 0
+    ? timeoutMs
+    : DEFAULT_WHATSAPP_TURN_TIMEOUT_MS;
+}
 
 const logger = pino({
   level: process.env.LOG_LEVEL || 'info',
@@ -157,7 +166,7 @@ async function monitorConversationTurn(options: {
 }): Promise<LocalRunnerAttemptResult> {
   const { baseUrl, deliveryOwnerId, submitResult, scope } = options;
   const outboundMessages: AgentRuntimeOutput['outboundMessages'] = [];
-  const deadline = Date.now() + TURN_TIMEOUT_MS;
+  const deadline = Date.now() + resolveWhatsAppTurnTimeoutMs();
 
   if (!submitResult.is_delivery_owner) {
     return {
