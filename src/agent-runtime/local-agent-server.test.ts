@@ -19,7 +19,13 @@ const TEST_SCOPE: ExecutionScope = {
 };
 
 test('WhatsApp turn monitoring waits up to two hours by default', () => {
-  assert.equal(resolveWhatsAppTurnTimeoutMs(undefined), 2 * 60 * 60 * 1000);
+  const originalTimeout = process.env.SMOLPAWS_WHATSAPP_TURN_TIMEOUT_MS;
+  delete process.env.SMOLPAWS_WHATSAPP_TURN_TIMEOUT_MS;
+  try {
+    assert.equal(resolveWhatsAppTurnTimeoutMs(undefined), 2 * 60 * 60 * 1000);
+  } finally {
+    process.env.SMOLPAWS_WHATSAPP_TURN_TIMEOUT_MS = originalTimeout;
+  }
 });
 
 test('WhatsApp turn monitoring accepts a positive millisecond override', () => {
