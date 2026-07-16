@@ -56,6 +56,7 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
   };
   const secretStore = options.secretStore ?? new MacOSKeychainSecretStore();
   const serverStateService = options.serverStateService ?? new ServerStateService({ stateDir: config.statePath, secretStore });
+  const usesProfileAgentFactory = options.agentFactory === undefined && options.conversationService === undefined;
   const agentFactory = options.agentFactory ?? createProfileAgentFactory({
     state: serverStateService,
     secretStore,
@@ -74,7 +75,7 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
   await app.register(websocket);
   registerAuth(app, config);
   registerServerDetailsRoutes(app, config);
-  registerConversationRoutes(app, conversationService, { prepareStartRequest: (input) => prepareProfileStartRequest(input, serverStateService) });
+  registerConversationRoutes(app, conversationService, usesProfileAgentFactory ? { prepareStartRequest: (input) => prepareProfileStartRequest(input, serverStateService) } : {});
   registerEventRoutes(app, conversationService);
   registerBashRoutes(app, bashEventService);
   registerGitRoutes(app);
