@@ -52,6 +52,7 @@ export const startConversationRequestSchema = z
     id: z.string().uuid().optional(),
     conversation_id: z.string().uuid().optional(),
     agent: z.unknown().optional(),
+    llm_profile_snapshot: llmProfileSchema.optional(),
     workspace: workspaceSchema.default({ kind: 'LocalWorkspace', working_dir: 'workspace/project' }),
     initial_message: sendMessageRequestSchema.optional(),
     persistence_dir: z.string().nullable().default('workspace/conversations'),

@@ -561,13 +561,14 @@ describe('createAgentServerApp', () => {
     const statePath = path.join(root, 'state');
     const firstWorkspace = path.join(root, 'first-workspace');
     const secondWorkspace = path.join(root, 'second-workspace');
+    const thirdWorkspace = path.join(root, 'third-workspace');
     const selectedProfiles: string[] = [];
-    await Promise.all([mkdir(firstWorkspace, { recursive: true }), mkdir(secondWorkspace, { recursive: true })]);
+    await Promise.all([mkdir(firstWorkspace, { recursive: true }), mkdir(secondWorkspace, { recursive: true }), mkdir(thirdWorkspace, { recursive: true })]);
     const { app } = await createAgentServerApp({
       config: { conversationsPath, statePath, workspaceRoot: root },
       secretStore: new InMemorySecretStore(),
       llmClientFactory: async (profile) => {
-        selectedProfiles.push(profile.profileId);
+        selectedProfiles.push(`${profile.profileId}:${profile.model}`);
         return TestLLM.fromMessages([{
           role: 'assistant',
           content: [],
@@ -603,9 +604,19 @@ describe('createAgentServerApp', () => {
 
       const first = await app.inject({ method: 'POST', url: '/api/conversations', payload: { workspace: { working_dir: firstWorkspace } } });
       expect(first.statusCode).toBe(201);
-      const firstInfo = first.json<{ id: string; max_iterations: number; agent: { llm_profile_ref: string } }>();
+      const firstInfo = first.json<{ id: string; max_iterations: number; workspace: { working_dir: string }; agent: { llm_profile_ref: string; tools: unknown[] }; launched_agent_profile: { profileId: string; model: string } }>();
       expect(firstInfo.max_iterations).toBe(2);
+      expect(firstInfo.workspace.working_dir).toBe(firstWorkspace);
       expect(firstInfo.agent.llm_profile_ref).toBe('gpt-nano');
+      expect(firstInfo.agent.tools).toEqual(['finish']);
+      expect(firstInfo.launched_agent_profile).toMatchObject({ profileId: 'gpt-nano', model: 'gpt-5-nano' });
+      expect(await readFile(path.join(conversationsPath, firstInfo.id, 'meta.json'), 'utf8')).not.toContain('test-openai-key');
+
+      const readdedNano = llmProfilePayload('gpt-nano', 'gpt-5-nano-readded');
+      expect((await app.inject({ method: 'DELETE', url: '/api/profiles/gpt-nano' })).statusCode).toBe(200);
+      expect((await app.inject({ method: 'POST', url: '/api/profiles/gpt-nano', payload: readdedNano })).statusCode).toBe(201);
+      const firstAfterProfileReplacement = (await app.inject({ method: 'GET', url: `/api/conversations/${firstInfo.id}` })).json<{ launched_agent_profile: { profileId: string; model: string } }>();
+      expect(firstAfterProfileReplacement.launched_agent_profile).toMatchObject({ profileId: 'gpt-nano', model: 'gpt-5-nano' });
       expect((await app.inject({ method: 'POST', url: `/api/conversations/${firstInfo.id}/events`, payload: { role: 'user', content: 'run nano', run: true } })).statusCode).toBe(200);
       await waitFor(async () => {
         const final = await app.inject({ method: 'GET', url: `/api/conversations/${firstInfo.id}/agent_final_response` });
@@ -629,21 +640,50 @@ describe('createAgentServerApp', () => {
         },
       })).statusCode).toBe(200);
 
-      const second = await app.inject({ method: 'POST', url: '/api/conversations', payload: { workspace: { working_dir: secondWorkspace } } });
+      const [second, third] = await Promise.all([
+        app.inject({ method: 'POST', url: '/api/conversations', payload: { workspace: { working_dir: secondWorkspace } } }),
+        app.inject({
+          method: 'POST',
+          url: '/api/conversations',
+          payload: {
+            workspace: { working_dir: thirdWorkspace },
+            max_iterations: 4,
+            agent: { ...activated.agent_settings, llm_profile_ref: 'gpt-nano', tools: ['finish'] },
+          },
+        }),
+      ]);
       expect(second.statusCode).toBe(201);
-      const secondInfo = second.json<{ id: string; max_iterations: number; agent: { llm_profile_ref: string } }>();
+      const secondInfo = second.json<{ id: string; max_iterations: number; workspace: { working_dir: string }; agent: { llm_profile_ref: string }; launched_agent_profile: { profileId: string; model: string } }>();
       expect(secondInfo.id).not.toBe(firstInfo.id);
       expect(secondInfo.max_iterations).toBe(3);
+      expect(secondInfo.workspace.working_dir).toBe(secondWorkspace);
       expect(secondInfo.agent.llm_profile_ref).toBe('gpt-mini');
+      expect(secondInfo.launched_agent_profile).toMatchObject({ profileId: 'gpt-mini', model: 'gpt-5-mini' });
+      expect(third.statusCode).toBe(201);
+      const thirdInfo = third.json<{ id: string; max_iterations: number; workspace: { working_dir: string }; agent: { llm_profile_ref: string; tools: unknown[] }; launched_agent_profile: { profileId: string; model: string } }>();
+      expect(thirdInfo.id).not.toBe(firstInfo.id);
+      expect(thirdInfo.id).not.toBe(secondInfo.id);
+      expect(thirdInfo.max_iterations).toBe(4);
+      expect(thirdInfo.workspace.working_dir).toBe(thirdWorkspace);
+      expect(thirdInfo.agent.llm_profile_ref).toBe('gpt-nano');
+      expect(thirdInfo.agent.tools).toEqual(['finish']);
+      expect(thirdInfo.launched_agent_profile).toMatchObject({ profileId: 'gpt-nano', model: 'gpt-5-nano-readded' });
+
       expect((await app.inject({ method: 'POST', url: `/api/conversations/${secondInfo.id}/events`, payload: { role: 'user', content: 'run mini', run: true } })).statusCode).toBe(200);
       await waitFor(async () => {
         const final = await app.inject({ method: 'GET', url: `/api/conversations/${secondInfo.id}/agent_final_response` });
         expect(final.json<{ response: string }>().response).toBe('finished with gpt-5-mini');
       });
+      expect((await app.inject({ method: 'POST', url: `/api/conversations/${thirdInfo.id}/events`, payload: { role: 'user', content: 'run explicit nano', run: true } })).statusCode).toBe(200);
+      await waitFor(async () => {
+        const final = await app.inject({ method: 'GET', url: `/api/conversations/${thirdInfo.id}/agent_final_response` });
+        expect(final.json<{ response: string }>().response).toBe('finished with gpt-5-nano-readded');
+      });
 
-      expect(selectedProfiles).toEqual(['gpt-nano', 'gpt-mini']);
+      expect(selectedProfiles).toEqual(['gpt-nano:gpt-5-nano', 'gpt-mini:gpt-5-mini', 'gpt-nano:gpt-5-nano-readded']);
       expect((await stat(path.join(conversationsPath, firstInfo.id))).isDirectory()).toBe(true);
       expect((await stat(path.join(conversationsPath, secondInfo.id))).isDirectory()).toBe(true);
+      expect((await stat(path.join(conversationsPath, thirdInfo.id))).isDirectory()).toBe(true);
     } finally {
       await app.close();
       await rm(root, { recursive: true, force: true });

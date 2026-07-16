@@ -9,6 +9,7 @@ import {
   TerminalTool,
   ThinkTool,
   createClientFromProfile,
+  llmProfileSchema,
   validateAgentSettings,
   type LLMClient,
   type LLMProfile,
@@ -35,8 +36,7 @@ export function createProfileAgentFactory(options: ProfileAgentFactoryOptions): 
   return async (requestAgent, context) => {
     const settings = validateAgentSettings(requestAgent ?? (await options.state.settings()).agent_settings);
     if (settings.agent_kind !== 'openhands') throw new Error('acp_runtime_not_ported');
-    const profile = await options.state.getProfile(settings.llm_profile_ref);
-    if (profile === null) throw new Error(`llm_profile_not_found:${settings.llm_profile_ref}`);
+    const profile = await resolveProfileForConversation(context.stored.request, settings.llm_profile_ref, options.state);
     const workingDir = path.resolve(context.stored.workspace.working_dir);
     const toolSpecs = settings.tools.length === 0 ? defaultToolNames : settings.tools;
     return new Agent({
@@ -50,12 +50,36 @@ export function createProfileAgentFactory(options: ProfileAgentFactoryOptions): 
 export async function prepareProfileStartRequest(input: unknown, state: ServerStateService): Promise<StartConversationRequest> {
   const request = isRecord(input) ? input : {};
   const settings = await state.settings();
+  const agentSettings = validateAgentSettings(request.agent ?? settings.agent_settings);
+  if (agentSettings.agent_kind !== 'openhands') throw new Error('acp_runtime_not_ported');
+  const profile = await state.getProfile(agentSettings.llm_profile_ref);
+  if (profile === null) throw new Error(`llm_profile_not_found:${agentSettings.llm_profile_ref}`);
   return startConversationRequestSchema.parse({
     ...request,
-    ...(request.agent === undefined ? { agent: settings.agent_settings } : {}),
+    agent: agentSettings,
+    llm_profile_snapshot: snapshotProfile(profile),
     ...(request.max_iterations === undefined ? { max_iterations: settings.conversation_settings.max_iterations } : {}),
   });
 }
+
+async function resolveProfileForConversation(request: StartConversationRequest, profileId: string, state: ServerStateService): Promise<LLMProfile> {
+  const snapshot = request.llm_profile_snapshot;
+  if (snapshot !== undefined) {
+    const parsed = llmProfileSchema.parse(snapshot);
+    if (parsed.profileId !== profileId) {
+      throw new Error(`llm_profile_snapshot_mismatch:${profileId}`);
+    }
+    return snapshotProfile(parsed);
+  }
+  const profile = await state.getProfile(profileId);
+  if (profile === null) throw new Error(`llm_profile_not_found:${profileId}`);
+  return snapshotProfile(profile);
+}
+
+function snapshotProfile(profile: LLMProfile): LLMProfile {
+  return llmProfileSchema.parse(JSON.parse(JSON.stringify(profile)));
+}
+
 
 function resolveProfileTool(spec: unknown, workingDir: string): readonly ToolDefinition[] {
   const name = toolName(spec);

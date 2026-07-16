@@ -1053,6 +1053,239 @@
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                   },
                   "agent": {},
+                  "llm_profile_snapshot": {
+                    "type": "object",
+                    "properties": {
+                      "profileId": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+                      },
+                      "providerId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9._-]+$"
+                      },
+                      "model": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "baseUrl": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uri"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "openAiApiMode": {
+                        "default": "chat_completions",
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "const": "chat_completions"
+                          },
+                          {
+                            "type": "string",
+                            "const": "responses"
+                          }
+                        ]
+                      },
+                      "temperature": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "topP": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "topK": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "maxInputTokens": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "maxOutputTokens": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "timeoutSeconds": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "reasoningEffort": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "const": "low"
+                              },
+                              {
+                                "type": "string",
+                                "const": "medium"
+                              },
+                              {
+                                "type": "string",
+                                "const": "high"
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "reasoningSummary": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "const": "auto"
+                              },
+                              {
+                                "type": "string",
+                                "const": "concise"
+                              },
+                              {
+                                "type": "string",
+                                "const": "detailed"
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "promptCacheRetention": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "const": "24h"
+                              },
+                              {
+                                "type": "string",
+                                "const": "disabled"
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "promptCacheKey": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "headers": {
+                        "default": {},
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      },
+                      "useProfileKeyOverride": {
+                        "default": false,
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "profileId",
+                      "providerId",
+                      "model",
+                      "baseUrl",
+                      "openAiApiMode",
+                      "temperature",
+                      "topP",
+                      "topK",
+                      "maxInputTokens",
+                      "maxOutputTokens",
+                      "timeoutSeconds",
+                      "reasoningEffort",
+                      "reasoningSummary",
+                      "promptCacheRetention",
+                      "promptCacheKey",
+                      "headers",
+                      "useProfileKeyOverride"
+                    ],
+                    "additionalProperties": false
+                  },
                   "workspace": {
                     "type": "object",
                     "properties": {

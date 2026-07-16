@@ -300,7 +300,7 @@ export class ConversationService {
       current_model_id: null,
       available_models: [],
       supports_runtime_model_switch: false,
-      launched_agent_profile: null,
+      launched_agent_profile: stored.request.llm_profile_snapshot ?? null,
       agent: stored.request.agent,
       client_tools: [],
     };
