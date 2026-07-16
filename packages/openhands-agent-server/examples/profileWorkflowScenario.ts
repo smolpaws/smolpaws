@@ -57,12 +57,14 @@ export async function runProfileWorkflowScenario(options: ScenarioOptions): Prom
   covered.add('profiles/activate-settings-snapshot');
   covered.add('conversations/create-profile-snapshot');
 
-  await sendAndRun(options.client, first.id, 'Read README.md using the available tools. Do not modify any files. Summarize the package and its purpose in at most 120 words, then call finish with only that summary.');
+  const firstReadme = path.join(options.firstWorkspace.directory, 'README.md');
+  const secondReadme = path.join(options.secondWorkspace.directory, 'README.md');
+  await sendAndRun(options.client, first.id, `Read ${firstReadme} using the available tools. Do not modify any files. Summarize the package and its purpose in at most 120 words, then call finish with only that summary.`);
   const firstSummary = await waitForFinalResponse(options.client, first.id);
   assertEqual(await readFile(path.join(options.firstWorkspace.directory, 'README.md'), 'utf8'), options.firstWorkspace.originalReadme, 'first task leaves README unchanged');
   await coverConversationAndEvents(options.client, first.id, covered);
 
-  await sendAndRun(options.client, first.id, 'Using your previous summary, replace README.md with that concise summary. Change no other file. Verify git status shows only README.md modified, then call finish with the exact text README_EDITED.');
+  await sendAndRun(options.client, first.id, `Using your previous summary, replace ${firstReadme} with that concise summary. You are running inside a local workspace with working file tools; do not say you cannot modify files. Use file_editor or terminal to overwrite that exact absolute path, change no other file, verify git status shows only README.md modified, then call finish with the exact text README_EDITED.`);
   const firstFinal = await waitForFinalResponse(options.client, first.id, 'README_EDITED');
   const editedReadme = await readFile(path.join(options.firstWorkspace.directory, 'README.md'), 'utf8');
   assert(editedReadme !== options.firstWorkspace.originalReadme, 'first README was edited');
@@ -74,7 +76,7 @@ export async function runProfileWorkflowScenario(options: ScenarioOptions): Prom
   await activateAndConfigure(options.client, mini.profileId, miniMaxIterations, options.apiKey);
   const second = await createConversation(options.client, mini.profileId, miniMaxIterations, options.secondWorkspace.directory, 'Independent README summary');
   assert(second.id !== first.id, 'second conversation has an independent id');
-  await sendAndRun(options.client, second.id, 'Read README.md using the available tools. Do not modify any files. Call finish with one sentence naming the package and explaining what it provides.');
+  await sendAndRun(options.client, second.id, `Read ${secondReadme} using the available tools. Do not modify any files. Call finish with one sentence naming the package and explaining what it provides.`);
   const secondFinal = await waitForFinalResponse(options.client, second.id);
   assertEqual(await readFile(path.join(options.secondWorkspace.directory, 'README.md'), 'utf8'), options.secondWorkspace.originalReadme, 'second README remains unchanged');
   await coverConversationAndEvents(options.client, second.id, covered);
