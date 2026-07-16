@@ -147,15 +147,22 @@ export class EventService {
   }
 
   async pause(): Promise<void> {
-    const conversation = await this.conversation();
-    conversation.pause();
+    await this.pauseInstantiatedConversation();
     await this.appendAndPublish(pauseEventSchema.parse({}));
   }
 
   async interrupt(): Promise<void> {
-    await this.pause();
+    await this.pauseInstantiatedConversation();
+    await this.appendAndPublish(pauseEventSchema.parse({}));
     await this.appendAndPublish(interruptEventSchema.parse({}));
   }
+
+  private async pauseInstantiatedConversation(): Promise<void> {
+    if (this.conversationPromise === null) return;
+    const conversation = await this.conversationPromise;
+    conversation.pause();
+  }
+
 
   async respondToConfirmation(_request: ConfirmationResponseRequest): Promise<void> {
     throw new Error('accepted_deviation:confirmation_responses');

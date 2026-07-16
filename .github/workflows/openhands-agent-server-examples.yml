@@ -5,6 +5,8 @@ on:
 
 jobs:
   profile-driven-llm-workflow:
+    permissions:
+      contents: read
     runs-on: macos-latest
     timeout-minutes: 25
     environment: LLM

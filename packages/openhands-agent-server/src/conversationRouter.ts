@@ -1,11 +1,13 @@
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
+
 
 import type { ConversationService } from './conversationService.js';
 import {
   askAgentRequestSchema,
   conversationSortOrderSchema,
   forkConversationRequestSchema,
-  startConversationRequestSchema,
+  publicStartConversationRequestSchema,
   startGoalRequestSchema,
   updateConversationRequestSchema,
   updateSecretsRequestSchema,
@@ -54,9 +56,18 @@ export function registerConversationRoutes(app: FastifyInstance, service: Conver
   });
 
   app.post('/api/conversations', async (request, reply) => {
-    const startRequest = options.prepareStartRequest === undefined
-      ? parseBody(startConversationRequestSchema, request.body)
-      : await options.prepareStartRequest(request.body);
+    let startRequest: StartConversationRequest;
+    try {
+      startRequest = options.prepareStartRequest === undefined
+        ? parseBody(publicStartConversationRequestSchema, request.body)
+        : await options.prepareStartRequest(request.body);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        reply.status(400);
+        return { detail: error.issues.map((issue) => ({ path: issue.path, message: issue.message })) };
+      }
+      throw error;
+    }
     const result = await service.startConversation(startRequest);
     reply.status(result.isNew ? 201 : 200);
     return result.info;

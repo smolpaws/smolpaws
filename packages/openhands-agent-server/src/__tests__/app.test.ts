@@ -12,6 +12,9 @@ import { createAgentServerApp } from '../app.js';
 import { leaseFileName } from '../conversationLease.js';
 import { conversationSecretRef } from '../conversationSecrets.js';
 import { generateOpenApiSchema } from '../openapi.js';
+import { ServerStateService } from '../serverState.js';
+import { pathContainsPlaintext } from '../../examples/plaintextScan.js';
+
 
 const execFileAsync = promisify(execFile);
 
@@ -109,6 +112,16 @@ async function waitFor(assertion: () => Promise<void> | void, timeoutMs = 1000):
   throw new Error('waitFor timed out');
 }
 
+function deferred<T = void>(): { readonly promise: Promise<T>; readonly resolve: (value?: T | PromiseLike<T>) => void; readonly reject: (reason?: unknown) => void } {
+  let resolve!: (value?: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 async function waitForWebSocketOpen(socket: WebSocket, timeoutMs = 1000): Promise<void> {
   if (socket.readyState === WebSocket.OPEN) return;
   await waitForWebSocketEvent(socket, 'open', timeoutMs);
@@ -147,6 +160,17 @@ function waitForWebSocketEvent<T extends Event>(socket: WebSocket, eventName: st
     socket.addEventListener('error', onError);
     socket.addEventListener('close', onClose);
   });
+}
+
+function requestSchema(schema: ReturnType<typeof generateOpenApiSchema>, pathName: string, method: string): Record<string, unknown> {
+  const operation = schema.paths[pathName]?.[method] as { readonly requestBody?: { readonly content?: { readonly 'application/json'?: { readonly schema?: unknown } } } } | undefined;
+  const bodySchema = operation?.requestBody?.content?.['application/json']?.schema;
+  if (typeof bodySchema !== 'object' || bodySchema === null) throw new Error(`missing request schema for ${method.toUpperCase()} ${pathName}`);
+  return bodySchema as Record<string, unknown>;
+}
+
+function requiredFields(schema: Record<string, unknown>): string[] {
+  return Array.isArray(schema.required) ? schema.required.filter((item): item is string => typeof item === 'string') : [];
 }
 
 describe('createAgentServerApp', () => {
@@ -374,6 +398,67 @@ describe('createAgentServerApp', () => {
     expect(schema.paths['/api/conversations/{conversation_id}/turns']).toBeUndefined();
   });
 
+  test('keeps server-owned profile snapshots out of public start APIs', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
+    const { app } = await createAgentServerApp({
+      config: { conversationsPath: path.join(root, 'conversations'), statePath: path.join(root, 'state') },
+      secretStore: new InMemorySecretStore(),
+    });
+    try {
+      const forgedSnapshot = { ...llmProfilePayload('default', 'client-injected-model'), useProfileKeyOverride: false };
+      const start = await app.inject({ method: 'POST', url: '/api/conversations', payload: { llm_profile_snapshot: forgedSnapshot } });
+      expect(start.statusCode).toBe(201);
+      const info = start.json<{ launched_agent_profile: { profileId: string; model: string } | null }>();
+      expect(info.launched_agent_profile).toMatchObject({ profileId: 'default', model: 'gpt-5-nano' });
+      expect(JSON.stringify(info)).not.toContain('client-injected-model');
+
+      const invalid = await app.inject({ method: 'POST', url: '/api/conversations', payload: [] });
+      expect(invalid.statusCode).toBe(400);
+    } finally {
+      await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('documents public OpenAPI request shape for snapshots and prompt-cache defaults', () => {
+    const schema = generateOpenApiSchema();
+    const startRequest = requestSchema(schema, '/api/conversations', 'post');
+    expect(JSON.stringify(startRequest)).not.toContain('llm_profile_snapshot');
+
+    for (const pathName of ['/api/profiles', '/api/profiles/{name}']) {
+      const profileRequest = requestSchema(schema, pathName, 'post');
+      const required = requiredFields(profileRequest);
+      expect(required).toEqual(expect.arrayContaining(['profileId', 'providerId', 'model']));
+      expect(required).not.toContain('promptCacheRetention');
+      expect(required).not.toContain('promptCacheKey');
+    }
+  });
+
+  test('pause and interrupt idle conversations without instantiating an agent', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
+    let factoryCalls = 0;
+    const { app } = await createAgentServerApp({
+      agentFactory: () => {
+        factoryCalls += 1;
+        return agentFactory();
+      },
+      config: { conversationsPath: root },
+    });
+    try {
+      const start = await app.inject({ method: 'POST', url: '/api/conversations', payload: {} });
+      expect(start.statusCode).toBe(201);
+      const id = start.json<{ id: string }>().id;
+      expect((await app.inject({ method: 'POST', url: `/api/conversations/${id}/pause` })).statusCode).toBe(200);
+      expect((await app.inject({ method: 'POST', url: `/api/conversations/${id}/interrupt` })).statusCode).toBe(200);
+      expect(factoryCalls).toBe(0);
+      const events = (await app.inject({ method: 'GET', url: `/api/conversations/${id}/events/search` })).json<{ items: Array<{ kind: string }> }>().items;
+      expect(events.map((event) => event.kind)).toEqual(['PauseEvent', 'PauseEvent', 'InterruptEvent']);
+    } finally {
+      await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('POST /run schedules work and returns before the agent finishes', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
     const { app } = await createAgentServerApp({ agentFactory: delayedFinishAgentFactory, config: { conversationsPath: root } });
@@ -481,6 +566,62 @@ describe('createAgentServerApp', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+
+  test('validates explicit settings profile refs and only syncs active profile on explicit activation', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
+    const { app } = await createAgentServerApp({
+      config: { conversationsPath: path.join(root, 'conversations'), statePath: path.join(root, 'state') },
+      secretStore: new InMemorySecretStore(),
+    });
+    try {
+      expect((await app.inject({ method: 'POST', url: '/api/profiles', payload: llmProfilePayload('left', 'gpt-5-nano') })).statusCode).toBe(201);
+      expect((await app.inject({ method: 'POST', url: '/api/profiles', payload: llmProfilePayload('right', 'gpt-5-mini') })).statusCode).toBe(201);
+      expect((await app.inject({ method: 'POST', url: '/api/profiles/left/activate' })).statusCode).toBe(200);
+      const base = (await app.inject({ method: 'GET', url: '/api/settings' })).json<{ agent_settings: Record<string, unknown>; conversation_settings: Record<string, unknown> }>();
+
+      const diverged = await app.inject({ method: 'PATCH', url: '/api/settings', payload: { agent_settings: { ...base.agent_settings, llm_profile_ref: 'right' } } });
+      expect(diverged.statusCode).toBe(200);
+      expect(diverged.json<{ agent_settings: { llm_profile_ref: string }; active_profile_id: string }>().agent_settings.llm_profile_ref).toBe('right');
+
+      const unrelated = await app.inject({
+        method: 'PATCH',
+        url: '/api/settings',
+        payload: { conversation_settings: { ...base.conversation_settings, max_iterations: 7 } },
+      });
+      expect(unrelated.statusCode).toBe(200);
+      expect(unrelated.json<{ agent_settings: { llm_profile_ref: string } }>().agent_settings.llm_profile_ref).toBe('right');
+
+      const explicitActive = await app.inject({ method: 'PATCH', url: '/api/settings', payload: { active_profile_id: 'left' } });
+      expect(explicitActive.statusCode).toBe(200);
+      expect(explicitActive.json<{ agent_settings: { llm_profile_ref: string } }>().agent_settings.llm_profile_ref).toBe('left');
+
+      const invalid = await app.inject({ method: 'PATCH', url: '/api/settings', payload: { agent_settings: { ...base.agent_settings, llm_profile_ref: 'missing' } } });
+      expect(invalid.statusCode).toBe(404);
+      expect(invalid.body).toContain('profile_not_found');
+      const afterInvalid = (await app.inject({ method: 'GET', url: '/api/settings' })).json<{ agent_settings: { llm_profile_ref: string } }>();
+      expect(afterInvalid.agent_settings.llm_profile_ref).toBe('left');
+    } finally {
+      await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('plaintext scan covers large files and chunk-spanning secrets', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-scan-'));
+    const secret = 'secret-crosses-stream-chunk-boundary';
+    try {
+      const chunkSize = 64;
+      const prefix = Buffer.from('x'.repeat(chunkSize - 7));
+      const suffix = Buffer.alloc(1_050_000, 'y');
+      await writeFile(path.join(root, 'large-event.json'), Buffer.concat([prefix, Buffer.from(secret), suffix]));
+      expect(await pathContainsPlaintext(root, secret, chunkSize)).toBe(true);
+      expect(await pathContainsPlaintext(root, 'not-present', chunkSize)).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
 
   test('canonicalizes git paths reached through a filesystem alias', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
@@ -640,18 +781,16 @@ describe('createAgentServerApp', () => {
         },
       })).statusCode).toBe(200);
 
-      const [second, third] = await Promise.all([
-        app.inject({ method: 'POST', url: '/api/conversations', payload: { workspace: { working_dir: secondWorkspace } } }),
-        app.inject({
-          method: 'POST',
-          url: '/api/conversations',
-          payload: {
-            workspace: { working_dir: thirdWorkspace },
-            max_iterations: 4,
-            agent: { ...activated.agent_settings, llm_profile_ref: 'gpt-nano', tools: ['finish'] },
-          },
-        }),
-      ]);
+      const second = await app.inject({ method: 'POST', url: '/api/conversations', payload: { workspace: { working_dir: secondWorkspace } } });
+      const third = await app.inject({
+        method: 'POST',
+        url: '/api/conversations',
+        payload: {
+          workspace: { working_dir: thirdWorkspace },
+          max_iterations: 4,
+          agent: { ...activated.agent_settings, llm_profile_ref: 'gpt-nano', tools: ['finish'] },
+        },
+      });
       expect(second.statusCode).toBe(201);
       const secondInfo = second.json<{ id: string; max_iterations: number; workspace: { working_dir: string }; agent: { llm_profile_ref: string }; launched_agent_profile: { profileId: string; model: string } }>();
       expect(secondInfo.id).not.toBe(firstInfo.id);
@@ -689,6 +828,72 @@ describe('createAgentServerApp', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  test('captures coherent profile snapshots across a controlled concurrent settings change', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-profiles-'));
+    const statePath = path.join(root, 'state');
+    const conversationsPath = path.join(root, 'conversations');
+    const firstWorkspace = path.join(root, 'first-workspace');
+    const secondWorkspace = path.join(root, 'second-workspace');
+    const secretStore = new InMemorySecretStore();
+    const serverStateService = new ServerStateService({ stateDir: statePath, secretStore });
+    const firstSnapshotCaptured = deferred();
+    const releaseFirstSnapshot = deferred();
+    let shouldBlockFirstNanoLookup = true;
+    const originalGetProfile = serverStateService.getProfile.bind(serverStateService);
+    serverStateService.getProfile = async (name: string) => {
+      const profile = await originalGetProfile(name);
+      if (name === 'gpt-nano' && shouldBlockFirstNanoLookup) {
+        shouldBlockFirstNanoLookup = false;
+        firstSnapshotCaptured.resolve();
+        await releaseFirstSnapshot.promise;
+      }
+      return profile;
+    };
+    const { app } = await createAgentServerApp({
+      config: { conversationsPath, statePath, workspaceRoot: root },
+      secretStore,
+      serverStateService,
+    });
+    try {
+      await Promise.all([mkdir(firstWorkspace, { recursive: true }), mkdir(secondWorkspace, { recursive: true })]);
+      await serverStateService.saveProfile(llmProfilePayload('gpt-nano', 'gpt-5-nano-before'));
+      await serverStateService.saveProfile(llmProfilePayload('gpt-mini', 'gpt-5-mini-after'));
+      await serverStateService.activateProfile('gpt-nano');
+      const beforeSettings = await serverStateService.settings();
+      await serverStateService.updateSettings({ conversation_settings: { ...beforeSettings.conversation_settings, max_iterations: 2 } });
+
+      const firstStart = app.inject({ method: 'POST', url: '/api/conversations', payload: { workspace: { working_dir: firstWorkspace } } });
+      await firstSnapshotCaptured.promise;
+
+      await serverStateService.saveProfile(llmProfilePayload('gpt-nano', 'gpt-5-nano-after'));
+      await serverStateService.activateProfile('gpt-mini');
+      const afterSettings = await serverStateService.settings();
+      await serverStateService.updateSettings({ conversation_settings: { ...afterSettings.conversation_settings, max_iterations: 9 } });
+      const second = await app.inject({ method: 'POST', url: '/api/conversations', payload: { workspace: { working_dir: secondWorkspace } } });
+      releaseFirstSnapshot.resolve();
+      const first = await firstStart;
+
+      expect(first.statusCode).toBe(201);
+      const firstInfo = first.json<{ agent: { llm_profile_ref: string }; launched_agent_profile: { profileId: string; model: string }; max_iterations: number; workspace: { working_dir: string } }>();
+      expect(firstInfo.agent.llm_profile_ref).toBe('gpt-nano');
+      expect(firstInfo.launched_agent_profile).toMatchObject({ profileId: 'gpt-nano', model: 'gpt-5-nano-before' });
+      expect(firstInfo.max_iterations).toBe(2);
+      expect(firstInfo.workspace.working_dir).toBe(firstWorkspace);
+
+      expect(second.statusCode).toBe(201);
+      const secondInfo = second.json<{ agent: { llm_profile_ref: string }; launched_agent_profile: { profileId: string; model: string }; max_iterations: number; workspace: { working_dir: string } }>();
+      expect(secondInfo.agent.llm_profile_ref).toBe('gpt-mini');
+      expect(secondInfo.launched_agent_profile).toMatchObject({ profileId: 'gpt-mini', model: 'gpt-5-mini-after' });
+      expect(secondInfo.max_iterations).toBe(9);
+      expect(secondInfo.workspace.working_dir).toBe(secondWorkspace);
+    } finally {
+      releaseFirstSnapshot.resolve();
+      await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
 
 
   test('stores conversation secrets only in SecretStore and never in metadata or events', async () => {

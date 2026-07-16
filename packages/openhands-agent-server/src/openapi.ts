@@ -86,7 +86,6 @@ const openApiStartConversationRequestSchema = z
     id: z.string().uuid().optional(),
     conversation_id: z.string().uuid().optional(),
     agent: z.unknown().optional(),
-    llm_profile_snapshot: llmProfilePayloadSchema.optional(),
     workspace: z.object({ kind: z.string().optional(), working_dir: z.string().optional() }).passthrough().optional(),
     initial_message: openApiSendMessageRequestSchema.optional(),
     persistence_dir: z.string().nullable().default('workspace/conversations'),
@@ -282,7 +281,7 @@ function jsonRequestBody(schema: Schema): Record<string, unknown> {
     required: true,
     content: {
       'application/json': {
-        schema: z.toJSONSchema(schema),
+        schema: z.toJSONSchema(schema, { io: 'input' }),
       },
     },
   };
