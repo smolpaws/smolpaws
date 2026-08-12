@@ -74,6 +74,39 @@ describe('POST /events idempotent event_id', () => {
     }
   });
 
+  test('two concurrent appends with the same event_id: exactly one created, one event persisted', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'oh-idem-race-'));
+    const { app } = await createAgentServerApp({ config: { conversationsPath: root }, secretStore: new InMemorySecretStore() });
+    try {
+      const start = await app.inject({ method: 'POST', url: '/api/conversations', payload: {} });
+      const id = start.json<{ id: string }>().id;
+
+      // Fire two identical same-event_id appends at once. They race the check-then-append: EventLog
+      // serializes and one loses with DuplicateEventError, which must surface as an idempotent replay
+      // (created:false), not a 500.
+      const payload = { role: 'user', content: [textContent('race')], run: false, event_id: EVENT_ID };
+      const [a, b] = await Promise.all([
+        app.inject({ method: 'POST', url: `/api/conversations/${id}/events`, payload }),
+        app.inject({ method: 'POST', url: `/api/conversations/${id}/events`, payload }),
+      ]);
+
+      expect(a.statusCode).toBe(200);
+      expect(b.statusCode).toBe(200);
+      const created = [a.json<{ created: boolean }>().created, b.json<{ created: boolean }>().created];
+      expect(created.filter((c) => c === true)).toHaveLength(1); // exactly one winner
+      expect(created.filter((c) => c === false)).toHaveLength(1); // exactly one idempotent replay
+      expect(a.json<{ event_id: string }>().event_id).toBe(EVENT_ID);
+      expect(b.json<{ event_id: string }>().event_id).toBe(EVENT_ID);
+
+      const messages = await userMessages(app, id);
+      expect(messages).toHaveLength(1); // only ONE event persisted
+      expect(messages[0]?.id).toBe(EVENT_ID);
+    } finally {
+      await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('idempotency survives a server restart (durable via the on-disk EventLog)', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'oh-idem-restart-'));
     const convId = '11111111-1111-4111-8111-111111111111';

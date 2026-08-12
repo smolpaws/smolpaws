@@ -10,6 +10,7 @@ import {
   LocalConversation,
   LocalFileStore,
   conversationStateUpdateEventSchema,
+  DuplicateEventError,
   interruptEventSchema,
   llmProfileSchema,
   messageEventSchema,
@@ -112,13 +113,26 @@ export class EventService {
       event = existing;
       created = false;
     } else {
-      event = messageEventSchema.parse({
+      const candidate = messageEventSchema.parse({
         ...(eventId === undefined ? {} : { id: eventId }),
         source: message.role === 'user' ? 'user' : 'agent',
         llm_message: message,
       });
-      await this.appendAndPublish(event);
-      created = true;
+      try {
+        await this.appendAndPublish(candidate);
+        event = candidate;
+        created = true;
+      } catch (error) {
+        // The `.find` above and this append are not one atomic step: two concurrent requests with the
+        // SAME new event_id can both miss the find and both try to append. `EventLog.append` serializes
+        // and throws `DuplicateEventError` for the loser — so treat that as an idempotent replay rather
+        // than a 500. Reload the now-durable event by id (`events()` calls `syncFromDisk`).
+        if (!(error instanceof DuplicateEventError)) throw error;
+        const durable = this.events().find((e) => e.id === candidate.id);
+        if (durable === undefined) throw error; // append reported a duplicate but none is readable
+        event = durable;
+        created = false;
+      }
     }
     if (message.role === 'user' && this.state.executionStatus !== conversationExecutionStatus.RUNNING) {
       this.state.executionStatus = conversationExecutionStatus.IDLE;
