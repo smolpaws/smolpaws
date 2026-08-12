@@ -49,8 +49,8 @@ export function registerEventRoutes(app: FastifyInstance, service: ConversationS
     const eventService = await eventServiceOr404(reply, service, param(request, 'conversation_id'));
     if (eventService === null) return undefined;
     const body = parseBody(sendMessageRequestSchema, request.body);
-    await eventService.sendMessage(messageFromSendRequest(body), body.run);
-    return { success: true };
+    const { event, created } = await eventService.sendMessage(messageFromSendRequest(body), body.run, body.event_id);
+    return { success: true, event_id: event.id, created };
   });
 
   app.post('/api/conversations/:conversation_id/events/respond_to_confirmation', async (request, reply) => {

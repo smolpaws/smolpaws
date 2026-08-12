@@ -100,9 +100,26 @@ export class EventService {
     return this.filteredEvents(kind, source, body, timestampGte, timestampLt).length;
   }
 
-  async sendMessage(message: Message, run = true): Promise<Event> {
-    const event = messageEventSchema.parse({ source: message.role === 'user' ? 'user' : 'agent', llm_message: message });
-    await this.appendAndPublish(event);
+  async sendMessage(message: Message, run = true, eventId?: string): Promise<{ event: Event; created: boolean }> {
+    // Idempotent append (additive reliability extension). When the caller supplies event_id and an event
+    // with that id already exists (durable across restart via syncFromDisk), do NOT append a second copy;
+    // return the existing event with created:false. A run is still (idempotently) requested below so a
+    // response lost after the original append does not leave execution unrequested.
+    const existing = eventId === undefined ? undefined : this.events().find((event) => event.id === eventId);
+    let event: Event;
+    let created: boolean;
+    if (existing !== undefined) {
+      event = existing;
+      created = false;
+    } else {
+      event = messageEventSchema.parse({
+        ...(eventId === undefined ? {} : { id: eventId }),
+        source: message.role === 'user' ? 'user' : 'agent',
+        llm_message: message,
+      });
+      await this.appendAndPublish(event);
+      created = true;
+    }
     if (message.role === 'user' && this.state.executionStatus !== conversationExecutionStatus.RUNNING) {
       this.state.executionStatus = conversationExecutionStatus.IDLE;
     }
@@ -114,7 +131,7 @@ export class EventService {
         this.rerunRequested = true;
       }
     }
-    return event;
+    return { event, created };
   }
 
   async subscribeToEvents(subscriber: Subscriber<Event>): Promise<string> {

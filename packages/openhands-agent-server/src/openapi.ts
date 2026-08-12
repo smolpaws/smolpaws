@@ -20,6 +20,7 @@ import {
   startGoalRequestSchema,
   subdirectoryPageSchema,
   successSchema,
+  sendMessageResponseSchema,
   updateConversationRequestSchema,
   updateSecretsRequestSchema,
   confirmationResponseRequestSchema,
@@ -79,6 +80,7 @@ const openApiSendMessageRequestSchema = z
     extended_content: z.array(openApiContentSchema).optional(),
     run: z.boolean().default(true),
     sender: z.string().nullable().optional(),
+    event_id: z.string().uuid().optional(),
   })
   .strict();
 const openApiStartConversationRequestSchema = z
@@ -157,7 +159,7 @@ export const routeSpecs = [
   { method: 'get', path: '/api/conversations/{conversation_id}/events/search', tags: ['Events'], summary: 'Search conversation events', query: eventSearchQuery, responses: { 200: openApiEventPageSchema, 404: null } },
   { method: 'get', path: '/api/conversations/{conversation_id}/events/count', tags: ['Events'], summary: 'Count conversation events', query: eventCountQuery, responses: { 200: z.number().int().nonnegative(), 404: null } },
   { method: 'get', path: '/api/conversations/{conversation_id}/events', tags: ['Events'], summary: 'Batch get conversation events', query: idsQuery, responses: { 200: eventBatchSchema, 404: null } },
-  { method: 'post', path: '/api/conversations/{conversation_id}/events', tags: ['Events'], summary: 'Send a message', requestBody: openApiSendMessageRequestSchema, responses: { 200: successSchema, 404: null } },
+  { method: 'post', path: '/api/conversations/{conversation_id}/events', tags: ['Events'], summary: 'Send a message', requestBody: openApiSendMessageRequestSchema, responses: { 200: sendMessageResponseSchema, 404: null } },
   { method: 'get', path: '/api/conversations/{conversation_id}/events/{event_id}', tags: ['Events'], summary: 'Get conversation event', responses: { 200: openApiEventSchema, 404: null } },
   { method: 'post', path: '/api/conversations/{conversation_id}/events/respond_to_confirmation', tags: ['Events'], summary: 'Accepted deviation: confirmation responses are intentionally unsupported', requestBody: confirmationResponseRequestSchema, responses: { 410: acceptedDeviationSchema, 404: null } },
 
