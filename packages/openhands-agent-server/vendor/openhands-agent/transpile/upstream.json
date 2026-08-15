@@ -1,0 +1,234 @@
+{
+  "schemaVersion": 1,
+  "repository": "OpenHands/software-agent-sdk",
+  "commit": "966340979be26c2162e9ab8805557b715e1f1a78",
+  "targets": {
+    "sdk": {
+      "sourcePrefixes": [
+        "openhands-sdk/",
+        "openhands-tools/",
+        "openhands-workspace/"
+      ],
+      "testPrefixes": [
+        "tests/sdk/",
+        "tests/tools/",
+        "tests/workspace/",
+        "tests/integration/",
+        "tests/examples/"
+      ],
+      "examplePrefixes": [
+        "examples/01_standalone_sdk/"
+      ]
+    },
+    "server": {
+      "sourcePrefixes": [
+        "openhands-agent-server/"
+      ],
+      "testPrefixes": [
+        "tests/agent_server/",
+        "tests/cross/"
+      ],
+      "examplePrefixes": [
+        "examples/02_remote_agent_server/"
+      ]
+    }
+  },
+  "sharedPaths": [
+    {
+      "path": "pyproject.toml",
+      "targets": [
+        "sdk",
+        "server"
+      ],
+      "module": "repository"
+    },
+    {
+      "path": "uv.lock",
+      "targets": [
+        "sdk",
+        "server"
+      ],
+      "module": "dependencies"
+    },
+    {
+      "path": "tests/conftest.py",
+      "targets": [
+        "sdk",
+        "server"
+      ],
+      "module": "test-infrastructure"
+    },
+    {
+      "path": "tests/command_utils.py",
+      "targets": [
+        "sdk",
+        "server"
+      ],
+      "module": "test-infrastructure"
+    },
+    {
+      "path": "tests/platform_utils.py",
+      "targets": [
+        "sdk",
+        "server"
+      ],
+      "module": "test-infrastructure"
+    }
+  ],
+  "ignorePrefixes": [
+    ".agents/",
+    ".github/",
+    ".openhands/"
+  ],
+  "ignorePaths": [
+    ".dockerignore",
+    ".gitignore",
+    ".pre-commit-config.yaml",
+    ".python-version",
+    "AGENTS.md",
+    "CONTRIBUTING.md",
+    "DEVELOPMENT.md",
+    "LICENSE",
+    "MAINTAINERS",
+    "MANIFEST.in",
+    "Makefile",
+    "README.md",
+    "tests/README.md",
+    "tests/__init__.py"
+  ],
+  "policies": [
+    {
+      "id": "DEV-SDK-001",
+      "kind": "DEVIATION",
+      "target": "sdk",
+      "prefixes": [
+        "openhands-sdk/openhands/sdk/security/",
+        "tests/sdk/security/"
+      ],
+      "paths": [
+        "examples/01_standalone_sdk/16_llm_security_analyzer.py"
+      ]
+    },
+    {
+      "id": "DEV-SDK-002",
+      "kind": "DEVIATION",
+      "target": "sdk",
+      "prefixes": [
+        "openhands-sdk/openhands/sdk/security/",
+        "tests/sdk/security/"
+      ],
+      "paths": [
+        "examples/01_standalone_sdk/04_confirmation_mode_example.py",
+        "examples/01_standalone_sdk/32_configurable_security_policy.py"
+      ]
+    },
+    {
+      "id": "DEV-SDK-003",
+      "kind": "DEVIATION",
+      "target": "sdk",
+      "prefixes": [],
+      "paths": [
+        "openhands-sdk/openhands/sdk/conversation/secret_registry.py",
+        "openhands-sdk/openhands/sdk/utils/pydantic_secrets.py"
+      ]
+    },
+    {
+      "id": "DEV-SDK-004",
+      "kind": "DEVIATION",
+      "target": "sdk",
+      "prefixes": [
+        "openhands-sdk/openhands/sdk/profiles/"
+      ],
+      "paths": [
+        "openhands-sdk/openhands/sdk/llm/llm_profile_store.py",
+        "openhands-sdk/openhands/sdk/llm/llm_registry.py"
+      ]
+    },
+    {
+      "id": "DEV-SDK-005",
+      "kind": "DEVIATION",
+      "target": "sdk",
+      "prefixes": [],
+      "paths": [
+        "openhands-sdk/openhands/sdk/agent/acp_agent.py",
+        "openhands-sdk/openhands/sdk/agent/acp_file_credentials.py",
+        "openhands-sdk/openhands/sdk/agent/acp_tracing.py",
+        "openhands-sdk/openhands/sdk/settings/acp_providers.py",
+        "examples/01_standalone_sdk/40_acp_agent_example.py"
+      ]
+    },
+    {
+      "id": "EXC-SDK-001",
+      "kind": "EXCLUDED",
+      "target": "sdk",
+      "prefixes": [
+        "openhands-sdk/openhands/sdk/plugin/",
+        "tests/sdk/plugin/"
+      ],
+      "paths": []
+    },
+    {
+      "id": "EXC-SDK-002",
+      "kind": "EXCLUDED",
+      "target": "sdk",
+      "prefixes": [
+        "openhands-sdk/openhands/sdk/marketplace/",
+        "tests/sdk/marketplace/"
+      ],
+      "paths": []
+    },
+    {
+      "id": "DEV-SERVER-001",
+      "kind": "DEVIATION",
+      "target": "server",
+      "prefixes": [],
+      "paths": []
+    },
+    {
+      "id": "DEV-SERVER-002",
+      "kind": "DEVIATION",
+      "target": "server",
+      "prefixes": [],
+      "paths": []
+    },
+    {
+      "id": "DEV-SERVER-003",
+      "kind": "DEVIATION",
+      "target": "server",
+      "prefixes": [],
+      "paths": [
+        "openhands-agent-server/openhands/agent_server/_secret_redaction.py",
+        "openhands-agent-server/openhands/agent_server/_secrets_exposure.py",
+        "openhands-agent-server/openhands/agent_server/credential_binding.py"
+      ]
+    },
+    {
+      "id": "DEV-SERVER-004",
+      "kind": "DEVIATION",
+      "target": "server",
+      "prefixes": [],
+      "paths": [
+        "openhands-agent-server/openhands/agent_server/agent_profiles_router.py",
+        "openhands-agent-server/openhands/agent_server/profiles_router.py",
+        "openhands-agent-server/openhands/agent_server/settings_router.py",
+        "openhands-agent-server/openhands/agent_server/llm_router.py"
+      ]
+    },
+    {
+      "id": "DEV-SERVER-005",
+      "kind": "DEVIATION",
+      "target": "server",
+      "prefixes": [],
+      "paths": [
+        "openhands-agent-server/openhands/agent_server/init_router.py"
+      ]
+    },
+    {
+      "id": "EXT-SERVER-001",
+      "kind": "EXTENSION",
+      "target": "server",
+      "prefixes": [],
+      "paths": []
+    }
+  ]
+}

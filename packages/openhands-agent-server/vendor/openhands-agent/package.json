@@ -15,7 +15,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "transpile"
   ],
   "sideEffects": false,
   "repository": {
@@ -28,7 +29,6 @@
   "_smolpawsProvenance": {
     "source": "github.com/smolpaws/openhands-agent",
     "gitTag": "v0.3.4",
-    "gitCommit": "6a088faaa30b9330a5fa3d9c7e95653f1a1c203e",
-    "upstreamOpenHandsCommit": "966340979be26c2162e9ab8805557b715e1f1a78"
+    "gitCommit": "6a088faaa30b9330a5fa3d9c7e95653f1a1c203e"
   }
 }

@@ -1,9 +1,10 @@
 import { routeSpecs } from '../src/openapi.js';
+import { loadUpstreamManifest } from './upstream-manifest.js';
 
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 type RouteKey = `${Method} ${string}`;
 
-const pinnedBaseCommit = '966340979be26c2162e9ab8805557b715e1f1a78';
+const pinnedBaseCommit = loadUpstreamManifest().commit;
 
 const upstreamSnapshot = routeKeys([
   ['GET', '/'],

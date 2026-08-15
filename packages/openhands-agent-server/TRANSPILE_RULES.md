@@ -8,13 +8,13 @@ It is policy, not status. Release/history notes belong elsewhere. Beads/issues t
 
 Upstream: `OpenHands/software-agent-sdk/openhands-agent-server`
 
-Current pinned commit:
+The canonical upstream repository, full commit SHA, shared SDK/server scope, and policy IDs are read from the vendored SDK manifest:
 
 ```text
-966340979be26c2162e9ab8805557b715e1f1a78
+vendor/openhands-agent/transpile/upstream.json
 ```
 
-Advance this package and `@smolpaws/openhands-agent` against the same upstream commit in bounded `OLD_PIN..NEW_PIN` batches.
+Do not duplicate the literal upstream pin in this contract or parity scripts. Advance this package and `@smolpaws/openhands-agent` against the same upstream commit in bounded `OLD_PIN..NEW_PIN` batches.
 
 The server owns the REST/WebSocket boundary, request/response validation, OpenAPI, server metadata, leases, and pub/sub. SDK-owned concepts such as events, conversations, tools, settings primitives, workspaces, and secret storage come from `@smolpaws/openhands-agent`.
 
@@ -86,17 +86,18 @@ OpenAPI is a parity oracle, not documentation garnish.
 - Do not maintain the upstream route inventory by hand when it can be generated.
 - Generated artifacts must be deterministic across hosts and Node versions; runtime/environment metadata must not leak into schema defaults.
 
-The existing hand-written route snapshot is transitional evidence and should be replaced by the generated Python oracle.
+The existing hand-written route snapshot is transitional evidence and should be replaced by the generated Python oracle. Until then, even that transitional check must obtain its displayed pin from the vendored canonical manifest.
 
 ## Pin-advance procedure
 
-Every update is a finite `OLD_PIN..NEW_PIN` interval.
+Every update is a finite `OLD_PIN..NEW_PIN` interval prepared and checked by the SDK drift tooling.
 
 1. Generate the upstream change inventory: commits/PRs, changed server source, tests/examples, and Python OpenAPI delta.
 2. Classify meaningful changes before coding.
 3. Port `PORT` work red/green.
-4. Run OpenAPI differential, deterministic server tests, SDK/server integration, typecheck, lint, build, pack/smoke checks.
-5. Do not move the pin while an in-scope change remains unclassified.
+4. Vendor the SDK manifest for the selected interval and verify provenance.
+5. Run OpenAPI differential, deterministic server tests, SDK/server integration, typecheck, lint, build, pack/smoke checks.
+6. Do not move the pin while an in-scope change remains unclassified.
 
 Credential-gated live LLM workflows prove external provider viability; they are not substitutes for Python/TypeScript parity tests.
 
@@ -106,7 +107,13 @@ Credential-gated live LLM workflows prove external provider viability; they are 
 npm run ci
 ```
 
-The package CI should include generated OpenAPI/parity checks, deterministic tests, local server smoke, typechecks, lint, build, and packed-consumer verification.
+The package CI begins by validating the vendored canonical manifest and ensuring duplicate pin metadata has not crept back into the vendored package. It then runs OpenAPI/parity checks, deterministic tests, local server smoke, typechecks, lint, build, and packed-consumer verification.
+
+Focused provenance check:
+
+```sh
+npm run test:upstream-provenance
+```
 
 ## Documentation ownership
 
@@ -114,6 +121,7 @@ The package CI should include generated OpenAPI/parity checks, deterministic tes
 - `docs/ARCHITECTURE.md`: current implementation architecture.
 - `README.md`: package usage and concise compatibility statement.
 - `src/coordinator/DESIGN.md`: SmolPaws-owned coordinator invariants and rollout, not server parity policy.
+- `enyst/openhands-agent/docs/DRIFT_TOOLING.md`: shared manifest, interval-review, and differential-oracle machinery.
 - Beads/issues: work tracking only.
 
 Code/tests describe current factual behavior; this contract describes intended policy. A mismatch between them must be investigated rather than silently normalizing one to the other.
