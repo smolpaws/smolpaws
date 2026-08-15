@@ -1,0 +1,167 @@
+{
+  "schemaVersion": 1,
+  "tracking": {
+    "OPENAPI-DEFERRED-001": {
+      "path": "transpile/deferred-operations.md",
+      "description": "Pinned upstream operations that remain compatibility debt rather than permanent product policy."
+    }
+  },
+  "missingOperations": {
+    "DELETE /api/auth/workspace-session": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Workspace-session cookie/auth behavior belongs to browser workspace mode and has not yet been ported."
+    },
+    "DELETE /api/workspaces": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Multi-workspace lifecycle management is not yet implemented in this server package."
+    },
+    "DELETE /api/workspaces/parents": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Workspace-parent lifecycle management is not yet implemented in this server package."
+    },
+    "GET /api/conversations/{conversation_id}/workspace": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation workspace browsing awaits the upstream-compatible workspace API surface."
+    },
+    "GET /api/conversations/{conversation_id}/workspace/{file_path}": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation workspace file browsing awaits the upstream-compatible workspace API surface."
+    },
+    "GET /api/desktop/url": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Desktop integration is deployment-specific and has not yet been ported."
+    },
+    "GET /api/file/download-trajectory/{conversation_id}": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Trajectory archives depend on upstream runtime artifacts not yet reproduced by the TypeScript server."
+    },
+    "GET /api/init": {
+      "disposition": "DEVIATION",
+      "policy": "DEV-SERVER-005",
+      "reason": "The TypeScript product intentionally does not implement upstream deferred-init behavior as an active flow."
+    },
+    "GET /api/llm/models": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "The upstream model catalog has not yet been reconciled with the profile-first TypeScript product boundary."
+    },
+    "GET /api/llm/models/verified": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "The upstream verified-model catalog has not yet been reconciled with the profile-first TypeScript product boundary."
+    },
+    "GET /api/llm/providers": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "The upstream provider catalog has not yet been reconciled with the profile-first TypeScript product boundary."
+    },
+    "GET /api/llm/subscription/openai/models": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "The OpenHands subscription runtime is not yet implemented in the TypeScript server."
+    },
+    "GET /api/llm/subscription/openai/status": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "The OpenHands subscription runtime is not yet implemented in the TypeScript server."
+    },
+    "GET /api/tools": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "The server tool-catalog endpoint awaits an upstream-compatible registry exposure design."
+    },
+    "GET /api/vscode/status": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "VS Code integration is deployment-specific and has not yet been ported."
+    },
+    "GET /api/vscode/url": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "VS Code integration is deployment-specific and has not yet been ported."
+    },
+    "GET /api/workspaces": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Multi-workspace discovery is not yet implemented in this server package."
+    },
+    "GET /v1/models": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "The OpenAI-compatible gateway is not yet part of the replaceable TypeScript server slice."
+    },
+    "POST /api/auth/workspace-session": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Workspace-session cookie/auth behavior belongs to browser workspace mode and has not yet been ported."
+    },
+    "POST /api/conversations/{conversation_id}/switch_acp_model": {
+      "disposition": "DEVIATION",
+      "policy": "DEV-SERVER-001",
+      "reason": "ACP runtime/model switching is an explicit server deviation."
+    },
+    "POST /api/conversations/{conversation_id}/switch_llm": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Live LLM switching needs upstream-compatible runtime/session integration that is not yet present."
+    },
+    "POST /api/conversations/{conversation_id}/switch_profile": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Live profile switching needs upstream-compatible runtime/session integration that is not yet present."
+    },
+    "POST /api/hooks": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Server-side hook persistence and execution have not yet been ported."
+    },
+    "POST /api/init": {
+      "disposition": "DEVIATION",
+      "policy": "DEV-SERVER-005",
+      "reason": "The TypeScript product intentionally does not implement upstream deferred-init behavior as an active flow."
+    },
+    "POST /api/llm/subscription/openai/device/poll": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "The OpenHands subscription runtime is not yet implemented in the TypeScript server."
+    },
+    "POST /api/llm/subscription/openai/device/start": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "The OpenHands subscription runtime is not yet implemented in the TypeScript server."
+    },
+    "POST /api/llm/subscription/openai/logout": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "The OpenHands subscription runtime is not yet implemented in the TypeScript server."
+    },
+    "POST /api/mcp/test": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "The server MCP test route has not yet been wired to the TypeScript runtime."
+    },
+    "POST /api/workspaces": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Multi-workspace lifecycle management is not yet implemented in this server package."
+    },
+    "POST /api/workspaces/parents": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Workspace-parent lifecycle management is not yet implemented in this server package."
+    },
+    "POST /v1/chat/completions": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "The OpenAI-compatible gateway is not yet part of the replaceable TypeScript server slice."
+    }
+  },
+  "extensions": {}
+}
