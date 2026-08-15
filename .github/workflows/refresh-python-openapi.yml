@@ -8,6 +8,7 @@ on:
       - '.github/workflows/refresh-python-openapi.yml'
       - 'packages/openhands-agent-server/scripts/canonicalize-python-openapi.ts'
       - 'packages/openhands-agent-server/scripts/refresh-python-openapi.sh'
+      - 'packages/openhands-agent-server/scripts/run-pinned-python-openapi.py'
       - 'packages/openhands-agent-server/vendor/openhands-agent/transpile/upstream.json'
 
 permissions:

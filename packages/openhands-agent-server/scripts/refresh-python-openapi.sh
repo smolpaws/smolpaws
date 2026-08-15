@@ -7,6 +7,8 @@ MANIFEST="$PACKAGE_ROOT/vendor/openhands-agent/transpile/upstream.json"
 OUTPUT="$PACKAGE_ROOT/transpile/python-openapi.json"
 METADATA="$PACKAGE_ROOT/transpile/python-openapi.meta.json"
 GENERATOR="openhands-agent-server/openhands/agent_server/openapi.py"
+BOOTSTRAP="$PACKAGE_ROOT/scripts/run-pinned-python-openapi.py"
+SHIM_DESCRIPTION="openai._models.BaseModel=pydantic.BaseModel (schema-generation import only)"
 
 if [[ -z "$UPSTREAM_DIR" ]]; then
   echo "usage: $0 /path/to/software-agent-sdk" >&2
@@ -15,6 +17,11 @@ fi
 
 if [[ ! -f "$MANIFEST" ]]; then
   echo "missing canonical upstream manifest: $MANIFEST" >&2
+  exit 1
+fi
+
+if [[ ! -f "$BOOTSTRAP" ]]; then
+  echo "missing schema bootstrap: $BOOTSTRAP" >&2
   exit 1
 fi
 
@@ -61,7 +68,8 @@ RAW_SCHEMA="$TMP_DIR/python-openapi.json"
   # runtime pieces supplied by sibling workspace packages, so a server-only sync is
   # insufficient even though the schema generator itself is small.
   uv sync --locked --dev
-  SCHEMA_PATH="$RAW_SCHEMA" uv run --locked python "$GENERATOR"
+  SCHEMA_PATH="$RAW_SCHEMA" \
+    uv run --locked python "$BOOTSTRAP" "$UPSTREAM_DIR/$GENERATOR"
 )
 
 npx tsx "$PACKAGE_ROOT/scripts/canonicalize-python-openapi.ts" \
@@ -70,4 +78,5 @@ npx tsx "$PACKAGE_ROOT/scripts/canonicalize-python-openapi.ts" \
   --metadata "$METADATA" \
   --repository "$REPOSITORY" \
   --commit "$PIN" \
-  --generator "$GENERATOR"
+  --generator "$GENERATOR" \
+  --compatibility-shim "$SHIM_DESCRIPTION"

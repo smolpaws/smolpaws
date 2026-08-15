@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { mkdir } from 'node:fs/promises';
 
 type JsonPrimitive = string | number | boolean | null;
-type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
+type JsonObject = { [key: string]: JsonValue };
+type JsonValue = JsonPrimitive | JsonValue[] | JsonObject;
 
 type Options = {
   input: string;
@@ -13,6 +13,7 @@ type Options = {
   repository: string;
   commit: string;
   generator: string;
+  compatibilityShim?: string;
 };
 
 const options = parseArgs(process.argv.slice(2));
@@ -23,13 +24,17 @@ const canonical = canonicalize(parsed);
 const serialized = `${JSON.stringify(canonical, null, 2)}\n`;
 const sha256 = createHash('sha256').update(serialized).digest('hex');
 
-const metadata = canonicalize({
+const metadataSource: JsonObject = {
   schemaVersion: 1,
   repository: options.repository,
   commit: options.commit,
   generator: options.generator,
   sha256,
-});
+};
+if (options.compatibilityShim !== undefined) {
+  metadataSource.compatibilityShim = options.compatibilityShim;
+}
+const metadata = canonicalize(metadataSource);
 
 await mkdir(dirname(resolve(options.output)), { recursive: true });
 await mkdir(dirname(resolve(options.metadata)), { recursive: true });
@@ -51,6 +56,7 @@ function parseArgs(args: string[]): Options {
     values.set(key.slice(2), value);
   }
 
+  const compatibilityShim = values.get('compatibility-shim');
   return {
     input: required(values, 'input'),
     output: required(values, 'output'),
@@ -58,6 +64,7 @@ function parseArgs(args: string[]): Options {
     repository: required(values, 'repository'),
     commit: required(values, 'commit'),
     generator: required(values, 'generator'),
+    ...(compatibilityShim === undefined ? {} : { compatibilityShim }),
   };
 }
 
@@ -69,7 +76,7 @@ function required(values: ReadonlyMap<string, string>, key: string): string {
   return value;
 }
 
-function assertOpenApiDocument(value: JsonValue): asserts value is { [key: string]: JsonValue } {
+function assertOpenApiDocument(value: JsonValue): asserts value is JsonObject {
   if (!isObject(value)) {
     throw new Error('Python generator did not produce a JSON object');
   }
@@ -96,6 +103,6 @@ function canonicalize(value: JsonValue): JsonValue {
   );
 }
 
-function isObject(value: JsonValue): value is { [key: string]: JsonValue } {
+function isObject(value: JsonValue): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
