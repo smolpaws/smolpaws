@@ -93,7 +93,7 @@ jobs:
             packages/openhands-agent-server/transpile/python-openapi.meta.json
           )
 
-          if git diff --quiet -- "${paths[@]}"; then
+          if [ -z "$(git status --porcelain -- "${paths[@]}")" ]; then
             echo "Pinned Python OpenAPI is already current."
             exit 0
           fi
