@@ -30,6 +30,9 @@ jobs:
       - name: Install GitHub ingress dependencies
         run: npm ci --prefix apps/github
 
+      - name: Build OpenHands agent-server package for root typecheck
+        run: npm run build --prefix packages/openhands-agent-server
+
       - name: Typecheck root
         run: npm run typecheck
 
