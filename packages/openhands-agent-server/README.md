@@ -2,7 +2,7 @@
 
 Idiomatic TypeScript transpilation of the OpenHands Python `openhands-agent-server` REST/WebSocket layer.
 
-The durable maintenance policy lives in [`TRANSPILE_RULES.md`](TRANSPILE_RULES.md). The current implementation architecture lives in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+The durable maintenance policy lives in [`TRANSPILE_RULES.md`](TRANSPILE_RULES.md). The current implementation architecture lives in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Shared pin ownership, weekly drift reports, and the generated Python OpenAPI oracle are designed in [`enyst/openhands-agent/docs/DRIFT_TOOLING.md`](https://github.com/enyst/openhands-agent/blob/main/docs/DRIFT_TOOLING.md).
 
 ## Boundary
 
@@ -53,6 +53,7 @@ Credential-gated LLM examples are provider viability checks, not Python/TypeScri
 - [`TRANSPILE_RULES.md`](TRANSPILE_RULES.md) — durable compatibility policy and pin-advance procedure
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — current server architecture
 - [`../../src/coordinator/DESIGN.md`](../../src/coordinator/DESIGN.md) — SmolPaws-owned durable message-work design around the server
+- [`enyst/openhands-agent/docs/DRIFT_TOOLING.md`](https://github.com/enyst/openhands-agent/blob/main/docs/DRIFT_TOOLING.md) — canonical pin, generated interval reports, and differential-oracle design
 
 ## Work tracking
 

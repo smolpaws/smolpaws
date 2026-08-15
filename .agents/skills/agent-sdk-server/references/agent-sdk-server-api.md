@@ -1,49 +1,37 @@
-# Smolpaws Agent SDK server API
+# OpenHands agent-server API reference
 
-Source: `src/runner.ts`.
+Do not maintain a second hand-written endpoint catalog in this agent skill.
 
-## Health & info
+## Authoritative contract
 
-- `GET /health` → `{ ok: true }`
-- `GET /alive` → `{ status: "ok" }`
-- `GET /ready` → `{ status: "ready" }`
-- `GET /server_info` → `{ uptime, idle_time, title, version, docs, redoc }`
+- Generated TypeScript OpenAPI: [`packages/openhands-agent-server/openapi.json`](../../../../packages/openhands-agent-server/openapi.json)
+- Route/schema source: [`packages/openhands-agent-server/src/openapi.ts`](../../../../packages/openhands-agent-server/src/openapi.ts)
+- Transpilation policy: [`packages/openhands-agent-server/TRANSPILE_RULES.md`](../../../../packages/openhands-agent-server/TRANSPILE_RULES.md)
+- Current architecture: [`packages/openhands-agent-server/docs/ARCHITECTURE.md`](../../../../packages/openhands-agent-server/docs/ARCHITECTURE.md)
 
-## Runner endpoint
+The current route-parity script still contains a transitional hand-copied upstream inventory. The drift-tooling plan replaces it with OpenAPI generated from the pinned Python source plus a small explicit policy/extension allowlist.
 
-- `POST /run` (Cloudflare worker/queue target)
-  - Body: `{ event: "issue_comment" | "pull_request_review_comment", payload: <GitHub event>, delivery_id? }`
-  - Response: `{ reply: string }`
-  - Uses `SMOLPAWS_RUNNER_TOKEN` bearer auth if configured.
+## Stable interaction shape
 
-## Conversation API
+The upstream-shaped conversation path is:
 
-- `POST /api/conversations`
-  - Body: `{ agent, workspace?, secrets?, confirmation_policy?, max_iterations?, stuck_detection?, stuck_detection_thresholds?, initial_message?, conversation_id? }`
-  - Response: `{ id, created_at, updated_at, execution_status }`
-- `GET /api/conversations/:conversationId`
-- `POST /api/conversations/:conversationId/pause`
-- `POST /api/conversations/:conversationId/run`
+1. create or resolve a conversation;
+2. append user input through the conversation `/events` surface;
+3. request execution through `/run` when needed;
+4. read/search durable events or subscribe through the event WebSocket.
 
-### Conversation settings
+`EXT-SERVER-001` adds an optional caller-supplied `event_id` to event append for idempotency. Callers that omit it receive upstream-compatible behavior.
 
-- `POST /api/conversations/:conversationId/confirmation_policy`
-- `POST /api/conversations/:conversationId/security_analyzer`
-- `POST /api/conversations/:conversationId/secrets`
+The durable SmolPaws coordinator may orchestrate this flow, but queue claims, retries, ordering, delivery state, and platform reconciliation are not server API semantics.
 
-### Conversation actions
+## Before writing a client
 
-- `POST /api/conversations/:conversationId/ask_agent`
-- `POST /api/conversations/:conversationId/generate_title`
-- `POST /api/conversations/:conversationId/condense`
+Inspect `openapi.json` at the exact revision being used. Do not copy request fields from the old `apps/agent-server` runner, retired `/turns` flows, confirmation endpoints, or raw nested LLM/API-key examples.
 
-### Events
+## Validation
 
-- `POST /api/conversations/:conversationId/events` (user messages only)
-- `POST /api/conversations/:conversationId/events/respond_to_confirmation`
-- `GET /api/conversations/:conversationId/events/search?page_id=&limit=`
-- `GET /api/conversations/:conversationId/events/download` (requires auth + Daytona)
-
-## Auth
-
-If `SMOLPAWS_RUNNER_TOKEN` is set, include `Authorization: Bearer <token>` for protected endpoints (run + download).
+```sh
+npm run openapi --prefix packages/openhands-agent-server
+npm run test:route-parity --prefix packages/openhands-agent-server
+npm run smoke:local --prefix packages/openhands-agent-server
+```

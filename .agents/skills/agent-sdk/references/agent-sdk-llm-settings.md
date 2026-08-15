@@ -1,27 +1,20 @@
-# Agent SDK LLM settings
+# OpenHands Agent SDK LLM profiles and secrets
 
-Sources: `packages/agent-sdk/src/sdk/types/settings.ts` and `packages/agent-sdk/src/sdk/llm/profiles.ts`.
+Use current schemas and factories from `@smolpaws/openhands-agent`; do not reconstruct the API from this prose.
 
-## LLMSettings fields
+## Stable invariants
 
-- `profileId`: optional profile identifier (overrides raw LLM fields when set).
-- `provider`, `model`, `baseUrl`, `apiVersion`.
-- `openaiApiMode`: `chat_completions` or `responses` (OpenAI-specific).
-- `timeout`, `temperature`, `topP`, `topK`.
-- `maxInputTokens`, `maxOutputTokens`.
-- `reasoningEffort`: `low` | `medium` | `high` | `none`.
-- `reasoningSummary`: `auto` | `concise` | `detailed` (responses-only).
-- `inputCostPerToken`, `outputCostPerToken`.
+- Product/REST configuration is profile-first: callers select a validated `LLMProfile`.
+- Host applications own profile persistence. The SDK does not impose one global profile directory or singleton registry.
+- Generic dispatch uses `createClientFromProfile(profile, secretStore)`.
+- Credential lookup follows `providerId`, not guesses from the model name.
+- Provider-scoped credentials are the default; explicit profile-scoped overrides are used only when configured.
+- Persistent profiles/settings store secret references, never raw API-key values.
+- Low-level OpenAI, Anthropic, Gemini, and compatible clients may be used for provider-specific tests or advanced integrations, but are not the normal product boundary.
+- Provider-native reasoning, caching, tools, and continuation metadata remain in provider-specific clients rather than being flattened into a lossy common shape.
 
-When `profileId` is set, raw LLM fields above are cleared via `clearRawLlmFieldsWhenProfileSelected`.
+## Current source
 
-## Providers
+Inspect the current `src/profiles/`, `src/settings/`, `src/secrets/`, and `src/llm/` code in [`enyst/openhands-agent`](https://github.com/enyst/openhands-agent) before changing fields or defaults.
 
-Supported providers in profiles: `openai`, `litellm_proxy`, `openrouter`, `anthropic`, `gemini`.
-
-## LLM profiles
-
-- Profiles live under `~/.openhands/llm-profiles/<profileId>.json`.
-- `LLMProfileStore` validates profile IDs and payloads.
-- `apiKeyRef` supports `{ kind: "key", name }` (secret reference) or `{ kind: "inline", value }`.
-- Legacy `apiKey` in profile JSON is treated as a key reference name.
+Intentional differences from Python secret and LLM configuration behavior are defined in the transpilation contract, not here.
