@@ -57,9 +57,11 @@ RAW_SCHEMA="$TMP_DIR/python-openapi.json"
 
 (
   cd "$UPSTREAM_DIR"
-  SCHEMA_PATH="$RAW_SCHEMA" \
-    uv run --locked --package openhands-agent-server \
-      python "$GENERATOR"
+  # Match the pinned repository's documented development setup. The server imports
+  # runtime pieces supplied by sibling workspace packages, so a server-only sync is
+  # insufficient even though the schema generator itself is small.
+  uv sync --locked --dev
+  SCHEMA_PATH="$RAW_SCHEMA" uv run --locked python "$GENERATOR"
 )
 
 npx tsx "$PACKAGE_ROOT/scripts/canonicalize-python-openapi.ts" \
