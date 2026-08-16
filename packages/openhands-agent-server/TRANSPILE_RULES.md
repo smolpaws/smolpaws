@@ -54,7 +54,7 @@ Do not port Fernet/cipher/plaintext secret-storage implementation details. Use t
 
 ### DEV-SERVER-004 — profile-first product LLM configuration
 
-Prefer profile-oriented settings and secret references. Raw LLM/API-key fields may exist only where compatibility genuinely requires them, and must not become the normal product path.
+Prefer profile-oriented settings and secret references. Raw LLM/API-key fields may exist only where compatibility genuinely requires them, and must not become the normal product path. Any new addition of raw fields requires human approval.
 
 ### DEV-SERVER-005 — no deferred-init flow
 
