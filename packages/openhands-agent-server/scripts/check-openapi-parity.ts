@@ -17,6 +17,23 @@ const httpMethods = new Set([
 ]);
 
 type OperationKey = `${Uppercase<string>} ${string}`;
+type JsonObject = Record<string, unknown>;
+
+interface OperationEntry {
+  readonly operation: JsonObject;
+  readonly pathParameters: readonly unknown[];
+}
+
+interface ParameterContract {
+  readonly required: boolean;
+}
+
+interface RequestBodyContract {
+  readonly required: boolean;
+  readonly mediaTypes: ReadonlySet<string>;
+}
+
+type ResponseContract = ReadonlyMap<string, ReadonlySet<string>>;
 
 const manifestSchema = z.object({
   repository: z.string().min(1),
@@ -61,6 +78,11 @@ const missingOperationSchema = z.discriminatedUnion('disposition', [
   excludedOperationSchema,
 ]);
 
+const contractExemptionSchema = z.object({
+  policy: z.string().regex(/^DEV-/),
+  reason: z.string().min(1),
+});
+
 const policySchema = z.object({
   schemaVersion: z.literal(1),
   tracking: z.record(z.string(), z.object({
@@ -68,6 +90,7 @@ const policySchema = z.object({
     description: z.string().min(1),
   })),
   missingOperations: z.record(z.string(), missingOperationSchema),
+  contractExemptions: z.record(z.string(), contractExemptionSchema),
   extensions: z.record(z.string(), z.object({
     policy: z.string().regex(/^EXT-/),
     reason: z.string().min(1),
@@ -145,41 +168,29 @@ for (const [operation, entry] of Object.entries(policy.missingOperations)) {
     continue;
   }
 
-  const known = knownPolicies.get(entry.policy);
-  if (known === undefined) {
-    problems.push(`${operation} references unknown policy ${entry.policy}.`);
-    continue;
-  }
-  if (known.target !== 'server') {
-    problems.push(`${operation} references non-server policy ${entry.policy}.`);
-  }
-  if (known.kind !== entry.disposition) {
-    problems.push(
-      `${operation} disposition ${entry.disposition} does not match ${entry.policy} kind ${known.kind}.`,
-    );
-  }
+  validatePolicyReference(operation, entry.policy, entry.disposition);
+}
+
+for (const [operation, entry] of Object.entries(policy.contractExemptions)) {
+  validatePolicyReference(operation, entry.policy, 'DEVIATION');
 }
 
 for (const [operation, entry] of Object.entries(policy.extensions)) {
-  const known = knownPolicies.get(entry.policy);
-  if (known === undefined) {
-    problems.push(`${operation} references unknown extension policy ${entry.policy}.`);
-    continue;
-  }
-  if (known.target !== 'server' || known.kind !== 'EXTENSION') {
-    problems.push(
-      `${operation} references ${entry.policy}, which is not a server EXTENSION policy.`,
-    );
-  }
+  validatePolicyReference(operation, entry.policy, 'EXTENSION');
 }
 
-const pythonOperations = extractOperations(pythonOpenApi.paths);
-const targetOperations = extractOperations(targetOpenApi.paths);
+const pythonOperationMap = extractOperationMap(pythonOpenApi.paths);
+const targetOperationMap = extractOperationMap(targetOpenApi.paths);
+const pythonOperations = new Set(pythonOperationMap.keys());
+const targetOperations = new Set(targetOperationMap.keys());
 const pythonOnly = difference(pythonOperations, targetOperations);
 const targetOnly = difference(targetOperations, pythonOperations);
 
 const missingPolicyKeys = new Set(
   Object.keys(policy.missingOperations) as OperationKey[],
+);
+const contractExemptionKeys = new Set(
+  Object.keys(policy.contractExemptions) as OperationKey[],
 );
 const extensionPolicyKeys = new Set(Object.keys(policy.extensions) as OperationKey[]);
 
@@ -194,6 +205,11 @@ const unclassifiedExtensions = [...targetOnly]
   .sort();
 const staleExtensionPolicies = [...extensionPolicyKeys]
   .filter((operation) => !targetOnly.has(operation))
+  .sort();
+const staleContractExemptions = [...contractExemptionKeys]
+  .filter(
+    (operation) => !pythonOperations.has(operation) || !targetOperations.has(operation),
+  )
   .sort();
 
 appendList(
@@ -216,10 +232,31 @@ appendList(
   'Extension policies that are stale or no longer target-only:',
   staleExtensionPolicies,
 );
+appendList(
+  problems,
+  'Contract exemptions that no longer refer to shared operations:',
+  staleContractExemptions,
+);
+
+const sharedOperations = [...pythonOperations]
+  .filter((operation) => targetOperations.has(operation))
+  .sort();
+
+for (const operationKey of sharedOperations) {
+  if (contractExemptionKeys.has(operationKey)) continue;
+
+  const pythonEntry = pythonOperationMap.get(operationKey);
+  const targetEntry = targetOperationMap.get(operationKey);
+  if (pythonEntry === undefined || targetEntry === undefined) {
+    throw new Error(`Internal operation-map mismatch for ${operationKey}`);
+  }
+
+  compareOperationContract(operationKey, pythonEntry, targetEntry, problems);
+}
 
 if (problems.length > 0) {
   console.error(
-    `OpenAPI operation parity failed against ${manifest.repository}@${manifest.commit}.`,
+    `OpenAPI parity failed against ${manifest.repository}@${manifest.commit}.`,
   );
   for (const problem of problems) {
     console.error(`\n${problem}`);
@@ -227,9 +264,6 @@ if (problems.length > 0) {
   process.exit(1);
 }
 
-const sharedCount = [...pythonOperations]
-  .filter((operation) => targetOperations.has(operation))
-  .length;
 const deferredCount = Object.values(policy.missingOperations)
   .filter((entry) => entry.disposition === 'DEFERRED')
   .length;
@@ -238,19 +272,222 @@ const permanentDifferenceCount = Object.values(policy.missingOperations)
   .length;
 
 console.log(
-  `OpenAPI operation parity passed against ${manifest.repository}@${manifest.commit}: `
+  `OpenAPI parity passed against ${manifest.repository}@${manifest.commit}: `
   + `${pythonOperations.size} upstream operations (`
-  + `${sharedCount} shared, ${deferredCount} deferred, `
+  + `${sharedOperations.length} shared, ${deferredCount} deferred, `
   + `${permanentDifferenceCount} permanent differences); `
-  + `${targetOnly.size} explicit target extensions.`,
+  + `${targetOnly.size} explicit target extensions; `
+  + `${contractExemptionKeys.size} shared contract exemptions.`,
 );
+
+function validatePolicyReference(
+  operation: string,
+  policyId: string,
+  expectedKind: 'DEVIATION' | 'EXCLUDED' | 'EXTENSION',
+): void {
+  const known = knownPolicies.get(policyId);
+  if (known === undefined) {
+    problems.push(`${operation} references unknown policy ${policyId}.`);
+    return;
+  }
+  if (known.target !== 'server') {
+    problems.push(`${operation} references non-server policy ${policyId}.`);
+  }
+  if (known.kind !== expectedKind) {
+    problems.push(
+      `${operation} expects ${expectedKind}, but ${policyId} has kind ${known.kind}.`,
+    );
+  }
+}
+
+function compareOperationContract(
+  operationKey: OperationKey,
+  pythonEntry: OperationEntry,
+  targetEntry: OperationEntry,
+  output: string[],
+): void {
+  const pythonParameters = parameterContracts(operationKey, pythonEntry, 'upstream', output);
+  const targetParameters = parameterContracts(operationKey, targetEntry, 'target', output);
+
+  for (const [parameterKey, pythonParameter] of pythonParameters) {
+    const targetParameter = targetParameters.get(parameterKey);
+    if (targetParameter === undefined) {
+      output.push(`${operationKey} is missing upstream parameter ${parameterKey}.`);
+      continue;
+    }
+    if (targetParameter.required !== pythonParameter.required) {
+      output.push(
+        `${operationKey} parameter ${parameterKey} requiredness differs: `
+        + `upstream=${pythonParameter.required}, target=${targetParameter.required}.`,
+      );
+    }
+  }
+
+  const pythonRequest = requestBodyContract(operationKey, pythonEntry.operation, 'upstream', output);
+  const targetRequest = requestBodyContract(operationKey, targetEntry.operation, 'target', output);
+
+  if (pythonRequest !== null) {
+    if (targetRequest === null) {
+      output.push(`${operationKey} is missing an upstream request body.`);
+    } else {
+      if (targetRequest.required !== pythonRequest.required) {
+        output.push(
+          `${operationKey} request-body requiredness differs: `
+          + `upstream=${pythonRequest.required}, target=${targetRequest.required}.`,
+        );
+      }
+      appendMissingMediaTypes(
+        output,
+        operationKey,
+        'request body',
+        pythonRequest.mediaTypes,
+        targetRequest.mediaTypes,
+      );
+    }
+  }
+
+  const pythonResponses = responseContracts(operationKey, pythonEntry.operation, 'upstream', output);
+  const targetResponses = responseContracts(operationKey, targetEntry.operation, 'target', output);
+
+  for (const [status, pythonMediaTypes] of pythonResponses) {
+    const targetMediaTypes = targetResponses.get(status);
+    if (targetMediaTypes === undefined) {
+      output.push(`${operationKey} is missing upstream response status ${status}.`);
+      continue;
+    }
+    appendMissingMediaTypes(
+      output,
+      operationKey,
+      `response ${status}`,
+      pythonMediaTypes,
+      targetMediaTypes,
+    );
+  }
+}
+
+function parameterContracts(
+  operationKey: OperationKey,
+  entry: OperationEntry,
+  side: 'upstream' | 'target',
+  output: string[],
+): ReadonlyMap<string, ParameterContract> {
+  const contracts = new Map<string, ParameterContract>();
+  const operationParameters = arrayValue(entry.operation.parameters);
+
+  for (const rawParameter of [...entry.pathParameters, ...operationParameters]) {
+    if (!isObject(rawParameter)) {
+      output.push(`${operationKey} has a non-object ${side} parameter.`);
+      continue;
+    }
+    if ('$ref' in rawParameter) {
+      output.push(
+        `${operationKey} uses an unresolved ${side} parameter reference ${String(rawParameter.$ref)}.`,
+      );
+      continue;
+    }
+
+    const name = rawParameter.name;
+    const location = rawParameter.in;
+    if (typeof name !== 'string' || typeof location !== 'string') {
+      output.push(`${operationKey} has a ${side} parameter without string name/in fields.`);
+      continue;
+    }
+
+    contracts.set(`${location}:${name}`, {
+      required: rawParameter.required === true,
+    });
+  }
+
+  return contracts;
+}
+
+function requestBodyContract(
+  operationKey: OperationKey,
+  operation: JsonObject,
+  side: 'upstream' | 'target',
+  output: string[],
+): RequestBodyContract | null {
+  const requestBody = operation.requestBody;
+  if (requestBody === undefined) return null;
+  if (!isObject(requestBody)) {
+    output.push(`${operationKey} has a non-object ${side} request body.`);
+    return null;
+  }
+  if ('$ref' in requestBody) {
+    output.push(
+      `${operationKey} uses an unresolved ${side} request-body reference ${String(requestBody.$ref)}.`,
+    );
+    return null;
+  }
+
+  return {
+    required: requestBody.required === true,
+    mediaTypes: contentMediaTypes(requestBody.content),
+  };
+}
+
+function responseContracts(
+  operationKey: OperationKey,
+  operation: JsonObject,
+  side: 'upstream' | 'target',
+  output: string[],
+): ResponseContract {
+  const responses = operation.responses;
+  if (!isObject(responses)) {
+    output.push(`${operationKey} has no object-valued ${side} responses map.`);
+    return new Map();
+  }
+
+  const contracts = new Map<string, ReadonlySet<string>>();
+  for (const [status, rawResponse] of Object.entries(responses)) {
+    // FastAPI adds the same framework-generated validation response to most
+    // parameterized operations. Runtime validation parity is tested separately;
+    // keeping it out here avoids one noisy exception per route.
+    if (status === '422') continue;
+
+    if (!isObject(rawResponse)) {
+      output.push(`${operationKey} response ${status} is not an object on ${side}.`);
+      continue;
+    }
+    if ('$ref' in rawResponse) {
+      output.push(
+        `${operationKey} uses an unresolved ${side} response reference ${String(rawResponse.$ref)} for ${status}.`,
+      );
+      continue;
+    }
+    contracts.set(status, contentMediaTypes(rawResponse.content));
+  }
+
+  return contracts;
+}
+
+function contentMediaTypes(content: unknown): ReadonlySet<string> {
+  if (!isObject(content)) return new Set();
+  return new Set(Object.keys(content).sort());
+}
+
+function appendMissingMediaTypes(
+  output: string[],
+  operationKey: OperationKey,
+  area: string,
+  upstream: ReadonlySet<string>,
+  target: ReadonlySet<string>,
+): void {
+  const missing = [...upstream].filter((mediaType) => !target.has(mediaType)).sort();
+  if (missing.length === 0) return;
+  output.push(
+    `${operationKey} ${area} is missing upstream media type(s): ${missing.join(', ')}.`,
+  );
+}
 
 async function readJson(path: string): Promise<unknown> {
   return JSON.parse(await readFile(path, 'utf8')) as unknown;
 }
 
-function extractOperations(paths: Record<string, unknown>): ReadonlySet<OperationKey> {
-  const operations = new Set<OperationKey>();
+function extractOperationMap(
+  paths: Record<string, unknown>,
+): ReadonlyMap<OperationKey, OperationEntry> {
+  const operations = new Map<OperationKey, OperationEntry>();
 
   for (const [rawPath, pathItem] of Object.entries(paths)) {
     if (!isObject(pathItem)) {
@@ -258,13 +495,19 @@ function extractOperations(paths: Record<string, unknown>): ReadonlySet<Operatio
     }
 
     const path = normalizePath(rawPath);
+    const pathParameters = arrayValue(pathItem.parameters);
     for (const [method, operation] of Object.entries(pathItem)) {
       const normalizedMethod = method.toLowerCase();
       if (!httpMethods.has(normalizedMethod)) continue;
       if (!isObject(operation)) {
         throw new Error(`OpenAPI operation is not an object: ${method.toUpperCase()} ${path}`);
       }
-      operations.add(`${normalizedMethod.toUpperCase()} ${path}` as OperationKey);
+
+      const key = `${normalizedMethod.toUpperCase()} ${path}` as OperationKey;
+      if (operations.has(key)) {
+        throw new Error(`Duplicate normalized OpenAPI operation: ${key}`);
+      }
+      operations.set(key, { operation, pathParameters });
     }
   }
 
@@ -284,14 +527,18 @@ function difference(
 }
 
 function appendList(
-  problems: string[],
+  output: string[],
   heading: string,
   values: readonly string[],
 ): void {
   if (values.length === 0) return;
-  problems.push(`${heading}\n${values.map((value) => `  - ${value}`).join('\n')}`);
+  output.push(`${heading}\n${values.map((value) => `  - ${value}`).join('\n')}`);
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
+function arrayValue(value: unknown): readonly unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function isObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

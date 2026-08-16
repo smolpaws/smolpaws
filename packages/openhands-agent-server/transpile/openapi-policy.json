@@ -163,6 +163,20 @@
       "reason": "The OpenAI-compatible gateway is not yet part of the replaceable TypeScript server slice."
     }
   },
+  "contractExemptions": {
+    "POST /api/conversations/{conversation_id}/confirmation_policy": {
+      "policy": "DEV-SERVER-002",
+      "reason": "The route deliberately returns an unsupported/deviation response instead of executing confirmation policy behavior."
+    },
+    "POST /api/conversations/{conversation_id}/events/respond_to_confirmation": {
+      "policy": "DEV-SERVER-002",
+      "reason": "The route deliberately returns an unsupported/deviation response because confirmation gates are not active behavior."
+    },
+    "POST /api/conversations/{conversation_id}/security_analyzer": {
+      "policy": "DEV-SERVER-002",
+      "reason": "The route deliberately returns an unsupported/deviation response instead of executing security analysis."
+    }
+  },
   "extensions": {
     "GET /api/file/download/{path}": {
       "policy": "EXT-SERVER-002",
