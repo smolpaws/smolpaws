@@ -50,7 +50,7 @@
     "@smolpaws/openhands-agent-server": "file:packages/openhands-agent-server",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.0",
-    "@types/qrcode-terminal": "^8.5.6",
+    "@types/qrcode-terminal": "^0.12.2",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   },
