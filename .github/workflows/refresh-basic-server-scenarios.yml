@@ -1,0 +1,108 @@
+name: Refresh basic server scenario evidence
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/refresh-basic-server-scenarios.yml
+      - packages/openhands-agent-server/scripts/generate-python-server-scenarios.py
+      - packages/openhands-agent-server/scripts/generate-typescript-server-scenarios.ts
+      - packages/openhands-agent-server/scripts/generate-server-scenario-report.ts
+      - packages/openhands-agent-server/transpile/server-scenarios/basic.json
+      - packages/openhands-agent-server/vendor/openhands-agent/transpile/upstream.json
+      - packages/openhands-agent-server/src/**
+
+permissions:
+  contents: write
+
+concurrency:
+  group: basic-server-scenario-evidence
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout SmolPaws
+        uses: actions/checkout@v4
+
+      - name: Read canonical upstream pin
+        id: pin
+        run: |
+          pin="$(node -p "require('./packages/openhands-agent-server/vendor/openhands-agent/transpile/upstream.json').commit")"
+          if ! [[ "$pin" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid canonical upstream pin: $pin" >&2
+            exit 1
+          fi
+          echo "sha=$pin" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout pinned OpenHands source
+        uses: actions/checkout@v4
+        with:
+          repository: OpenHands/software-agent-sdk
+          ref: ${{ steps.pin.outputs.sha }}
+          fetch-depth: 1
+          path: .upstream-agent-sdk
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packages/openhands-agent-server/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --disable-pip-version-check uv
+          npm ci --prefix packages/openhands-agent-server
+
+      - name: Record pinned Python scenarios
+        working-directory: .upstream-agent-sdk
+        env:
+          OPENHANDS_UPSTREAM_COMMIT: ${{ steps.pin.outputs.sha }}
+        run: |
+          uv run --package openhands-agent-server python \
+            "$GITHUB_WORKSPACE/packages/openhands-agent-server/scripts/generate-python-server-scenarios.py" \
+            --cases "$GITHUB_WORKSPACE/packages/openhands-agent-server/transpile/server-scenarios/basic.json" \
+            --output "$GITHUB_WORKSPACE/packages/openhands-agent-server/transpile/server-scenarios/python-basic.json"
+
+      - name: Record TypeScript scenarios
+        working-directory: packages/openhands-agent-server
+        run: |
+          npx tsx scripts/generate-typescript-server-scenarios.ts \
+            --cases transpile/server-scenarios/basic.json \
+            --output transpile/server-scenarios/typescript-basic.json
+
+      - name: Generate normalized differential report
+        working-directory: packages/openhands-agent-server
+        run: npx tsx scripts/generate-server-scenario-report.ts
+
+      - name: Typecheck scenario tooling
+        working-directory: packages/openhands-agent-server
+        run: npx tsc -p tsconfig.scripts.json
+
+      - name: Commit evidence atomically
+        run: |
+          artifacts=(
+            packages/openhands-agent-server/transpile/server-scenarios/python-basic.json
+            packages/openhands-agent-server/transpile/server-scenarios/typescript-basic.json
+            packages/openhands-agent-server/transpile/server-scenarios/basic-report.json
+          )
+          git add "${artifacts[@]}"
+          if git diff --cached --quiet; then
+            echo "Basic server scenario evidence is already current."
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "chore(agent-server): refresh basic runtime differential"
+          git pull --rebase origin main
+          git push
