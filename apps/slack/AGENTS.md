@@ -44,6 +44,8 @@ The canary synchronizes the normal terminal `finish` observation into the Slack 
 
 Once a delivery row has been durably marked `send_attempted`, an exception is treated as `delivery_unknown`; the dispatcher does not blindly retry an external effect that may already have landed.
 
+During shutdown, stop Socket Mode ingress first but keep the Slack Web API client alive until the active coordinator tick drains. Otherwise a delivery already past its send fence could be turned into a false `delivery_unknown` merely because the process was stopping.
+
 ## Canary identity
 
 The first authoritative Slack relay generation deliberately uses:
@@ -65,13 +67,23 @@ npm ci --prefix packages/openhands-agent-server
 npm ci --prefix apps/slack
 ```
 
-Start the TypeScript agent-server:
+Before the first canary after pulling this architecture, restart the normal SmolPaws host once. On the current checkout `apps/slack/plugin.json` is `kind: "standalone"`, so the shared bridge loader no longer opens a Slack Socket Mode connection. A stale host may otherwise race the new process and answer through `/turns`.
+
+Then use the one-command launcher:
+
+```bash
+npm run slack:relay:local
+```
+
+It loads `~/.smolpaws/.env`, exports the current git SHA into the Slack startup log, reuses an already-healthy server at `SMOLPAWS_COORD_SERVER_URL`, or starts the default TypeScript server on `127.0.0.1:8790`, and then runs standalone paws. It stops only the server process it started itself.
+
+For separate-process debugging, start the TypeScript agent-server manually:
 
 ```bash
 ./scripts/run-local-smolpaws.sh npm --prefix packages/openhands-agent-server run dev:server
 ```
 
-It listens on `127.0.0.1:8790` by default. Then start paws as a separate process:
+Then start paws:
 
 ```bash
 ./scripts/run-local-smolpaws.sh npm --prefix apps/slack run start
@@ -100,16 +112,19 @@ The focused suite includes:
 - concurrent duplicate suppression while acceptance is in flight;
 - deterministic end-to-end delivery through the real in-process TypeScript agent-server, fake LLM `finish`, real SQLite, Outbound Relay, Delivery Dispatcher, and Slack Delivery Target.
 
+The `slack-coordinator` CI job also syntax-checks `scripts/run-local-slack-relay.sh` and runs the coordinator's real-server integration suite.
+
 ## Liberty Labs canary
 
 The Slack app identity is `paws`. Use the Liberty Labs workspace as the non-critical live canary. Verify one message by checking all of:
 
-1. Slack ingress event is accepted.
-2. an `intake` row exists in `~/.smolpaws/coordinator/slack-relay-v1.db`;
-3. the new agent-server contains the deterministic user event and a completed agent run;
-4. `syncDeliveryOutbox()` creates the corresponding `delivery` row;
-5. Delivery Dispatcher settles it `done` with the Slack message timestamp as `external_message_id`;
-6. the reply appears in the correct Slack DM/thread.
+1. the Slack startup log identifies the intended git SHA;
+2. the Slack ingress event is accepted;
+3. an `intake` row exists in `~/.smolpaws/coordinator/slack-relay-v1.db`;
+4. the new agent-server contains the deterministic user event and a completed agent run;
+5. `syncDeliveryOutbox()` creates the corresponding `delivery` row;
+6. Delivery Dispatcher settles it `done` with the Slack message timestamp as `external_message_id`;
+7. the reply appears in the correct Slack DM/thread.
 
 Do not infer success merely because Slack shows a reply; the durable work rows and new agent-server EventLog are part of the end-to-end contract.
 
