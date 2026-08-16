@@ -84,7 +84,7 @@ async function discoverApp(persistenceDir: string): Promise<FastifyLike> {
   for (const modulePath of modulePaths) {
     let module: Record<string, unknown>;
     try {
-      module = await import(modulePath) as Record<string, unknown>;
+      module = await import(modulePath) as unknown as Record<string, unknown>;
     } catch (error) {
       failures.push(`${modulePath}: import failed: ${errorMessage(error)}`);
       continue;
