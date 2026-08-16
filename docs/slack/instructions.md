@@ -76,7 +76,7 @@ Those identities are deliberately separate from the old shadow experiment. Do no
 
 ## First cutover from the old local host
 
-The old running SmolPaws host may still have loaded the earlier Slack bridge even after the repository was updated. Before the first canary:
+The old running SmolPaws host may still have loaded the earlier Slack bridge even after the repository was updated. Before the first production canary:
 
 1. pull the intended `enyst/smolpaws` commit;
 2. rebuild/restart the normal SmolPaws host once;
@@ -85,7 +85,7 @@ The old running SmolPaws host may still have loaded the earlier Slack bridge eve
 
 Restarting the normal host does not migrate WhatsApp, Discord, or other bridges. It only makes the current shared loader stop opening the obsolete Slack Socket Mode connection.
 
-## One-command local canary
+## One-command local canary with the configured LLM
 
 ```bash
 npm run slack:relay:local
@@ -101,6 +101,42 @@ The launcher:
 - stops only the server process that it started itself.
 
 For a non-default server URL, start that server separately before invoking the launcher.
+
+## Isolated architecture-proof canary
+
+For a transport/durability proof that does **not** replace or stop the normal paws process, use:
+
+```bash
+scripts/bootstrap-slack-relay-canary.sh
+```
+
+The bootstrap:
+
+- clones the requested immutable fork commit into `~/.smolpaws/canary/`;
+- leaves `~/repos/smolpaws` untouched;
+- uses separate server state, coordinator SQLite, and port `8791` by default;
+- starts a real TypeScript agent-server with a deterministic test LLM that calls `finish` with a commit-specific marker;
+- connects a temporary Socket Mode client;
+- auto-stops after ten minutes by default;
+- writes readiness/failure/stopped evidence beneath the isolated run directory.
+
+Because Slack distributes Socket Mode events across active connections, a probe may reach the ordinary process instead of the isolated canary. Use a small bounded set of unique probes and accept only the exact deterministic marker as proof.
+
+The Liberty Labs proof completed on 2026-08-16 for commit:
+
+```text
+a69456fc6f818f23ecb6e2e064f3e03fceeafaf4
+```
+
+The observed Slack reply was:
+
+```text
+RELAY-LIVE-a69456fc6f81
+```
+
+That marker was produced only after the message traversed Socket Mode, coordinator intake, the real TypeScript agent-server and agent loop, the terminal `finish` observation, `syncDeliveryOutbox()`, `DeliveryDispatcher`, and `SlackDeliveryTarget`.
+
+This proves the complete architecture and real Slack transport. It does **not** replace the required production cutover and real-provider soak.
 
 ## Separate-process debugging
 
@@ -140,20 +176,22 @@ npm run coordinator:test
 npm run typecheck --prefix apps/slack
 npm run test --prefix apps/slack
 bash -n scripts/run-local-slack-relay.sh
+bash -n scripts/bootstrap-slack-relay-canary.sh
 ```
 
 The dedicated GitHub Actions job is named `slack-coordinator`. It provides an honest signal for this canary even while unrelated agent-server OpenAPI parity debt may keep the repository-wide `checks` job red.
 
-## Live test procedure
+## Production live test procedure
 
 Use a non-critical channel in the Liberty Labs workspace.
 
-1. Start the new server and standalone paws from the intended checkout.
-2. Confirm the startup log identifies the expected SHA.
-3. Mention `paws` with a unique response token.
-4. Confirm paws replies in the correct Slack thread exactly once.
-5. Confirm coordinator intake and delivery evidence exists.
-6. Confirm the new server EventLog contains the deterministic user event and terminal agent output.
+1. Restart the old host from current code so it releases the obsolete Slack connection.
+2. Start the new server and standalone paws from the intended checkout.
+3. Confirm the startup log identifies the expected SHA.
+4. Mention `paws` with a unique response request using the configured real LLM profile.
+5. Confirm paws replies in the correct Slack thread exactly once.
+6. Confirm coordinator intake and delivery evidence exists.
+7. Confirm the new server EventLog contains the deterministic user event and successful terminal `finish` output.
 
 The source key for a Slack event is:
 
@@ -195,7 +233,7 @@ console.table(db.prepare(`
 NODE
 ```
 
-For one canary, verify:
+For one production canary, verify:
 
 - the `intake` row reaches `done`;
 - its `conversation_id` exists in the server;
@@ -231,9 +269,9 @@ A reply containing:
 
 proves that an older process is still using `BaseBridgeAdapter` and `/turns`. It is not a Relay canary result. Restart the normal SmolPaws host from the current checkout so it releases the obsolete Slack connection, then restart standalone paws.
 
-### Paws replies twice
+### Paws replies twice or probes alternate between implementations
 
-Two Socket Mode processes probably consumed the same app stream. Stop the standalone process, restart the normal host from current code, then start only `npm run slack:relay:local` for Slack.
+Multiple Socket Mode processes are connected for the same app. During the isolated proof this is expected and Slack may distribute different probes to different connections. During production cutover, stop the standalone process, restart the normal host from current code, then start only `npm run slack:relay:local` for Slack.
 
 ### Port 8790 is unavailable
 
@@ -241,7 +279,7 @@ Start `packages/openhands-agent-server` with `dev:server` and inspect its logs. 
 
 ### Intake is present but no delivery appears
 
-Check the agent-server EventLog and confirm the run produced either a terminal `finish` observation or an agent `MessageEvent`. The Slack extractor supports both normal reply shapes.
+Check the agent-server EventLog and confirm the run produced a successful terminal `finish` observation. A plain assistant `MessageEvent` is not terminal in this SDK and is deliberately not delivered by the Slack canary extractor.
 
 ### Delivery is `delivery_unknown`
 
