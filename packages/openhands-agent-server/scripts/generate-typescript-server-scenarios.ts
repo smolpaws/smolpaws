@@ -65,12 +65,24 @@ try {
 }
 
 async function discoverApp(persistenceDir: string): Promise<FastifyLike> {
-  const modulePaths = [
+  const modulePaths = new Set([
     '../src/index.js',
     '../src/app.js',
     '../src/server.js',
     '../src/agent-server.js',
-  ];
+  ]);
+  try {
+    const smoke = await readFile(resolve(import.meta.dirname, '../examples/local-endpoint-smoke.ts'), 'utf8');
+    const importPattern = /from\s+['"](\.\.\/src\/[^'"]+)['"]/gu;
+    for (const match of smoke.matchAll(importPattern)) {
+      const modulePath = match[1];
+      if (modulePath !== undefined) {
+        modulePaths.add(modulePath.replace(/\.ts$/u, '.js'));
+      }
+    }
+  } catch (error) {
+    failures.push(`local-endpoint-smoke import discovery failed: ${errorMessage(error)}`);
+  }
   const factoryNames = [
     'createApp',
     'buildApp',
@@ -90,7 +102,15 @@ async function discoverApp(persistenceDir: string): Promise<FastifyLike> {
       continue;
     }
 
-    for (const value of [module.default, ...factoryNames.map((name) => module[name])]) {
+    const discoveredFactories = Object.entries(module)
+    .filter(([name, value]) => typeof value === 'function'
+      && /(?:create|build).*(?:app|server)|(?:app|server).*(?:create|build)/iu.test(name))
+    .map(([, value]) => value);
+  for (const value of [
+    module.default,
+    ...factoryNames.map((name) => module[name]),
+    ...discoveredFactories,
+  ]) {
       if (isFastifyLike(value)) return value;
       if (typeof value !== 'function') continue;
 
