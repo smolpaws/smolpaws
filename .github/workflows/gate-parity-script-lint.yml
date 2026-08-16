@@ -1,0 +1,78 @@
+name: Gate strict parity-script lint
+
+on:
+  push:
+    paths:
+      - .github/workflows/gate-parity-script-lint.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add package command and CI gate
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = 'packages/openhands-agent-server/package.json';
+          const document = JSON.parse(fs.readFileSync(path, 'utf8'));
+          document.scripts['lint:scripts'] = 'eslint --config eslint.scripts.config.cjs ./scripts';
+          if (!document.scripts.ci.includes('npm run lint:scripts')) {
+            document.scripts.ci = document.scripts.ci.replace(
+              'npm run typecheck:scripts',
+              'npm run typecheck:scripts && npm run lint:scripts',
+            );
+          }
+          fs.writeFileSync(path, JSON.stringify(document, null, 2) + '\n');
+          NODE
+
+          workflow=.github/workflows/agent-server-parity-tools.yml
+          if [ -f "$workflow" ] && ! grep -q 'Lint parity scripts' "$workflow"; then
+            python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/agent-server-parity-tools.yml')
+          text = path.read_text()
+          anchor = '''      - name: Typecheck parity scripts
+                  working-directory: packages/openhands-agent-server
+                  run: npm run typecheck:scripts
+          '''.replace('          ', '')
+          step = anchor + '''
+
+          - name: Lint parity scripts
+            working-directory: packages/openhands-agent-server
+            run: npm run lint:scripts
+          '''.replace('          ', '')
+          if anchor not in text:
+              raise SystemExit('Parity-tool typecheck step not found')
+          path.write_text(text.replace(anchor, step, 1))
+          PY
+          fi
+
+      - name: Verify strict script checks
+        run: |
+          npm ci --prefix packages/openhands-agent-server
+          npm run typecheck:scripts --prefix packages/openhands-agent-server
+          npm run lint:scripts --prefix packages/openhands-agent-server
+
+      - name: Remove one-shot workflow and commit
+        run: |
+          rm .github/workflows/gate-parity-script-lint.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A \
+            .github/workflows \
+            packages/openhands-agent-server/package.json \
+            packages/openhands-agent-server/eslint.scripts.config.cjs
+          if git diff --cached --quiet; then
+            echo "Parity scripts are already strictly linted."
+            exit 0
+          fi
+          git commit -m "ci(agent-server): gate strict parity-script lint"
+          git pull --rebase origin main
+          git push
