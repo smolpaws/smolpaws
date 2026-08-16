@@ -229,6 +229,27 @@
       "target": "server",
       "prefixes": [],
       "paths": []
+    },
+    {
+      "id": "EXT-SERVER-002",
+      "kind": "EXTENSION",
+      "target": "server",
+      "prefixes": [],
+      "paths": []
+    },
+    {
+      "id": "EXT-SERVER-003",
+      "kind": "EXTENSION",
+      "target": "server",
+      "prefixes": [],
+      "paths": []
+    },
+    {
+      "id": "EXT-SERVER-004",
+      "kind": "EXTENSION",
+      "target": "server",
+      "prefixes": [],
+      "paths": []
     }
   ]
 }

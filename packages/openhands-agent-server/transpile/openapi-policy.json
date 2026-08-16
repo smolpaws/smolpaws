@@ -163,5 +163,30 @@
       "reason": "The OpenAI-compatible gateway is not yet part of the replaceable TypeScript server slice."
     }
   },
-  "extensions": {}
+  "extensions": {
+    "GET /api/file/download/{path}": {
+      "policy": "EXT-SERVER-002",
+      "reason": "Additive wildcard-path alias for clients that cannot conveniently encode an absolute path as a query parameter."
+    },
+    "POST /api/file/upload/{path}": {
+      "policy": "EXT-SERVER-002",
+      "reason": "Additive wildcard-path alias for clients that cannot conveniently encode an absolute path as a query parameter."
+    },
+    "GET /api/git/changes/{path}": {
+      "policy": "EXT-SERVER-003",
+      "reason": "Additive wildcard-path alias for the upstream query-parameter git route."
+    },
+    "GET /api/git/diff/{path}": {
+      "policy": "EXT-SERVER-003",
+      "reason": "Additive wildcard-path alias for the upstream query-parameter git route."
+    },
+    "POST /api/agent-profiles": {
+      "policy": "EXT-SERVER-004",
+      "reason": "Additive body-named creation route; the upstream path-named route remains available."
+    },
+    "POST /api/profiles": {
+      "policy": "EXT-SERVER-004",
+      "reason": "Additive body-named creation route; the upstream path-named route remains available."
+    }
+  }
 }

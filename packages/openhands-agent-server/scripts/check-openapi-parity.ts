@@ -252,11 +252,12 @@ async function readJson(path: string): Promise<unknown> {
 function extractOperations(paths: Record<string, unknown>): ReadonlySet<OperationKey> {
   const operations = new Set<OperationKey>();
 
-  for (const [path, pathItem] of Object.entries(paths)) {
+  for (const [rawPath, pathItem] of Object.entries(paths)) {
     if (!isObject(pathItem)) {
-      throw new Error(`OpenAPI path item is not an object: ${path}`);
+      throw new Error(`OpenAPI path item is not an object: ${rawPath}`);
     }
 
+    const path = normalizePath(rawPath);
     for (const [method, operation] of Object.entries(pathItem)) {
       const normalizedMethod = method.toLowerCase();
       if (!httpMethods.has(normalizedMethod)) continue;
@@ -268,6 +269,11 @@ function extractOperations(paths: Record<string, unknown>): ReadonlySet<Operatio
   }
 
   return operations;
+}
+
+function normalizePath(path: string): string {
+  if (path === '/') return path;
+  return path.replace(/\/+$/u, '');
 }
 
 function difference(

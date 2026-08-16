@@ -23,11 +23,12 @@ Notable current policies include:
 - keyring-backed secret references instead of Python's cipher/storage split;
 - profile-first product LLM configuration;
 - no deferred-init flow;
-- additive caller-supplied `event_id` support for idempotent event append (`EXT-SERVER-001`), while omitted `event_id` preserves upstream behavior.
+- additive caller-supplied `event_id` support for idempotent event append (`EXT-SERVER-001`);
+- additive wildcard file/git path aliases and body-named profile creation routes (`EXT-SERVER-002` through `004`).
 
 The SDK and server transpiles advance together against bounded `OLD_PIN..NEW_PIN` upstream intervals. Compatibility work remains tests-first/red-green.
 
-## Provenance
+## Provenance and OpenAPI oracle
 
 The server does not author a second upstream pin. It consumes the canonical manifest packaged with the vendored SDK:
 
@@ -35,7 +36,14 @@ The server does not author a second upstream pin. It consumes the canonical mani
 vendor/openhands-agent/transpile/upstream.json
 ```
 
-The transitional route-parity check and future Python OpenAPI oracle read that manifest. Package CI rejects a missing/malformed manifest or duplicate pin metadata in the vendored SDK package.
+The pinned Python server OpenAPI and its provenance metadata are committed at:
+
+```text
+transpile/python-openapi.json
+transpile/python-openapi.meta.json
+```
+
+Package CI validates their repository, commit, and content hash, regenerates the TypeScript OpenAPI, and compares operation coverage against the Python oracle. Missing operations, permanent deviations, and additive extensions must be named in `transpile/openapi-policy.json`; stale exceptions fail CI.
 
 ## Validation
 
@@ -50,12 +58,12 @@ Useful focused commands:
 ```sh
 npm run test:upstream-provenance
 npm run openapi
-npm run test:route-parity
+npm run test:openapi-parity
 npm run smoke:local
 npm run test:pack
 ```
 
-The OpenAPI parity mechanism is being treated as an executable compatibility oracle. The durable rule is to generate the upstream OpenAPI/schema from the pinned Python source and compare it to the TypeScript output with explicit policy allowlists, rather than relying on a hand-maintained route inventory.
+The operation comparator is the first OpenAPI evidence layer. Normalized request/response schema comparison follows on top of the same generated oracle and policy model.
 
 Credential-gated LLM examples are provider viability checks, not Python/TypeScript differential parity tests.
 
@@ -63,6 +71,7 @@ Credential-gated LLM examples are provider viability checks, not Python/TypeScri
 
 - [`TRANSPILE_RULES.md`](TRANSPILE_RULES.md) — durable compatibility policy and pin-advance procedure
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — current server architecture
+- [`transpile/openapi-policy.json`](transpile/openapi-policy.json) — exact machine-validated operation differences
 - [`../../src/coordinator/DESIGN.md`](../../src/coordinator/DESIGN.md) — SmolPaws-owned durable message-work design around the server
 
 ## Work tracking
