@@ -251,5 +251,67 @@
       "prefixes": [],
       "paths": []
     }
+  ],
+  "policyHints": [
+    {
+      "prefix": "openhands-sdk/openhands/sdk/agent/acp_",
+      "target": "sdk",
+      "policy": "DEV-SDK-005"
+    },
+    {
+      "prefix": "openhands-sdk/openhands/sdk/conversation/secret_registry.py",
+      "target": "sdk",
+      "policy": "DEV-SDK-003"
+    },
+    {
+      "prefix": "openhands-sdk/openhands/sdk/marketplace/",
+      "target": "sdk",
+      "policy": "EXC-SDK-002"
+    },
+    {
+      "prefix": "openhands-sdk/openhands/sdk/plugin/",
+      "target": "sdk",
+      "policy": "EXC-SDK-001"
+    },
+    {
+      "prefix": "openhands-sdk/openhands/sdk/secret/",
+      "target": "sdk",
+      "policy": "DEV-SDK-003"
+    },
+    {
+      "prefix": "openhands-sdk/openhands/sdk/security/",
+      "target": "sdk",
+      "policy": "DEV-SDK-001"
+    },
+    {
+      "prefix": "openhands-sdk/openhands/sdk/settings/acp_",
+      "target": "sdk",
+      "policy": "DEV-SDK-005"
+    },
+    {
+      "prefix": "openhands-sdk/openhands/sdk/utils/pydantic_secrets.py",
+      "target": "sdk",
+      "policy": "DEV-SDK-003"
+    },
+    {
+      "prefix": "openhands-agent-server/openhands/agent_server/_secret",
+      "target": "server",
+      "policy": "DEV-SERVER-003"
+    },
+    {
+      "prefix": "openhands-agent-server/openhands/agent_server/desktop_",
+      "target": "server",
+      "policy": "EXC-SERVER-002"
+    },
+    {
+      "prefix": "openhands-agent-server/openhands/agent_server/init_router.py",
+      "target": "server",
+      "policy": "DEV-SERVER-005"
+    },
+    {
+      "prefix": "openhands-agent-server/openhands/agent_server/vscode_",
+      "target": "server",
+      "policy": "EXC-SERVER-002"
+    }
   ]
 }
