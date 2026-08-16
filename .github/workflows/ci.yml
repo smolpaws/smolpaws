@@ -53,6 +53,10 @@ jobs:
           npm run openapi:generate
           git diff --exit-code -- packages/openhands-agent-server/openapi.json
 
+      - name: Verify OpenAPI transport report is current
+        working-directory: packages/openhands-agent-server
+        run: npx tsx scripts/generate-openapi-transport-report.ts --check
+
       - name: Run GitHub ingress tests
         run: npm run github:test
 
