@@ -1,0 +1,74 @@
+name: Link deferred OpenAPI policy issue
+
+on:
+  push:
+    paths:
+      - .github/workflows/link-openapi-deferred-issue.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: read
+
+jobs:
+  link:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve tracking issue
+        id: issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          number="$(gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --search 'Reconcile deferred OpenHands agent-server OpenAPI operations in:title' \
+            --json number,title \
+            --jq '.[] | select(.title == "Reconcile deferred OpenHands agent-server OpenAPI operations") | .number' \
+            | head -n 1)"
+          if [ -z "$number" ]; then
+            echo "Could not find the deferred-route tracking issue" >&2
+            exit 1
+          fi
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+
+      - name: Replace symbolic tracking token
+        env:
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path('packages/openhands-agent-server/transpile/openapi-policy.json')
+          document = json.loads(path.read_text())
+          tracking = f"#{os.environ['ISSUE_NUMBER']}"
+          changed = False
+          for entry in document['missingTargetOperations'].values():
+              if entry.get('disposition') == 'DEFERRED' and entry.get('tracking') == 'OPENAPI-DEFERRED-ROUTES':
+                  entry['tracking'] = tracking
+                  changed = True
+          if not changed and 'OPENAPI-DEFERRED-ROUTES' in path.read_text():
+              raise SystemExit('Symbolic tracking token remains but no entry was updated')
+          path.write_text(json.dumps(document, indent=2) + '\n')
+          PY
+
+      - name: Remove one-shot workflow and commit
+        run: |
+          rm .github/workflows/link-openapi-deferred-issue.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            .github/workflows/link-openapi-deferred-issue.yml \
+            packages/openhands-agent-server/transpile/openapi-policy.json
+          if git diff --cached --quiet; then
+            echo "Deferred OpenAPI policy already links the tracking issue."
+            exit 0
+          fi
+          git commit -m "chore(agent-server): link deferred OpenAPI policy issue"
+          git pull --rebase origin main
+          git push
