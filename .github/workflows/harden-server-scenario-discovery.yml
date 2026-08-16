@@ -1,0 +1,91 @@
+name: Harden server scenario app discovery
+
+on:
+  push:
+    paths:
+      - .github/workflows/harden-server-scenario-discovery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch discovery from real smoke imports
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('packages/openhands-agent-server/scripts/generate-typescript-server-scenarios.ts')
+          text = path.read_text()
+          old_paths = '''  const modulePaths = [
+              '../src/index.js',
+              '../src/app.js',
+              '../src/server.js',
+              '../src/agent-server.js',
+            ];
+          '''.replace('          ', '')
+          new_paths = '''  const modulePaths = new Set([
+              '../src/index.js',
+              '../src/app.js',
+              '../src/server.js',
+              '../src/agent-server.js',
+            ]);
+            try {
+              const smoke = await readFile(resolve(import.meta.dirname, '../examples/local-endpoint-smoke.ts'), 'utf8');
+              const importPattern = /from\\s+['\"](\\.\\.\\/src\\/[^'\"]+)['\"]/gu;
+              for (const match of smoke.matchAll(importPattern)) {
+                const modulePath = match[1];
+                if (modulePath !== undefined) {
+                  modulePaths.add(modulePath.replace(/\\.ts$/u, '.js'));
+                }
+              }
+            } catch (error) {
+              failures.push(`local-endpoint-smoke import discovery failed: ${errorMessage(error)}`);
+            }
+          '''.replace('          ', '')
+          if old_paths in text:
+              text = text.replace(old_paths, new_paths, 1)
+          elif 'const modulePaths = new Set([' not in text:
+              raise SystemExit('modulePaths block not found')
+
+          old_values = '''    for (const value of [module.default, ...factoryNames.map((name) => module[name])]) {
+          '''
+          new_values = '''    const discoveredFactories = Object.entries(module)
+              .filter(([name, value]) => typeof value === 'function'
+                && /(?:create|build).*(?:app|server)|(?:app|server).*(?:create|build)/iu.test(name))
+              .map(([, value]) => value);
+            for (const value of [
+              module.default,
+              ...factoryNames.map((name) => module[name]),
+              ...discoveredFactories,
+            ]) {
+          '''
+          if old_values in text:
+              text = text.replace(old_values, new_values, 1)
+          elif 'const discoveredFactories = Object.entries(module)' not in text:
+              raise SystemExit('factory values loop not found')
+
+          path.write_text(text)
+          PY
+
+      - name: Remove one-shot workflow and commit
+        run: |
+          rm .github/workflows/harden-server-scenario-discovery.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            .github/workflows/harden-server-scenario-discovery.yml \
+            packages/openhands-agent-server/scripts/generate-typescript-server-scenarios.ts
+          if git diff --cached --quiet; then
+            echo "Server scenario app discovery is already grounded in the smoke seam."
+            exit 0
+          fi
+          git commit -m "fix(agent-server): ground app discovery in local smoke"
+          git pull --rebase origin main
+          git push
