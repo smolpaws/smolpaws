@@ -1,0 +1,91 @@
+name: Gate agent-server documentation authority
+
+on:
+  push:
+    paths:
+      - .github/workflows/gate-agent-server-doc-authority.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Normalize server docs around vendored manifest
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          rules = Path('packages/openhands-agent-server/TRANSPILE_RULES.md')
+          text = rules.read_text()
+          text = re.sub(
+              r'Current pinned commit:\s*```text\s*[0-9a-f]{40}\s*```',
+              'The canonical upstream pin is carried by `vendor/openhands-agent/transpile/upstream.json`. Do not copy the SHA into this contract.',
+              text,
+              count=1,
+              flags=re.S,
+          )
+          if 'vendor/openhands-agent/transpile/upstream.json' not in text:
+              marker = 'Upstream: `OpenHands/software-agent-sdk/openhands-agent-server`'
+              if marker not in text:
+                  raise SystemExit('Server contract upstream marker not found')
+              text = text.replace(
+                  marker,
+                  marker + '\n\nThe canonical upstream pin is carried by `vendor/openhands-agent/transpile/upstream.json`. Do not copy the SHA into this contract.',
+                  1,
+              )
+          rules.write_text(text)
+
+          for relative in [
+              'packages/openhands-agent-server/README.md',
+              'packages/openhands-agent-server/docs/ARCHITECTURE.md',
+          ]:
+              path = Path(relative)
+              path.write_text(path.read_text().replace('TRANSPILE_PLAN.md', 'TRANSPILE_RULES.md'))
+          PY
+
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = 'packages/openhands-agent-server/package.json';
+          const document = JSON.parse(fs.readFileSync(path, 'utf8'));
+          document.scripts['test:doc-authority'] = 'tsx scripts/check-doc-authority.ts';
+          if (!document.scripts.ci.includes('npm run test:doc-authority')) {
+            document.scripts.ci = document.scripts.ci.replace(
+              'npm run test:openapi-operations',
+              'npm run test:doc-authority && npm run test:openapi-operations',
+            );
+          }
+          fs.writeFileSync(path, JSON.stringify(document, null, 2) + '\n');
+          NODE
+
+      - name: Verify server documentation authority
+        run: |
+          npm ci --prefix packages/openhands-agent-server
+          npm run test:doc-authority --prefix packages/openhands-agent-server
+          npm run typecheck:scripts --prefix packages/openhands-agent-server
+
+      - name: Remove one-shot workflow and commit
+        run: |
+          rm .github/workflows/gate-agent-server-doc-authority.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A \
+            .github/workflows \
+            packages/openhands-agent-server/README.md \
+            packages/openhands-agent-server/TRANSPILE_RULES.md \
+            packages/openhands-agent-server/docs/ARCHITECTURE.md \
+            packages/openhands-agent-server/package.json \
+            packages/openhands-agent-server/scripts/check-doc-authority.ts
+          if git diff --cached --quiet; then
+            echo "Agent-server durable documentation authority is already gated."
+            exit 0
+          fi
+          git commit -m "ci(agent-server): gate durable documentation authority"
+          git pull --rebase origin main
+          git push
