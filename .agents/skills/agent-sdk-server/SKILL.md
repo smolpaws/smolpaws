@@ -34,7 +34,7 @@ Use this skill when changing `packages/openhands-agent-server`, integrating with
 npm run ci --prefix packages/openhands-agent-server
 ```
 
-Credential-gated LLM examples prove provider viability, not Python/TypeScript parity.
+Credential-gated LLM examples prove provider viability, not Python/TypeScript parity, though they can serve as help for parity because they are transpiled from Python too.
 
 ## Reference
 
