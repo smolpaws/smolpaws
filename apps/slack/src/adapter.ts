@@ -117,7 +117,12 @@ export class SlackBridge {
       await app.start();
 
       this.logger.info(
-        { botUserId: this.botUserId, team: auth.team, agentServer: this.serverUrl },
+        {
+          botUserId: this.botUserId,
+          team: auth.team,
+          agentServer: this.serverUrl,
+          buildSha: process.env.SMOLPAWS_BUILD_SHA?.trim() || undefined,
+        },
         'SmolPaws Slack bot is ready on coordinator path 🐾',
       );
     } catch (error) {
@@ -133,17 +138,20 @@ export class SlackBridge {
   async stop(): Promise<void> {
     const app = this.app;
     const runtime = this.runtime;
-    this.app = undefined;
-    this.runtime = undefined;
-    this.botUserId = '';
+    if (app === undefined && runtime === undefined) return;
 
-    // Stop ingress first, then allow the active coordinator tick to settle before SQLite closes.
+    // Stop Socket Mode ingress first. Keep the Bolt app/client reachable while the coordinator waits for
+    // any active tick: an already-claimed delivery may still need chat.postMessage before SQLite closes.
     await app?.stop().catch((error: unknown) => {
       this.logger.warn({ err: error }, 'Failed to stop Slack Socket Mode app cleanly');
     });
     await runtime?.stop().catch((error: unknown) => {
       this.logger.warn({ err: error }, 'Failed to stop Slack coordinator runtime cleanly');
     });
+
+    if (this.app === app) this.app = undefined;
+    if (this.runtime === runtime) this.runtime = undefined;
+    this.botUserId = '';
   }
 
   private async accept(message: IncomingMessage): Promise<void> {
