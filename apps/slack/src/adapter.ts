@@ -29,6 +29,12 @@ export interface SlackBridgeOptions {
   serverUrl: string;
   sessionApiKey?: string;
   slackConfig?: SlackConfig;
+  /** Override the durable coordinator DB, mainly for isolated live canaries. */
+  dbPath?: string;
+  /** Override the Relay polling interval. */
+  tickMs?: number;
+  /** Additional upstream-shaped conversation defaults for this bridge instance. */
+  createConversationDefaults?: Record<string, unknown>;
 }
 
 export class SlackBridge {
@@ -39,6 +45,9 @@ export class SlackBridge {
   private readonly serverUrl: string;
   private readonly sessionApiKey?: string;
   private readonly slackConfig: SlackConfig;
+  private readonly dbPath?: string;
+  private readonly tickMs?: number;
+  private readonly createConversationDefaults?: Record<string, unknown>;
   private readonly dedup = new MessageDeduplicator();
   private readonly guestLimiter = new GuestRateLimiter();
   private readonly mentionedThreads = new MentionedThreadTracker();
@@ -48,6 +57,9 @@ export class SlackBridge {
     this.serverUrl = options.serverUrl.replace(/\/+$/, '');
     this.sessionApiKey = options.sessionApiKey;
     this.slackConfig = options.slackConfig ?? loadConfig();
+    this.dbPath = options.dbPath;
+    this.tickMs = options.tickMs;
+    this.createConversationDefaults = options.createConversationDefaults;
   }
 
   get connected(): boolean {
@@ -92,6 +104,11 @@ export class SlackBridge {
         logger: this.logger,
         serverUrl: this.serverUrl,
         sessionApiKey: this.sessionApiKey,
+        ...(this.dbPath === undefined ? {} : { dbPath: this.dbPath }),
+        ...(this.tickMs === undefined ? {} : { tickMs: this.tickMs }),
+        ...(this.createConversationDefaults === undefined
+          ? {}
+          : { createConversationDefaults: this.createConversationDefaults }),
         sendChunk: (channel, text, threadTs) =>
           this.postChunk(channel, text, threadTs),
       });
