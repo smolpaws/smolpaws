@@ -1,0 +1,45 @@
+name: Fix server scenario discovery cast
+
+on:
+  push:
+    paths:
+      - .github/workflows/fix-server-scenario-discovery-cast.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply narrow type fix
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('packages/openhands-agent-server/scripts/generate-typescript-server-scenarios.ts')
+          text = path.read_text().replace(
+              'module = await import(modulePath) as Record<string, unknown>;',
+              'module = await import(modulePath) as unknown as Record<string, unknown>;',
+          )
+          path.write_text(text)
+          PY
+
+      - name: Remove one-shot workflow and commit
+        run: |
+          rm .github/workflows/fix-server-scenario-discovery-cast.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            .github/workflows/fix-server-scenario-discovery-cast.yml \
+            packages/openhands-agent-server/scripts/generate-typescript-server-scenarios.ts
+          if git diff --cached --quiet; then
+            echo "Server scenario discovery cast is already type-safe."
+            exit 0
+          fi
+          git commit -m "fix(agent-server): keep scenario discovery type-safe"
+          git pull --rebase origin main
+          git push
