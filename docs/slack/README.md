@@ -35,8 +35,6 @@ The ingress success boundary is durable acceptance, not an in-memory request fin
 - ordered intake integration into agent-server;
 - `syncDeliveryOutbox()`, which catches durable agent events up into delivery work.
 
-`MessageWorkCoordinator` remains only as a compatibility export for code that has not migrated to the preferred name.
-
 ### Outbound Relay
 
 `OutboundRelay` runs the outbound half. It repeatedly calls `syncDeliveryOutbox()` for known conversations and asks the Delivery Dispatcher to drain bounded work. It does not know Slack APIs.
@@ -64,8 +62,6 @@ Validation happens before `send_attempted`. Once sending may have begun, an exce
 3. reconcile expired claims and retry waits;
 4. synchronize the delivery outbox;
 5. dispatch bounded Slack sends.
-
-`SlackCoordinatorRuntime` remains a compatibility export from `coordinatorRuntime.ts` only.
 
 ### Slack bridge and delivery target
 

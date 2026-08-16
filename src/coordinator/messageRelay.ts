@@ -36,8 +36,6 @@ export interface MessageRelayOptions {
   isRetryable?: (error: unknown) => boolean;
   /** Page size when syncing agent events into the delivery outbox. */
   outboxSyncPageSize?: number;
-  /** @deprecated Use `outboxSyncPageSize`. */
-  projectionPageSize?: number;
 }
 
 /**
@@ -101,7 +99,7 @@ export class MessageRelay {
     this.isRetryable =
       options.isRetryable ??
       ((error) => !(error as { nonRetryable?: boolean } | null)?.nonRetryable);
-    this.outboxSyncPageSize = options.outboxSyncPageSize ?? options.projectionPageSize ?? 100;
+    this.outboxSyncPageSize = options.outboxSyncPageSize ?? 100;
   }
 
   /** Resolve and durably bind an external lane to one agent-server conversation. */
@@ -199,11 +197,6 @@ export class MessageRelay {
     }
 
     return created;
-  }
-
-  /** @deprecated Use {@link syncDeliveryOutbox}. */
-  async projectDeliveries(conversationId: string): Promise<number> {
-    return this.syncDeliveryOutbox(conversationId);
   }
 
   /** Expose the store for worker/claim/settle/reconcile access and audit reads. */

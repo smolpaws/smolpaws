@@ -12,7 +12,7 @@ import test from 'node:test';
 import Database from 'better-sqlite3';
 import pino from 'pino';
 
-import { MessageWorkCoordinator } from '../coordinator/coordinator.js';
+import { MessageRelay } from '../coordinator/messageRelay.js';
 import { MessageWorkStore } from '../coordinator/store.js';
 import { DEFAULT_RETRY_POLICY, type AgentServerClient, type InboundMessage, type IntegrationOutcome, type LaneDescriptor, type WorkRow } from '../coordinator/types.js';
 import type { IncomingMessage } from './bridgeAdapter.js';
@@ -153,7 +153,7 @@ test('a coordinator/server error is swallowed — accept() resolves and never th
       throw new Error('new server is down');
     },
   };
-  const coordinator = new MessageWorkCoordinator(store, throwingClient);
+  const coordinator = new MessageRelay(store, throwingClient);
   const shadow = new ShadowIntake(coordinator, logger);
 
   // Must resolve (no throw, no rejection) even though the real coordinator hits a dead server.

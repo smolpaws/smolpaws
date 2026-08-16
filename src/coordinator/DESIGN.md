@@ -2,7 +2,7 @@
 
 The Message Relay is SmolPaws-owned infrastructure around the upstream-shaped OpenHands agent-server. It is **not** part of the Python→TypeScript transpilation and should not be judged by source parity.
 
-Its job is to make external message intake and delivery durable without pushing queue semantics into `packages/openhands-agent-server`. The source directory remains `src/coordinator/` for now; the former `MessageWorkCoordinator` names are compatibility aliases while other bridges migrate.
+Its job is to make external message intake and delivery durable without pushing queue semantics into `packages/openhands-agent-server`. The core class is `MessageRelay` (in `src/coordinator/messageRelay.ts`); the directory name `src/coordinator/` is historical.
 
 ## Ownership
 

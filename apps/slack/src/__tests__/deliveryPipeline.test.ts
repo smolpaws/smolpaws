@@ -10,7 +10,7 @@ import pino from 'pino';
 
 import { createAgentServerApp } from '../../../../packages/openhands-agent-server/src/app.js';
 import type { LLMClient } from '../../../../packages/openhands-agent-server/vendor/openhands-agent/dist/llm/client.js';
-import { MessageWorkCoordinator, finalResponseExtractor } from '../../../../src/coordinator/coordinator.js';
+import { MessageRelay, finalResponseExtractor } from '../../../../src/coordinator/messageRelay.js';
 import {
   DeliveryDispatcher,
   DeliveryTargetRegistry,
@@ -24,7 +24,7 @@ import type {
   LaneDescriptor,
   LaneRow,
 } from '../../../../src/coordinator/types.js';
-import { SlackCoordinatorRuntime, slackLaneDescriptor } from '../coordinatorRuntime.js';
+import { SlackRelayRuntime, slackLaneDescriptor } from '../relayRuntime.js';
 import { SlackDeliveryTarget } from '../deliveryTarget.js';
 
 const NOW = Date.UTC(2026, 7, 16, 20, 0, 0);
@@ -168,7 +168,7 @@ class FakeAgentServer implements AgentServerClient {
 test('OutboundRelay syncDeliveryOutbox + DeliveryDispatcher completes the new outbound path', async () => {
   const store = makeStore();
   const agent = new FakeAgentServer();
-  const coordinator = new MessageWorkCoordinator(store, agent, {
+  const coordinator = new MessageRelay(store, agent, {
     now: () => NOW,
     deriveConversationId: () => CONVERSATION_ID,
     extractor: finalResponseExtractor,
@@ -206,7 +206,7 @@ test('OutboundRelay syncDeliveryOutbox + DeliveryDispatcher completes the new ou
 });
 
 test(
-  'SlackCoordinatorRuntime drives the real transpiled agent-server through finish to durable Slack delivery',
+  'SlackRelayRuntime drives the real transpiled agent-server through finish to durable Slack delivery',
   { timeout: 20_000 },
   async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'slack-relay-real-server-'));
@@ -251,13 +251,13 @@ test(
       },
     });
 
-    let runtime: SlackCoordinatorRuntime | null = null;
+    let runtime: SlackRelayRuntime | null = null;
     try {
       await server.app.listen({ host: '127.0.0.1', port: 0 });
       const serverUrl = localHost(server.app.server.address());
       const sent: Array<{ channel: string; text: string; threadTs?: string }> = [];
 
-      runtime = new SlackCoordinatorRuntime({
+      runtime = new SlackRelayRuntime({
         logger: pino({ level: 'silent' }),
         serverUrl,
         sessionApiKey,

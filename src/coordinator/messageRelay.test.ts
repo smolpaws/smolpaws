@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { MessageWorkCoordinator } from './coordinator.js';
+import { MessageRelay } from './messageRelay.js';
 import { deterministicEventId } from './ids.js';
 import { MessageWorkStore } from './store.js';
 import type { AgentEvent, AgentServerClient, LaneDescriptor, RetryPolicy } from './types.js';
@@ -71,7 +71,7 @@ class FakeAgentServer implements AgentServerClient {
 
 function makeCoordinator(now: () => number, agent = new FakeAgentServer()) {
   const store = new MessageWorkStore(new Database(tempDbPath()), POLICY);
-  const coord = new MessageWorkCoordinator(store, agent, { now, projectionPageSize: 2 });
+  const coord = new MessageRelay(store, agent, { now, outboxSyncPageSize: 2 });
   return { store, coord, agent };
 }
 
@@ -160,7 +160,7 @@ const sendAction = (id: string, text: string): AgentEvent => ({
   action: { text },
 });
 
-test('projectDeliveries creates one delivery per send_message action and is idempotent on replay', async () => {
+test('syncDeliveryOutbox creates one delivery per send_message action and is idempotent on replay', async () => {
   const c = clock();
   const { store, coord, agent } = makeCoordinator(c.now);
   const binding = await coord.resolveLane(lane());
@@ -170,27 +170,27 @@ test('projectDeliveries creates one delivery per send_message action and is idem
     sendAction('e2', 'second reply'),
   ];
 
-  const created = await coord.projectDeliveries(binding.conversationId);
+  const created = await coord.syncDeliveryOutbox(binding.conversationId);
   assert.equal(created, 2);
   const deliveries = store.listLaneWork(binding.laneKey, 'delivery');
   assert.equal(deliveries.length, 2);
   assert.deepEqual(deliveries.map((d) => (d.payload as { text: string }).text), ['first reply', 'second reply']);
 
   // Replay from the advanced cursor → nothing new.
-  assert.equal(await coord.projectDeliveries(binding.conversationId), 0);
+  assert.equal(await coord.syncDeliveryOutbox(binding.conversationId), 0);
   assert.equal(store.listLaneWork(binding.laneKey, 'delivery').length, 2);
 
   // A new event after the cursor is picked up.
   agent.events.push(sendAction('e3', 'third reply'));
-  assert.equal(await coord.projectDeliveries(binding.conversationId), 1);
+  assert.equal(await coord.syncDeliveryOutbox(binding.conversationId), 1);
 });
 
-test('projectDeliveries paginates across multiple pages', async () => {
+test('syncDeliveryOutbox paginates across multiple pages', async () => {
   const c = clock();
-  const { store, coord, agent } = makeCoordinator(c.now); // projectionPageSize = 2
+  const { store, coord, agent } = makeCoordinator(c.now); // outboxSyncPageSize = 2
   const binding = await coord.resolveLane(lane());
   agent.events = [sendAction('e1', 'a'), sendAction('e2', 'b'), sendAction('e3', 'c'), sendAction('e4', 'd'), sendAction('e5', 'e')];
-  const created = await coord.projectDeliveries(binding.conversationId);
+  const created = await coord.syncDeliveryOutbox(binding.conversationId);
   assert.equal(created, 5);
   assert.equal(store.listLaneWork(binding.laneKey, 'delivery').length, 5);
 });
@@ -200,7 +200,7 @@ test('projected delivery work respects lane order and joins back to the agent ev
   const { store, coord, agent } = makeCoordinator(c.now);
   const binding = await coord.resolveLane(lane());
   agent.events = [sendAction('e1', 'a'), sendAction('e2', 'b')];
-  await coord.projectDeliveries(binding.conversationId);
+  await coord.syncDeliveryOutbox(binding.conversationId);
 
   const first = store.claimReady('deliverer', c.now(), 'delivery');
   assert.equal(first?.row.agentEventId, 'e1');

@@ -179,21 +179,37 @@ test('GuestRateLimiter: different users have independent limits', () => {
 
 // --- MessageDeduplicator ---
 
-test('MessageDeduplicator: first message is not duplicate', () => {
+test('MessageDeduplicator: first message reserves and commits', () => {
   const d = new MessageDeduplicator();
-  assert.equal(d.isDuplicate('a'), false);
+  assert.equal(d.tryBegin('a'), true);
+  d.commit('a');
 });
 
-test('MessageDeduplicator: same message is duplicate', () => {
+test('MessageDeduplicator: same message is rejected after commit', () => {
   const d = new MessageDeduplicator();
-  d.isDuplicate('a');
-  assert.equal(d.isDuplicate('a'), true);
+  assert.equal(d.tryBegin('a'), true);
+  d.commit('a');
+  assert.equal(d.tryBegin('a'), false);
 });
 
-test('MessageDeduplicator: different messages are not duplicates', () => {
+test('MessageDeduplicator: reservation is exclusive while in-flight', () => {
   const d = new MessageDeduplicator();
-  d.isDuplicate('a');
-  assert.equal(d.isDuplicate('b'), false);
+  assert.equal(d.tryBegin('a'), true);
+  assert.equal(d.tryBegin('a'), false);
+});
+
+test('MessageDeduplicator: released reservation can be retried', () => {
+  const d = new MessageDeduplicator();
+  assert.equal(d.tryBegin('a'), true);
+  d.release('a');
+  assert.equal(d.tryBegin('a'), true);
+});
+
+test('MessageDeduplicator: different messages are independent', () => {
+  const d = new MessageDeduplicator();
+  assert.equal(d.tryBegin('a'), true);
+  d.commit('a');
+  assert.equal(d.tryBegin('b'), true);
 });
 
 // --- MentionedThreadTracker ---

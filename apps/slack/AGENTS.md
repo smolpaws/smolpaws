@@ -31,8 +31,6 @@ Run `apps/slack` as its own process. Do not reintroduce `BaseBridgeAdapter`, `br
 - `SlackRelayRuntime` runs the intake and outbound workers for Slack.
 - `SlackDeliveryTarget` performs Slack-specific `chat.postMessage` calls.
 
-The old `MessageWorkCoordinator`, `CoordinatorOptions`, `SlackCoordinatorRuntime`, and `SlackCoordinatorRuntimeOptions` exports are compatibility aliases only. New code must use the Relay names.
-
 ## Slack app versus local code
 
 The installed Slack app contains configuration, not this TypeScript implementation. Slack owns the bot identity, OAuth/app tokens, scopes, event subscriptions, and Socket Mode settings. The executable bridge code lives in this repository and runs on the SmolPaws host.

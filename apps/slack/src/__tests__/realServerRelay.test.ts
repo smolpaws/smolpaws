@@ -9,7 +9,7 @@ import Database from 'better-sqlite3';
 import pino from 'pino';
 
 import { createAgentServerApp } from '../../../../packages/openhands-agent-server/src/app.js';
-import { SlackCoordinatorRuntime } from '../coordinatorRuntime.js';
+import { SlackRelayRuntime } from '../relayRuntime.js';
 
 // The vendored SDK intentionally ships runtime files as .mjs/.cjs with a sibling index.d.ts.
 // NodeNext does not associate a relative .mjs import with that declaration file, so load the CJS
@@ -102,7 +102,7 @@ test('Slack ingress reaches the real TypeScript agent-server and returns through
     text: string;
     threadTs?: string;
   }> = [];
-  const runtime = new SlackCoordinatorRuntime({
+  const runtime = new SlackRelayRuntime({
     logger: pino({ level: 'silent' }),
     serverUrl: baseUrl,
     sessionApiKey: SESSION_KEY,

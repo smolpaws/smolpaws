@@ -20,7 +20,7 @@ import test from 'node:test';
 import { createAgentServerApp } from '@smolpaws/openhands-agent-server';
 import Database from 'better-sqlite3';
 
-import { MessageWorkCoordinator } from './coordinator.js';
+import { MessageRelay } from './messageRelay.js';
 import { HttpAgentServerClient } from './httpAgentServerClient.js';
 import { deterministicConversationId, deterministicEventId } from './ids.js';
 import { MessageWorkStore } from './store.js';
@@ -101,7 +101,7 @@ test(
         new Database(path.join(runtimeRoot, 'coordinator.db')),
         POLICY,
       );
-      const coordinator = new MessageWorkCoordinator(store, client);
+      const coordinator = new MessageRelay(store, client);
 
       const descriptor: LaneDescriptor = {
         laneKey: 'channel:slack:T1:C1:root',

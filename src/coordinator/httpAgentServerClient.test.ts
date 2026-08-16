@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { MessageWorkCoordinator } from './coordinator.js';
+import { MessageRelay } from './messageRelay.js';
 import { HttpAgentServerClient, HttpAgentServerError } from './httpAgentServerClient.js';
 import { deterministicEventId } from './ids.js';
 import { MessageWorkStore } from './store.js';
@@ -107,7 +107,7 @@ test('coordinator drives the http client: deterministic append, non-retryable ma
   // Happy path: ensure + append succeed.
   const ok = stubFetch((rec) => (rec.url.includes('/events') ? json({ success: true, event_id: (rec.body as { event_id: string }).event_id, created: true }) : json({})));
   const okClient = new HttpAgentServerClient({ baseUrl: 'http://h', fetch: ok.fetchLike });
-  const coord = new MessageWorkCoordinator(store, okClient, { now: () => t });
+  const coord = new MessageRelay(store, okClient, { now: () => t });
   await coord.acceptInbound(lane(), { sourceMessageId: 'm1', content: 'hello' });
   const outcome = await coord.integrateNextIntake('w1');
   assert.equal(outcome.kind, 'integrated');
@@ -117,7 +117,7 @@ test('coordinator drives the http client: deterministic append, non-retryable ma
   // Non-retryable append (4xx) must fail the intake, not loop forever.
   const store2 = new MessageWorkStore(new Database(path.join(mkdtempSync(path.join(tmpdir(), 'mwc-http2-')), 'c.db')), POLICY);
   const bad = stubFetch((rec) => (rec.url.includes('/events') ? json({ detail: 'conflict' }, 409) : json({})));
-  const coord2 = new MessageWorkCoordinator(store2, new HttpAgentServerClient({ baseUrl: 'http://h', fetch: bad.fetchLike }), { now: () => t });
+  const coord2 = new MessageRelay(store2, new HttpAgentServerClient({ baseUrl: 'http://h', fetch: bad.fetchLike }), { now: () => t });
   await coord2.acceptInbound(lane(), { sourceMessageId: 'm1', content: 'hello' });
   assert.equal((await coord2.integrateNextIntake('w1')).kind, 'failed');
 });

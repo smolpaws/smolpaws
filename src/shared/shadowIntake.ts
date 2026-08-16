@@ -19,7 +19,7 @@ import { dirname, join } from 'node:path';
 import Database from 'better-sqlite3';
 import type { Logger } from 'pino';
 
-import { MessageWorkCoordinator } from '../coordinator/coordinator.js';
+import { MessageRelay } from '../coordinator/messageRelay.js';
 import { HttpAgentServerClient } from '../coordinator/httpAgentServerClient.js';
 import { MessageWorkStore } from '../coordinator/store.js';
 import { DEFAULT_RETRY_POLICY, type InboundMessage, type IntegrationOutcome, type LaneDescriptor, type WorkRow } from '../coordinator/types.js';
@@ -33,7 +33,7 @@ export function isShadowEnabled(name: string): boolean {
   return process.env.SMOLPAWS_COORD_SHADOW === '1' && SHADOW_CHANNELS.has(name);
 }
 
-/** Structural subset of {@link MessageWorkCoordinator} the shadow path needs (injectable for tests). */
+/** Structural subset of {@link MessageRelay} the shadow path needs (injectable for tests). */
 export interface ShadowCoordinator {
   acceptInbound(descriptor: LaneDescriptor, message: InboundMessage): Promise<WorkRow>;
   integrateNextIntake(worker: string): Promise<IntegrationOutcome>;
@@ -123,7 +123,7 @@ function buildRealCoordinator(): ShadowCoordinator {
     baseUrl: process.env.SMOLPAWS_COORD_SERVER_URL ?? 'http://127.0.0.1:8790',
     sessionApiKey: process.env.SMOLPAWS_COORD_SERVER_API_KEY,
   });
-  return new MessageWorkCoordinator(store, client);
+  return new MessageRelay(store, client);
 }
 
 /**

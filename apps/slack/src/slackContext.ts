@@ -215,13 +215,6 @@ export class MessageDeduplicator {
     this.inFlight.delete(key);
   }
 
-  /** Compatibility helper for older pure callers that want check-and-record in one operation. */
-  isDuplicate(key: string): boolean {
-    if (!this.tryBegin(key)) return true;
-    this.commit(key);
-    return false;
-  }
-
   private prune(now: number): void {
     // Map preserves insertion order. Once the first non-expired item is reached, all later items are
     // newer. Prune on every access so the advertised TTL remains true even for small maps.
