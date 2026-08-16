@@ -18,6 +18,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Check Slack Relay launcher syntax
+        run: bash -n scripts/run-local-slack-relay.sh
+
       - name: Install root dependencies
         run: npm ci
 
