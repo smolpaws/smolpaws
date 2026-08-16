@@ -2,7 +2,18 @@ import type { FastifyInstance } from 'fastify';
 
 import type { ConversationService } from './conversationService.js';
 import { eventSortOrderSchema, messageFromSendRequest, sendMessageRequestSchema, confirmationResponseRequestSchema } from './models.js';
-import { acceptedDeviation, arrayQuery, dateQuery, eventServiceOr404, intQuery, param, parseBody, queryRecord, stringQuery } from './routeUtils.js';
+import {
+  acceptedDeviation,
+  arrayQuery,
+  dateQuery,
+  eventServiceOr404,
+  intQuery,
+  param,
+  parseBody,
+  queryRecord,
+  stringArrayBody,
+  stringQuery,
+} from './routeUtils.js';
 
 export function registerEventRoutes(app: FastifyInstance, service: ConversationService): void {
   app.get('/api/conversations/:conversation_id/events/search', async (request, reply) => {
@@ -42,7 +53,11 @@ export function registerEventRoutes(app: FastifyInstance, service: ConversationS
   app.get('/api/conversations/:conversation_id/events', async (request, reply) => {
     const eventService = await eventServiceOr404(reply, service, param(request, 'conversation_id'));
     if (eventService === null) return undefined;
-    return eventService.batchGetEvents(arrayQuery(queryRecord(request).event_ids));
+    const bodyIds = stringArrayBody(request.body);
+    const eventIds = bodyIds.length > 0
+      ? bodyIds
+      : arrayQuery(queryRecord(request).event_ids);
+    return eventService.batchGetEvents(eventIds);
   });
 
   app.post('/api/conversations/:conversation_id/events', async (request, reply) => {

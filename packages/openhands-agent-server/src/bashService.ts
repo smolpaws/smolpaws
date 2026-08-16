@@ -12,6 +12,17 @@ export interface BashEventServiceOptions {
   readonly bashEventsDir: string;
 }
 
+interface BashEventSearchOptions {
+  readonly kind?: string | null;
+  readonly commandId?: string | null;
+  readonly timestampGte?: Date | null;
+  readonly timestampLt?: Date | null;
+  readonly orderGt?: number | null;
+  readonly pageId?: string | null;
+  readonly limit?: number;
+  readonly sortOrder?: 'TIMESTAMP' | 'TIMESTAMP_DESC';
+}
+
 export class BashEventService {
   private readonly pubSub = new PubSub<BashEvent>(50);
 
@@ -48,7 +59,7 @@ export class BashEventService {
     return Promise.all(eventIds.map((eventId) => this.getBashEvent(eventId)));
   }
 
-  async searchBashEvents(options: { readonly kind?: string | null; readonly commandId?: string | null; readonly orderGt?: number | null; readonly pageId?: string | null; readonly limit?: number; readonly sortOrder?: 'TIMESTAMP' | 'TIMESTAMP_DESC' } = {}): Promise<BashEventPage> {
+  async searchBashEvents(options: BashEventSearchOptions = {}): Promise<BashEventPage> {
     const limit = Math.max(1, Math.min(100, Math.trunc(options.limit ?? 100)));
     const files = await this.eventFiles();
     const ordered = options.sortOrder === 'TIMESTAMP_DESC' ? [...files].reverse() : files;
@@ -62,6 +73,9 @@ export class BashEventService {
       }
       const event = await this.loadEvent(file);
       if (event === null) continue;
+      const eventTimestamp = Date.parse(event.timestamp);
+      if (options.timestampGte !== undefined && options.timestampGte !== null && eventTimestamp < options.timestampGte.getTime()) continue;
+      if (options.timestampLt !== undefined && options.timestampLt !== null && eventTimestamp >= options.timestampLt.getTime()) continue;
       if (options.kind !== undefined && options.kind !== null && event.kind !== options.kind) continue;
       if (options.commandId !== undefined && options.commandId !== null && event.kind === 'BashOutput' && event.command_id !== options.commandId) continue;
       if (options.commandId !== undefined && options.commandId !== null && event.kind === 'BashCommand' && event.id !== options.commandId) continue;
