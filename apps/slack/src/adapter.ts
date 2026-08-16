@@ -1,8 +1,8 @@
 /**
- * Standalone Slack Socket Mode bridge for the durable message-work architecture.
+ * Standalone Slack Socket Mode bridge for the durable Message Relay architecture.
  *
- * Slack is intentionally greenfield. It owns its Bolt connection and coordinator runtime directly; it
- * does not inherit the legacy BaseBridgeAdapter and cannot fall back to `/turns` accidentally.
+ * Slack is intentionally greenfield. It owns its Bolt connection and relay runtime directly; it does
+ * not inherit the legacy BaseBridgeAdapter and cannot fall back to `/turns` accidentally.
  */
 import { App } from '@slack/bolt';
 import type { GenericMessageEvent } from '@slack/types';
@@ -13,7 +13,7 @@ import type {
   ReplyContext,
 } from '../../../src/shared/bridgeAdapter.js';
 import { loadConfig, type SlackConfig } from './config.js';
-import { SlackCoordinatorRuntime } from './coordinatorRuntime.js';
+import { SlackRelayRuntime } from './relayRuntime.js';
 import {
   GuestRateLimiter,
   MentionedThreadTracker,
@@ -29,9 +29,9 @@ export interface SlackBridgeOptions {
   serverUrl: string;
   sessionApiKey?: string;
   slackConfig?: SlackConfig;
-  /** Override the durable coordinator DB, mainly for isolated live canaries. */
+  /** Override the durable Message Relay DB, mainly for isolated live canaries. */
   dbPath?: string;
-  /** Override the Relay polling interval. */
+  /** Override the relay polling interval. */
   tickMs?: number;
   /** Additional upstream-shaped conversation defaults for this bridge instance. */
   createConversationDefaults?: Record<string, unknown>;
@@ -39,7 +39,7 @@ export interface SlackBridgeOptions {
 
 export class SlackBridge {
   private app?: App;
-  private runtime?: SlackCoordinatorRuntime;
+  private runtime?: SlackRelayRuntime;
   private botUserId = '';
   private readonly logger: Logger;
   private readonly serverUrl: string;
@@ -100,7 +100,7 @@ export class SlackBridge {
       }
       this.botUserId = auth.user_id;
 
-      const runtime = new SlackCoordinatorRuntime({
+      const runtime = new SlackRelayRuntime({
         logger: this.logger,
         serverUrl: this.serverUrl,
         sessionApiKey: this.sessionApiKey,
@@ -109,8 +109,7 @@ export class SlackBridge {
         ...(this.createConversationDefaults === undefined
           ? {}
           : { createConversationDefaults: this.createConversationDefaults }),
-        sendChunk: (channel, text, threadTs) =>
-          this.postChunk(channel, text, threadTs),
+        sendChunk: (channel, text, threadTs) => this.postChunk(channel, text, threadTs),
       });
       this.runtime = runtime;
       await runtime.start();
@@ -123,7 +122,7 @@ export class SlackBridge {
           agentServer: this.serverUrl,
           buildSha: process.env.SMOLPAWS_BUILD_SHA?.trim() || undefined,
         },
-        'SmolPaws Slack bot is ready on coordinator path 🐾',
+        'SmolPaws Slack bot is ready on Message Relay path 🐾',
       );
     } catch (error) {
       await this.runtime?.stop().catch(() => undefined);
@@ -140,13 +139,13 @@ export class SlackBridge {
     const runtime = this.runtime;
     if (app === undefined && runtime === undefined) return;
 
-    // Stop Socket Mode ingress first. Keep the Bolt app/client reachable while the coordinator waits for
-    // any active tick: an already-claimed delivery may still need chat.postMessage before SQLite closes.
+    // Stop Socket Mode ingress first. Keep the Bolt app/client reachable while the relay waits for any
+    // active tick: an already-claimed delivery may still need chat.postMessage before SQLite closes.
     await app?.stop().catch((error: unknown) => {
       this.logger.warn({ err: error }, 'Failed to stop Slack Socket Mode app cleanly');
     });
     await runtime?.stop().catch((error: unknown) => {
-      this.logger.warn({ err: error }, 'Failed to stop Slack coordinator runtime cleanly');
+      this.logger.warn({ err: error }, 'Failed to stop Slack relay runtime cleanly');
     });
 
     if (this.app === app) this.app = undefined;
@@ -157,7 +156,7 @@ export class SlackBridge {
   private async accept(message: IncomingMessage): Promise<void> {
     const runtime = this.runtime;
     if (runtime === undefined) {
-      throw new Error('Slack coordinator runtime is not started');
+      throw new Error('Slack relay runtime is not started');
     }
     await runtime.accept(message);
   }
@@ -201,12 +200,9 @@ export class SlackBridge {
       mentionedThreads: this.mentionedThreads,
       logger: this.logger,
       postMessage: (channel, text, threadTs) => this.postMessage(channel, text, threadTs),
-      addReaction: (channel, timestamp, name) =>
-        this.addReaction(channel, timestamp, name),
-      fetchThreadMessages: (channel, threadTs) =>
-        this.fetchThreadMessages(channel, threadTs),
-      dispatch: (message: IncomingMessage, _replyContext: ReplyContext) =>
-        this.accept(message),
+      addReaction: (channel, timestamp, name) => this.addReaction(channel, timestamp, name),
+      fetchThreadMessages: (channel, threadTs) => this.fetchThreadMessages(channel, threadTs),
+      dispatch: (message: IncomingMessage, _replyContext: ReplyContext) => this.accept(message),
     };
   }
 

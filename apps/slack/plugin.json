@@ -3,7 +3,7 @@
   "label": "Slack",
   "kind": "standalone",
   "version": "2.0.0",
-  "description": "Standalone Slack Socket Mode ingress for the durable coordinator, Outbound Relay, and Delivery Dispatcher path.",
+  "description": "Standalone Slack Socket Mode bridge for the durable Message Relay and Delivery Dispatcher path.",
   "requiredEnv": [
     "SLACK_BOT_TOKEN",
     "SLACK_APP_TOKEN"
@@ -16,6 +16,8 @@
     "SLACK_ALLOWED_TEAM_IDS",
     "SLACK_ALLOWED_CHANNEL_IDS",
     "SLACK_ALLOWED_USER_IDS",
+    "SMOLPAWS_RELAY_SERVER_URL",
+    "SMOLPAWS_RELAY_SERVER_API_KEY",
     "SMOLPAWS_COORD_SERVER_URL",
     "SMOLPAWS_COORD_SERVER_API_KEY"
   ]

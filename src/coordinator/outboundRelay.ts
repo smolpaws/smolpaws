@@ -2,10 +2,10 @@
  * Outbound Relay: durable agent events -> delivery outbox -> external dispatch.
  *
  * `syncDeliveryOutbox()` is the catch-up boundary. It may be called repeatedly and is safe because the
- * coordinator owns a durable cursor plus idempotent delivery source keys. The relay then asks
+ * Message Relay owns a durable cursor plus idempotent delivery source keys. The Outbound Relay then asks
  * DeliveryDispatcher to perform bounded external side effects from the durable outbox.
  */
-import type { MessageWorkCoordinator } from './coordinator.js';
+import type { MessageRelay } from './messageRelay.js';
 import type {
   DeliveryDispatchOutcome,
   DeliveryDispatcher,
@@ -29,7 +29,7 @@ export class OutboundRelay {
   private readonly maxDispatchPerTick: number;
 
   constructor(
-    private readonly coordinator: MessageWorkCoordinator,
+    private readonly messageRelay: MessageRelay,
     private readonly dispatcher: DeliveryDispatcher,
     private readonly options: OutboundRelayOptions,
   ) {
@@ -38,7 +38,7 @@ export class OutboundRelay {
 
   /** Bring one conversation's durable agent events into its delivery outbox. */
   async syncDeliveryOutbox(conversationId: string): Promise<number> {
-    return this.coordinator.syncDeliveryOutbox(conversationId);
+    return this.messageRelay.syncDeliveryOutbox(conversationId);
   }
 
   async tick(worker: string): Promise<OutboundRelayTickResult> {
