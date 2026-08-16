@@ -15,6 +15,6 @@ Use current schemas and factories from `@smolpaws/openhands-agent`; do not recon
 
 ## Current source
 
-Inspect the current `src/profiles/`, `src/settings/`, `src/secrets/`, and `src/llm/` code in [`enyst/openhands-agent`](https://github.com/enyst/openhands-agent) before changing fields or defaults.
+Inspect the current `src/profiles/`, `src/settings/`, `src/secrets/`, and `src/llm/` code in [`smolpaws/openhands-agent`](https://github.com/smolpaws/openhands-agent) before changing fields or defaults.
 
 Intentional differences from Python secret and LLM configuration behavior are defined in the transpilation contract, not here.
