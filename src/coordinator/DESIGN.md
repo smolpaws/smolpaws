@@ -61,7 +61,7 @@ agent-server EventLog
 
 Delivery rows are inserted before the catch-up cursor advances. If the process crashes between those operations, replay is safe because the unique work identity makes re-insertion a no-op.
 
-The extraction policy is explicit. The reusable coordinator supports explicit outbound-intent events, while the first Slack canary uses the normal terminal `finish` observation as its chat reply.
+The extraction policy is explicit. The reusable coordinator supports explicit outbound-intent events, while the first Slack canary uses the successful terminal `finish` observation as its chat reply. A plain assistant `MessageEvent` is not terminal in this SDK: the conversation continues until `finish`, cancellation, error, or another terminal state.
 
 ### Delivery Dispatcher
 
@@ -90,7 +90,7 @@ Claims are fenced by generation plus claim expiry. Stale workers cannot settle w
 
 Retryable failures use durable backoff and eventually become `failed` after the configured attempt budget. Non-retryable failures fail directly.
 
-## Testing
+## Testing and live proof
 
 The coordinator core is covered with deterministic real-SQLite tests for:
 
@@ -105,6 +105,22 @@ The coordinator core is covered with deterministic real-SQLite tests for:
 
 Slack adds a deterministic end-to-end test that runs the real in-process TypeScript agent-server with a fake LLM, executes a `finish` tool call, synchronizes the delivery outbox, dispatches through a Slack Delivery Target, and verifies the durable intake/delivery rows.
 
+On 2026-08-16 an isolated, self-expiring canary at fork commit `a69456fc6f818f23ecb6e2e064f3e03fceeafaf4` also completed the real Liberty Labs Socket Mode path. The distinctive response `RELAY-LIVE-a69456fc6f81` travelled through:
+
+```text
+Slack event
+  -> greenfield SlackBridge
+  -> durable coordinator intake
+  -> real TypeScript agent-server and agent loop
+  -> terminal finish observation
+  -> syncDeliveryOutbox()
+  -> DeliveryDispatcher
+  -> SlackDeliveryTarget
+  -> Slack thread reply
+```
+
+The canary used a deterministic test LLM and isolated checkout/state/port, so it proves the complete transport and durability architecture without claiming that the normal long-running `paws` process or a real provider has completed its production soak.
+
 ## Slack canary
 
 `apps/slack` is the first authoritative bridge implementation of the complete path. It is greenfield and deliberately does not preserve its unused legacy `/turns` dispatch shape.
@@ -117,14 +133,14 @@ The first canary generation uses:
 - `OutboundRelay.syncDeliveryOutbox()`;
 - `DeliveryDispatcher` plus `SlackDeliveryTarget`.
 
-The code path and deterministic end-to-end test are implemented. Live deployment and soak in the Liberty Labs workspace remain the operational rollout boundary.
+The code path, deterministic end-to-end test, and isolated Liberty Labs live proof are complete. Replacing the ordinary legacy Socket Mode process and soaking the path with the configured real LLM profile remain the operational rollout boundary.
 
 ## Remaining product rollout
 
 Proceed incrementally:
 
-1. deploy/restart the Slack canary from the reviewed checkout and verify its durable rows plus EventLog, not merely a visible reply;
-2. soak Slack and exercise restart/reconciliation behavior;
+1. restart the normal SmolPaws host from the reviewed checkout so it releases the obsolete Slack Socket Mode connection;
+2. run standalone `paws` against the TypeScript agent-server and configured real LLM profile, verify durable rows/EventLog, and soak restart/reconciliation behavior;
 3. design a rollback-safe canary for the primary WhatsApp path;
 4. migrate other bridges only after reviewing their existing behavior and delivery semantics;
 5. remove the old `/turns` runner only after every in-use bridge has a clean soak on the new path.
