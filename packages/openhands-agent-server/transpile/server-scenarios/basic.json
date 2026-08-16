@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "scenarios": [
+    {
+      "id": "alive",
+      "method": "GET",
+      "path": "/alive",
+      "normalization": "exact"
+    },
+    {
+      "id": "health",
+      "method": "GET",
+      "path": "/health",
+      "normalization": "exact"
+    },
+    {
+      "id": "ready",
+      "method": "GET",
+      "path": "/ready",
+      "normalization": "exact"
+    },
+    {
+      "id": "server-info",
+      "method": "GET",
+      "path": "/server_info",
+      "normalization": "shape"
+    }
+  ]
+}
