@@ -1,0 +1,143 @@
+name: Refresh vendored OpenHands TypeScript SDK
+
+on:
+  workflow_dispatch:
+    inputs:
+      sdk_ref:
+        description: Full enyst/openhands-agent commit SHA to vendor
+        required: true
+        type: string
+      expected_upstream_pin:
+        description: Optional full OpenHands upstream SHA expected in the SDK manifest
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-vendored-openhands-agent
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Validate immutable SDK ref
+        env:
+          SDK_REF: ${{ inputs.sdk_ref }}
+          EXPECTED_PIN: ${{ inputs.expected_upstream_pin }}
+        run: |
+          if ! [[ "$SDK_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "sdk_ref must be a full lowercase commit SHA" >&2
+            exit 1
+          fi
+          if [ -n "$EXPECTED_PIN" ] && ! [[ "$EXPECTED_PIN" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "expected_upstream_pin must be empty or a full lowercase commit SHA" >&2
+            exit 1
+          fi
+
+      - name: Checkout SmolPaws
+        uses: actions/checkout@v4
+        with:
+          path: smolpaws
+
+      - name: Checkout exact SDK revision
+        uses: actions/checkout@v4
+        with:
+          repository: enyst/openhands-agent
+          ref: ${{ inputs.sdk_ref }}
+          fetch-depth: 1
+          path: sdk
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            sdk/package-lock.json
+            smolpaws/packages/openhands-agent-server/package-lock.json
+
+      - name: Build and pack SDK
+        working-directory: sdk
+        run: |
+          npm ci
+          npm test
+          npm run typecheck
+          npm run lint
+          npm run build
+          npm run test:packed-provenance
+          mkdir -p "$RUNNER_TEMP/sdk-pack"
+          npm pack --pack-destination "$RUNNER_TEMP/sdk-pack"
+
+      - name: Replace vendor from packed artifact
+        working-directory: smolpaws
+        env:
+          SDK_REF: ${{ inputs.sdk_ref }}
+          EXPECTED_PIN: ${{ inputs.expected_upstream_pin }}
+        run: |
+          tarball="$(find "$RUNNER_TEMP/sdk-pack" -maxdepth 1 -name '*.tgz' -print -quit)"
+          test -n "$tarball"
+          unpack="$RUNNER_TEMP/sdk-unpack"
+          rm -rf "$unpack"
+          mkdir -p "$unpack"
+          tar -xzf "$tarball" -C "$unpack"
+          test -f "$unpack/package/transpile/upstream.json"
+          test -d "$unpack/package/dist"
+
+          incoming_pin="$(node -p "require('$unpack/package/transpile/upstream.json').commit")"
+          if [ -n "$EXPECTED_PIN" ] && [ "$incoming_pin" != "$EXPECTED_PIN" ]; then
+            echo "Packed SDK pin $incoming_pin does not match expected $EXPECTED_PIN" >&2
+            exit 1
+          fi
+
+          vendor=packages/openhands-agent-server/vendor/openhands-agent
+          rm -rf "$vendor"
+          mkdir -p "$vendor/transpile"
+          cp -R "$unpack/package/dist" "$vendor/dist"
+          cp "$unpack/package/transpile/upstream.json" "$vendor/transpile/upstream.json"
+
+          node - "$unpack/package/package.json" "$vendor/package.json" "$SDK_REF" "$incoming_pin" <<'NODE'
+          const fs = require('fs');
+          const [sourcePath, outputPath, sdkCommit, upstreamCommit] = process.argv.slice(2);
+          const packageJson = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
+          packageJson.files = ['dist', 'transpile/upstream.json'];
+          packageJson._smolpawsProvenance = {
+            source: 'github.com/enyst/openhands-agent',
+            gitCommit: sdkCommit,
+            upstreamOpenHandsCommit: upstreamCommit,
+          };
+          fs.writeFileSync(outputPath, JSON.stringify(packageJson, null, 2) + '\n');
+          NODE
+
+      - name: Validate vendored package and full server package
+        working-directory: smolpaws
+        run: |
+          npm ci --prefix packages/openhands-agent-server
+          npm run ci --prefix packages/openhands-agent-server
+
+          manifest_pin="$(node -p "require('./packages/openhands-agent-server/vendor/openhands-agent/transpile/upstream.json').commit")"
+          package_pin="$(node -p "require('./packages/openhands-agent-server/vendor/openhands-agent/package.json')._smolpawsProvenance.upstreamOpenHandsCommit")"
+          if [ "$manifest_pin" != "$package_pin" ]; then
+            echo "Vendored package provenance disagrees with canonical manifest" >&2
+            exit 1
+          fi
+
+      - name: Commit exact vendored SDK revision
+        working-directory: smolpaws
+        env:
+          SDK_REF: ${{ inputs.sdk_ref }}
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add packages/openhands-agent-server/vendor/openhands-agent
+          if git diff --cached --quiet; then
+            echo "Vendored SDK already matches $SDK_REF."
+            exit 0
+          fi
+          git commit -m "chore(agent-server): vendor openhands-agent ${SDK_REF:0:12}"
+          git pull --rebase origin main
+          git push
