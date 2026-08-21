@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { createAgentServerApp } from "./app.js";
 import { createAgentServerDeps } from "./dependencies.js";
+import { readPersistedTurnState } from "../runner/turnState.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -53,6 +54,28 @@ function seedConversation(
     );
   }
 }
+
+test("missing persisted turn states do not share mutable defaults", async () => {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), "smolpaws-turn-state-"));
+
+  try {
+    const first = await readPersistedTurnState("conversation-one", tempRoot);
+    const second = await readPersistedTurnState("conversation-two", tempRoot);
+    first.turns.push({
+      id: "turn-one",
+      sequence: 1,
+      status: "completed",
+      started_at: "2026-08-21T00:00:00.000Z",
+      updated_at: "2026-08-21T00:00:01.000Z",
+      completed_at: "2026-08-21T00:00:01.000Z",
+      messages: [],
+    });
+
+    assert.equal(second.turns.length, 0);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
 
 test("GET /api/activity marks persisted running turns as stuck", async () => {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), "smolpaws-activity-"));
@@ -276,6 +299,108 @@ test("GET /api/activity marks persisted running turns as stuck", async () => {
     assert.equal(
       payload.items.some((item) => item.id === "plain-openhands-thread"),
       false,
+    );
+  } finally {
+    await app.close();
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/activity treats the chronologically newest duplicate-sequence turn as latest", async () => {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), "smolpaws-activity-"));
+  const persistenceRoot = path.join(tempRoot, "conversations");
+  const older = "2026-08-21T01:21:32.122Z";
+  const newer = "2026-08-21T21:15:42.269Z";
+
+  seedConversation(persistenceRoot, "whatsapp-main", {
+    meta: {
+      smolpaws: {
+        ingress: "whatsapp",
+        scope_id: "main",
+      },
+    },
+    events: [
+      {
+        kind: "MessageEvent",
+        id: "user-newer",
+        source: "user",
+        timestamp: newer,
+        llm_message: {
+          role: "user",
+          content: [{ type: "text", text: "latest message" }],
+        },
+      },
+      {
+        kind: "ConversationStateUpdateEvent",
+        id: "state-newer",
+        source: "agent",
+        timestamp: newer,
+        agent_status: "RUNNING",
+      },
+    ],
+    turns: {
+      next_sequence: 3,
+      turns: [
+        {
+          id: "turn-newer-running",
+          sequence: 1,
+          status: "running",
+          started_at: newer,
+          updated_at: newer,
+          messages: [
+            {
+              id: "message-newer",
+              idempotency_key: "delivery-newer",
+              accepted_at: newer,
+              content: [{ type: "text", text: "latest message" }],
+            },
+          ],
+        },
+        {
+          id: "turn-older-completed",
+          sequence: 2,
+          status: "completed",
+          started_at: older,
+          updated_at: older,
+          completed_at: older,
+          messages: [
+            {
+              id: "message-older",
+              idempotency_key: "delivery-older",
+              accepted_at: older,
+              content: [{ type: "text", text: "older message" }],
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  const deps = createAgentServerDeps({
+    SMOLPAWS_PERSISTENCE_DIR: persistenceRoot,
+    SMOLPAWS_RUNNER_TOKEN: "secret-token",
+    SMOLPAWS_WORKSPACE_ROOT: tempRoot,
+  });
+  const { app } = await createAgentServerApp(deps);
+
+  try {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/activity?limit=10",
+      headers: {
+        authorization: "Bearer secret-token",
+      },
+    });
+    assert.equal(response.statusCode, 200);
+    const payload = JSON.parse(response.body) as {
+      items: Array<Record<string, unknown>>;
+    };
+    const item = payload.items.find((candidate) => candidate.id === "whatsapp-main");
+    assert(item);
+    assert.equal(item.execution_status, "stuck");
+    assert.equal(
+      (item.latest_turn as Record<string, unknown>).id,
+      "turn-newer-running",
     );
   } finally {
     await app.close();
