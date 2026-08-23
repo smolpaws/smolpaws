@@ -81,6 +81,12 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
 
   await app.register(multipart);
   await app.register(websocket);
+  // FastAPI (the pinned upstream) serves JSON request bodies on the GET batch
+  // endpoints (conversations/events/bash events). Fastify defaults GET to a
+  // "bodyless" method and drops such bodies, so reclassify GET as body-capable to
+  // preserve the upstream REST contract. The corresponding route handlers already
+  // read `request.body`.
+  app.addHttpMethod('GET', { hasBody: true });
   registerAuth(app, config);
   registerServerDetailsRoutes(app, config);
   registerConversationRoutes(app, conversationService, usesProfileAgentFactory ? { prepareStartRequest: (input) => prepareProfileStartRequest(input, serverStateService) } : {});
