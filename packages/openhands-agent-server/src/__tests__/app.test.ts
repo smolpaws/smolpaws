@@ -675,6 +675,58 @@ describe('createAgentServerApp', () => {
     }
   });
 
+  test('lists git commits and per-commit diffs for a repository path', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-git-commits-'));
+    const repo = path.join(root, 'repo');
+    const nonRepo = path.join(root, 'non-repo');
+    await mkdir(repo);
+    await mkdir(nonRepo);
+    await writeFile(path.join(nonRepo, 'plain.txt'), 'plain', 'utf8');
+    await execFileAsync('git', ['-C', repo, 'init', '-q']);
+    await execFileAsync('git', ['-C', repo, 'config', 'user.email', 'test@example.com']);
+    await execFileAsync('git', ['-C', repo, 'config', 'user.name', 'Test User']);
+    await writeFile(path.join(repo, 'tracked.txt'), 'base\n', 'utf8');
+    await execFileAsync('git', ['-C', repo, 'add', 'tracked.txt']);
+    await execFileAsync('git', ['-C', repo, 'commit', '-q', '-m', 'first commit']);
+    await writeFile(path.join(repo, 'tracked.txt'), 'changed\n', 'utf8');
+    await execFileAsync('git', ['-C', repo, 'add', 'tracked.txt']);
+    await execFileAsync('git', ['-C', repo, 'commit', '-q', '-m', 'second commit']);
+    const secondSha = (await execFileAsync('git', ['-C', repo, 'rev-parse', 'HEAD'])).stdout.trim();
+    const { app } = await createAgentServerApp({ config: { conversationsPath: path.join(root, 'conversations'), workspaceRoot: root } });
+    try {
+      const commits = await app.inject({ method: 'GET', url: `/api/git/commits?path=${encodeURIComponent(repo)}` });
+      expect(commits.statusCode).toBe(200);
+      const page = commits.json<{ commits: Array<{ subject: string; sha: string }>; has_more: boolean }>();
+      expect(page.has_more).toBe(false);
+      expect(page.commits.map((commit) => commit.subject)).toEqual(['second commit', 'first commit']);
+      expect(page.commits[0]?.sha).toBe(secondSha);
+
+      const changes = await app.inject({ method: 'GET', url: `/api/git/commits/${secondSha}/changes?path=${encodeURIComponent(repo)}` });
+      expect(changes.statusCode).toBe(200);
+      expect(changes.json()).toEqual([{ status: 'UPDATED', path: 'tracked.txt' }]);
+
+      const fileDiff = await app.inject({ method: 'GET', url: `/api/git/diff?path=${encodeURIComponent(path.join(repo, 'tracked.txt'))}&commit=${secondSha}` });
+      expect(fileDiff.statusCode).toBe(200);
+      expect(fileDiff.json()).toEqual({ modified: 'changed', original: 'base' });
+
+      const nonRepoCommits = await app.inject({ method: 'GET', url: `/api/git/commits?path=${encodeURIComponent(nonRepo)}` });
+      expect(nonRepoCommits.statusCode).toBe(200);
+      expect(nonRepoCommits.json()).toEqual({ commits: [], has_more: false });
+
+      const mutualExclusion = await app.inject({ method: 'GET', url: `/api/git/diff?path=${encodeURIComponent(repo)}&ref=HEAD&commit=${secondSha}` });
+      expect(mutualExclusion.statusCode).toBe(400);
+
+      const badSha = await app.inject({ method: 'GET', url: `/api/git/commits/${encodeURIComponent('not-a-sha!')}/changes?path=${encodeURIComponent(repo)}` });
+      expect(badSha.statusCode).toBe(400);
+
+      const unresolvedSha = await app.inject({ method: 'GET', url: `/api/git/commits/${'deadbeef'.padEnd(40, '0')}/changes?path=${encodeURIComponent(repo)}` });
+      expect(unresolvedSha.statusCode).toBe(400);
+    } finally {
+      await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('enforces allowed roots through file symlinks and validates search limits', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-files-'));
     const allowed = path.join(root, 'allowed');

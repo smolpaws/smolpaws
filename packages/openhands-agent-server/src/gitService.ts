@@ -2,12 +2,56 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import type { GitChange, GitDiff } from './models.js';
+import {
+  getCommitChanges as getCommitChangesFromSdk,
+  getCommitFileDiff as getCommitFileDiffFromSdk,
+  getGitCommits as getGitCommitsFromSdk,
+  GitRepositoryError,
+  type GitChange as SdkGitChange,
+} from '@smolpaws/openhands-agent';
+
+import type { GitChange, GitCommitsPage, GitDiff } from './models.js';
 
 interface CommandResult {
   readonly stdout: string;
   readonly stderr: string;
   readonly exitCode: number;
+}
+
+const SHA_PATTERN = /^[0-9a-fA-F]{4,64}$/u;
+
+export function isCommitSha(value: string): boolean {
+  return SHA_PATTERN.test(value);
+}
+
+export async function getGitCommits(targetPath: string, limit: number): Promise<GitCommitsPage> {
+  try {
+    const page = await getGitCommitsFromSdk(targetPath, limit);
+    return { commits: [...page.commits], has_more: page.has_more };
+  } catch (error: unknown) {
+    if (error instanceof GitRepositoryError) return { commits: [], has_more: false };
+    throw error;
+  }
+}
+
+export async function getCommitChanges(targetPath: string, sha: string): Promise<GitChange[]> {
+  try {
+    return (await getCommitChangesFromSdk(targetPath, sha)).map(narrowGitChange);
+  } catch (error: unknown) {
+    if (error instanceof GitRepositoryError) return [];
+    throw error;
+  }
+}
+
+export async function getCommitFileDiff(targetPath: string, sha: string): Promise<GitDiff> {
+  return getCommitFileDiffFromSdk(targetPath, sha).catch((error: unknown) => {
+    if (error instanceof GitRepositoryError) return { modified: null, original: null };
+    throw error;
+  });
+}
+
+function narrowGitChange(change: SdkGitChange): GitChange {
+  return { status: change.status === 'MOVED' ? 'UPDATED' : change.status, path: change.path };
 }
 
 export async function getGitChanges(targetPath: string, ref: string | null = null): Promise<GitChange[]> {
