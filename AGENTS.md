@@ -111,7 +111,7 @@ On GitHub and other public surfaces:
 - For real code changes, use a PR unless Engel explicitly says to commit on `main`.
 - Before opening or updating a PR, run the relevant tests and `npm run typecheck`.
 - Read GitHub bot feedback carefully, including inline review threads.
-- Wait for Gemini's real follow-up review, not just its placeholder summary.
+- Wait for substantive follow-up reviews from active reviewers; do not treat placeholders, skipped reviews, or status-only checks as reviews.
 - Watch CodeRabbit, Devin, and any other active reviewers; resolve or consciously reject their actionable comments.
 - Right before merge, do one final GitHub pass over conversation, files changed, and checks.
 - When another agent is involved, coordinate review and status through Agent Mail too.
