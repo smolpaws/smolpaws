@@ -358,7 +358,7 @@ test("GET /api/activity treats the chronologically newest duplicate-sequence tur
         },
         {
           id: "turn-older-completed",
-          sequence: 2,
+          sequence: 1,
           status: "completed",
           started_at: older,
           updated_at: older,
