@@ -680,7 +680,7 @@ var Skill = class {
     }
     const messageLower = message.toLowerCase();
     const candidates = this.trigger.type === "keyword" ? this.trigger.keywords : this.trigger.triggers;
-    return candidates.find((candidate) => messageLower.includes(candidate.toLowerCase())) ?? null;
+    return candidates.find((candidate) => keywordMatches(candidate, messageLower)) ?? null;
   }
   getTriggers() {
     if (this.trigger === null) {
@@ -1037,6 +1037,14 @@ function pathMatchesGlob(filePath, pattern) {
 }
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+function keywordMatches(keyword, messageLower) {
+  const keywordLower = keyword.toLowerCase();
+  if (keywordLower.length === 0) {
+    return false;
+  }
+  const pattern = new RegExp(`(?<![a-z0-9])${escapeRegex(keywordLower)}(?![a-z0-9])`, "u");
+  return pattern.test(messageLower);
 }
 function inputList(value) {
   if (!Array.isArray(value)) {
@@ -2063,7 +2071,7 @@ function redactUrlCredentials(url, options = {}) {
   }
   return `${match[1]}****@${match[3]}`;
 }
-var embeddedUrlCredentialsPattern = /(https?:\/\/)[^/@\s]+@/gu;
+var embeddedUrlCredentialsPattern = /(https?:\/\/)[^/@\s]+@/giu;
 function redactUrlCredentialsInText(text) {
   return text.replace(embeddedUrlCredentialsPattern, "$1****@");
 }
@@ -3450,7 +3458,7 @@ async function validateGitRepository(repoDir) {
   }
   return repoPath;
 }
-async function getValidRef(repoDir, override) {
+async function getValidRef(repoDir, override, purpose = "export") {
   if (override !== void 0 && override !== null) {
     try {
       return await runGitCommand(["git", "--no-pager", "rev-parse", "--verify", `${override}^{commit}`], { cwd: repoDir });
@@ -3464,26 +3472,162 @@ async function getValidRef(repoDir, override) {
   if (!await repoHasCommits(repoDir)) {
     return GIT_EMPTY_TREE_HASH;
   }
+  if (purpose === "display") {
+    return getDisplayBaseRef(repoDir);
+  }
   return GIT_EMPTY_TREE_HASH;
+}
+async function getDisplayBaseRef(repoDir) {
+  const head = await revParse(repoDir, "HEAD");
+  const currentBranch = await getCurrentBranch(repoDir);
+  if (currentBranch !== null) {
+    const upstreamSha = await revParse(repoDir, `origin/${currentBranch}`);
+    if (upstreamSha !== null) {
+      if (upstreamSha === head && !await hasTrackedChanges(repoDir)) ; else {
+        return upstreamSha;
+      }
+    }
+  }
+  const defaultBranch = await getRemoteDefaultBranch(repoDir);
+  if (defaultBranch !== null) {
+    const forkPoint = await mergeBase(repoDir, "HEAD", `origin/${defaultBranch}`);
+    if (forkPoint !== null) {
+      return forkPoint;
+    }
+    const defaultSha = await revParse(repoDir, `origin/${defaultBranch}`);
+    if (defaultSha !== null) {
+      return defaultSha;
+    }
+  } else {
+    for (const localDefault of ["main", "master"]) {
+      const localDefaultSha = await revParse(repoDir, localDefault);
+      if (localDefaultSha === null) {
+        continue;
+      }
+      if (localDefault === currentBranch) {
+        break;
+      }
+      const base = await mergeBase(repoDir, "HEAD", localDefault);
+      if (base !== null && base === localDefaultSha) {
+        return base;
+      }
+      break;
+    }
+  }
+  if (head !== null) {
+    return head;
+  }
+  return GIT_EMPTY_TREE_HASH;
+}
+async function revParse(repoDir, ref) {
+  try {
+    const result = await runGitCommand(["git", "--no-pager", "rev-parse", "--verify", ref], { cwd: repoDir });
+    return result || null;
+  } catch (error) {
+    if (error instanceof GitCommandError) {
+      return null;
+    }
+    throw error;
+  }
+}
+async function mergeBase(repoDir, refA, refB) {
+  try {
+    const result = await runGitCommand(["git", "--no-pager", "merge-base", refA, refB], { cwd: repoDir });
+    return result || null;
+  } catch (error) {
+    if (error instanceof GitCommandError) {
+      return null;
+    }
+    throw error;
+  }
+}
+async function getCurrentBranch(repoDir) {
+  try {
+    const branch = await runGitCommand(["git", "--no-pager", "rev-parse", "--abbrev-ref", "HEAD"], { cwd: repoDir });
+    if (branch && branch !== "HEAD") {
+      return branch;
+    }
+  } catch (error) {
+    if (!(error instanceof GitCommandError)) {
+      throw error;
+    }
+  }
+  return null;
+}
+async function getRemoteDefaultBranch(repoDir) {
+  try {
+    const symref = await runGitCommand(["git", "--no-pager", "rev-parse", "--abbrev-ref", "origin/HEAD"], { cwd: repoDir });
+    if (symref.startsWith("origin/") && symref.length > "origin/".length) {
+      return symref.slice("origin/".length);
+    }
+  } catch (error) {
+    if (!(error instanceof GitCommandError)) {
+      throw error;
+    }
+  }
+  try {
+    const remoteInfo = await runGitCommand(["git", "--no-pager", "remote", "show", "origin"], { cwd: repoDir });
+    for (const line of remoteInfo.split(/\r?\n/u)) {
+      if (line.includes("HEAD branch:")) {
+        const defaultBranch = line.split(":").at(-1)?.trim() ?? "";
+        if (defaultBranch && defaultBranch !== "(unknown)") {
+          return defaultBranch;
+        }
+        break;
+      }
+    }
+  } catch (error) {
+    if (!(error instanceof GitCommandError)) {
+      throw error;
+    }
+  }
+  return null;
+}
+async function hasTrackedChanges(repoDir) {
+  try {
+    const status = await runGitCommand(["git", "--no-pager", "status", "--porcelain", "--untracked-files=no"], { cwd: repoDir });
+    return status.trim().length > 0;
+  } catch (error) {
+    if (error instanceof GitCommandError) {
+      return true;
+    }
+    throw error;
+  }
+}
+async function getGitRepositoryMetadata(repoDir) {
+  const metadata = {};
+  const remote = await runGitProbe(["remote", "get-url", "origin"], repoDir);
+  if (remote !== null) {
+    metadata.repo_remote = redactUrlParams(redactUrlCredentialsInText(remote));
+  }
+  const headAndBranch = await runGitProbe(["rev-parse", "HEAD", "--abbrev-ref", "HEAD"], repoDir);
+  if (headAndBranch !== null) {
+    const lines = headAndBranch.split(/\r?\n/u);
+    if (lines.length === 2) {
+      const head = lines[0] ?? "";
+      const branch = lines[1] ?? "";
+      metadata.head_commit = head;
+      metadata.branch = branch === "HEAD" ? "DETACHED" : branch;
+    }
+  }
+  return metadata;
+}
+async function runGitProbe(args, cwd) {
+  try {
+    const result = await runGitCommand(["git", "--no-pager", ...args], { cwd, timeoutSeconds: 30 });
+    return result === "" ? null : result;
+  } catch (error) {
+    if (error instanceof GitCommandError) {
+      return null;
+    }
+    throw error;
+  }
 }
 async function getChangesInRepo(repoDir, ref) {
   const repo = await validateGitRepository(repoDir);
-  const base = await getValidRef(repo, ref);
+  const base = await getValidRef(repo, ref, "display");
   const output = await runGitCommand(["git", "--no-pager", "diff", "--name-status", base], { cwd: repo });
-  const changes = [];
-  for (const line of output.split(/\r?\n/u).filter((entry) => entry.trim().length > 0)) {
-    const parts = line.split(/\s+/u);
-    const status = parts[0] ?? "";
-    if (status.startsWith("R") && parts.length === 3) {
-      changes.push({ status: "DELETED" /* DELETED */, path: toPosixPath2(parts[1] ?? "") }, { status: "ADDED" /* ADDED */, path: toPosixPath2(parts[2] ?? "") });
-    } else if (status.startsWith("C") && parts.length === 3) {
-      changes.push({ status: "ADDED" /* ADDED */, path: toPosixPath2(parts[2] ?? "") });
-    } else if (parts.length === 2) {
-      changes.push({ status: mapGitStatus(status), path: toPosixPath2(parts[1] ?? "") });
-    } else {
-      throw new GitCommandError(`Unexpected git diff output format: ${line}`, ["git", "diff", "--name-status"], 0, "Invalid output format");
-    }
-  }
+  const changes = parseNameStatus(output.split(/\r?\n/u).filter((entry) => entry.trim().length > 0));
   const untracked = await runGitCommand(["git", "--no-pager", "ls-files", "--others", "--exclude-standard"], { cwd: repo }).catch(() => "");
   for (const path3 of untracked.split(/\r?\n/u).filter((entry) => entry.trim().length > 0)) {
     changes.push({ status: "ADDED" /* ADDED */, path: toPosixPath2(path3.trim()) });
@@ -3520,11 +3664,118 @@ async function getGitDiff(filePath, ref) {
     throw new GitRepositoryError(`File is not in a git repository: ${path3}`);
   }
   const validRepo = await validateGitRepository(repo);
-  const base = await getValidRef(validRepo, ref);
+  const base = await getValidRef(validRepo, ref, "display");
   const relative2 = toPosixPath2(path3.slice(validRepo.length + 1));
   const original = await runGitCommand(["git", "show", `${base}:${relative2}`], { cwd: validRepo }).catch(() => "");
   const modified = (await readFile(path3, "utf8")).split(/\r?\n/u).join("\n").replace(/\n$/u, "");
   return { modified, original };
+}
+var DEFAULT_COMMIT_LIMIT = 50;
+var LOG_FORMAT = "%H%h%an%aI%s";
+async function getGitCommits(repoPath, limit = DEFAULT_COMMIT_LIMIT) {
+  const validatedRepo = await validateGitRepository(repoPath);
+  const head = await revParse(validatedRepo, "HEAD");
+  if (head === null) {
+    return { commits: [], has_more: false };
+  }
+  let output;
+  try {
+    output = await runGitCommand(
+      ["git", "--no-pager", "log", "--no-show-signature", `--format=${LOG_FORMAT}`, "-n", String(limit + 1), head],
+      { cwd: validatedRepo }
+    );
+  } catch (error) {
+    if (error instanceof GitCommandError) {
+      return { commits: [], has_more: false };
+    }
+    throw error;
+  }
+  const commits = [];
+  for (const line of output.split(/\r?\n/u)) {
+    if (line.length === 0) {
+      continue;
+    }
+    const fields = line.split("");
+    if (fields.length !== 5) {
+      continue;
+    }
+    const sha = fields[0] ?? "";
+    const shortSha = fields[1] ?? "";
+    const author = fields[2] ?? "";
+    const timestamp = fields[3] ?? "";
+    const subject = fields[4] ?? "";
+    commits.push({ sha, short_sha: shortSha, subject, author, timestamp });
+  }
+  return { commits: commits.slice(0, limit), has_more: commits.length > limit };
+}
+async function resolveCommit(repoDir, commit) {
+  return runGitCommand(["git", "--no-pager", "rev-parse", "--verify", `${commit}^{commit}`], { cwd: repoDir });
+}
+async function getCommitChanges(repoDir, commit) {
+  const validatedRepo = await validateGitRepository(repoDir);
+  const sha = await resolveCommit(validatedRepo, commit);
+  const parent = await revParse(validatedRepo, `${sha}^`) ?? GIT_EMPTY_TREE_HASH;
+  const output = await runGitCommand(["git", "--no-pager", "diff", "--name-status", parent, sha], { cwd: validatedRepo });
+  return parseNameStatus(output.split(/\r?\n/u).filter((entry) => entry.trim().length > 0));
+}
+async function getCommitFileDiff(filePath, commit) {
+  const path3 = resolve(filePath);
+  const closestRepo = await getClosestGitRepo(path3);
+  if (closestRepo === null) {
+    throw new GitRepositoryError(`File is not in a git repository: ${path3}`);
+  }
+  const validatedRepo = await validateGitRepository(closestRepo);
+  const sha = await resolveCommit(validatedRepo, commit);
+  const parent = await revParse(validatedRepo, `${sha}^`) ?? GIT_EMPTY_TREE_HASH;
+  if (!path3.startsWith(validatedRepo + sep) && path3 !== validatedRepo) {
+    throw new GitPathError(`File is not within git repository: ${path3}`);
+  }
+  const relativePath = toPosixPath2(path3.slice(validatedRepo.length + 1));
+  const original = await showFileAtRev(validatedRepo, parent, relativePath);
+  const modified = await showFileAtRev(validatedRepo, sha, relativePath);
+  return { modified, original };
+}
+async function showFileAtRev(repo, rev, relativePath) {
+  const spec = `${rev}:${relativePath}`;
+  let sizeOutput = null;
+  try {
+    sizeOutput = await runGitCommand(["git", "--no-pager", "cat-file", "-s", spec], { cwd: repo });
+  } catch (error) {
+    if (!(error instanceof GitCommandError)) {
+      throw error;
+    }
+  }
+  if (sizeOutput !== null) {
+    const size = Number.parseInt(sizeOutput, 10);
+    if (Number.isFinite(size) && size > MAX_FILE_SIZE_FOR_GIT_DIFF) {
+      throw new GitPathError(`File too large for git diff: ${size} bytes (max: ${MAX_FILE_SIZE_FOR_GIT_DIFF} bytes)`);
+    }
+  }
+  try {
+    return await runGitCommand(["git", "--no-pager", "show", spec], { cwd: repo });
+  } catch (error) {
+    if (error instanceof GitCommandError) {
+      return "";
+    }
+    throw error;
+  }
+}
+function parseNameStatus(lines) {
+  const changes = [];
+  for (const line of lines) {
+    const parts = line.split(/\s+/u);
+    const status = parts[0] ?? "";
+    if (status.startsWith("R") && parts.length === 3) {
+      changes.push({ status: "DELETED" /* DELETED */, path: toPosixPath2(parts[1] ?? "") }, { status: "ADDED" /* ADDED */, path: toPosixPath2(parts[2] ?? "") });
+    } else if (status.startsWith("C") && parts.length === 3) {
+      changes.push({ status: "ADDED" /* ADDED */, path: toPosixPath2(parts[2] ?? "") });
+    } else if (parts.length === 2) {
+      changes.push({ status: mapGitStatus(status), path: toPosixPath2(parts[1] ?? "") });
+    } else {
+      throw new GitCommandError(`Unexpected git diff output format: ${line}`, ["git", "diff", "--name-status"], 0, "Invalid output format");
+    }
+  }
+  return changes;
 }
 function isGitUrl(source) {
   return source.startsWith("https://") || source.startsWith("http://") || source.startsWith("git://") || source.startsWith("file://") || /^[\w.-]+@[\w.-]+:/u.test(source);
@@ -7062,6 +7313,6 @@ function isExecError3(error) {
 // src/index.ts
 var VERSION = "0.2.0";
 
-export { AGENT_PROFILE_SCHEMA_VERSION, AGENT_SETTINGS_SCHEMA_VERSION, Agent, AgentContext, AgentDefinition, AgentFinishedCritic, AnthropicMessagesClient, AsyncCallbackWrapper, AsyncProcessManager, BROWSER_TOOL_NAME, BUILT_IN_TOOLS, BUILT_IN_TOOL_FACTORIES, BrowserTool, CONTENT_POLICY_NUDGE, CONVERSATION_SETTINGS_SCHEMA_VERSION, ConversationState, CriticBase, CriticResult, DEFAULT_EXEC_TOOL_NAMES, DEFAULT_TEXT_CONTENT_LIMIT, DEFAULT_TRUNCATE_NOTICE, DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST, DuplicateEventError, EVENTS_DIR, EVENT_FILE_PATTERN, EmptyPatchCritic, EventLog, ExtensionFetchError, FULL_STATE_KEY, FileEditorExecutor, FileEditorTool, FinishTool, GIT_EMPTY_TREE_HASH, GeminiClient, GitChangeStatus, GitCommandError, GitError, GitPathError, GitRepositoryError, GlobExecutor, GlobTool, GrepExecutor, GrepTool, HookConfig, HookDecision, HookDefinition, HookExecutor, HookManager, HookMatcher, HookResult, HookEventType as HookTriggerEventType, HookType, InMemoryFileStore, InMemorySecretStore, InstallationInfo, InstallationMetadata, LLMContentPolicyViolationError, LLM_PROFILE_ID_PATTERN, LOCK_FILE_NAME, LOCK_TIMEOUT_SECONDS, LocalConversation, LocalFileStore, LocalWorkspace, LogLevel, MAX_FILE_SIZE_FOR_GIT_DIFF, MCPError, MCPTimeoutError, MCPToolAction, MCPToolDefinition, MCPToolExecutor, MCPToolObservation, MacOSKeychainSecretStore, MemoryLRUCache, N_CHAR_PREVIEW, NoCondensationAvailableError, NoOpCondenser, OPENHANDS_KEYRING_SERVICE, OpenAIChatClient, OpenAIResponsesClient, ParallelToolExecutor, PassCritic, PendingActionsQueue, PipelineCondenser, RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED, ROOT_PARENT_ID, RemoteConversation, RemoteWorkspace, RepoSource, RollingCondenser, RootSpan, SECRET_KEY_PATTERNS, SENSITIVE_URL_PARAMS, SUB_AGENT_TOOL_NAME, Skill, StuckDetector, TaskTrackerExecutor, TaskTrackerTool, TerminalExecutor, TerminalTool, TestLLM, TestLLMExhaustedError, ThinkTool, ToolDefinition, ToolRegistry, VERSION, ValueError, View, acpAgentProfileSchema, acpAgentSettingsSchema, acpServerKindSchema, acpToolCallEventSchema, actionEventSchema, actionEventsFromMessage, agentErrorEventSchema, agentProfileSchema, agentSettingsSchema, baseObservationSchema, baseToolObservationSchema, browserActionSchema, browserObservationSchema, buildAnthropicMessagesBody, buildChatCompletionsBody, buildCloneUrl, buildGeminiInteractionsBody, buildOpenAIResponsesBody, cancellationToken, classifyResponse, clearRawLlmFieldsWhenProfileSelected, condensationRequestSchema, condensationRequirement, condensationSchema, condensationSummaryEventSchema, contentSchema, contentToString, conversationErrorEventSchema, conversationExecutionStatus, conversationSettingsSchema, conversationStateUpdateEventSchema, createAnthropicClientFromProfile, createClientFromProfile, createGeminiClientFromProfile, createMcpTools, createOpenAIChatClientFromProfile, createOpenAIResponsesClientFromProfile, criticModeSchema, defaultAgentSettings, defaultToolSpecs, detectProviderFromBaseUrl, disableLogger, discoverAgents, dispatchLlmResponse, displayJson, dumps, endRootSpan, eventSchema, eventsToMessages, executeCommand, extractActionName, extractRepoName, fetchExtension, fetchWithResolution, fileEditorActionSchema, fileEditorObservationSchema, finishActionSchema, getAgentFactory, getCachePath, getChangesInRepo, getClosestGitRepo, getEnv, getFactoryInfo, getGitDiff, getLlmApiKey, getLogger, getRegisteredAgentDefinitions, getReposContext, getValidRef, globActionSchema, globObservationSchema, globalToolRegistry, grepActionSchema, grepMatchSchema, grepObservationSchema, handleDeprecatedModelFields, hookEventSchema, hookEventTypeSchema, hookExecutionEventSchema, imageContent, imageContentSchema, inputMetadataSchema, interruptEventSchema, isAbsolutePathSource, isAcpPatchEdit, isContentPolicyViolation, isConversationStateUpdateEvent, isEnabledFor, isGitUrl, isHostAbsolutePath, isLocalPathSource, isMessageEvent, isSecretKey, keywordTriggerSchema, listRegisteredTools, listUsableTools, llmCompletionLogEventSchema, llmCompletionResponseSchema, llmConvertibleEventSchema, llmProfileIdSchema, llmProfileSchema, llmProfileSecretRef, llmProviderIdSchema, llmProviderSecretRef, llmResponseType, llmUsageSchema, loadAgentsFromDir, loadAgentsFromDirs, loadProjectAgents, loadSkillsFromDir, loadUserAgents, loads, maybeInitLaminar, maybeTruncate, mergeSkillsByName, messageEventSchema, messageSchema, messageToolCallSchema, normalizeGitUrl, observabilityEnvKeys, observabilityMetadataSchema, observabilitySpanNameSchema, observabilityTagsSchema, observationEventSchema, observe, openAiApiModeSchema, openHandsAgentProfileSchema, openHandsAgentSettingsSchema, pageIterator, parseExtensionSource, pathMatchesGlob, pathTriggerSchema, pauseEventSchema, posixPathName, profileVerificationSettingsSchema, promptCacheRetentionSchema, reasoningEffortSchema, reasoningItemSchema, reasoningSummarySchema, redactTextSecrets, redactUrlCredentials, redactUrlCredentialsInText, redactUrlParams, redactedThinkingBlockSchema, reduceTextContent, registerAgent, registerAgentIfAbsent, registerTool, registerToolFactory, resetAgentRegistryForTests, resolveLlmApiKeyRef, resolveLlmProfileApiKeyRef, resolveProviderFromProfile, resolveTool, restoreConversationState, resumeTranscriptEventSchema, runGitCommand, sanitizeOpenHandsMentions, sanitizedEnv, secretRefSchema, setupLogging, shouldEnableObservability, skillResourcesSchema, skillSchema, skillsToPrompt, sourceTypeSchema, startChildSpan, startRootSpan, streamingDeltaEventSchema, systemPromptEventSchema, taskItemSchema, taskTrackerActionSchema, taskTrackerObservationSchema, taskTriggerSchema, terminalActionSchema, terminalObservationSchema, textContent, textContentSchema, thinkActionSchema, thinkingBlockSchema, toCamelCase, toLLMMessage, toPosixPath, tokenEventSchema, toolAnnotationsSchema, toolSpecSchema, triggerSchema, userRejectObservationSchema, utcNow, validateAgentProfile, validateAgentSettings, validateConversationSettings, validateExtensionName, validateGitRepository, workspace };
+export { AGENT_PROFILE_SCHEMA_VERSION, AGENT_SETTINGS_SCHEMA_VERSION, Agent, AgentContext, AgentDefinition, AgentFinishedCritic, AnthropicMessagesClient, AsyncCallbackWrapper, AsyncProcessManager, BROWSER_TOOL_NAME, BUILT_IN_TOOLS, BUILT_IN_TOOL_FACTORIES, BrowserTool, CONTENT_POLICY_NUDGE, CONVERSATION_SETTINGS_SCHEMA_VERSION, ConversationState, CriticBase, CriticResult, DEFAULT_EXEC_TOOL_NAMES, DEFAULT_TEXT_CONTENT_LIMIT, DEFAULT_TRUNCATE_NOTICE, DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST, DuplicateEventError, EVENTS_DIR, EVENT_FILE_PATTERN, EmptyPatchCritic, EventLog, ExtensionFetchError, FULL_STATE_KEY, FileEditorExecutor, FileEditorTool, FinishTool, GIT_EMPTY_TREE_HASH, GeminiClient, GitChangeStatus, GitCommandError, GitError, GitPathError, GitRepositoryError, GlobExecutor, GlobTool, GrepExecutor, GrepTool, HookConfig, HookDecision, HookDefinition, HookExecutor, HookManager, HookMatcher, HookResult, HookEventType as HookTriggerEventType, HookType, InMemoryFileStore, InMemorySecretStore, InstallationInfo, InstallationMetadata, LLMContentPolicyViolationError, LLM_PROFILE_ID_PATTERN, LOCK_FILE_NAME, LOCK_TIMEOUT_SECONDS, LocalConversation, LocalFileStore, LocalWorkspace, LogLevel, MAX_FILE_SIZE_FOR_GIT_DIFF, MCPError, MCPTimeoutError, MCPToolAction, MCPToolDefinition, MCPToolExecutor, MCPToolObservation, MacOSKeychainSecretStore, MemoryLRUCache, N_CHAR_PREVIEW, NoCondensationAvailableError, NoOpCondenser, OPENHANDS_KEYRING_SERVICE, OpenAIChatClient, OpenAIResponsesClient, ParallelToolExecutor, PassCritic, PendingActionsQueue, PipelineCondenser, RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED, ROOT_PARENT_ID, RemoteConversation, RemoteWorkspace, RepoSource, RollingCondenser, RootSpan, SECRET_KEY_PATTERNS, SENSITIVE_URL_PARAMS, SUB_AGENT_TOOL_NAME, Skill, StuckDetector, TaskTrackerExecutor, TaskTrackerTool, TerminalExecutor, TerminalTool, TestLLM, TestLLMExhaustedError, ThinkTool, ToolDefinition, ToolRegistry, VERSION, ValueError, View, acpAgentProfileSchema, acpAgentSettingsSchema, acpServerKindSchema, acpToolCallEventSchema, actionEventSchema, actionEventsFromMessage, agentErrorEventSchema, agentProfileSchema, agentSettingsSchema, baseObservationSchema, baseToolObservationSchema, browserActionSchema, browserObservationSchema, buildAnthropicMessagesBody, buildChatCompletionsBody, buildCloneUrl, buildGeminiInteractionsBody, buildOpenAIResponsesBody, cancellationToken, classifyResponse, clearRawLlmFieldsWhenProfileSelected, condensationRequestSchema, condensationRequirement, condensationSchema, condensationSummaryEventSchema, contentSchema, contentToString, conversationErrorEventSchema, conversationExecutionStatus, conversationSettingsSchema, conversationStateUpdateEventSchema, createAnthropicClientFromProfile, createClientFromProfile, createGeminiClientFromProfile, createMcpTools, createOpenAIChatClientFromProfile, createOpenAIResponsesClientFromProfile, criticModeSchema, defaultAgentSettings, defaultToolSpecs, detectProviderFromBaseUrl, disableLogger, discoverAgents, dispatchLlmResponse, displayJson, dumps, endRootSpan, eventSchema, eventsToMessages, executeCommand, extractActionName, extractRepoName, fetchExtension, fetchWithResolution, fileEditorActionSchema, fileEditorObservationSchema, finishActionSchema, getAgentFactory, getCachePath, getChangesInRepo, getClosestGitRepo, getCommitChanges, getCommitFileDiff, getDisplayBaseRef, getEnv, getFactoryInfo, getGitCommits, getGitDiff, getGitRepositoryMetadata, getLlmApiKey, getLogger, getRegisteredAgentDefinitions, getReposContext, getValidRef, globActionSchema, globObservationSchema, globalToolRegistry, grepActionSchema, grepMatchSchema, grepObservationSchema, handleDeprecatedModelFields, hookEventSchema, hookEventTypeSchema, hookExecutionEventSchema, imageContent, imageContentSchema, inputMetadataSchema, interruptEventSchema, isAbsolutePathSource, isAcpPatchEdit, isContentPolicyViolation, isConversationStateUpdateEvent, isEnabledFor, isGitUrl, isHostAbsolutePath, isLocalPathSource, isMessageEvent, isSecretKey, keywordTriggerSchema, listRegisteredTools, listUsableTools, llmCompletionLogEventSchema, llmCompletionResponseSchema, llmConvertibleEventSchema, llmProfileIdSchema, llmProfileSchema, llmProfileSecretRef, llmProviderIdSchema, llmProviderSecretRef, llmResponseType, llmUsageSchema, loadAgentsFromDir, loadAgentsFromDirs, loadProjectAgents, loadSkillsFromDir, loadUserAgents, loads, maybeInitLaminar, maybeTruncate, mergeSkillsByName, messageEventSchema, messageSchema, messageToolCallSchema, normalizeGitUrl, observabilityEnvKeys, observabilityMetadataSchema, observabilitySpanNameSchema, observabilityTagsSchema, observationEventSchema, observe, openAiApiModeSchema, openHandsAgentProfileSchema, openHandsAgentSettingsSchema, pageIterator, parseExtensionSource, pathMatchesGlob, pathTriggerSchema, pauseEventSchema, posixPathName, profileVerificationSettingsSchema, promptCacheRetentionSchema, reasoningEffortSchema, reasoningItemSchema, reasoningSummarySchema, redactTextSecrets, redactUrlCredentials, redactUrlCredentialsInText, redactUrlParams, redactedThinkingBlockSchema, reduceTextContent, registerAgent, registerAgentIfAbsent, registerTool, registerToolFactory, resetAgentRegistryForTests, resolveLlmApiKeyRef, resolveLlmProfileApiKeyRef, resolveProviderFromProfile, resolveTool, restoreConversationState, resumeTranscriptEventSchema, runGitCommand, sanitizeOpenHandsMentions, sanitizedEnv, secretRefSchema, setupLogging, shouldEnableObservability, skillResourcesSchema, skillSchema, skillsToPrompt, sourceTypeSchema, startChildSpan, startRootSpan, streamingDeltaEventSchema, systemPromptEventSchema, taskItemSchema, taskTrackerActionSchema, taskTrackerObservationSchema, taskTriggerSchema, terminalActionSchema, terminalObservationSchema, textContent, textContentSchema, thinkActionSchema, thinkingBlockSchema, toCamelCase, toLLMMessage, toPosixPath, tokenEventSchema, toolAnnotationsSchema, toolSpecSchema, triggerSchema, userRejectObservationSchema, utcNow, validateAgentProfile, validateAgentSettings, validateConversationSettings, validateExtensionName, validateGitRepository, workspace };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map
