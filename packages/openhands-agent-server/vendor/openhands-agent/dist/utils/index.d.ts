@@ -57,7 +57,9 @@ export declare function executeCommand(command: string | readonly string[], opti
 export declare const SECRET_KEY_PATTERNS: Set<string>;
 export declare const SENSITIVE_URL_PARAMS: Set<string>;
 export declare function isSecretKey(key: string): boolean;
-export declare function redactUrlCredentials(url: string): string;
+export declare function redactUrlCredentials(url: string, options?: {
+    readonly preservePlaceholders?: boolean;
+}): string;
 export declare function redactUrlCredentialsInText(text: string): string;
 export declare function redactUrlParams(url: string): string;
 export declare function redactTextSecrets(text: string): string;

@@ -15,8 +15,9 @@ export declare const openHandsAgentProfileSchema: z.ZodObject<{
     agent_kind: z.ZodDefault<z.ZodLiteral<"openhands">>;
     llm_profile_ref: z.ZodString;
     agent: z.ZodDefault<z.ZodString>;
-    skills: z.ZodDefault<z.ZodArray<z.ZodUnknown>>;
+    tools: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodUnknown>>>;
     system_message_suffix: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    disabled_skills: z.ZodDefault<z.ZodArray<z.ZodString>>;
     condenser: z.ZodDefault<z.ZodUnknown>;
     verification: z.ZodDefault<z.ZodObject<{
         critic_enabled: z.ZodDefault<z.ZodBoolean>;
@@ -28,6 +29,7 @@ export declare const openHandsAgentProfileSchema: z.ZodObject<{
         critic_model_name: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     }, z.core.$strip>>;
     enable_sub_agents: z.ZodDefault<z.ZodBoolean>;
+    enable_switch_llm_tool: z.ZodDefault<z.ZodBoolean>;
     tool_concurrency_limit: z.ZodDefault<z.ZodNumber>;
     schema_version: z.ZodDefault<z.ZodLiteral<1>>;
     id: z.ZodDefault<z.ZodString>;
@@ -53,8 +55,9 @@ export declare const agentProfileSchema: z.ZodUnion<readonly [z.ZodObject<{
     agent_kind: z.ZodDefault<z.ZodLiteral<"openhands">>;
     llm_profile_ref: z.ZodString;
     agent: z.ZodDefault<z.ZodString>;
-    skills: z.ZodDefault<z.ZodArray<z.ZodUnknown>>;
+    tools: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodUnknown>>>;
     system_message_suffix: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    disabled_skills: z.ZodDefault<z.ZodArray<z.ZodString>>;
     condenser: z.ZodDefault<z.ZodUnknown>;
     verification: z.ZodDefault<z.ZodObject<{
         critic_enabled: z.ZodDefault<z.ZodBoolean>;
@@ -66,6 +69,7 @@ export declare const agentProfileSchema: z.ZodUnion<readonly [z.ZodObject<{
         critic_model_name: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     }, z.core.$strip>>;
     enable_sub_agents: z.ZodDefault<z.ZodBoolean>;
+    enable_switch_llm_tool: z.ZodDefault<z.ZodBoolean>;
     tool_concurrency_limit: z.ZodDefault<z.ZodNumber>;
     schema_version: z.ZodDefault<z.ZodLiteral<1>>;
     id: z.ZodDefault<z.ZodString>;

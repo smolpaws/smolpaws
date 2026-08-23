@@ -1083,7 +1083,7 @@ describe('createAgentServerApp', () => {
       expect(loaded.statusCode).toBe(200);
       expect(loaded.json<{ skills: Array<{ name: string }> }>().skills.some((skill) => skill.name === 'demo')).toBe(true);
       const installed = await app.inject({ method: 'POST', url: '/api/skills/install', payload: { source: path.dirname(localSkill) } });
-      expect(installed.statusCode).toBe(201);
+      expect(installed.statusCode).toBe(200);
       const list = await app.inject({ method: 'GET', url: '/api/skills/installed' });
       expect(list.json<{ skills: Array<{ name: string; enabled: boolean }> }>().skills).toContainEqual(expect.objectContaining({ name: 'installed-demo', enabled: true }));
       const disabled = await app.inject({ method: 'PATCH', url: '/api/skills/installed/installed-demo', payload: { enabled: false } });

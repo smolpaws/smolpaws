@@ -2,7 +2,7 @@
   "components": {
     "schemas": {
       "_RemoteMCPServerSpec": {
-        "description": "Remote (HTTP / SSE) MCP server spec.",
+        "description": "Legacy remote MCP server spec accepted by the public REST API.",
         "properties": {
           "api_key": {
             "anyOf": [
@@ -13,8 +13,49 @@
                 "type": "null"
               }
             ],
-            "description": "Bearer token. If provided, sent as 'Authorization: Bearer <token>'.",
+            "description": "Deprecated bearer token. Prefer auth.strategy='bearer'. If provided without auth, sent as 'Authorization: Bearer <token>'.",
             "title": "Api Key"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "api_key": "#/components/schemas/MCPApiKeyAuthCredential-Input",
+                    "basic": "#/components/schemas/MCPBasicAuthCredential-Input",
+                    "bearer": "#/components/schemas/MCPBearerAuthCredential-Input",
+                    "header": "#/components/schemas/MCPHeaderAuthCredential-Input",
+                    "none": "#/components/schemas/MCPNoneAuthCredential-Input",
+                    "oauth2": "#/components/schemas/MCPOAuthAuthCredential-Input"
+                  },
+                  "propertyName": "strategy"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/MCPNoneAuthCredential-Input"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPApiKeyAuthCredential-Input"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPBearerAuthCredential-Input"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPBasicAuthCredential-Input"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPHeaderAuthCredential-Input"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPOAuthAuthCredential-Input"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth"
           },
           "headers": {
             "additionalProperties": {
@@ -22,6 +63,39 @@
             },
             "title": "Headers",
             "type": "object"
+          },
+          "keep_alive": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keep Alive"
+          },
+          "sse_read_timeout": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sse Read Timeout"
+          },
+          "timeout": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeout"
           },
           "type": {
             "enum": [
@@ -47,7 +121,7 @@
         "type": "object"
       },
       "_StdioMCPServerSpec": {
-        "description": "Stdio (subprocess) MCP server spec.\n\nMirrors the subset of ``fastmcp.mcp_config.StdioMCPServer`` fields the\nOpenHands UI exposes today.",
+        "description": "Legacy stdio MCP server spec accepted by the public REST API.",
         "properties": {
           "args": {
             "items": {
@@ -282,17 +356,17 @@
             "$ref": "#/components/schemas/LLM-Input"
           },
           "mcp_config": {
-            "additionalProperties": true,
-            "description": "Optional MCP configuration dictionary to create MCP tools.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/MCPServer-Input"
+            },
+            "description": "Optional MCP servers to expose as tools.",
             "examples": [
               {
-                "mcpServers": {
-                  "fetch": {
-                    "args": [
-                      "mcp-server-fetch"
-                    ],
-                    "command": "uvx"
-                  }
+                "fetch": {
+                  "args": [
+                    "mcp-server-fetch"
+                  ],
+                  "command": "uvx"
                 }
               }
             ],
@@ -301,7 +375,7 @@
           },
           "security_policy_filename": {
             "default": "security_policy.j2",
-            "description": "Security policy template filename. Can be either:\n- A relative filename (e.g., 'security_policy.j2') loaded from the agent's prompts directory\n- An absolute path (e.g., '/path/to/custom_security_policy.j2')\n- Empty string to disable security policy",
+            "description": "Security policy filename. The default 'security_policy.j2' is a back-compat sentinel (the file was removed) that selects the built-in default policy from the prompt registry -- it is not loaded from disk. Any other value names a custom policy file whose contents are inserted verbatim (NOT rendered as a Jinja template). Can be either:\n- A relative filename (e.g., 'custom_security_policy.md') loaded from the agent's prompts directory\n- An absolute path (e.g., '/path/to/custom_security_policy.md')\n- Empty string to disable security policy",
             "title": "Security Policy Filename",
             "type": "string"
           },
@@ -544,17 +618,17 @@
             "$ref": "#/components/schemas/LLM-Output"
           },
           "mcp_config": {
-            "additionalProperties": true,
-            "description": "Optional MCP configuration dictionary to create MCP tools.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/MCPServer-Output"
+            },
+            "description": "Optional MCP servers to expose as tools.",
             "examples": [
               {
-                "mcpServers": {
-                  "fetch": {
-                    "args": [
-                      "mcp-server-fetch"
-                    ],
-                    "command": "uvx"
-                  }
+                "fetch": {
+                  "args": [
+                    "mcp-server-fetch"
+                  ],
+                  "command": "uvx"
                 }
               }
             ],
@@ -563,7 +637,7 @@
           },
           "security_policy_filename": {
             "default": "security_policy.j2",
-            "description": "Security policy template filename. Can be either:\n- A relative filename (e.g., 'security_policy.j2') loaded from the agent's prompts directory\n- An absolute path (e.g., '/path/to/custom_security_policy.j2')\n- Empty string to disable security policy",
+            "description": "Security policy filename. The default 'security_policy.j2' is a back-compat sentinel (the file was removed) that selects the built-in default policy from the prompt registry -- it is not loaded from disk. Any other value names a custom policy file whose contents are inserted verbatim (NOT rendered as a Jinja template). Can be either:\n- A relative filename (e.g., 'custom_security_policy.md') loaded from the agent's prompts directory\n- An absolute path (e.g., '/path/to/custom_security_policy.md')\n- Empty string to disable security policy",
             "title": "Security Policy Filename",
             "type": "string"
           },
@@ -738,6 +812,18 @@
             "title": "Kind",
             "type": "string"
           },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent event id in the conversation tree. None for the root, or for legacy events predating the tree (see EventLog's effective-parent rule). Events sharing a parent_id are sibling branches.",
+            "title": "Parent Id"
+          },
           "raw_input": {
             "anyOf": [
               {},
@@ -819,6 +905,7 @@
             "openhands__sdk__tool__builtins__invoke_skill__InvokeSkillAction-Output__1": "#/components/schemas/InvokeSkillAction",
             "openhands__sdk__tool__builtins__switch_llm__SwitchLLMAction-Output__1": "#/components/schemas/SwitchLLMAction",
             "openhands__sdk__tool__builtins__think__ThinkAction-Output__1": "#/components/schemas/ThinkAction",
+            "openhands__sdk__tool__builtins__vision_inspect__VisionInspectAction-Output__1": "#/components/schemas/VisionInspectAction",
             "openhands__tools__browser_use__definition__BrowserAction-Output__1": "#/components/schemas/BrowserAction",
             "openhands__tools__browser_use__definition__BrowserClickAction-Output__1": "#/components/schemas/BrowserClickAction",
             "openhands__tools__browser_use__definition__BrowserCloseTabAction-Output__1": "#/components/schemas/BrowserCloseTabAction",
@@ -865,6 +952,9 @@
           },
           {
             "$ref": "#/components/schemas/ThinkAction"
+          },
+          {
+            "$ref": "#/components/schemas/VisionInspectAction"
           },
           {
             "$ref": "#/components/schemas/BrowserAction"
@@ -991,6 +1081,18 @@
             "description": "Completion or Response ID of the LLM response that generated this eventE.g., Can be used to group related actions from same LLM response. This helps in tracking and managing results of parallel function calling from the same LLM response.",
             "title": "Llm Response Id",
             "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent event id in the conversation tree. None for the root, or for legacy events predating the tree (see EventLog's effective-parent rule). Events sharing a parent_id are sibling branches.",
+            "title": "Parent Id"
           },
           "reasoning_content": {
             "anyOf": [
@@ -1300,17 +1402,17 @@
             ]
           },
           "mcp_config": {
-            "additionalProperties": true,
-            "description": "Optional MCP configuration dictionary to create MCP tools.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/MCPServer-Input"
+            },
+            "description": "Optional MCP servers to expose as tools.",
             "examples": [
               {
-                "mcpServers": {
-                  "fetch": {
-                    "args": [
-                      "mcp-server-fetch"
-                    ],
-                    "command": "uvx"
-                  }
+                "fetch": {
+                  "args": [
+                    "mcp-server-fetch"
+                  ],
+                  "command": "uvx"
                 }
               }
             ],
@@ -1319,7 +1421,7 @@
           },
           "security_policy_filename": {
             "default": "security_policy.j2",
-            "description": "Security policy template filename. Can be either:\n- A relative filename (e.g., 'security_policy.j2') loaded from the agent's prompts directory\n- An absolute path (e.g., '/path/to/custom_security_policy.j2')\n- Empty string to disable security policy",
+            "description": "Security policy filename. The default 'security_policy.j2' is a back-compat sentinel (the file was removed) that selects the built-in default policy from the prompt registry -- it is not loaded from disk. Any other value names a custom policy file whose contents are inserted verbatim (NOT rendered as a Jinja template). Can be either:\n- A relative filename (e.g., 'custom_security_policy.md') loaded from the agent's prompts directory\n- An absolute path (e.g., '/path/to/custom_security_policy.md')\n- Empty string to disable security policy",
             "title": "Security Policy Filename",
             "type": "string"
           },
@@ -1512,17 +1614,17 @@
             ]
           },
           "mcp_config": {
-            "additionalProperties": true,
-            "description": "Optional MCP configuration dictionary to create MCP tools.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/MCPServer-Output"
+            },
+            "description": "Optional MCP servers to expose as tools.",
             "examples": [
               {
-                "mcpServers": {
-                  "fetch": {
-                    "args": [
-                      "mcp-server-fetch"
-                    ],
-                    "command": "uvx"
-                  }
+                "fetch": {
+                  "args": [
+                    "mcp-server-fetch"
+                  ],
+                  "command": "uvx"
                 }
               }
             ],
@@ -1531,7 +1633,7 @@
           },
           "security_policy_filename": {
             "default": "security_policy.j2",
-            "description": "Security policy template filename. Can be either:\n- A relative filename (e.g., 'security_policy.j2') loaded from the agent's prompts directory\n- An absolute path (e.g., '/path/to/custom_security_policy.j2')\n- Empty string to disable security policy",
+            "description": "Security policy filename. The default 'security_policy.j2' is a back-compat sentinel (the file was removed) that selects the built-in default policy from the prompt registry -- it is not loaded from disk. Any other value names a custom policy file whose contents are inserted verbatim (NOT rendered as a Jinja template). Can be either:\n- A relative filename (e.g., 'custom_security_policy.md') loaded from the agent's prompts directory\n- An absolute path (e.g., '/path/to/custom_security_policy.md')\n- Empty string to disable security policy",
             "title": "Security Policy Filename",
             "type": "string"
           },
@@ -1655,6 +1757,15 @@
             "description": "Current date and time information to provide to the agent. Can be a datetime object (which will be formatted as ISO 8601) or a pre-formatted string. When provided, this information is included in the system prompt to give the agent awareness of the current time context. Defaults to the current (timezone-aware) datetime.",
             "title": "Current Datetime"
           },
+          "disabled_skills": {
+            "acp_compatible": true,
+            "description": "Names of skills to EXCLUDE from this context — a deny-list applied after every skill source is loaded (auto-loaded user/public, explicit, and lazily-loaded project skills). A listed name absent from the loaded set is a harmless no-op. [] (the default) keeps every skill. This is the single, drift-tolerant skill-selection mechanism (agent profiles set it from their own deny-list; #4017).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Disabled Skills",
+            "type": "array"
+          },
           "load_project_skills": {
             "acp_compatible": true,
             "default": false,
@@ -1692,7 +1803,7 @@
           },
           "registered_marketplaces": {
             "acp_compatible": true,
-            "description": "Marketplace registrations for plugin resolution. Registrations with auto_load=True are resolved by LocalConversation at startup.",
+            "description": "Marketplace registrations for plugin resolution. Registrations with auto_load=True or a list of plugin names are resolved by LocalConversation at startup.",
             "items": {
               "$ref": "#/components/schemas/MarketplaceRegistration"
             },
@@ -1781,6 +1892,15 @@
             "description": "Current date and time information to provide to the agent. Can be a datetime object (which will be formatted as ISO 8601) or a pre-formatted string. When provided, this information is included in the system prompt to give the agent awareness of the current time context. Defaults to the current (timezone-aware) datetime.",
             "title": "Current Datetime"
           },
+          "disabled_skills": {
+            "acp_compatible": true,
+            "description": "Names of skills to EXCLUDE from this context — a deny-list applied after every skill source is loaded (auto-loaded user/public, explicit, and lazily-loaded project skills). A listed name absent from the loaded set is a harmless no-op. [] (the default) keeps every skill. This is the single, drift-tolerant skill-selection mechanism (agent profiles set it from their own deny-list; #4017).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Disabled Skills",
+            "type": "array"
+          },
           "load_project_skills": {
             "acp_compatible": true,
             "default": false,
@@ -1818,7 +1938,7 @@
           },
           "registered_marketplaces": {
             "acp_compatible": true,
-            "description": "Marketplace registrations for plugin resolution. Registrations with auto_load=True are resolved by LocalConversation at startup.",
+            "description": "Marketplace registrations for plugin resolution. Registrations with auto_load=True or a list of plugin names are resolved by LocalConversation at startup.",
             "items": {
               "$ref": "#/components/schemas/MarketplaceRegistration"
             },
@@ -1921,6 +2041,25 @@
             ],
             "description": "Hook configuration for this agent"
           },
+          "level": {
+            "anyOf": [
+              {
+                "enum": [
+                  "project",
+                  "user",
+                  "builtin",
+                  "plugin",
+                  "programmatic"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Scope where the agent was discovered. Set during discovery; None when loaded directly from a file.",
+            "title": "Level"
+          },
           "max_budget_per_run": {
             "anyOf": [
               {
@@ -1947,6 +2086,31 @@
             "description": "Maximum iterations per run. It must be strictly positive, or None for default.",
             "title": "Max Iteration Per Run"
           },
+          "mcp_config": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/MCPServer-Input"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "MCP servers for this agent.",
+            "examples": [
+              {
+                "fetch": {
+                  "args": [
+                    "mcp-server-fetch"
+                  ],
+                  "command": "uvx"
+                }
+              }
+            ],
+            "title": "Mcp Config"
+          },
           "mcp_servers": {
             "anyOf": [
               {
@@ -1957,7 +2121,7 @@
                 "type": "null"
               }
             ],
-            "description": "MCP server configurations for this agent. Keys are server names, values are server configs with 'command', 'args', etc.",
+            "description": "Deprecated compatibility alias for mcp_config. Use mcp_config for new clients.",
             "examples": [
               {
                 "fetch": {
@@ -2078,6 +2242,18 @@
             "const": "AgentErrorEvent",
             "title": "Kind",
             "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent event id in the conversation tree. None for the root, or for legacy events predating the tree (see EventLog's effective-parent rule). Events sharing a parent_id are sibling branches.",
+            "title": "Parent Id"
           },
           "source": {
             "default": "agent",
@@ -2246,6 +2422,13 @@
             "title": "Dangling Mcp Server Refs",
             "type": "array"
           },
+          "disabled_skills": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Disabled Skills",
+            "type": "array"
+          },
           "errors": {
             "items": {
               "type": "string"
@@ -2288,7 +2471,15 @@
             ],
             "title": "Mcp Server Refs"
           },
+          "resolved_mcp_config_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Resolved Mcp Config Keys",
+            "type": "array"
+          },
           "resolved_mcp_servers": {
+            "description": "Deprecated alias for resolved_mcp_config_keys.",
             "items": {
               "type": "string"
             },
@@ -2306,6 +2497,13 @@
               }
             ],
             "title": "Resolved Settings"
+          },
+          "resolved_skills": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Resolved Skills",
+            "type": "array"
           },
           "valid": {
             "default": false,
@@ -3109,6 +3307,19 @@
           "kind"
         ],
         "title": "BashOutput",
+        "type": "object"
+      },
+      "Body_load_conversation_plugin_api_conversations__conversation_id__load_plugin_post": {
+        "properties": {
+          "plugin_ref": {
+            "title": "Plugin Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plugin_ref"
+        ],
+        "title": "Body_load_conversation_plugin_api_conversations__conversation_id__load_plugin_post",
         "type": "object"
       },
       "Body_switch_conversation_acp_model_api_conversations__conversation_id__switch_acp_model_post": {
@@ -5272,6 +5483,18 @@
             "title": "Llm Response Id",
             "type": "string"
           },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent event id in the conversation tree. None for the root, or for legacy events predating the tree (see EventLog's effective-parent rule). Events sharing a parent_id are sibling branches.",
+            "title": "Parent Id"
+          },
           "source": {
             "default": "environment",
             "enum": [
@@ -5335,6 +5558,18 @@
             "title": "Kind",
             "type": "string"
           },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent event id in the conversation tree. None for the root, or for legacy events predating the tree (see EventLog's effective-parent rule). Events sharing a parent_id are sibling branches.",
+            "title": "Parent Id"
+          },
           "source": {
             "default": "environment",
             "enum": [
@@ -5371,6 +5606,18 @@
             "const": "CondensationSummaryEvent",
             "title": "Kind",
             "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent event id in the conversation tree. None for the root, or for legacy events predating the tree (see EventLog's effective-parent rule). Events sharing a parent_id are sibling branches.",
+            "title": "Parent Id"
           },
           "source": {
             "default": "environment",
@@ -5570,6 +5817,18 @@
             "title": "Kind",
             "type": "string"
           },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent event id in the conversation tree. None for the root, or for legacy events predating the tree (see EventLog's effective-parent rule). Events sharing a parent_id are sibling branches.",
+            "title": "Parent Id"
+          },
           "source": {
             "description": "The source of this event",
             "enum": [
@@ -5691,6 +5950,31 @@
             "$ref": "#/components/schemas/ConversationExecutionStatus",
             "default": "idle"
           },
+          "forked_from_conversation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ID of the conversation this one was forked from. ``None`` for conversations created directly (not via fork).",
+            "title": "Forked From Conversation Id"
+          },
+          "forked_from_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Event ID this conversation was forked at. ``None`` for non-forked conversations or whole-conversation forks.",
+            "title": "Forked From Event Id"
+          },
           "hook_config": {
             "anyOf": [
               {
@@ -5738,6 +6022,18 @@
               }
             ],
             "description": "Provenance snapshot of the agent profile that launched this conversation. Set at creation when the conversation was started via ``agent_profile_id``; ``None`` for conversations started directly with ``agent`` or ``agent_settings``. Clients use this to identify which agent profile is current without fragile settings-comparison."
+          },
+          "leaf_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "HEAD of the conversation tree: the parent of the next appended event. ``None`` means an empty tree (or, for pre-feature conversations, the linear tail). Moving it via ``navigate`` re-roots the active branch the agent runs on.",
+            "title": "Leaf Event Id"
           },
           "max_iterations": {
             "default": 500,
@@ -5894,6 +6190,18 @@
             "const": "ConversationStateUpdateEvent",
             "title": "Kind",
             "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent event id in the conversation tree. None for the root, or for legacy events predating the tree (see EventLog's effective-parent rule). Events sharing a parent_id are sibling branches.",
+            "title": "Parent Id"
           },
           "source": {
             "default": "environment",
@@ -6618,33 +6926,6 @@
           }
         ]
       },
-      "EventPage": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/Event"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "next_page_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Next Page Id"
-          }
-        },
-        "required": [
-          "items"
-        ],
-        "title": "EventPage",
-        "type": "object"
-      },
       "EventSortOrder": {
         "description": "Enum for event sorting options.",
         "enum": [
@@ -7182,6 +7463,18 @@
       "ForkConversationRequest": {
         "description": "Payload to fork a conversation.",
         "properties": {
+          "from_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "If set, fork only the branch up to and including this event and set the fork's HEAD there. If null (default), copy the whole conversation.",
+            "title": "From Event Id"
+          },
           "id": {
             "anyOf": [
               {
@@ -8163,6 +8456,18 @@
             "description": "ID of the message this hook is associated with (UserPromptSubmit)",
             "title": "Message Id"
           },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent event id in the conversation tree. None for the root, or for legacy events predating the tree (see EventLog's effective-parent rule). Events sharing a parent_id are sibling branches.",
+            "title": "Parent Id"
+          },
           "reason": {
             "anyOf": [
               {
@@ -8582,6 +8887,98 @@
         "title": "InputMetadata",
         "type": "object"
       },
+      "InstalledPluginResponse": {
+        "description": "Response containing installed plugin information.",
+        "properties": {
+          "description": {
+            "default": "",
+            "description": "Plugin description",
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "description": "Whether the plugin is enabled",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "install_path": {
+            "description": "Path where the plugin is installed",
+            "title": "Install Path",
+            "type": "string"
+          },
+          "installed_at": {
+            "description": "ISO 8601 timestamp of installation",
+            "title": "Installed At",
+            "type": "string"
+          },
+          "name": {
+            "description": "Plugin name",
+            "title": "Name",
+            "type": "string"
+          },
+          "repo_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Subdirectory path within the repository",
+            "title": "Repo Path"
+          },
+          "resolved_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Resolved git commit SHA",
+            "title": "Resolved Ref"
+          },
+          "source": {
+            "description": "Original source (e.g., 'github:owner/repo')",
+            "title": "Source",
+            "type": "string"
+          },
+          "version": {
+            "default": "",
+            "description": "Plugin version",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "source",
+          "installed_at",
+          "install_path"
+        ],
+        "title": "InstalledPluginResponse",
+        "type": "object"
+      },
+      "InstalledPluginsListResponse": {
+        "description": "Response containing the list of installed plugins.",
+        "properties": {
+          "plugins": {
+            "items": {
+              "$ref": "#/components/schemas/InstalledPluginResponse"
+            },
+            "title": "Plugins",
+            "type": "array"
+          }
+        },
+        "required": [
+          "plugins"
+        ],
+        "title": "InstalledPluginsListResponse",
+        "type": "object"
+      },
       "InstalledSkillResponse": {
         "description": "Response containing installed skill information.",
         "properties": {
@@ -8674,6 +9071,52 @@
         "title": "InstalledSkillsListResponse",
         "type": "object"
       },
+      "InstallPluginRequest": {
+        "description": "Request body for installing a plugin.",
+        "properties": {
+          "force": {
+            "default": false,
+            "description": "If true, overwrite existing installation",
+            "title": "Force",
+            "type": "boolean"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional branch, tag, or commit to install",
+            "title": "Ref"
+          },
+          "repo_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Subdirectory path within the repository (for monorepos)",
+            "title": "Repo Path"
+          },
+          "source": {
+            "description": "Plugin source - git URL, GitHub shorthand, or local path. Examples: 'github:OpenHands/extensions/plugins/city-weather', '/path/to/plugin'",
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "InstallPluginRequest",
+        "type": "object"
+      },
       "InstallSkillRequest": {
         "description": "Request body for installing a skill.",
         "properties": {
@@ -8733,6 +9176,18 @@
             "const": "InterruptEvent",
             "title": "Kind",
             "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent event id in the conversation tree. None for the root, or for legacy events predating the tree (see EventLog's effective-parent rule). Events sharing a parent_id are sibling branches.",
+            "title": "Parent Id"
           },
           "source": {
             "default": "user",
@@ -10331,6 +10786,18 @@
             "title": "Model Name",
             "type": "string"
           },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent event id in the conversation tree. None for the root, or for legacy events predating the tree (see EventLog's effective-parent rule). Events sharing a parent_id are sibling branches.",
+            "title": "Parent Id"
+          },
           "source": {
             "default": "environment",
             "enum": [
@@ -10630,31 +11097,82 @@
         "title": "LookupSecret",
         "type": "object"
       },
-      "MarketplaceCatalogResponse": {
-        "description": "Response containing the marketplace catalog.",
+      "MarketplacePluginInfo": {
+        "description": "A true plugin in the marketplace catalog, with attach coordinates.",
         "properties": {
-          "skills": {
-            "items": {
-              "$ref": "#/components/schemas/MarketplaceSkillInfo"
-            },
-            "title": "Skills",
-            "type": "array"
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "installed": {
+            "title": "Installed",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref"
+          },
+          "repo_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo Path"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
           }
         },
         "required": [
-          "skills"
+          "name",
+          "description",
+          "source",
+          "installed"
         ],
-        "title": "MarketplaceCatalogResponse",
+        "title": "MarketplacePluginInfo",
         "type": "object"
       },
       "MarketplaceRegistration": {
         "description": "Registration for a marketplace source used for plugin resolution.",
         "properties": {
           "auto_load": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            ],
             "default": false,
-            "description": "Whether to load all marketplace plugins at conversation start.",
-            "title": "Auto Load",
-            "type": "boolean"
+            "description": "Whether to load marketplace plugins at conversation start. Use True for all plugins, False or [] for none, or a list of plugin names for selective loading.",
+            "title": "Auto Load"
           },
           "name": {
             "description": "Identifier for this marketplace registration",
@@ -10898,6 +11416,770 @@
         "title": "ToolAnnotations",
         "type": "object"
       },
+      "MCPApiKeyAuthCredential-Input": {
+        "properties": {
+          "header_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Header Name"
+          },
+          "strategy": {
+            "const": "api_key",
+            "title": "Strategy",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "strategy"
+        ],
+        "title": "MCPApiKeyAuthCredential",
+        "type": "object"
+      },
+      "MCPApiKeyAuthCredential-Output": {},
+      "MCPBasicAuthCredential-Input": {
+        "properties": {
+          "password": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          },
+          "strategy": {
+            "const": "basic",
+            "title": "Strategy",
+            "type": "string"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "strategy",
+          "username"
+        ],
+        "title": "MCPBasicAuthCredential",
+        "type": "object"
+      },
+      "MCPBasicAuthCredential-Output": {},
+      "MCPBearerAuthCredential-Input": {
+        "properties": {
+          "strategy": {
+            "const": "bearer",
+            "title": "Strategy",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "strategy"
+        ],
+        "title": "MCPBearerAuthCredential",
+        "type": "object"
+      },
+      "MCPBearerAuthCredential-Output": {},
+      "MCPHeaderAuthCredential-Input": {
+        "properties": {
+          "headers": {
+            "additionalProperties": {
+              "format": "password",
+              "type": "string",
+              "writeOnly": true
+            },
+            "title": "Headers",
+            "type": "object"
+          },
+          "strategy": {
+            "const": "header",
+            "title": "Strategy",
+            "type": "string"
+          }
+        },
+        "required": [
+          "strategy"
+        ],
+        "title": "MCPHeaderAuthCredential",
+        "type": "object"
+      },
+      "MCPHeaderAuthCredential-Output": {},
+      "MCPNoneAuthCredential-Input": {
+        "properties": {
+          "strategy": {
+            "const": "none",
+            "title": "Strategy",
+            "type": "string"
+          }
+        },
+        "required": [
+          "strategy"
+        ],
+        "title": "MCPNoneAuthCredential",
+        "type": "object"
+      },
+      "MCPNoneAuthCredential-Output": {},
+      "MCPOAuthAuthCredential-Input": {
+        "properties": {
+          "authentication": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MCPOAuthAuthentication-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MCPOAuthState-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "strategy": {
+            "const": "oauth2",
+            "title": "Strategy",
+            "type": "string"
+          }
+        },
+        "required": [
+          "strategy"
+        ],
+        "title": "MCPOAuthAuthCredential",
+        "type": "object"
+      },
+      "MCPOAuthAuthCredential-Output": {},
+      "MCPOAuthAuthentication-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "additional_client_metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Additional Client Metadata"
+          },
+          "client_auth_method": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "client_secret_post",
+                  "client_secret_basic",
+                  "private_key_jwt"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Auth Method"
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "client_metadata_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Metadata Url"
+          },
+          "client_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Name"
+          },
+          "client_secret": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Secret"
+          },
+          "scopes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scopes"
+          },
+          "type": {
+            "const": "oauth",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "MCPOAuthAuthentication",
+        "type": "object"
+      },
+      "MCPOAuthAuthentication-Output": {},
+      "MCPOAuthCallbackRequest": {
+        "description": "Callback URL copied from a browser OAuth redirect.",
+        "properties": {
+          "callback_url": {
+            "minLength": 1,
+            "title": "Callback Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "callback_url"
+        ],
+        "title": "MCPOAuthCallbackRequest",
+        "type": "object"
+      },
+      "MCPOAuthClientInfoState-Input": {
+        "additionalProperties": true,
+        "properties": {
+          "client_secret": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Secret"
+          }
+        },
+        "title": "MCPOAuthClientInfoState",
+        "type": "object"
+      },
+      "MCPOAuthClientInfoState-Output": {},
+      "MCPOAuthStartResponse": {
+        "description": "Response for starting an install-time OAuth MCP probe.",
+        "properties": {
+          "authorization_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authorization Url"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "error_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "timeout",
+                  "connection",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Kind"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "MCPOAuthStartResponse",
+        "type": "object"
+      },
+      "MCPOAuthState-Input": {
+        "properties": {
+          "client_info": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MCPOAuthClientInfoState-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "token_expires_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Expires At"
+          },
+          "tokens": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MCPOAuthTokenState-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "MCPOAuthState",
+        "type": "object"
+      },
+      "MCPOAuthState-Output": {},
+      "MCPOAuthStateResponse": {},
+      "MCPOAuthStatusResponse": {
+        "description": "Current state of an install-time OAuth MCP probe.",
+        "properties": {
+          "authorization_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authorization Url"
+          },
+          "callback_ready": {
+            "default": false,
+            "title": "Callback Ready",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "error_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "timeout",
+                  "connection",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Kind"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "oauth_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MCPOAuthStateResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "authorizing",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tool_result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MCPToolCallResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tools": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tools"
+          }
+        },
+        "required": [
+          "ok",
+          "status",
+          "job_id"
+        ],
+        "title": "MCPOAuthStatusResponse",
+        "type": "object"
+      },
+      "MCPOAuthTokenState-Input": {
+        "additionalProperties": true,
+        "properties": {
+          "access_token": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Token"
+          },
+          "refresh_token": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Token"
+          }
+        },
+        "title": "MCPOAuthTokenState",
+        "type": "object"
+      },
+      "MCPOAuthTokenState-Output": {},
+      "MCPServer-Input": {
+        "additionalProperties": false,
+        "description": "One MCP server in the settings DataModel.",
+        "properties": {
+          "args": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Args"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "api_key": "#/components/schemas/MCPApiKeyAuthCredential-Input",
+                    "basic": "#/components/schemas/MCPBasicAuthCredential-Input",
+                    "bearer": "#/components/schemas/MCPBearerAuthCredential-Input",
+                    "header": "#/components/schemas/MCPHeaderAuthCredential-Input",
+                    "none": "#/components/schemas/MCPNoneAuthCredential-Input",
+                    "oauth2": "#/components/schemas/MCPOAuthAuthCredential-Input"
+                  },
+                  "propertyName": "strategy"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/MCPNoneAuthCredential-Input"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPApiKeyAuthCredential-Input"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPBearerAuthCredential-Input"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPBasicAuthCredential-Input"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPHeaderAuthCredential-Input"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPOAuthAuthCredential-Input"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth"
+          },
+          "command": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command"
+          },
+          "cwd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cwd"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "env": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "format": "password",
+                  "type": "string",
+                  "writeOnly": true
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Env"
+          },
+          "headers": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "format": "password",
+                  "type": "string",
+                  "writeOnly": true
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headers"
+          },
+          "icon": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon"
+          },
+          "keep_alive": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keep Alive"
+          },
+          "sse_read_timeout": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sse Read Timeout"
+          },
+          "timeout": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeout"
+          },
+          "transport": {
+            "anyOf": [
+              {
+                "enum": [
+                  "stdio",
+                  "http",
+                  "sse",
+                  "streamable-http"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transport"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "title": "MCPServer",
+        "type": "object"
+      },
+      "MCPServer-Output": {},
       "MCPTestFailure": {
         "description": "Response when the candidate server fails to connect or list tools.\n\nThe endpoint returns HTTP 200 in both success and failure cases: a\nfailure here is the *expected* outcome of validating a user-supplied\nconfig, not a server-side error. The structured shape makes it easy\nfor the UI to render an actionable message.",
         "properties": {
@@ -10935,7 +12217,7 @@
         "properties": {
           "name": {
             "default": "test-server",
-            "description": "Name to use for the server inside the temporary MCPConfig. Only affects error messages -- does not need to match any persisted setting.",
+            "description": "Name to use for the server inside the temporary MCP server map. Only affects error messages -- does not need to match any persisted setting.",
             "maxLength": 128,
             "minLength": 1,
             "title": "Name",
@@ -10991,11 +12273,38 @@
       "MCPTestSuccess": {
         "description": "Response when the candidate server connects and lists its tools.",
         "properties": {
+          "oauth_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MCPOAuthStateResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Serialized OAuth state acquired or refreshed by the probe. Clients should persist this under the tested server's auth.state."
+          },
           "ok": {
             "const": true,
             "default": true,
             "title": "Ok",
             "type": "boolean"
+          },
+          "resolved_mcp_servers": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deprecated compatibility field for older clients that expected resolved MCP server metadata in test responses.",
+            "title": "Resolved Mcp Servers"
           },
           "tool_result": {
             "anyOf": [
@@ -11361,6 +12670,18 @@
             "description": "Completion or Response ID of the LLM response that generated this eventIf the source != 'agent', this field is None",
             "title": "Llm Response Id"
           },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent event id in the conversation tree. None for the root, or for legacy events predating the tree (see EventLog's effective-parent rule). Events sharing a parent_id are sibling branches.",
+            "title": "Parent Id"
+          },
           "sender": {
             "anyOf": [
               {
@@ -11604,6 +12925,25 @@
         "title": "ModelsResponse",
         "type": "object"
       },
+      "NavigateConversationRequest": {
+        "description": "Payload to move a conversation's HEAD to an existing event.",
+        "properties": {
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Event to make the new HEAD, re-rooting the active branch the agent runs on. All branches stay on disk; this creates no new conversation. ``None`` selects the empty tree.",
+            "title": "Event Id"
+          }
+        },
+        "title": "NavigateConversationRequest",
+        "type": "object"
+      },
       "NeverConfirm-Input": {
         "properties": {
           "kind": {
@@ -11664,6 +13004,7 @@
             "openhands__sdk__tool__builtins__invoke_skill__InvokeSkillObservation-Output__1": "#/components/schemas/InvokeSkillObservation",
             "openhands__sdk__tool__builtins__switch_llm__SwitchLLMObservation-Output__1": "#/components/schemas/SwitchLLMObservation",
             "openhands__sdk__tool__builtins__think__ThinkObservation-Output__1": "#/components/schemas/ThinkObservation",
+            "openhands__sdk__tool__builtins__vision_inspect__VisionInspectObservation-Output__1": "#/components/schemas/VisionInspectObservation",
             "openhands__sdk__tool__client_tool__ClientToolObservation-Output__1": "#/components/schemas/ClientToolObservation",
             "openhands__tools__browser_use__definition__BrowserObservation-Output__1": "#/components/schemas/BrowserObservation",
             "openhands__tools__delegate__definition__DelegateObservation-Output__1": "#/components/schemas/DelegateObservation",
@@ -11697,6 +13038,9 @@
           },
           {
             "$ref": "#/components/schemas/ThinkObservation"
+          },
+          {
+            "$ref": "#/components/schemas/VisionInspectObservation"
           },
           {
             "$ref": "#/components/schemas/ClientToolObservation"
@@ -11753,6 +13097,14 @@
             "title": "Action Id",
             "type": "string"
           },
+          "extended_content": {
+            "description": "Content added by agent context (e.g. path-scoped rules triggered by the touched file), appended after the tool result in to_llm_message.",
+            "items": {
+              "$ref": "#/components/schemas/TextContent"
+            },
+            "title": "Extended Content",
+            "type": "array"
+          },
           "id": {
             "description": "Unique event id (ULID/UUID)",
             "title": "Id",
@@ -11766,6 +13118,18 @@
           "observation": {
             "$ref": "#/components/schemas/Observation",
             "description": "The observation (tool call) sent to LLM"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent event id in the conversation tree. None for the root, or for legacy events predating the tree (see EventLog's effective-parent rule). Events sharing a parent_id are sibling branches.",
+            "title": "Parent Id"
           },
           "source": {
             "default": "environment",
@@ -11961,6 +13325,40 @@
         "title": "OpenAIStreamOptions",
         "type": "object"
       },
+      "openhands__agent_server__plugins_router__MarketplaceCatalogResponse": {
+        "description": "Response containing the plugins marketplace catalog.",
+        "properties": {
+          "plugins": {
+            "items": {
+              "$ref": "#/components/schemas/MarketplacePluginInfo"
+            },
+            "title": "Plugins",
+            "type": "array"
+          }
+        },
+        "required": [
+          "plugins"
+        ],
+        "title": "MarketplaceCatalogResponse",
+        "type": "object"
+      },
+      "openhands__agent_server__skills_router__MarketplaceCatalogResponse": {
+        "description": "Response containing the marketplace catalog.",
+        "properties": {
+          "skills": {
+            "items": {
+              "$ref": "#/components/schemas/MarketplaceSkillInfo"
+            },
+            "title": "Skills",
+            "type": "array"
+          }
+        },
+        "required": [
+          "skills"
+        ],
+        "title": "MarketplaceCatalogResponse",
+        "type": "object"
+      },
       "openhands__sdk__tool__spec__Tool": {
         "description": "Defines a tool to be initialized for the agent.\n\nThis is only used in agent-sdk for type schema for server use.",
         "properties": {
@@ -12135,6 +13533,29 @@
           "kind"
         ],
         "title": "PassCritic",
+        "type": "object"
+      },
+      "PathTrigger": {
+        "description": "Trigger for path-scoped skills (\"rules\").\n\nThese skills are activated when the agent touches a file whose path matches\none of the ``paths`` glob patterns (gitignore-style ``**`` semantics).",
+        "properties": {
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Paths",
+            "type": "array"
+          },
+          "type": {
+            "const": "path",
+            "default": "path",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "paths"
+        ],
+        "title": "PathTrigger",
         "type": "object"
       },
       "PatternSecurityAnalyzer-Input": {
@@ -12345,6 +13766,18 @@
             "const": "PauseEvent",
             "title": "Kind",
             "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent event id in the conversation tree. None for the root, or for legacy events predating the tree (see EventLog's effective-parent rule). Events sharing a parent_id are sibling branches.",
+            "title": "Parent Id"
           },
           "source": {
             "default": "user",
@@ -12669,6 +14102,30 @@
         "title": "PlanningFileEditorTool",
         "type": "object"
       },
+      "PluginInfo": {
+        "description": "Summary of an available plugin.",
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "version": {
+            "default": "",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "PluginInfo",
+        "type": "object"
+      },
       "PluginSource": {
         "description": "Specification for a plugin to load.\n\nThis model describes where to find a plugin and is used by load_plugins()\nto fetch and load plugins from various sources.\n\nExamples:\n    >>> # GitHub repository\n    >>> PluginSource(source=\"github:owner/repo\", ref=\"v1.0.0\")\n\n    >>> # Plugin from monorepo subdirectory\n    >>> PluginSource(\n    ...     source=\"github:owner/monorepo\",\n    ...     repo_path=\"plugins/my-plugin\"\n    ... )\n\n    >>> # Local path\n    >>> PluginSource(source=\"/path/to/plugin\")",
         "properties": {
@@ -12706,6 +14163,54 @@
           "source"
         ],
         "title": "PluginSource",
+        "type": "object"
+      },
+      "PluginsRequest": {
+        "description": "Request body for listing locally-available plugins.",
+        "properties": {
+          "load_project": {
+            "default": true,
+            "description": "Load project plugins from the workspace",
+            "title": "Load Project",
+            "type": "boolean"
+          },
+          "load_user": {
+            "default": true,
+            "description": "Load user plugins (~/.agents/plugins, etc.)",
+            "title": "Load User",
+            "type": "boolean"
+          },
+          "project_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Workspace directory path for project plugins",
+            "title": "Project Dir"
+          }
+        },
+        "title": "PluginsRequest",
+        "type": "object"
+      },
+      "PluginsResponse": {
+        "description": "Response containing the locally-available plugins.",
+        "properties": {
+          "plugins": {
+            "items": {
+              "$ref": "#/components/schemas/PluginInfo"
+            },
+            "title": "Plugins",
+            "type": "array"
+          }
+        },
+        "required": [
+          "plugins"
+        ],
+        "title": "PluginsResponse",
         "type": "object"
       },
       "PolicyRailSecurityAnalyzer-Input": {
@@ -13576,6 +15081,18 @@
             "title": "Kind",
             "type": "string"
           },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent event id in the conversation tree. None for the root, or for legacy events predating the tree (see EventLog's effective-parent rule). Events sharing a parent_id are sibling branches.",
+            "title": "Parent Id"
+          },
           "source": {
             "description": "The source of this event",
             "enum": [
@@ -14121,14 +15638,16 @@
           "mcp_tools": {
             "anyOf": [
               {
-                "additionalProperties": true,
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/MCPServer-Input"
+                },
                 "type": "object"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "MCP tools configuration for the skill (repo skills only). It should conform to the MCPConfig schema: https://gofastmcp.com/clients/client#configuration-format",
+            "description": "MCP servers for the skill (repo skills only).",
             "title": "Mcp Tools"
           },
           "metadata": {
@@ -14179,6 +15698,7 @@
                 "discriminator": {
                   "mapping": {
                     "keyword": "#/components/schemas/KeywordTrigger",
+                    "path": "#/components/schemas/PathTrigger",
                     "task": "#/components/schemas/TaskTrigger"
                   },
                   "propertyName": "type"
@@ -14189,6 +15709,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/TaskTrigger"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PathTrigger"
                   }
                 ]
               },
@@ -14294,14 +15817,17 @@
           "mcp_tools": {
             "anyOf": [
               {
-                "additionalProperties": true,
+                "additionalProperties": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
                 "type": "object"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "MCP tools configuration for the skill (repo skills only). It should conform to the MCPConfig schema: https://gofastmcp.com/clients/client#configuration-format",
+            "description": "MCP servers for the skill (repo skills only).",
             "title": "Mcp Tools"
           },
           "metadata": {
@@ -14352,6 +15878,7 @@
                 "discriminator": {
                   "mapping": {
                     "keyword": "#/components/schemas/KeywordTrigger",
+                    "path": "#/components/schemas/PathTrigger",
                     "task": "#/components/schemas/TaskTrigger"
                   },
                   "propertyName": "type"
@@ -14362,6 +15889,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/TaskTrigger"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PathTrigger"
                   }
                 ]
               },
@@ -14572,6 +16102,14 @@
             "description": "Workspace directory path for project skills",
             "title": "Project Dir"
           },
+          "registered_marketplaces": {
+            "description": "Marketplace registrations for plugin-based skill loading. Registrations with auto_load=True or a list of plugin names replace legacy public skills.",
+            "items": {
+              "$ref": "#/components/schemas/MarketplaceRegistration"
+            },
+            "title": "Registered Marketplaces",
+            "type": "array"
+          },
           "sandbox_config": {
             "anyOf": [
               {
@@ -14722,6 +16260,12 @@
             "description": "Trace-level metadata to attach to observability backends. Values must be scalars or homogeneous scalar lists supported by OpenTelemetry.",
             "title": "Observability Metadata",
             "type": "object"
+          },
+          "observability_span_name": {
+            "default": "conversation",
+            "description": "Optional named child span to emit under the conversation root. Use stable, low-cardinality names because observability backends may use span names for grouping or signal routing.",
+            "title": "Observability Span Name",
+            "type": "string"
           },
           "observability_tags": {
             "description": "Tags to attach to the conversation root observability span.",
@@ -14958,6 +16502,18 @@
             "title": "Kind",
             "type": "string"
           },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent event id in the conversation tree. None for the root, or for legacy events predating the tree (see EventLog's effective-parent rule). Events sharing a parent_id are sibling branches.",
+            "title": "Parent Id"
+          },
           "reasoning_content": {
             "anyOf": [
               {
@@ -14990,6 +16546,253 @@
           "kind"
         ],
         "title": "StreamingDeltaEvent",
+        "type": "object"
+      },
+      "SubAgentInfo": {
+        "description": "Lossless view of an ``AgentDefinition`` returned by the API.\n\nEvery frontmatter field plus the discovered ``level``/``source``, an\n``is_builtin`` flag, and the inline ``system_prompt`` (Markdown body) so a\ndetail view needs no extra fetch.",
+        "properties": {
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "condenser": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CondenserBase-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "hooks": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HookConfig-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "is_builtin": {
+            "default": false,
+            "title": "Is Builtin",
+            "type": "boolean"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "enum": [
+                  "project",
+                  "user",
+                  "builtin",
+                  "plugin",
+                  "programmatic"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level"
+          },
+          "max_budget_per_run": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Budget Per Run"
+          },
+          "max_iteration_per_run": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Iteration Per Run"
+          },
+          "mcp_config": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/MCPServer-Output"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mcp Config"
+          },
+          "mcp_servers": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/MCPServer-Output"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deprecated compatibility alias for mcp_config. Use mcp_config for new clients.",
+            "title": "Mcp Servers"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "model": {
+            "default": "inherit",
+            "title": "Model",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "permission_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Permission Mode"
+          },
+          "profile_store_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Store Dir"
+          },
+          "skills": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Skills",
+            "type": "array"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "system_prompt": {
+            "default": "",
+            "title": "System Prompt",
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tools",
+            "type": "array"
+          },
+          "when_to_use_examples": {
+            "items": {
+              "type": "string"
+            },
+            "title": "When To Use Examples",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SubAgentInfo",
+        "type": "object"
+      },
+      "SubAgentsRequest": {
+        "description": "Request body for listing sub-agents.",
+        "properties": {
+          "load_builtin": {
+            "default": true,
+            "description": "Load SDK built-in agents (general-purpose, code-explorer, ...)",
+            "title": "Load Builtin",
+            "type": "boolean"
+          },
+          "load_project": {
+            "default": true,
+            "description": "Load project agents from the workspace",
+            "title": "Load Project",
+            "type": "boolean"
+          },
+          "load_user": {
+            "default": true,
+            "description": "Load user agents from ~/.agents/agents and ~/.openhands/agents",
+            "title": "Load User",
+            "type": "boolean"
+          },
+          "project_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Workspace directory path for project agents",
+            "title": "Project Dir"
+          }
+        },
+        "title": "SubAgentsRequest",
+        "type": "object"
+      },
+      "SubAgentsResponse": {
+        "description": "Response containing all available sub-agents.",
+        "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/SubAgentInfo"
+            },
+            "title": "Agents",
+            "type": "array"
+          }
+        },
+        "required": [
+          "agents"
+        ],
+        "title": "SubAgentsResponse",
         "type": "object"
       },
       "SubdirectoryEntry": {
@@ -15377,6 +17180,18 @@
             "const": "SystemPromptEvent",
             "title": "Kind",
             "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent event id in the conversation tree. None for the root, or for legacy events predating the tree (see EventLog's effective-parent rule). Events sharing a parent_id are sibling branches.",
+            "title": "Parent Id"
           },
           "source": {
             "default": "agent",
@@ -16247,6 +18062,18 @@
             "title": "Kind",
             "type": "string"
           },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent event id in the conversation tree. None for the root, or for legacy events predating the tree (see EventLog's effective-parent rule). Events sharing a parent_id are sibling branches.",
+            "title": "Parent Id"
+          },
           "prompt_token_ids": {
             "description": "The exact prompt token IDs for this message event",
             "items": {
@@ -16436,6 +18263,7 @@
             "openhands__sdk__tool__builtins__invoke_skill__InvokeSkillTool-Output__1": "#/components/schemas/InvokeSkillTool",
             "openhands__sdk__tool__builtins__switch_llm__SwitchLLMTool-Output__1": "#/components/schemas/SwitchLLMTool",
             "openhands__sdk__tool__builtins__think__ThinkTool-Output__1": "#/components/schemas/ThinkTool",
+            "openhands__sdk__tool__builtins__vision_inspect__VisionInspectTool-Output__1": "#/components/schemas/VisionInspectTool",
             "openhands__sdk__tool__client_tool__ClientTool-Output__1": "#/components/schemas/ClientTool",
             "openhands__tools__browser_use__definition__BrowserClickTool-Output__1": "#/components/schemas/BrowserClickTool",
             "openhands__tools__browser_use__definition__BrowserCloseTabTool-Output__1": "#/components/schemas/BrowserCloseTabTool",
@@ -16484,6 +18312,9 @@
           },
           {
             "$ref": "#/components/schemas/ThinkTool"
+          },
+          {
+            "$ref": "#/components/schemas/VisionInspectTool"
           },
           {
             "$ref": "#/components/schemas/ClientTool"
@@ -16674,6 +18505,20 @@
           }
         ]
       },
+      "UninstallPluginResponse": {
+        "description": "Response from a plugin uninstall.",
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "UninstallPluginResponse",
+        "type": "object"
+      },
       "UninstallSkillResponse": {
         "description": "Response from skill uninstall operation.",
         "properties": {
@@ -16722,6 +18567,57 @@
           }
         },
         "title": "UpdateConversationRequest",
+        "type": "object"
+      },
+      "UpdatePluginResponse": {
+        "description": "Response from a plugin refresh/update.",
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "plugin": {
+            "$ref": "#/components/schemas/InstalledPluginResponse"
+          }
+        },
+        "required": [
+          "message",
+          "plugin"
+        ],
+        "title": "UpdatePluginResponse",
+        "type": "object"
+      },
+      "UpdatePluginStateRequest": {
+        "description": "Request body for updating plugin state (enable/disable).",
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "UpdatePluginStateRequest",
+        "type": "object"
+      },
+      "UpdatePluginStateResponse": {
+        "description": "Response from a plugin state update.",
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "enabled"
+        ],
+        "title": "UpdatePluginStateResponse",
         "type": "object"
       },
       "UpdateSecretsRequest": {
@@ -16811,6 +18707,18 @@
             "const": "UserRejectObservation",
             "title": "Kind",
             "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent event id in the conversation tree. None for the root, or for legacy events predating the tree (see EventLog's effective-parent rule). Events sharing a parent_id are sibling branches.",
+            "title": "Parent Id"
           },
           "rejection_reason": {
             "default": "User rejected the action",
@@ -16922,6 +18830,209 @@
           "models"
         ],
         "title": "VerifiedModelsResponse",
+        "type": "object"
+      },
+      "VisionInspectAction": {
+        "additionalProperties": false,
+        "description": "Action for asking a vision model about an attached image.",
+        "properties": {
+          "image_index": {
+            "description": "Zero-based index of the image to inspect from the latest user message.",
+            "minimum": 0,
+            "title": "Image Index",
+            "type": "integer"
+          },
+          "kind": {
+            "const": "VisionInspectAction",
+            "title": "Kind",
+            "type": "string"
+          },
+          "profile_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional saved vision-capable LLM profile name. If omitted, the first available vision profile listed in the tool description is used.",
+            "title": "Profile Name"
+          },
+          "question": {
+            "description": "Question to ask the vision model about the selected image.",
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "image_index",
+          "question",
+          "kind"
+        ],
+        "title": "VisionInspectAction",
+        "type": "object"
+      },
+      "VisionInspectObservation": {
+        "additionalProperties": false,
+        "description": "Observation returned after a vision model inspects an image.",
+        "properties": {
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Text answer returned by the vision model.",
+            "title": "Answer"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Vision-capable LLM endpoint used for inspection.",
+            "title": "Base Url"
+          },
+          "content": {
+            "description": "Content returned from the tool as a list of TextContent/ImageContent objects. When there is an error, it should be written in this field.",
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TextContent"
+                },
+                {
+                  "$ref": "#/components/schemas/ImageContent"
+                }
+              ]
+            },
+            "title": "Content",
+            "type": "array"
+          },
+          "image_index": {
+            "description": "Image index that was inspected.",
+            "title": "Image Index",
+            "type": "integer"
+          },
+          "is_error": {
+            "default": false,
+            "description": "Whether the observation indicates an error",
+            "title": "Is Error",
+            "type": "boolean"
+          },
+          "kind": {
+            "const": "VisionInspectObservation",
+            "title": "Kind",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Vision-capable model used for inspection.",
+            "title": "Model"
+          },
+          "profile_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Vision-capable profile used for inspection.",
+            "title": "Profile Name"
+          },
+          "question": {
+            "description": "Question asked of the vision model.",
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "image_index",
+          "question",
+          "kind"
+        ],
+        "title": "VisionInspectObservation",
+        "type": "object"
+      },
+      "VisionInspectTool": {
+        "description": "Tool for one-off image inspection through a saved vision profile.",
+        "properties": {
+          "action_type": {
+            "title": "Action Type",
+            "type": "string"
+          },
+          "annotations": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/openhands__sdk__tool__tool__ToolAnnotations"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "kind": {
+            "const": "VisionInspectTool",
+            "title": "Kind",
+            "type": "string"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          },
+          "observation_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation Type"
+          },
+          "title": {
+            "readOnly": true,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "action_type",
+          "kind",
+          "title"
+        ],
+        "title": "VisionInspectTool",
         "type": "object"
       },
       "VSCodeUrlResponse": {
@@ -17626,7 +19737,7 @@
         ]
       },
       "get": {
-        "description": "Get a stored profile.\n\nUse the ``X-Expose-Secrets`` header to control ``skills[].mcp_tools`` secret\nexposure (``encrypted`` / ``plaintext``); absent, those values are masked.",
+        "description": "Get a stored profile.\n\nA profile is secret-free at rest (#4017), so there is nothing to mask or\nexpose — unlike the LLM ``/api/profiles`` router, this endpoint has no\n``X-Expose-Secrets`` behavior.",
         "operationId": "get_agent_profile_api_agent_profiles__name__get",
         "parameters": [
           {
@@ -17675,7 +19786,7 @@
         ]
       },
       "post": {
-        "description": "Save an ``AgentProfile`` under ``name`` (overwriting a namesake).\n\nThe path ``name`` is authoritative — it overrides any ``name`` in the body.\nWith ``OH_SECRET_KEY`` configured, ``skills[].mcp_tools`` secrets are\nencrypted at rest; otherwise they are redacted. Returns 409 if creating a\nnew profile would exceed ``MAX_AGENT_PROFILES``.",
+        "description": "Save an ``AgentProfile`` under ``name`` (overwriting a namesake).\n\nThe path ``name`` is authoritative — it overrides any ``name`` in the body.\nThe profile is secret-free at rest (#4017), so no cipher/encryption is\ninvolved. Returns 409 if creating a new profile would exceed\n``MAX_AGENT_PROFILES``.",
         "operationId": "save_agent_profile_api_agent_profiles__name__post",
         "parameters": [
           {
@@ -19442,9 +21553,7 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EventPage"
-                }
+                "schema": {}
               }
             },
             "description": "Successful Response"
@@ -19770,6 +21879,143 @@
           }
         ],
         "summary": "Interrupt Conversation",
+        "tags": [
+          "Conversations"
+        ]
+      }
+    },
+    "/api/conversations/{conversation_id}/load_plugin": {
+      "post": {
+        "description": "Load a plugin from the conversation's registered marketplaces.",
+        "operationId": "load_conversation_plugin_api_conversations__conversation_id__load_plugin_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_load_conversation_plugin_api_conversations__conversation_id__load_plugin_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Invalid plugin reference or inactive conversation"
+          },
+          "404": {
+            "description": "Conversation or plugin not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Load Conversation Plugin",
+        "tags": [
+          "Conversations"
+        ]
+      }
+    },
+    "/api/conversations/{conversation_id}/navigate": {
+      "post": {
+        "description": "Move a conversation's HEAD to an existing event, re-rooting the branch.\n\nAll branches stay on disk; only the active branch the agent runs on next\nchanges. Unlike ``fork``, no new conversation is created. Returns the\nupdated conversation info (carrying the new ``leaf_event_id``).",
+        "operationId": "navigate_conversation_api_conversations__conversation_id__navigate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_skills",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Whether to include ``agent.agent_context.skills`` in the response. Default ``false`` (breaking change as of this release): skills are trimmed to ``[]`` on the wire because no known consumer reads them from HTTP responses, and a stock agent inlines ~260 KB of skill content per fetch. Pass ``true`` to opt back into the legacy full-payload shape — useful only for callers that still rely on ``RemoteConversation.agent.agent_context.skills`` round-tripping over the wire. The persisted conversation state on disk and the in-memory runtime copy are untouched either way.",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NavigateConversationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Conversation or event not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Navigate Conversation",
         "tags": [
           "Conversations"
         ]
@@ -20521,6 +22767,121 @@
         "summary": "Get Desktop Url",
         "tags": [
           "Desktop"
+        ]
+      }
+    },
+    "/api/file/archive": {
+      "get": {
+        "description": "Archive a workspace directory for persistence before runtime deletion.\n\nProduces a downloadable archive of ``path``. Symlinks are never followed\nout of the requested directory, so the archive cannot include files from\noutside it. The temporary archive is created outside ``path`` and removed\nafter the response is sent.",
+        "operationId": "archive_directory_api_file_archive_get",
+        "parameters": [
+          {
+            "description": "Absolute path of the directory to archive",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "Absolute path of the directory to archive",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Archive format: 'git-delta' for a git patch of the working-tree changes against a base ref (requires a git repository); 'tar.gz' for a full gzip tarball of the entire directory (works on non-git directories too).",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "git-delta",
+              "description": "Archive format: 'git-delta' for a git patch of the working-tree changes against a base ref (requires a git repository); 'tar.gz' for a full gzip tarball of the entire directory (works on non-git directories too).",
+              "enum": [
+                "git-delta",
+                "tar.gz"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only for format='git-delta': base ref to diff against. Defaults to the auto-detected comparison ref (origin branch, merge-base, or the empty tree for a fresh repo). Ignored for format='tar.gz'.",
+            "in": "query",
+            "name": "base_ref",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only for format='git-delta': base ref to diff against. Defaults to the auto-detected comparison ref (origin branch, merge-base, or the empty tree for a fresh repo). Ignored for format='tar.gz'.",
+              "title": "Base Ref"
+            }
+          },
+          {
+            "description": "Whether to apply the built-in default exclude patterns (node_modules/, .venv/, caches, build outputs, etc.). Defaults to true for compact archives; set false to allow a full workspace capture, including fat directories.",
+            "in": "query",
+            "name": "use_default_excludes",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Whether to apply the built-in default exclude patterns (node_modules/, .venv/, caches, build outputs, etc.). Defaults to true for compact archives; set false to allow a full workspace capture, including fat directories.",
+              "title": "Use Default Excludes",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Additional glob patterns to exclude (repeatable, e.g. ?exclude=foo&exclude=*.bin). Combined with the built-in default excludes when use_default_excludes=true; used by itself when use_default_excludes=false.",
+            "in": "query",
+            "name": "exclude",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Additional glob patterns to exclude (repeatable, e.g. ?exclude=foo&exclude=*.bin). Combined with the built-in default excludes when use_default_excludes=true; used by itself when use_default_excludes=false.",
+              "title": "Exclude"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Archive Directory",
+        "tags": [
+          "Files"
         ]
       }
     },
@@ -21338,9 +23699,160 @@
         ]
       }
     },
+    "/api/mcp/oauth/callback/{job_id}": {
+      "post": {
+        "operationId": "submit_mcp_oauth_callback_api_mcp_oauth_callback__job_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MCPOAuthCallbackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPOAuthStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Submit an MCP OAuth callback URL",
+        "tags": [
+          "MCP"
+        ]
+      }
+    },
+    "/api/mcp/oauth/start": {
+      "post": {
+        "description": "Start OAuth for a candidate MCP server and return the authorization URL.",
+        "operationId": "start_mcp_oauth_api_mcp_oauth_start_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MCPTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPOAuthStartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Start an MCP OAuth install probe",
+        "tags": [
+          "MCP"
+        ]
+      }
+    },
+    "/api/mcp/oauth/status/{job_id}": {
+      "get": {
+        "operationId": "get_mcp_oauth_status_api_mcp_oauth_status__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPOAuthStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get an MCP OAuth install probe status",
+        "tags": [
+          "MCP"
+        ]
+      }
+    },
     "/api/mcp/test": {
       "post": {
-        "description": "Attempt to connect to a candidate MCP server and list its tools, without persisting any settings. Useful for validating user input in 'add MCP server' flows before storing the config. Optionally invokes one caller-chosen (read-only) tool via `tool_call` and reports its outcome in `tool_result`, so callers can verify credentials that are only exercised on tool invocation. Encrypted `env`/`headers` values round-tripped from settings are decrypted before the connection is attempted. Returns 200 with `ok=false` for connection / timeout failures (those are expected during validation, not server errors).",
+        "description": "Attempt to connect to a candidate MCP server and list its tools, without persisting any settings. Useful for validating user input in 'add MCP server' flows before storing the config. For OAuth servers, any acquired state is returned as `oauth_state` so clients can persist it under the MCP server object's `auth.state`. Optionally invokes one caller-chosen (read-only) tool via `tool_call` and reports its outcome in `tool_result`, so callers can verify credentials that are only exercised on tool invocation. Encrypted `env`/`headers` values round-tripped from settings are decrypted before the connection is attempted. Returns 200 with `ok=false` for connection / timeout failures (those are expected during validation, not server errors).",
         "operationId": "test_mcp_server_api_mcp_test_post",
         "requestBody": {
           "content": {
@@ -21390,6 +23902,383 @@
         "summary": "Test an MCP server configuration",
         "tags": [
           "MCP"
+        ]
+      }
+    },
+    "/api/plugins": {
+      "post": {
+        "description": "List locally-available plugins (enabled installed + user/project dirs).\n\nArgs:\n    request: Which local sources to load.\n\nReturns:\n    PluginsResponse with available plugin summaries.",
+        "operationId": "get_plugins_api_plugins_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Plugins",
+        "tags": [
+          "Plugins"
+        ]
+      }
+    },
+    "/api/plugins/install": {
+      "post": {
+        "description": "Install a plugin from a git URL, GitHub shorthand, or local path.",
+        "operationId": "install_plugin_endpoint_api_plugins_install_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallPluginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstalledPluginResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Failed to fetch plugin source"
+          },
+          "409": {
+            "description": "Plugin already installed (use force=true)"
+          },
+          "422": {
+            "description": "Invalid plugin (bad name, etc.)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Install Plugin Endpoint",
+        "tags": [
+          "Plugins"
+        ]
+      }
+    },
+    "/api/plugins/installed": {
+      "get": {
+        "description": "List all installed plugins (enabled and disabled).",
+        "operationId": "list_installed_plugins_endpoint_api_plugins_installed_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstalledPluginsListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Installed Plugins Endpoint",
+        "tags": [
+          "Plugins"
+        ]
+      }
+    },
+    "/api/plugins/installed/{plugin_name}": {
+      "delete": {
+        "description": "Uninstall a plugin by name.",
+        "operationId": "uninstall_plugin_endpoint_api_plugins_installed__plugin_name__delete",
+        "parameters": [
+          {
+            "description": "Plugin name (lowercase alphanumeric, hyphens)",
+            "in": "path",
+            "name": "plugin_name",
+            "required": true,
+            "schema": {
+              "description": "Plugin name (lowercase alphanumeric, hyphens)",
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "title": "Plugin Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UninstallPluginResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Plugin not installed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Uninstall Plugin Endpoint",
+        "tags": [
+          "Plugins"
+        ]
+      },
+      "get": {
+        "description": "Get information about a specific installed plugin.",
+        "operationId": "get_installed_plugin_endpoint_api_plugins_installed__plugin_name__get",
+        "parameters": [
+          {
+            "description": "Plugin name (lowercase alphanumeric, hyphens)",
+            "in": "path",
+            "name": "plugin_name",
+            "required": true,
+            "schema": {
+              "description": "Plugin name (lowercase alphanumeric, hyphens)",
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "title": "Plugin Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstalledPluginResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Plugin not installed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Installed Plugin Endpoint",
+        "tags": [
+          "Plugins"
+        ]
+      },
+      "patch": {
+        "description": "Enable or disable an installed plugin.",
+        "operationId": "set_plugin_enabled_endpoint_api_plugins_installed__plugin_name__patch",
+        "parameters": [
+          {
+            "description": "Plugin name (lowercase alphanumeric, hyphens)",
+            "in": "path",
+            "name": "plugin_name",
+            "required": true,
+            "schema": {
+              "description": "Plugin name (lowercase alphanumeric, hyphens)",
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "title": "Plugin Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePluginStateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdatePluginStateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Plugin not installed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Set Plugin Enabled Endpoint",
+        "tags": [
+          "Plugins"
+        ]
+      }
+    },
+    "/api/plugins/installed/{plugin_name}/refresh": {
+      "post": {
+        "description": "Refresh an installed plugin to the latest version from its source.",
+        "operationId": "refresh_plugin_endpoint_api_plugins_installed__plugin_name__refresh_post",
+        "parameters": [
+          {
+            "description": "Plugin name (lowercase alphanumeric, hyphens)",
+            "in": "path",
+            "name": "plugin_name",
+            "required": true,
+            "schema": {
+              "description": "Plugin name (lowercase alphanumeric, hyphens)",
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "title": "Plugin Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdatePluginResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Plugin not installed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Refresh Plugin Endpoint",
+        "tags": [
+          "Plugins"
+        ]
+      }
+    },
+    "/api/plugins/marketplace": {
+      "get": {
+        "description": "Get the plugins marketplace catalog with installation status.\n\nReturns the true plugins (entries whose source lives under ``./plugins/``)\nfrom the OpenHands extensions repository marketplace, each with attachable\n``PluginSource`` coordinates (``source`` / ``ref`` / ``repo_path``) and an\n``installed`` flag. This enables the front-end to render a plugins\nmarketplace with install/installed state and to attach plugins to\nconversations.\n\nReturns:\n    MarketplaceCatalogResponse containing the list of available plugins.",
+        "operationId": "get_marketplace_catalog_api_plugins_marketplace_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/openhands__agent_server__plugins_router__MarketplaceCatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Marketplace Catalog",
+        "tags": [
+          "Plugins"
         ]
       }
     },
@@ -21718,7 +24607,7 @@
         ]
       },
       "patch": {
-        "description": "Update settings with partial changes.\n\nAccepts ``agent_settings_diff``, ``conversation_settings_diff``,\n``misc_settings_diff``, and/or ``active_profile`` for incremental updates.\nThe three ``*_settings_diff`` fields are deep-merged; nested objects merge\nrecursively, and a ``null`` value **inside a nested map deletes that entry**\n— the \"unset\" primitive that lets a client remove a single map key without\nround-tripping the whole map. To remove one MCP server's header::\n\n    PATCH /api/settings\n    {\"agent_settings_diff\":\n        {\"mcp_config\": {\"mcpServers\": {\"svc\": {\"headers\": {\"X-Old\": null}}}}}}\n\nA ``null`` on a top-level *field* (e.g. ``{\"confirmation_mode\": null}``)\nis **not** an unset — it flows to model validation as before, so it still\nfails loudly rather than silently resetting the field to its default.\n\n``misc_settings_diff`` is deep-merged into the persisted ``misc_settings``\nblock. The agent-server treats ``misc_settings`` as opaque frontend-owned\ndata: nested dicts are merged recursively, lists are replaced wholesale,\nand the contents are never read or validated server-side.\n\nUses file locking to prevent concurrent updates from overwriting each other.\n\nRaises:\n    HTTPException: 400 if the update payload contains invalid values.",
+        "description": "Update settings with partial changes.\n\nAccepts ``agent_settings_diff``, ``conversation_settings_diff``,\n``misc_settings_diff``, and/or ``active_profile`` for incremental updates.\nThe three ``*_settings_diff`` fields are deep-merged; nested objects merge\nrecursively, and a ``null`` value **inside a nested map deletes that entry**\n— the \"unset\" primitive that lets a client remove a single map key without\nround-tripping the whole map. To remove one MCP server's header::\n\n    PATCH /api/settings\n    {\"agent_settings_diff\":\n        {\"mcp_config\": {\"svc\": {\"headers\": {\"X-Old\": null}}}}}\n\nA ``null`` on a top-level *field* (e.g. ``{\"confirmation_mode\": null}``)\nis **not** an unset — it flows to model validation as before, so it still\nfails loudly rather than silently resetting the field to its default.\n\n``misc_settings_diff`` is deep-merged into the persisted ``misc_settings``\nblock. The agent-server treats ``misc_settings`` as opaque frontend-owned\ndata: nested dicts are merged recursively, lists are replaced wholesale,\nand the contents are never read or validated server-side.\n\nUses file locking to prevent concurrent updates from overwriting each other.\n\nRaises:\n    HTTPException: 400 if the update payload contains invalid values.",
         "operationId": "update_settings_api_settings_patch",
         "requestBody": {
           "content": {
@@ -22344,7 +25233,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MarketplaceCatalogResponse"
+                  "$ref": "#/components/schemas/openhands__agent_server__skills_router__MarketplaceCatalogResponse"
                 }
               }
             },
@@ -22386,6 +25275,53 @@
         "summary": "Sync Skills",
         "tags": [
           "Skills"
+        ]
+      }
+    },
+    "/api/sub-agents": {
+      "post": {
+        "description": "List file-based and built-in sub-agents for the workspace.\n\nMerged first-wins by name with precedence project > user > builtin. Read-only:\nit registers nothing into the conversation registry.",
+        "operationId": "get_sub_agents_api_sub_agents_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubAgentsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubAgentsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Sub Agents",
+        "tags": [
+          "Sub Agents"
         ]
       }
     },
@@ -22820,6 +25756,54 @@
                 }
               ],
               "title": "X-Openhands-Serverconversation-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenHands-Observability-Span-Name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Openhands-Observability-Span-Name"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenHands-Observability-Tags",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Openhands-Observability-Tags"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenHands-Observability-Metadata",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Openhands-Observability-Metadata"
             }
           }
         ],

@@ -248,10 +248,17 @@ var sourceTypeSchema = zod.z.union([
   zod.z.literal("hook")
 ]);
 var recordSchema = zod.z.record(zod.z.string(), zod.z.unknown());
+var ROOT_PARENT_ID = "__root__";
 var baseEventFields = {
-  id: zod.z.string().default(() => crypto.randomUUID()),
+  id: zod.z.string().refine((value) => value !== ROOT_PARENT_ID, `Event id may not equal reserved sentinel '${ROOT_PARENT_ID}'`).default(() => crypto.randomUUID()),
   timestamp: zod.z.string().default(() => (/* @__PURE__ */ new Date()).toISOString()),
-  source: sourceTypeSchema
+  source: sourceTypeSchema,
+  // Conversation-tree linkage (6575534). None for the root or for legacy events
+  // predating the tree; events sharing a parent_id are sibling branches. The TS
+  // EventLog still persists a flat, index-ordered log — the tree field is carried
+  // through the wire/serialization boundary for compatibility while fork/navigate
+  // semantics remain deferred (see the review for 6575534).
+  parent_id: zod.z.string().nullable().default(null)
 };
 function eventObject(shape) {
   return zod.z.object({ ...baseEventFields, ...shape }).strict();
@@ -329,7 +336,8 @@ var observationEventSchema = eventObject({
   observation: recordSchema,
   action_id: zod.z.string(),
   tool_name: zod.z.string(),
-  tool_call_id: zod.z.string()
+  tool_call_id: zod.z.string(),
+  extended_content: zod.z.array(contentSchema).default([])
 });
 var userRejectObservationSchema = eventObject({
   kind: zod.z.literal("UserRejectObservation").default("UserRejectObservation"),
@@ -505,7 +513,7 @@ function toLLMMessage(event) {
         responses_reasoning_item: event.responses_reasoning_item
       };
     case "ObservationEvent":
-      return toolMessage(event.tool_name, event.tool_call_id, observationContent(event.observation));
+      return toolMessage(event.tool_name, event.tool_call_id, [...observationContent(event.observation), ...event.extended_content]);
     case "UserRejectObservation":
       return toolMessage(event.tool_name, event.tool_call_id, [textContent(`Action rejected: ${event.rejection_reason}`)]);
     case "AgentErrorEvent":
@@ -611,7 +619,8 @@ function canMergeUserMessages(previous, current) {
 }
 var keywordTriggerSchema = zod.z.object({ type: zod.z.literal("keyword").default("keyword"), keywords: zod.z.array(zod.z.string()) }).strict();
 var taskTriggerSchema = zod.z.object({ type: zod.z.literal("task").default("task"), triggers: zod.z.array(zod.z.string()) }).strict();
-var triggerSchema = zod.z.discriminatedUnion("type", [keywordTriggerSchema, taskTriggerSchema]);
+var pathTriggerSchema = zod.z.object({ type: zod.z.literal("path").default("path"), paths: zod.z.array(zod.z.string()) }).strict();
+var triggerSchema = zod.z.discriminatedUnion("type", [keywordTriggerSchema, taskTriggerSchema, pathTriggerSchema]);
 var inputMetadataSchema = zod.z.object({ name: zod.z.string(), description: zod.z.string() }).strict();
 var skillResourcesSchema = zod.z.object({ skillRoot: zod.z.string(), scripts: zod.z.array(zod.z.string()).default([]), references: zod.z.array(zod.z.string()).default([]), assets: zod.z.array(zod.z.string()).default([]) }).strict();
 var skillDataSchema = zod.z.object({
@@ -672,7 +681,7 @@ var Skill = class {
     return loadLegacySkill(path3, fileContent, skillBaseDir);
   }
   matchTrigger(message) {
-    if (this.trigger === null) {
+    if (this.trigger === null || this.trigger.type === "path") {
       return null;
     }
     const messageLower = message.toLowerCase();
@@ -683,7 +692,16 @@ var Skill = class {
     if (this.trigger === null) {
       return [];
     }
+    if (this.trigger.type === "path") {
+      return [...this.trigger.paths];
+    }
     return this.trigger.type === "keyword" ? [...this.trigger.keywords] : [...this.trigger.triggers];
+  }
+  matchPathTrigger(filePath) {
+    if (this.trigger?.type !== "path") {
+      return null;
+    }
+    return this.trigger.paths.find((pattern) => pathMatchesGlob(filePath, pattern)) ?? null;
   }
   getSkillType() {
     if (this.isAgentskillsFormat) {
@@ -774,14 +792,26 @@ function loadLegacySkill(path3, fileContent, skillBaseDir) {
 function createSkillFromMetadata(name, content, source, metadata, resources, isAgentskillsFormat) {
   const triggers = stringList(metadata.triggers);
   const inputs = inputList(metadata.inputs);
-  const trigger = inputs.length > 0 ? taskTriggerSchema.parse({ triggers: triggers.includes(`/${name}`) ? triggers : [...triggers, `/${name}`] }) : triggers.length > 0 ? keywordTriggerSchema.parse({ keywords: triggers }) : null;
+  const paths = parsePaths(metadata.paths);
+  let trigger;
+  let triggerInputs = inputs;
+  if (paths !== null && paths.length > 0) {
+    trigger = pathTriggerSchema.parse({ paths });
+    triggerInputs = [];
+  } else if (inputs.length > 0) {
+    trigger = taskTriggerSchema.parse({ triggers: triggers.includes(`/${name}`) ? triggers : [...triggers, `/${name}`] });
+  } else if (triggers.length > 0) {
+    trigger = keywordTriggerSchema.parse({ keywords: triggers });
+  } else {
+    trigger = null;
+  }
   const allowedRaw = metadata["allowed-tools"] ?? metadata.allowed_tools;
   return skillSchema.parse({
     name,
-    content: appendMissingVariablesPrompt(content, trigger, inputs),
+    content: appendMissingVariablesPrompt(content, trigger, triggerInputs),
     source,
     trigger,
-    inputs,
+    inputs: triggerInputs,
     isAgentskillsFormat,
     description: stringValue(metadata.description),
     license: stringValue(metadata.license),
@@ -968,6 +998,52 @@ function stringList(value) {
   }
   return value.map((item) => String(item));
 }
+function parsePaths(value) {
+  if (value === void 0 || value === null) {
+    return null;
+  }
+  if (typeof value === "string") {
+    return value.split(",").map((part) => part.trim()).filter((part) => part.length > 0) || null;
+  }
+  if (Array.isArray(value)) {
+    const paths = value.map((item) => String(item).trim()).filter((item) => item.length > 0);
+    return paths.length > 0 ? paths : null;
+  }
+  return null;
+}
+var globTokenPattern = /\*\*\/|\*\*|\*|\?|[^*?]+/gu;
+var globToRegex = {
+  "**/": "(?:.*/)?",
+  "**": ".*",
+  "*": "[^/]*",
+  "?": "[^/]"
+};
+var pathGlobCache = /* @__PURE__ */ new Map();
+function compilePathGlob(pattern) {
+  const cached = pathGlobCache.get(pattern);
+  if (cached !== void 0) {
+    return cached;
+  }
+  let expanded = pattern;
+  if (!pattern.includes("/")) {
+    expanded = `**/${pattern}`;
+  }
+  const body = (expanded.match(globTokenPattern) ?? []).map((token) => globToRegex[token] ?? escapeRegex(token)).join("");
+  const compiled = new RegExp(`${body}$`, "u");
+  if (pathGlobCache.size < 512) {
+    pathGlobCache.set(pattern, compiled);
+  }
+  return compiled;
+}
+function pathMatchesGlob(filePath, pattern) {
+  if (pattern.length === 0) {
+    return false;
+  }
+  return compilePathGlob(pattern).test(filePath);
+}
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
 function inputList(value) {
   if (!Array.isArray(value)) {
     return [];
@@ -1026,7 +1102,8 @@ var AgentContext = class {
   secrets;
   currentDatetime;
   constructor(options = {}) {
-    this.skills = [...options.skills ?? []];
+    const disabled = new Set(options.disabledSkills ?? []);
+    this.skills = (options.skills ?? []).filter((skill) => !disabled.has(skill.name));
     assertUniqueSkillNames(this.skills);
     this.systemMessageSuffix = options.systemMessageSuffix ?? null;
     this.userMessageSuffix = options.userMessageSuffix ?? null;
@@ -1049,12 +1126,15 @@ var AgentContext = class {
     if (this.currentDatetime === null) {
       return null;
     }
-    return this.currentDatetime instanceof Date ? this.currentDatetime.toISOString() : this.currentDatetime;
+    return this.currentDatetime instanceof Date ? formatDatetimeToMinute(this.currentDatetime) : this.currentDatetime;
   }
   partitionSkills() {
     const repoSkills = [];
     const availableSkills = [];
     for (const skill of this.skills) {
+      if (skill.trigger?.type === "path") {
+        continue;
+      }
       if (skill.isAgentskillsFormat || skill.trigger !== null) {
         if (!skill.disableModelInvocation) {
           availableSkills.push(skill);
@@ -1077,11 +1157,11 @@ ${skill.content.trim()}
 [END Context]`).join("\n\n")}
 </REPO_CONTEXT>`);
     }
-    if (this.systemMessageSuffix !== null && this.systemMessageSuffix.trim().length > 0) {
-      sections.push(this.systemMessageSuffix.trim());
-    }
     if (availableSkills.length > 0) {
       sections.push(skillsToPrompt(availableSkills));
+    }
+    if (this.systemMessageSuffix !== null && this.systemMessageSuffix.trim().length > 0) {
+      sections.push(this.systemMessageSuffix.trim());
     }
     if (secretInfos.length > 0) {
       sections.push(`<CUSTOM_SECRETS>
@@ -1094,6 +1174,32 @@ ${datetime}
 </CURRENT_DATETIME>`);
     }
     return sections.length === 0 ? null : sections.join("\n\n");
+  }
+  getToolUseSuffix(filePath, skipSkillNames = []) {
+    if (filePath.length === 0) {
+      return null;
+    }
+    const skip = new Set(skipSkillNames);
+    const recalled = [];
+    for (const skill of this.skills) {
+      if (skill.trigger?.type !== "path" || skip.has(skill.name)) {
+        continue;
+      }
+      const pattern = skill.matchPathTrigger(filePath);
+      if (pattern !== null) {
+        recalled.push({ name: skill.name, trigger: pattern, content: skill.content, source: skill.source });
+      }
+    }
+    if (recalled.length === 0) {
+      return null;
+    }
+    const blocks = recalled.map((rule) => `<EXTRA_INFO>
+The following rule applies because a file you touched matches "${rule.trigger}". Follow it when working with matching files.
+${rule.source === null ? "" : `Rule location: ${rule.source}
+`}
+${rule.content}
+</EXTRA_INFO>`);
+    return { content: textContent(blocks.join("\n")), activatedRules: recalled.map((rule) => rule.name) };
   }
   getUserMessageSuffix(message, skipSkillNames = []) {
     const suffix = this.userMessageSuffix?.trim() ?? "";
@@ -1127,6 +1233,17 @@ ${skill.source === null ? "" : `<location>${skill.source}</location>
     return parts.length === 0 ? null : { content: textContent(parts.join("\n\n")), activatedSkills: activated.map((skill) => skill.name) };
   }
 };
+function formatDatetimeToMinute(value) {
+  const year = value.getFullYear();
+  const month = pad2(value.getMonth() + 1);
+  const day = pad2(value.getDate());
+  const hour = pad2(value.getHours());
+  const minute = pad2(value.getMinutes());
+  return `${year}-${month}-${day}T${hour}:${minute}`;
+}
+function pad2(value) {
+  return value.toString().padStart(2, "0");
+}
 function assertUniqueSkillNames(skills) {
   const seen = /* @__PURE__ */ new Set();
   for (const skill of skills) {
@@ -1252,6 +1369,28 @@ var View = class _View {
     this.events.push(...output);
   }
 };
+
+// src/llm/exceptions.ts
+var CONTENT_POLICY_PATTERNS = [
+  "content_policy",
+  "content filtering policy",
+  "output blocked by content filtering"
+];
+var LLMContentPolicyViolationError = class extends Error {
+  constructor(message = "Output blocked by content filtering policy") {
+    super(message);
+    this.name = "LLMContentPolicyViolationError";
+  }
+};
+function isContentPolicyViolation(error) {
+  if (error instanceof LLMContentPolicyViolationError) {
+    return true;
+  }
+  const text = error instanceof Error ? error.message : String(error);
+  const normalized = text.toLowerCase();
+  const typeName = error instanceof Error ? error.name.toLowerCase() : "";
+  return CONTENT_POLICY_PATTERNS.some((pattern) => normalized.includes(pattern) || typeName.includes(pattern));
+}
 
 // src/conversation/event-log.ts
 var EVENTS_DIR = "events";
@@ -1920,8 +2059,15 @@ function isSecretKey(key) {
   const upper = key.toUpperCase();
   return [...SECRET_KEY_PATTERNS].some((pattern) => upper.includes(pattern));
 }
-function redactUrlCredentials(url) {
-  return url.replace(/^(https?:\/\/)([^@/]+)@(.+)$/u, "$1****@$3");
+function redactUrlCredentials(url, options = {}) {
+  const match = /^(https?:\/\/)([^@/]+)@(.+)$/u.exec(url);
+  if (match === null) {
+    return url;
+  }
+  if (options.preservePlaceholders === true && match[2]?.includes("${")) {
+    return url;
+  }
+  return `${match[1]}****@${match[3]}`;
 }
 var embeddedUrlCredentialsPattern = /(https?:\/\/)[^/@\s]+@/gu;
 function redactUrlCredentialsInText(text) {
@@ -3060,6 +3206,7 @@ async function dispatchLlmResponse(response, state, runner, options = {}) {
 }
 
 // src/agent/agent.ts
+var CONTENT_POLICY_NUDGE = "Your previous response was blocked by the model's content filter. Please continue, rephrasing to avoid the flagged content.";
 var Agent = class {
   llm;
   tools;
@@ -3080,7 +3227,25 @@ var Agent = class {
     if (messages === null) {
       return [state.events.at(-1)].filter((event) => event !== void 0);
     }
-    const response = await this.llm.complete(messages, this.tools.filter((tool) => tool.usable));
+    let response;
+    try {
+      response = await this.llm.complete(messages, this.tools.filter((tool) => tool.usable));
+    } catch (error) {
+      if (isContentPolicyViolation(error)) {
+        return [
+          await state.appendEventAsync(
+            messageEventSchema.parse({
+              source: "user",
+              llm_message: {
+                role: "user",
+                content: [textContent(CONTENT_POLICY_NUDGE)]
+              }
+            })
+          )
+        ];
+      }
+      throw error;
+    }
     return dispatchLlmResponse(response, state, (action) => this.runTool(action), {
       maxConcurrency: this.toolConcurrencyLimit
     });
@@ -4185,7 +4350,11 @@ var AnthropicMessagesClient = class {
     });
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`Anthropic messages completion failed with HTTP ${response.status}: ${text}`);
+      const error = new Error(`Anthropic messages completion failed with HTTP ${response.status}: ${text}`);
+      if (isContentPolicyViolation(error)) {
+        throw new LLMContentPolicyViolationError(text);
+      }
+      throw error;
     }
     return parseAnthropicMessagesResponse(await response.json());
   }
@@ -5304,7 +5473,17 @@ var MCPToolExecutor = class {
   timeoutSeconds;
   async execute(action) {
     if (!this.client.isConnected()) {
-      return MCPToolObservation.fromText(`MCP client not connected for tool '${this.toolName}'. The connection may have been closed or failed to establish.`, { is_error: true, tool_name: this.toolName });
+      if (this.client.closed === true) {
+        return MCPToolObservation.fromText(`MCP client not connected for tool '${this.toolName}'. The client has been closed and cannot be reconnected.`, { is_error: true, tool_name: this.toolName });
+      }
+      if (this.client.connect === void 0) {
+        return MCPToolObservation.fromText(`MCP client not connected for tool '${this.toolName}'. The connection may have been closed or failed to establish.`, { is_error: true, tool_name: this.toolName });
+      }
+      try {
+        await this.client.connect();
+      } catch (error) {
+        return MCPToolObservation.fromText(`MCP client not connected for tool '${this.toolName}'. Reconnection attempt failed: ${String(error)}`, { is_error: true, tool_name: this.toolName });
+      }
     }
     try {
       const result = await withTimeout(this.client.callTool(this.toolName, action.toMcpArguments()), this.timeoutSeconds);
@@ -5407,11 +5586,13 @@ var openHandsAgentProfileSchema = zod.z.object({
   agent_kind: zod.z.literal("openhands").default("openhands"),
   llm_profile_ref: zod.z.string().min(1),
   agent: zod.z.string().default("CodeActAgent"),
-  skills: zod.z.array(zod.z.unknown()).default([]),
+  tools: zod.z.array(zod.z.unknown()).nullable().default(null),
   system_message_suffix: zod.z.string().nullable().default(null),
+  disabled_skills: zod.z.array(zod.z.string()).default([]),
   condenser: zod.z.unknown().default({ condenser_kind: "llm_summarizing", enabled: true }),
   verification: profileVerificationSettingsSchema.default(defaultProfileVerificationSettings),
   enable_sub_agents: zod.z.boolean().default(false),
+  enable_switch_llm_tool: zod.z.boolean().default(true),
   tool_concurrency_limit: zod.z.number().int().min(1).default(1)
 }).strict();
 var acpAgentProfileSchema = zod.z.object({
@@ -5504,6 +5685,9 @@ function maybeInitLaminar(options = {}) {
   if (!shouldEnableObservability(options.env ?? process.env)) {
     return false;
   }
+  if (options.isInitialized?.() === true) {
+    return true;
+  }
   options.initializer?.();
   return true;
 }
@@ -5533,6 +5717,15 @@ function startRootSpan(name, options = {}) {
 }
 function endRootSpan(root) {
   root?.end();
+}
+function startChildSpan(root, name, tags) {
+  if (root === null || root === void 0) {
+    return;
+  }
+  try {
+    root.handle.beginChild?.(name, tags);
+  } catch {
+  }
 }
 function extractActionName(actionEvent) {
   try {
@@ -5581,11 +5774,15 @@ var CONVERSATION_SETTINGS_SCHEMA_VERSION = 1;
 var settingsSchemaVersion = (version) => zod.z.literal(version).default(version);
 var observabilityMetadataSchema = zod.z.record(zod.z.string().min(1), zod.z.unknown());
 var observabilityTagsSchema = zod.z.array(zod.z.string());
+var OBSERVABILITY_SPAN_NAME_PATTERN = /^[A-Za-z0-9._:/-]+$/u;
+var OBSERVABILITY_SPAN_NAME_MAX_LENGTH = 128;
+var observabilitySpanNameSchema = zod.z.string().min(1, "Observability span name must be a non-empty string").max(OBSERVABILITY_SPAN_NAME_MAX_LENGTH, `Observability span name exceeds maximum length of ${OBSERVABILITY_SPAN_NAME_MAX_LENGTH} characters`).regex(OBSERVABILITY_SPAN_NAME_PATTERN, "Observability span name may only contain letters, numbers, dots, underscores, colons, slashes, and hyphens");
 var conversationSettingsSchema = zod.z.object({
   schema_version: settingsSchemaVersion(CONVERSATION_SETTINGS_SCHEMA_VERSION),
   max_iterations: zod.z.number().int().min(1).default(500),
   observability_metadata: observabilityMetadataSchema.nullable().default(null),
-  observability_tags: observabilityTagsSchema.nullable().default(null)
+  observability_tags: observabilityTagsSchema.nullable().default(null),
+  observability_span_name: observabilitySpanNameSchema.nullable().default(null)
 }).strict();
 var agentSettingsBaseFields = {
   schema_version: settingsSchemaVersion(AGENT_SETTINGS_SCHEMA_VERSION),
@@ -5597,7 +5794,7 @@ var openHandsAgentSettingsSchema = zod.z.object({
   agent_kind: zod.z.literal("openhands").default("openhands"),
   llm_profile_ref: zod.z.string().min(1),
   agent: zod.z.string().default("CodeActAgent"),
-  tools: zod.z.array(zod.z.unknown()).default([]),
+  tools: zod.z.array(zod.z.unknown()).nullable().default(null),
   enable_sub_agents: zod.z.boolean().default(false),
   enable_switch_llm_tool: zod.z.boolean().default(true),
   tool_concurrency_limit: zod.z.number().int().min(1).default(1),
@@ -5720,6 +5917,7 @@ var AgentDefinition = class _AgentDefinition {
   profile_store_dir;
   condenser;
   metadata;
+  level;
   constructor(options) {
     this.name = options.name;
     this.description = options.description ?? "";
@@ -5737,6 +5935,7 @@ var AgentDefinition = class _AgentDefinition {
     this.profile_store_dir = options.profile_store_dir ?? null;
     this.condenser = options.condenser ?? null;
     this.metadata = { ...options.metadata ?? {} };
+    this.level = options.level ?? null;
   }
   static async load(agentPath) {
     const fileContent = await promises.readFile(agentPath, "utf8");
@@ -5769,6 +5968,30 @@ async function loadProjectAgents(projectDir) {
 }
 async function loadUserAgents() {
   return loadAgentsFromDirs(agentDirectories.map((dir) => path2.join(os.homedir(), dir)));
+}
+async function discoverAgents(options = {}) {
+  const includeProject = options.includeProject ?? true;
+  const includeUser = options.includeUser ?? true;
+  const discovered = [];
+  if (includeProject && options.projectDir !== null && options.projectDir !== void 0) {
+    for (const definition of await loadProjectAgents(options.projectDir)) {
+      discovered.push({ ...definition, level: "project" });
+    }
+  }
+  if (includeUser) {
+    for (const definition of await loadUserAgents()) {
+      discovered.push({ ...definition, level: "user" });
+    }
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const result = [];
+  for (const definition of discovered) {
+    if (!seen.has(definition.name)) {
+      seen.add(definition.name);
+      result.push(definition);
+    }
+  }
+  return result;
 }
 async function loadAgentsFromDirs(directories) {
   const seen = /* @__PURE__ */ new Set();
@@ -6027,6 +6250,23 @@ function defaultTestProfile() {
 function isCompletionResponse(value) {
   return typeof value === "object" && value !== null && "message" in value;
 }
+
+// src/tool/defaults.ts
+var DEFAULT_EXEC_TOOL_NAMES = ["terminal", "file_editor", "task_tracker"];
+var BROWSER_TOOL_NAME = "browser_tool_set";
+var SUB_AGENT_TOOL_NAME = "task_tool_set";
+function defaultToolSpecs(options = {}) {
+  const names = [...DEFAULT_EXEC_TOOL_NAMES];
+  if (options.enableBrowser === true) {
+    names.push(BROWSER_TOOL_NAME);
+  }
+  if (options.enableSubAgents === true) {
+    names.push(SUB_AGENT_TOOL_NAME);
+  }
+  return names;
+}
+
+// src/tool/index.ts
 var toolAnnotationsSchema = zod.z.object({
   title: zod.z.string().nullable().default(null),
   readOnlyHint: zod.z.boolean().default(false),
@@ -6289,11 +6529,16 @@ var FileEditorExecutor = class {
   async strReplace(path3, action) {
     if (action.old_str === null) throw new Error("old_str is required for str_replace");
     const oldContent = await promises.readFile(path3, "utf8");
-    const count = oldContent.split(action.old_str).length - 1;
-    if (count === 0) throw new Error("old_str was not found in the file");
+    let oldStr = action.old_str;
+    let count = countOccurrences(oldContent, oldStr);
+    if (count === 0) {
+      oldStr = oldStr.trim();
+      count = countOccurrences(oldContent, oldStr);
+      if (count === 0) throw new Error("old_str was not found in the file");
+    }
     if (count > 1) throw new Error("old_str appears multiple times; provide a unique match");
     this.pushHistory(path3, oldContent);
-    const newContent = oldContent.replace(action.old_str, action.new_str ?? "");
+    const newContent = oldContent.replace(oldStr, action.new_str ?? "");
     await promises.writeFile(path3, newContent);
     return this.observation({ text: `Edited ${path3}`, is_error: false, command: action.command, path: path3, old_content: oldContent, new_content: newContent });
   }
@@ -6426,6 +6671,12 @@ async function executeBrowserAction(adapter, action) {
   if (action.command === "scroll" && adapter.scroll) return adapter.scroll(action.direction);
   if (action.command === "back" && adapter.back) return adapter.back();
   return { text: `Browser adapter does not support command '${action.command}' or required arguments are missing.`, is_error: true };
+}
+function countOccurrences(content, needle) {
+  if (needle.length === 0) {
+    return 0;
+  }
+  return content.split(needle).length - 1;
 }
 async function exists3(path3) {
   return promises.stat(path3).then(() => true).catch(() => false);
@@ -6826,13 +7077,16 @@ exports.AgentFinishedCritic = AgentFinishedCritic;
 exports.AnthropicMessagesClient = AnthropicMessagesClient;
 exports.AsyncCallbackWrapper = AsyncCallbackWrapper;
 exports.AsyncProcessManager = AsyncProcessManager;
+exports.BROWSER_TOOL_NAME = BROWSER_TOOL_NAME;
 exports.BUILT_IN_TOOLS = BUILT_IN_TOOLS;
 exports.BUILT_IN_TOOL_FACTORIES = BUILT_IN_TOOL_FACTORIES;
 exports.BrowserTool = BrowserTool;
+exports.CONTENT_POLICY_NUDGE = CONTENT_POLICY_NUDGE;
 exports.CONVERSATION_SETTINGS_SCHEMA_VERSION = CONVERSATION_SETTINGS_SCHEMA_VERSION;
 exports.ConversationState = ConversationState;
 exports.CriticBase = CriticBase;
 exports.CriticResult = CriticResult;
+exports.DEFAULT_EXEC_TOOL_NAMES = DEFAULT_EXEC_TOOL_NAMES;
 exports.DEFAULT_TEXT_CONTENT_LIMIT = DEFAULT_TEXT_CONTENT_LIMIT;
 exports.DEFAULT_TRUNCATE_NOTICE = DEFAULT_TRUNCATE_NOTICE;
 exports.DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST = DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST;
@@ -6870,6 +7124,7 @@ exports.InMemoryFileStore = InMemoryFileStore;
 exports.InMemorySecretStore = InMemorySecretStore;
 exports.InstallationInfo = InstallationInfo;
 exports.InstallationMetadata = InstallationMetadata;
+exports.LLMContentPolicyViolationError = LLMContentPolicyViolationError;
 exports.LLM_PROFILE_ID_PATTERN = LLM_PROFILE_ID_PATTERN;
 exports.LOCK_FILE_NAME = LOCK_FILE_NAME;
 exports.LOCK_TIMEOUT_SECONDS = LOCK_TIMEOUT_SECONDS;
@@ -6897,6 +7152,7 @@ exports.PassCritic = PassCritic;
 exports.PendingActionsQueue = PendingActionsQueue;
 exports.PipelineCondenser = PipelineCondenser;
 exports.RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED = RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED;
+exports.ROOT_PARENT_ID = ROOT_PARENT_ID;
 exports.RemoteConversation = RemoteConversation;
 exports.RemoteWorkspace = RemoteWorkspace;
 exports.RepoSource = RepoSource;
@@ -6904,6 +7160,7 @@ exports.RollingCondenser = RollingCondenser;
 exports.RootSpan = RootSpan;
 exports.SECRET_KEY_PATTERNS = SECRET_KEY_PATTERNS;
 exports.SENSITIVE_URL_PARAMS = SENSITIVE_URL_PARAMS;
+exports.SUB_AGENT_TOOL_NAME = SUB_AGENT_TOOL_NAME;
 exports.Skill = Skill;
 exports.StuckDetector = StuckDetector;
 exports.TaskTrackerExecutor = TaskTrackerExecutor;
@@ -6957,8 +7214,10 @@ exports.createOpenAIChatClientFromProfile = createOpenAIChatClientFromProfile;
 exports.createOpenAIResponsesClientFromProfile = createOpenAIResponsesClientFromProfile;
 exports.criticModeSchema = criticModeSchema;
 exports.defaultAgentSettings = defaultAgentSettings;
+exports.defaultToolSpecs = defaultToolSpecs;
 exports.detectProviderFromBaseUrl = detectProviderFromBaseUrl;
 exports.disableLogger = disableLogger;
+exports.discoverAgents = discoverAgents;
 exports.dispatchLlmResponse = dispatchLlmResponse;
 exports.displayJson = displayJson;
 exports.dumps = dumps;
@@ -7001,6 +7260,7 @@ exports.inputMetadataSchema = inputMetadataSchema;
 exports.interruptEventSchema = interruptEventSchema;
 exports.isAbsolutePathSource = isAbsolutePathSource;
 exports.isAcpPatchEdit = isAcpPatchEdit;
+exports.isContentPolicyViolation = isContentPolicyViolation;
 exports.isConversationStateUpdateEvent = isConversationStateUpdateEvent;
 exports.isEnabledFor = isEnabledFor;
 exports.isGitUrl = isGitUrl;
@@ -7036,6 +7296,7 @@ exports.messageToolCallSchema = messageToolCallSchema;
 exports.normalizeGitUrl = normalizeGitUrl;
 exports.observabilityEnvKeys = observabilityEnvKeys;
 exports.observabilityMetadataSchema = observabilityMetadataSchema;
+exports.observabilitySpanNameSchema = observabilitySpanNameSchema;
 exports.observabilityTagsSchema = observabilityTagsSchema;
 exports.observationEventSchema = observationEventSchema;
 exports.observe = observe;
@@ -7044,6 +7305,8 @@ exports.openHandsAgentProfileSchema = openHandsAgentProfileSchema;
 exports.openHandsAgentSettingsSchema = openHandsAgentSettingsSchema;
 exports.pageIterator = pageIterator;
 exports.parseExtensionSource = parseExtensionSource;
+exports.pathMatchesGlob = pathMatchesGlob;
+exports.pathTriggerSchema = pathTriggerSchema;
 exports.pauseEventSchema = pauseEventSchema;
 exports.posixPathName = posixPathName;
 exports.profileVerificationSettingsSchema = profileVerificationSettingsSchema;
@@ -7078,6 +7341,7 @@ exports.skillResourcesSchema = skillResourcesSchema;
 exports.skillSchema = skillSchema;
 exports.skillsToPrompt = skillsToPrompt;
 exports.sourceTypeSchema = sourceTypeSchema;
+exports.startChildSpan = startChildSpan;
 exports.startRootSpan = startRootSpan;
 exports.streamingDeltaEventSchema = streamingDeltaEventSchema;
 exports.systemPromptEventSchema = systemPromptEventSchema;
