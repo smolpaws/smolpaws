@@ -217,6 +217,56 @@
       "tracking": "OPENAPI-DEFERRED-001",
       "reason": "The server MCP test route has not yet been wired to the TypeScript runtime."
     },
+    "DELETE /api/canvas-extensions/installed/{extension_name}": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Canvas Extensions (manifest/install/refresh/bundle) is a new upstream subsystem added across v1.40.x; its manifest loader, install persistence, staged refresh, and bundle serving are not yet ported to the TypeScript server."
+    },
+    "GET /api/canvas-extensions/installed": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Canvas Extensions installed-catalog listing is not yet ported to the TypeScript server."
+    },
+    "GET /api/canvas-extensions/installed/{extension_name}": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Canvas Extensions installed-extension detail is not yet ported to the TypeScript server."
+    },
+    "GET /api/canvas-extensions/installed/{extension_name}/bundle": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Canvas Extensions bundle serving is not yet ported to the TypeScript server."
+    },
+    "PATCH /api/canvas-extensions/installed/{extension_name}": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Canvas Extensions install update is not yet ported to the TypeScript server."
+    },
+    "POST /api/canvas-extensions/install": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Canvas Extensions install is not yet ported to the TypeScript server."
+    },
+    "DELETE /api/llm/provider-connections/{connection_id}": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Read-at-use LLM provider connections are a new upstream credential subsystem (v1.43.0) that intersects DEV-SERVER-003/DEV-SERVER-004; their keyring-backed store and routers are not yet ported."
+    },
+    "GET /api/llm/provider-connections": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "LLM provider-connection listing is not yet ported to the TypeScript server."
+    },
+    "PATCH /api/llm/provider-connections/{connection_id}": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "LLM provider-connection update is not yet ported to the TypeScript server."
+    },
+    "POST /api/llm/provider-connections": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "LLM provider-connection creation is not yet ported to the TypeScript server."
+    },
     "POST /api/workspaces": {
       "disposition": "DEFERRED",
       "tracking": "OPENAPI-DEFERRED-001",

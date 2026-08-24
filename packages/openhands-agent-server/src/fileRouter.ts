@@ -21,6 +21,7 @@ export function registerFileRoutes(app: FastifyInstance, config: AgentServerConf
   app.get('/api/file/download/*', async (request, reply) => downloadFile(reply, normalizeWildcardPath(param(request, '*')), config));
   app.get('/api/file/home', async (request) => homeResponse(queryRecord(request).include_hidden === 'true'));
   app.get('/api/file/search_subdirs', async (request, reply) => searchSubdirs(reply, request, config));
+  app.post('/api/file/create_directory', async (request, reply) => createDirectory(reply, stringQuery(queryRecord(request).path), config));
 }
 
 async function uploadFile(reply: ReplyLike, rawPath: string | null, request: FastifyRequest, config: AgentServerConfig): Promise<unknown> {
@@ -54,6 +55,37 @@ async function downloadFile(reply: ReplyLike, rawPath: string | null, config: Ag
   reply.header('content-type', 'application/octet-stream');
   reply.header('content-disposition', contentDispositionHeader(targetPath));
   return createReadStream(targetPath);
+}
+
+async function createDirectory(reply: ReplyLike, rawPath: string | null, config: AgentServerConfig): Promise<unknown> {
+  if (rawPath === null || rawPath.trim().length === 0) {
+    reply.status(422).send({ detail: 'Field required' });
+    return undefined;
+  }
+  const trimmed = rawPath.trim();
+  if (!path.isAbsolute(trimmed)) {
+    reply.status(400).send({ detail: 'Path must be absolute' });
+    return undefined;
+  }
+  const targetPath = path.resolve(trimmed);
+  if (!(await isAllowedFilePath(targetPath, config, 'write'))) {
+    reply.status(403).send({ detail: 'Path is outside allowed workspace roots' });
+    return undefined;
+  }
+  try {
+    await fs.mkdir(targetPath, { recursive: true });
+  } catch (error) {
+    if (isErrno(error, 'EEXIST') || isErrno(error, 'ENOTDIR')) {
+      reply.status(400).send({ detail: 'Path exists and is not a directory' });
+      return undefined;
+    }
+    if (isErrno(error, 'EACCES') || isErrno(error, 'EPERM')) {
+      reply.status(403).send({ detail: `Permission denied: ${error instanceof Error ? error.message : error}` });
+      return undefined;
+    }
+    throw error;
+  }
+  return { success: true };
 }
 
 async function homeResponse(includeHidden: boolean): Promise<HomeResponse> {
