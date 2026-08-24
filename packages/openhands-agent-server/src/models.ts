@@ -401,6 +401,17 @@ export type SettingsUpdateRequest = z.infer<typeof settingsUpdateRequestSchema>;
 
 export const settingsSchemaResponseSchema = z.object({ schema: z.record(z.string(), z.unknown()) }).strict();
 
+// MCP servers are persisted inside the agent_settings.mcp_config map. The SDK
+// carries mcp_config as an opaque passthrough (z.ZodUnknown), so the server owns
+// the REST-facing validation here without re-specifying the SDK's MCP schema.
+// ``MCPServer``/``MCPServerPatch`` stay loose objects so the map values round-trip
+// verbatim; the CRUD precondition (409 on create of an existing key, 404 on
+// patch/delete of a missing key) is enforced by the router/service.
+export const mcpServerSchema = z.object({}).catchall(z.unknown());
+export const mcpServerPatchSchema = z.object({}).catchall(z.unknown());
+export type McpServer = z.infer<typeof mcpServerSchema>;
+export type McpServerPatch = z.infer<typeof mcpServerPatchSchema>;
+
 export const secretCreateRequestSchema = z.object({ name: z.string().min(1).max(64).regex(/^[A-Za-z][A-Za-z0-9_]*$/u), value: z.string() }).strict();
 export type SecretCreateRequest = z.infer<typeof secretCreateRequestSchema>;
 export const secretItemResponseSchema = z.object({ name: z.string(), created_at: z.string(), updated_at: z.string(), value: z.string().optional() }).strict();

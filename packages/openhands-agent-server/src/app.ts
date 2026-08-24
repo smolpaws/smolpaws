@@ -8,17 +8,17 @@ import { MacOSKeychainSecretStore, type SecretStore } from '@smolpaws/openhands-
 import { registerAgentProfileRoutes } from './agentProfilesRouter.js';
 import { BashEventService } from './bashService.js';
 import { ConversationLeaseHeldError, ConversationOwnershipLostError } from './conversationLease.js';
-import { registerBashRoutes } from './bashRouter.js';
-import { ConversationService, type ConversationServiceOptions } from './conversationService.js';
 import { type AgentServerConfig, getDefaultConfig } from './config.js';
 import { registerConversationRoutes } from './conversationRouter.js';
+import { ConversationService, type ConversationServiceOptions } from './conversationService.js';
 import { registerEventRoutes } from './eventRouter.js';
 import { registerFileRoutes } from './fileRouter.js';
 import { registerGitRoutes } from './gitRouter.js';
 import { generateOpenApiSchema } from './openapi.js';
 import { createProfileAgentFactory, prepareProfileStartRequest, type ProfileLlmClientFactory } from './profileAgentFactory.js';
 import { registerProfileRoutes } from './profilesRouter.js';
-import { ServerStateService } from './serverState.js';
+import { registerBashRoutes } from './bashRouter.js';
+import { McpServerNotFoundError, ServerStateService } from './serverState.js';
 import { registerSettingsRoutes } from './settingsRouter.js';
 import { registerSkillsRoutes } from './skillsRouter.js';
 import { registerSocketRoutes } from './sockets.js';
@@ -137,6 +137,10 @@ function registerErrorHandler(app: FastifyInstance): void {
     }
     if (error instanceof ConversationLeaseHeldError || error instanceof ConversationOwnershipLostError) {
       reply.status(409).send({ detail: error.message });
+      return;
+    }
+    if (error instanceof McpServerNotFoundError) {
+      reply.status(404).send({ detail: error.message });
       return;
     }
     if (error instanceof Error && error.message.startsWith('invalid_conversation_secret_name:')) {

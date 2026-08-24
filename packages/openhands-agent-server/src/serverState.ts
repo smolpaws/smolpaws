@@ -15,6 +15,20 @@ import {
 
 import type { SettingsResponse, SettingsUpdateRequest } from './models.js';
 
+export class McpServerAlreadyExistsError extends Error {
+  constructor(key: string) {
+    super(`MCP server '${key}' already exists`);
+    this.name = 'McpServerAlreadyExistsError';
+  }
+}
+
+export class McpServerNotFoundError extends Error {
+  constructor(key: string) {
+    super(`MCP server '${key}' was not found`);
+    this.name = 'McpServerNotFoundError';
+  }
+}
+
 interface SecretMetadata {
   readonly name: string;
   readonly created_at: string;
@@ -72,6 +86,48 @@ export class ServerStateService {
     this.state = { ...state, settings };
     await this.save();
     return this.settings();
+  }
+
+  async createMcpServer(key: string, server: Record<string, unknown>): Promise<SettingsResponse> {
+    const state = await this.load();
+    const mcpConfig = this.readMcpConfig(state);
+    if (mcpConfig[key] !== undefined) throw new McpServerAlreadyExistsError(key);
+    const nextConfig = { ...mcpConfig, [key]: compactRecord(server) };
+    await this.writeMcpConfig(state, nextConfig);
+    return this.settings();
+  }
+
+  async patchMcpServer(key: string, patch: Record<string, unknown>): Promise<SettingsResponse> {
+    const state = await this.load();
+    const mcpConfig = this.readMcpConfig(state);
+    const existing = mcpConfig[key];
+    if (existing === undefined) throw new McpServerNotFoundError(key);
+    const merged = mergeWithNullDelete(existing, patch);
+    await this.writeMcpConfig(state, { ...mcpConfig, [key]: merged });
+    return this.settings();
+  }
+
+  async deleteMcpServer(key: string): Promise<SettingsResponse> {
+    const state = await this.load();
+    const mcpConfig = this.readMcpConfig(state);
+    if (mcpConfig[key] === undefined) throw new McpServerNotFoundError(key);
+    const nextConfig = { ...mcpConfig };
+    delete nextConfig[key];
+    await this.writeMcpConfig(state, nextConfig);
+    return this.settings();
+  }
+
+  private readMcpConfig(state: PersistedState): Record<string, unknown> {
+    const mcpConfig = state.settings.agent_settings.mcp_config;
+    return typeof mcpConfig === 'object' && mcpConfig !== null && !Array.isArray(mcpConfig)
+      ? mcpConfig as Record<string, unknown>
+      : {};
+  }
+
+  private async writeMcpConfig(state: PersistedState, mcpConfig: Record<string, unknown>): Promise<void> {
+    const agentSettings = { ...state.settings.agent_settings, mcp_config: mcpConfig };
+    this.state = { ...state, settings: { ...state.settings, agent_settings: agentSettings } };
+    await this.save();
   }
 
   async listProfiles(): Promise<{ readonly profiles: LLMProfile[]; readonly active_profile_id: string | null }> {
@@ -261,5 +317,41 @@ function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T
   const copy = { ...record };
   delete copy[key];
   return copy;
+}
+
+// Upstream create drops None/defaulted fields (``exclude_none=True, exclude_defaults=True``),
+// so a top-level null is not persisted as an explicit field.
+function compactRecord(record: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (value === null || value === undefined) continue;
+    result[key] = value;
+  }
+  return result;
+}
+
+// Upstream ``PersistedSettings.update`` deep-merges the ``agent_settings_diff`` map, and a
+// null value inside a nested map deletes that entry. Reproduce the same merge here so a
+// sparse PATCH (e.g. ``{"description": "..."}``) preserves siblings while ``{"auth": null}``
+// removes one key.
+function mergeWithNullDelete(base: unknown, patch: unknown): unknown {
+  if (patch === null) return undefined;
+  if (!isPlainObject(base) || !isPlainObject(patch)) {
+    return patch;
+  }
+  const result: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(patch)) {
+    const merged = mergeWithNullDelete(result[key], value);
+    if (merged === undefined) {
+      delete result[key];
+    } else {
+      result[key] = merged;
+    }
+  }
+  return result;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
