@@ -80,7 +80,7 @@ async function createDirectory(reply: ReplyLike, rawPath: string | null, config:
       return undefined;
     }
     if (isErrno(error, 'EACCES') || isErrno(error, 'EPERM')) {
-      reply.status(403).send({ detail: `Permission denied: ${error instanceof Error ? error.message : error}` });
+      reply.status(403).send({ detail: 'Permission denied' });
       return undefined;
     }
     throw error;

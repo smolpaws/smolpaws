@@ -56,7 +56,6 @@ export function registerProfileRoutes(app: FastifyInstance, state: ServerStateSe
     return { id: name, message: `Profile '${name}' activated` };
   });
   app.post('/api/profiles/:name/validate', async (request) => {
-    const name = param(request, 'name');
     const { llm } = parseBody(validateProfileRequestSchema, request.body);
     try {
       const client = await llmClientFactory(llmProfilePayloadSchema.parse(llm), secretStore);
