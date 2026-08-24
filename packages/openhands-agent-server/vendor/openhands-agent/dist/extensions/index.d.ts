@@ -33,6 +33,7 @@ export interface InstallationInfoOptions {
     readonly description?: string;
     readonly enabled?: boolean;
     readonly source: string;
+    readonly requestedRef?: string | null;
     readonly resolvedRef?: string | null;
     readonly repoPath?: string | null;
     readonly installedAt?: string;
@@ -44,12 +45,14 @@ export declare class InstallationInfo {
     readonly description: string;
     enabled: boolean;
     readonly source: string;
+    readonly requestedRef: string | null;
     readonly resolvedRef: string | null;
     readonly repoPath: string | null;
     readonly installedAt: string;
     readonly installPath: string;
     constructor(options: InstallationInfoOptions);
     static fromExtension(extension: ExtensionProtocol, source: string, installPath: string, options?: {
+        readonly requestedRef?: string | null;
         readonly resolvedRef?: string | null;
         readonly repoPath?: string | null;
     }): InstallationInfo;

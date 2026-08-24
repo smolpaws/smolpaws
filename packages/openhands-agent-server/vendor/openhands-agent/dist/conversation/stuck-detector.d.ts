@@ -12,8 +12,16 @@ export interface StuckDetectorState {
 export declare class StuckDetector {
     readonly state: StuckDetectorState;
     readonly thresholds: Required<StuckDetectionThresholds>;
+    private lastNudgedErrorEventId;
     constructor(state: StuckDetectorState, thresholds?: StuckDetectionThresholds);
     isStuck(): boolean;
+    /**
+     * Nudge text once a trailing run of one action repeatedly erroring first
+     * reaches the threshold. Nudges once per streak: a frozen streak (e.g. an
+     * empty/reasoning-only response that adds no new action) keeps the same
+     * error event, so it is not re-emitted.
+     */
+    getActionErrorNudge(): string | null;
     private hasRepeatingActionObservation;
     private hasRepeatingActionError;
     private hasMonologue;
