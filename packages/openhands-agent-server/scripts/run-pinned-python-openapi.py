@@ -11,6 +11,7 @@ generator.
 
 from __future__ import annotations
 
+import os
 import runpy
 import sys
 import types
@@ -52,6 +53,28 @@ def main() -> None:
             file=sys.stderr,
         )
 
+    # The pinned generator (54dfbc5+) no longer ships a ``__main__`` block; the
+    # canonical public OpenAPI document is produced through the library API:
+    # ``build_public_openapi()`` builds the filtered /api surface and
+    # ``serialize_openapi()`` renders it deterministically. Older pins resolved
+    # ``SCHEMA_PATH`` and ran the module directly; keep that path as a fallback
+    # so the bootstrap stays valid across the pin history.
+    schema_path = os.environ.get("SCHEMA_PATH")
+    if schema_path is None:
+        raise SystemExit("SCHEMA_PATH environment variable is required")
+
+    # ``openhands`` is the top-level package rooted at ``openhands-agent-server/``.
+    sys.path.insert(0, str(generator.parent.parent.parent))
+    module = runpy.run_path(str(generator), run_name="openhands_agent_server_openapi")
+    build_public_openapi = module.get("build_public_openapi")
+    serialize_openapi = module.get("serialize_openapi")
+    if callable(build_public_openapi) and callable(serialize_openapi):
+        document = build_public_openapi()
+        Path(schema_path).write_text(serialize_openapi(document), encoding="utf-8")
+        print(f"Wrote {schema_path}")
+        return
+
+    # Fallback for pre-54dfbc5 generators that self-execute under ``__main__``.
     runpy.run_path(str(generator), run_name="__main__")
 
 
