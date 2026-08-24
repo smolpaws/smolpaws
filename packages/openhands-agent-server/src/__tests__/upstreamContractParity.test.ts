@@ -6,11 +6,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   Agent,
   FinishTool,
-  Message,
   TestLLM,
+  textContent,
 } from '@smolpaws/openhands-agent';
 
-import { createServerApp } from '../app.js';
+import { createAgentServerApp } from '../app.js';
 
 const cleanupPaths: string[] = [];
 
@@ -186,13 +186,16 @@ async function createTestApp() {
   const stateDir = path.join(root, 'state');
   const bashEventsDir = path.join(root, 'bash-events');
 
-  return createServerApp({
-    workspaceRoot,
-    stateDir,
-    bashEventsDir,
+  return createAgentServerApp({
+    config: {
+      conversationsPath: path.join(root, 'conversations'),
+      workspaceRoot,
+      statePath: stateDir,
+      bashEventsPath: bashEventsDir,
+    },
     agentFactory: () => new Agent({
-      llm: new TestLLM([
-        Message.fromLit({ role: 'assistant', content: [{ type: 'text', text: 'done' }] }),
+      llm: TestLLM.fromMessages([
+        { role: 'assistant', content: [textContent('done')] },
       ]),
       tools: [FinishTool.create()],
     }),

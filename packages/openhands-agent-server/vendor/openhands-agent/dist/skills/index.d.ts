@@ -7,12 +7,19 @@ export declare const taskTriggerSchema: z.ZodObject<{
     type: z.ZodDefault<z.ZodLiteral<"task">>;
     triggers: z.ZodArray<z.ZodString>;
 }, z.core.$strict>;
+export declare const pathTriggerSchema: z.ZodObject<{
+    type: z.ZodDefault<z.ZodLiteral<"path">>;
+    paths: z.ZodArray<z.ZodString>;
+}, z.core.$strict>;
 export declare const triggerSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     type: z.ZodDefault<z.ZodLiteral<"keyword">>;
     keywords: z.ZodArray<z.ZodString>;
 }, z.core.$strict>, z.ZodObject<{
     type: z.ZodDefault<z.ZodLiteral<"task">>;
     triggers: z.ZodArray<z.ZodString>;
+}, z.core.$strict>, z.ZodObject<{
+    type: z.ZodDefault<z.ZodLiteral<"path">>;
+    paths: z.ZodArray<z.ZodString>;
 }, z.core.$strict>], "type">;
 export declare const inputMetadataSchema: z.ZodObject<{
     name: z.ZodString;
@@ -33,6 +40,9 @@ declare const skillDataSchema: z.ZodObject<{
     }, z.core.$strict>, z.ZodObject<{
         type: z.ZodDefault<z.ZodLiteral<"task">>;
         triggers: z.ZodArray<z.ZodString>;
+    }, z.core.$strict>, z.ZodObject<{
+        type: z.ZodDefault<z.ZodLiteral<"path">>;
+        paths: z.ZodArray<z.ZodString>;
     }, z.core.$strict>], "type">>>;
     source: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     mcpTools: z.ZodDefault<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
@@ -57,6 +67,7 @@ declare const skillDataSchema: z.ZodObject<{
 }, z.core.$strict>;
 export type KeywordTrigger = z.infer<typeof keywordTriggerSchema>;
 export type TaskTrigger = z.infer<typeof taskTriggerSchema>;
+export type PathTrigger = z.infer<typeof pathTriggerSchema>;
 export type Trigger = z.infer<typeof triggerSchema>;
 export type InputMetadata = z.infer<typeof inputMetadataSchema>;
 export type SkillResources = z.infer<typeof skillResourcesSchema>;
@@ -82,6 +93,7 @@ export declare class Skill implements SkillData {
     static load(path: string, skillBaseDir?: string, strict?: boolean): Promise<Skill>;
     matchTrigger(message: string): string | null;
     getTriggers(): string[];
+    matchPathTrigger(filePath: string): string | null;
     getSkillType(): SkillType;
     requiresUserInput(): boolean;
 }
@@ -94,6 +106,9 @@ export declare const skillSchema: z.ZodPipe<z.ZodObject<{
     }, z.core.$strict>, z.ZodObject<{
         type: z.ZodDefault<z.ZodLiteral<"task">>;
         triggers: z.ZodArray<z.ZodString>;
+    }, z.core.$strict>, z.ZodObject<{
+        type: z.ZodDefault<z.ZodLiteral<"path">>;
+        paths: z.ZodArray<z.ZodString>;
     }, z.core.$strict>], "type">>>;
     source: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     mcpTools: z.ZodDefault<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
@@ -124,6 +139,9 @@ export declare const skillSchema: z.ZodPipe<z.ZodObject<{
     } | {
         type: "task";
         triggers: string[];
+    } | {
+        type: "path";
+        paths: string[];
     } | null;
     source: string | null;
     mcpTools: Record<string, unknown> | null;
@@ -154,4 +172,5 @@ export interface LoadedSkills {
 export declare function loadSkillsFromDir(skillDir: string): Promise<LoadedSkills>;
 export declare function mergeSkillsByName(primary: readonly Skill[], secondary: readonly Skill[]): Skill[];
 export declare function skillsToPrompt(skills: readonly Skill[], maxDescriptionLength?: number): string;
+export declare function pathMatchesGlob(filePath: string, pattern: string): boolean;
 export {};

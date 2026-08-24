@@ -1,3 +1,4 @@
+export type AgentDefinitionLevel = 'project' | 'user' | 'builtin' | 'plugin' | 'programmatic';
 export interface AgentDefinitionOptions {
     readonly name: string;
     readonly description?: string;
@@ -15,6 +16,7 @@ export interface AgentDefinitionOptions {
     readonly profile_store_dir?: string | null;
     readonly condenser?: unknown;
     readonly metadata?: Record<string, unknown>;
+    readonly level?: AgentDefinitionLevel | null;
 }
 export declare class AgentDefinition {
     readonly name: string;
@@ -33,11 +35,18 @@ export declare class AgentDefinition {
     readonly profile_store_dir: string | null;
     readonly condenser: unknown;
     readonly metadata: Record<string, unknown>;
+    readonly level: AgentDefinitionLevel | null;
     constructor(options: AgentDefinitionOptions);
     static load(agentPath: string): Promise<AgentDefinition>;
 }
 export declare function loadProjectAgents(projectDir: string): Promise<AgentDefinition[]>;
 export declare function loadUserAgents(): Promise<AgentDefinition[]>;
+export interface DiscoverAgentsOptions {
+    readonly projectDir?: string | null;
+    readonly includeProject?: boolean;
+    readonly includeUser?: boolean;
+}
+export declare function discoverAgents(options?: DiscoverAgentsOptions): Promise<AgentDefinition[]>;
 export declare function loadAgentsFromDirs(directories: readonly string[]): Promise<AgentDefinition[]>;
 export declare function loadAgentsFromDir(agentsDir: string): Promise<AgentDefinition[]>;
 export type AgentFactoryFunction = (llm: unknown) => unknown;

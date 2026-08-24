@@ -6,6 +6,7 @@ export interface SecretInfo {
 }
 export interface AgentContextOptions {
     readonly skills?: readonly Skill[];
+    readonly disabledSkills?: readonly string[];
     readonly systemMessageSuffix?: string | null;
     readonly userMessageSuffix?: string | null;
     readonly secrets?: Readonly<Record<string, string | {
@@ -16,6 +17,10 @@ export interface AgentContextOptions {
 export interface UserMessageSuffixResult {
     readonly content: TextContent;
     readonly activatedSkills: string[];
+}
+export interface ToolUseSuffixResult {
+    readonly content: TextContent;
+    readonly activatedRules: string[];
 }
 export declare class AgentContext {
     readonly skills: Skill[];
@@ -33,5 +38,6 @@ export declare class AgentContext {
         availableSkills: Skill[];
     };
     getSystemMessageSuffix(additionalSecretInfos?: readonly SecretInfo[]): string | null;
+    getToolUseSuffix(filePath: string, skipSkillNames?: readonly string[]): ToolUseSuffixResult | null;
     getUserMessageSuffix(message: Message, skipSkillNames?: readonly string[]): UserMessageSuffixResult | null;
 }

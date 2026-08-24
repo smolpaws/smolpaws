@@ -33,7 +33,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: { readonly s
   app.post('/api/skills/install', async (request, reply) => {
     try {
       const installed = await installLocalSkill(parseBody(installSkillRequestSchema, request.body), installedDir);
-      reply.status(201);
+      reply.status(200);
       return installed;
     } catch (error) {
       reply.status(error instanceof Error && error.message === 'skill_exists' ? 409 : 400).send({ detail: error instanceof Error ? error.message : String(error) });

@@ -3,10 +3,12 @@ import { type Message } from '../llm/index.js';
 export declare const N_CHAR_PREVIEW = 500;
 export declare const FULL_STATE_KEY = "full_state";
 export declare const sourceTypeSchema: z.ZodUnion<readonly [z.ZodLiteral<"agent">, z.ZodLiteral<"user">, z.ZodLiteral<"environment">, z.ZodLiteral<"hook">]>;
+export declare const ROOT_PARENT_ID = "__root__";
 export declare const tokenEventSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: z.ZodUnion<readonly [z.ZodLiteral<"agent">, z.ZodLiteral<"user">, z.ZodLiteral<"environment">, z.ZodLiteral<"hook">]>;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"TokenEvent">>;
     prompt_token_ids: z.ZodArray<z.ZodNumber>;
     response_token_ids: z.ZodArray<z.ZodNumber>;
@@ -15,6 +17,7 @@ export declare const streamingDeltaEventSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"StreamingDeltaEvent">>;
     content: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     reasoning_content: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -23,6 +26,7 @@ export declare const conversationErrorEventSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: z.ZodUnion<readonly [z.ZodLiteral<"agent">, z.ZodLiteral<"user">, z.ZodLiteral<"environment">, z.ZodLiteral<"hook">]>;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"ConversationErrorEvent">>;
     code: z.ZodString;
     detail: z.ZodString;
@@ -31,6 +35,7 @@ export declare const llmCompletionLogEventSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"LLMCompletionLogEvent">>;
     filename: z.ZodString;
     log_data: z.ZodString;
@@ -41,18 +46,21 @@ export declare const pauseEventSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"PauseEvent">>;
 }, z.core.$strict>;
 export declare const interruptEventSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"InterruptEvent">>;
 }, z.core.$strict>;
 export declare const conversationStateUpdateEventSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"ConversationStateUpdateEvent">>;
     key: z.ZodDefault<z.ZodString>;
     value: z.ZodDefault<z.ZodUnknown>;
@@ -61,6 +69,7 @@ export declare const systemPromptEventSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"SystemPromptEvent">>;
     system_prompt: z.ZodUnion<readonly [z.ZodPipe<z.ZodObject<{
         cache_prompt: z.ZodDefault<z.ZodBoolean>;
@@ -182,6 +191,7 @@ export declare const messageEventSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: z.ZodUnion<readonly [z.ZodLiteral<"agent">, z.ZodLiteral<"user">, z.ZodLiteral<"environment">, z.ZodLiteral<"hook">]>;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"MessageEvent">>;
     llm_message: z.ZodPipe<z.ZodObject<{
         role: z.ZodUnion<readonly [z.ZodLiteral<"user">, z.ZodLiteral<"system">, z.ZodLiteral<"assistant">, z.ZodLiteral<"tool">]>;
@@ -376,6 +386,7 @@ export declare const actionEventSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"ActionEvent">>;
     thought: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodPipe<z.ZodObject<{
         cache_prompt: z.ZodDefault<z.ZodBoolean>;
@@ -438,16 +449,47 @@ export declare const observationEventSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"ObservationEvent">>;
     observation: z.ZodRecord<z.ZodString, z.ZodUnknown>;
     action_id: z.ZodString;
     tool_name: z.ZodString;
     tool_call_id: z.ZodString;
+    extended_content: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodPipe<z.ZodObject<{
+        cache_prompt: z.ZodDefault<z.ZodBoolean>;
+        enable_truncation: z.ZodOptional<z.ZodBoolean>;
+        type: z.ZodDefault<z.ZodLiteral<"text">>;
+        text: z.ZodString;
+    }, z.core.$strict>, z.ZodTransform<{
+        cache_prompt: boolean;
+        type: "text";
+        text: string;
+    }, {
+        cache_prompt: boolean;
+        type: "text";
+        text: string;
+        enable_truncation?: boolean | undefined;
+    }>>, z.ZodPipe<z.ZodObject<{
+        cache_prompt: z.ZodDefault<z.ZodBoolean>;
+        enable_truncation: z.ZodOptional<z.ZodBoolean>;
+        type: z.ZodDefault<z.ZodLiteral<"image">>;
+        image_urls: z.ZodArray<z.ZodString>;
+    }, z.core.$strict>, z.ZodTransform<{
+        cache_prompt: boolean;
+        type: "image";
+        image_urls: string[];
+    }, {
+        cache_prompt: boolean;
+        type: "image";
+        image_urls: string[];
+        enable_truncation?: boolean | undefined;
+    }>>]>>>;
 }, z.core.$strict>;
 export declare const userRejectObservationSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"UserRejectObservation">>;
     tool_name: z.ZodString;
     tool_call_id: z.ZodString;
@@ -459,6 +501,7 @@ export declare const agentErrorEventSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"AgentErrorEvent">>;
     tool_name: z.ZodString;
     tool_call_id: z.ZodString;
@@ -468,6 +511,7 @@ export declare const condensationSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"Condensation">>;
     summary: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     summary_offset: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
@@ -478,12 +522,14 @@ export declare const condensationRequestSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"CondensationRequest">>;
 }, z.core.$strict>;
 export declare const condensationSummaryEventSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"CondensationSummaryEvent">>;
     summary: z.ZodString;
 }, z.core.$strict>;
@@ -491,6 +537,7 @@ export declare const acpToolCallEventSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"ACPToolCallEvent">>;
     tool_call_id: z.ZodString;
     title: z.ZodString;
@@ -506,6 +553,7 @@ export declare const hookExecutionEventSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"HookExecutionEvent">>;
     hook_event_type: z.ZodUnion<readonly [z.ZodLiteral<"PreToolUse">, z.ZodLiteral<"PostToolUse">, z.ZodLiteral<"UserPromptSubmit">, z.ZodLiteral<"SessionStart">, z.ZodLiteral<"SessionEnd">, z.ZodLiteral<"Stop">]>;
     hook_command: z.ZodString;
@@ -526,6 +574,7 @@ export declare const resumeTranscriptEventSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"ResumeTranscriptEvent">>;
     transcript: z.ZodDefault<z.ZodArray<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
 }, z.core.$strict>;
@@ -533,6 +582,7 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: z.ZodUnion<readonly [z.ZodLiteral<"agent">, z.ZodLiteral<"user">, z.ZodLiteral<"environment">, z.ZodLiteral<"hook">]>;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"TokenEvent">>;
     prompt_token_ids: z.ZodArray<z.ZodNumber>;
     response_token_ids: z.ZodArray<z.ZodNumber>;
@@ -540,6 +590,7 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"StreamingDeltaEvent">>;
     content: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     reasoning_content: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -547,6 +598,7 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: z.ZodUnion<readonly [z.ZodLiteral<"agent">, z.ZodLiteral<"user">, z.ZodLiteral<"environment">, z.ZodLiteral<"hook">]>;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"ConversationErrorEvent">>;
     code: z.ZodString;
     detail: z.ZodString;
@@ -554,6 +606,7 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"LLMCompletionLogEvent">>;
     filename: z.ZodString;
     log_data: z.ZodString;
@@ -563,16 +616,19 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"PauseEvent">>;
 }, z.core.$strict>, z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"InterruptEvent">>;
 }, z.core.$strict>, z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"ConversationStateUpdateEvent">>;
     key: z.ZodDefault<z.ZodString>;
     value: z.ZodDefault<z.ZodUnknown>;
@@ -580,6 +636,7 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"SystemPromptEvent">>;
     system_prompt: z.ZodUnion<readonly [z.ZodPipe<z.ZodObject<{
         cache_prompt: z.ZodDefault<z.ZodBoolean>;
@@ -700,6 +757,7 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: z.ZodUnion<readonly [z.ZodLiteral<"agent">, z.ZodLiteral<"user">, z.ZodLiteral<"environment">, z.ZodLiteral<"hook">]>;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"MessageEvent">>;
     llm_message: z.ZodPipe<z.ZodObject<{
         role: z.ZodUnion<readonly [z.ZodLiteral<"user">, z.ZodLiteral<"system">, z.ZodLiteral<"assistant">, z.ZodLiteral<"tool">]>;
@@ -893,6 +951,7 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"ActionEvent">>;
     thought: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodPipe<z.ZodObject<{
         cache_prompt: z.ZodDefault<z.ZodBoolean>;
@@ -954,15 +1013,46 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"ObservationEvent">>;
     observation: z.ZodRecord<z.ZodString, z.ZodUnknown>;
     action_id: z.ZodString;
     tool_name: z.ZodString;
     tool_call_id: z.ZodString;
+    extended_content: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodPipe<z.ZodObject<{
+        cache_prompt: z.ZodDefault<z.ZodBoolean>;
+        enable_truncation: z.ZodOptional<z.ZodBoolean>;
+        type: z.ZodDefault<z.ZodLiteral<"text">>;
+        text: z.ZodString;
+    }, z.core.$strict>, z.ZodTransform<{
+        cache_prompt: boolean;
+        type: "text";
+        text: string;
+    }, {
+        cache_prompt: boolean;
+        type: "text";
+        text: string;
+        enable_truncation?: boolean | undefined;
+    }>>, z.ZodPipe<z.ZodObject<{
+        cache_prompt: z.ZodDefault<z.ZodBoolean>;
+        enable_truncation: z.ZodOptional<z.ZodBoolean>;
+        type: z.ZodDefault<z.ZodLiteral<"image">>;
+        image_urls: z.ZodArray<z.ZodString>;
+    }, z.core.$strict>, z.ZodTransform<{
+        cache_prompt: boolean;
+        type: "image";
+        image_urls: string[];
+    }, {
+        cache_prompt: boolean;
+        type: "image";
+        image_urls: string[];
+        enable_truncation?: boolean | undefined;
+    }>>]>>>;
 }, z.core.$strict>, z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"UserRejectObservation">>;
     tool_name: z.ZodString;
     tool_call_id: z.ZodString;
@@ -973,6 +1063,7 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"AgentErrorEvent">>;
     tool_name: z.ZodString;
     tool_call_id: z.ZodString;
@@ -981,6 +1072,7 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"Condensation">>;
     summary: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     summary_offset: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
@@ -990,17 +1082,20 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"CondensationRequest">>;
 }, z.core.$strict>, z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"CondensationSummaryEvent">>;
     summary: z.ZodString;
 }, z.core.$strict>, z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"ACPToolCallEvent">>;
     tool_call_id: z.ZodString;
     title: z.ZodString;
@@ -1014,6 +1109,7 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"HookExecutionEvent">>;
     hook_event_type: z.ZodUnion<readonly [z.ZodLiteral<"PreToolUse">, z.ZodLiteral<"PostToolUse">, z.ZodLiteral<"UserPromptSubmit">, z.ZodLiteral<"SessionStart">, z.ZodLiteral<"SessionEnd">, z.ZodLiteral<"Stop">]>;
     hook_command: z.ZodString;
@@ -1033,6 +1129,7 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"ResumeTranscriptEvent">>;
     transcript: z.ZodDefault<z.ZodArray<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
 }, z.core.$strict>], "kind">;
@@ -1040,6 +1137,7 @@ export declare const llmConvertibleEventSchema: z.ZodDiscriminatedUnion<[z.ZodOb
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"SystemPromptEvent">>;
     system_prompt: z.ZodUnion<readonly [z.ZodPipe<z.ZodObject<{
         cache_prompt: z.ZodDefault<z.ZodBoolean>;
@@ -1160,6 +1258,7 @@ export declare const llmConvertibleEventSchema: z.ZodDiscriminatedUnion<[z.ZodOb
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: z.ZodUnion<readonly [z.ZodLiteral<"agent">, z.ZodLiteral<"user">, z.ZodLiteral<"environment">, z.ZodLiteral<"hook">]>;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"MessageEvent">>;
     llm_message: z.ZodPipe<z.ZodObject<{
         role: z.ZodUnion<readonly [z.ZodLiteral<"user">, z.ZodLiteral<"system">, z.ZodLiteral<"assistant">, z.ZodLiteral<"tool">]>;
@@ -1353,6 +1452,7 @@ export declare const llmConvertibleEventSchema: z.ZodDiscriminatedUnion<[z.ZodOb
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"ActionEvent">>;
     thought: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodPipe<z.ZodObject<{
         cache_prompt: z.ZodDefault<z.ZodBoolean>;
@@ -1414,15 +1514,46 @@ export declare const llmConvertibleEventSchema: z.ZodDiscriminatedUnion<[z.ZodOb
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"ObservationEvent">>;
     observation: z.ZodRecord<z.ZodString, z.ZodUnknown>;
     action_id: z.ZodString;
     tool_name: z.ZodString;
     tool_call_id: z.ZodString;
+    extended_content: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodPipe<z.ZodObject<{
+        cache_prompt: z.ZodDefault<z.ZodBoolean>;
+        enable_truncation: z.ZodOptional<z.ZodBoolean>;
+        type: z.ZodDefault<z.ZodLiteral<"text">>;
+        text: z.ZodString;
+    }, z.core.$strict>, z.ZodTransform<{
+        cache_prompt: boolean;
+        type: "text";
+        text: string;
+    }, {
+        cache_prompt: boolean;
+        type: "text";
+        text: string;
+        enable_truncation?: boolean | undefined;
+    }>>, z.ZodPipe<z.ZodObject<{
+        cache_prompt: z.ZodDefault<z.ZodBoolean>;
+        enable_truncation: z.ZodOptional<z.ZodBoolean>;
+        type: z.ZodDefault<z.ZodLiteral<"image">>;
+        image_urls: z.ZodArray<z.ZodString>;
+    }, z.core.$strict>, z.ZodTransform<{
+        cache_prompt: boolean;
+        type: "image";
+        image_urls: string[];
+    }, {
+        cache_prompt: boolean;
+        type: "image";
+        image_urls: string[];
+        enable_truncation?: boolean | undefined;
+    }>>]>>>;
 }, z.core.$strict>, z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"UserRejectObservation">>;
     tool_name: z.ZodString;
     tool_call_id: z.ZodString;
@@ -1433,6 +1564,7 @@ export declare const llmConvertibleEventSchema: z.ZodDiscriminatedUnion<[z.ZodOb
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"AgentErrorEvent">>;
     tool_name: z.ZodString;
     tool_call_id: z.ZodString;
@@ -1441,6 +1573,7 @@ export declare const llmConvertibleEventSchema: z.ZodDiscriminatedUnion<[z.ZodOb
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"CondensationSummaryEvent">>;
     summary: z.ZodString;
 }, z.core.$strict>], "kind">;

@@ -242,10 +242,17 @@ var sourceTypeSchema = z.union([
   z.literal("hook")
 ]);
 var recordSchema = z.record(z.string(), z.unknown());
+var ROOT_PARENT_ID = "__root__";
 var baseEventFields = {
-  id: z.string().default(() => randomUUID()),
+  id: z.string().refine((value) => value !== ROOT_PARENT_ID, `Event id may not equal reserved sentinel '${ROOT_PARENT_ID}'`).default(() => randomUUID()),
   timestamp: z.string().default(() => (/* @__PURE__ */ new Date()).toISOString()),
-  source: sourceTypeSchema
+  source: sourceTypeSchema,
+  // Conversation-tree linkage (6575534). None for the root or for legacy events
+  // predating the tree; events sharing a parent_id are sibling branches. The TS
+  // EventLog still persists a flat, index-ordered log — the tree field is carried
+  // through the wire/serialization boundary for compatibility while fork/navigate
+  // semantics remain deferred (see the review for 6575534).
+  parent_id: z.string().nullable().default(null)
 };
 function eventObject(shape) {
   return z.object({ ...baseEventFields, ...shape }).strict();
@@ -323,7 +330,8 @@ var observationEventSchema = eventObject({
   observation: recordSchema,
   action_id: z.string(),
   tool_name: z.string(),
-  tool_call_id: z.string()
+  tool_call_id: z.string(),
+  extended_content: z.array(contentSchema).default([])
 });
 var userRejectObservationSchema = eventObject({
   kind: z.literal("UserRejectObservation").default("UserRejectObservation"),
@@ -499,7 +507,7 @@ function toLLMMessage(event) {
         responses_reasoning_item: event.responses_reasoning_item
       };
     case "ObservationEvent":
-      return toolMessage(event.tool_name, event.tool_call_id, observationContent(event.observation));
+      return toolMessage(event.tool_name, event.tool_call_id, [...observationContent(event.observation), ...event.extended_content]);
     case "UserRejectObservation":
       return toolMessage(event.tool_name, event.tool_call_id, [textContent(`Action rejected: ${event.rejection_reason}`)]);
     case "AgentErrorEvent":
@@ -605,7 +613,8 @@ function canMergeUserMessages(previous, current) {
 }
 var keywordTriggerSchema = z.object({ type: z.literal("keyword").default("keyword"), keywords: z.array(z.string()) }).strict();
 var taskTriggerSchema = z.object({ type: z.literal("task").default("task"), triggers: z.array(z.string()) }).strict();
-var triggerSchema = z.discriminatedUnion("type", [keywordTriggerSchema, taskTriggerSchema]);
+var pathTriggerSchema = z.object({ type: z.literal("path").default("path"), paths: z.array(z.string()) }).strict();
+var triggerSchema = z.discriminatedUnion("type", [keywordTriggerSchema, taskTriggerSchema, pathTriggerSchema]);
 var inputMetadataSchema = z.object({ name: z.string(), description: z.string() }).strict();
 var skillResourcesSchema = z.object({ skillRoot: z.string(), scripts: z.array(z.string()).default([]), references: z.array(z.string()).default([]), assets: z.array(z.string()).default([]) }).strict();
 var skillDataSchema = z.object({
@@ -666,7 +675,7 @@ var Skill = class {
     return loadLegacySkill(path3, fileContent, skillBaseDir);
   }
   matchTrigger(message) {
-    if (this.trigger === null) {
+    if (this.trigger === null || this.trigger.type === "path") {
       return null;
     }
     const messageLower = message.toLowerCase();
@@ -677,7 +686,16 @@ var Skill = class {
     if (this.trigger === null) {
       return [];
     }
+    if (this.trigger.type === "path") {
+      return [...this.trigger.paths];
+    }
     return this.trigger.type === "keyword" ? [...this.trigger.keywords] : [...this.trigger.triggers];
+  }
+  matchPathTrigger(filePath) {
+    if (this.trigger?.type !== "path") {
+      return null;
+    }
+    return this.trigger.paths.find((pattern) => pathMatchesGlob(filePath, pattern)) ?? null;
   }
   getSkillType() {
     if (this.isAgentskillsFormat) {
@@ -768,14 +786,26 @@ function loadLegacySkill(path3, fileContent, skillBaseDir) {
 function createSkillFromMetadata(name, content, source, metadata, resources, isAgentskillsFormat) {
   const triggers = stringList(metadata.triggers);
   const inputs = inputList(metadata.inputs);
-  const trigger = inputs.length > 0 ? taskTriggerSchema.parse({ triggers: triggers.includes(`/${name}`) ? triggers : [...triggers, `/${name}`] }) : triggers.length > 0 ? keywordTriggerSchema.parse({ keywords: triggers }) : null;
+  const paths = parsePaths(metadata.paths);
+  let trigger;
+  let triggerInputs = inputs;
+  if (paths !== null && paths.length > 0) {
+    trigger = pathTriggerSchema.parse({ paths });
+    triggerInputs = [];
+  } else if (inputs.length > 0) {
+    trigger = taskTriggerSchema.parse({ triggers: triggers.includes(`/${name}`) ? triggers : [...triggers, `/${name}`] });
+  } else if (triggers.length > 0) {
+    trigger = keywordTriggerSchema.parse({ keywords: triggers });
+  } else {
+    trigger = null;
+  }
   const allowedRaw = metadata["allowed-tools"] ?? metadata.allowed_tools;
   return skillSchema.parse({
     name,
-    content: appendMissingVariablesPrompt(content, trigger, inputs),
+    content: appendMissingVariablesPrompt(content, trigger, triggerInputs),
     source,
     trigger,
-    inputs,
+    inputs: triggerInputs,
     isAgentskillsFormat,
     description: stringValue(metadata.description),
     license: stringValue(metadata.license),
@@ -962,6 +992,52 @@ function stringList(value) {
   }
   return value.map((item) => String(item));
 }
+function parsePaths(value) {
+  if (value === void 0 || value === null) {
+    return null;
+  }
+  if (typeof value === "string") {
+    return value.split(",").map((part) => part.trim()).filter((part) => part.length > 0) || null;
+  }
+  if (Array.isArray(value)) {
+    const paths = value.map((item) => String(item).trim()).filter((item) => item.length > 0);
+    return paths.length > 0 ? paths : null;
+  }
+  return null;
+}
+var globTokenPattern = /\*\*\/|\*\*|\*|\?|[^*?]+/gu;
+var globToRegex = {
+  "**/": "(?:.*/)?",
+  "**": ".*",
+  "*": "[^/]*",
+  "?": "[^/]"
+};
+var pathGlobCache = /* @__PURE__ */ new Map();
+function compilePathGlob(pattern) {
+  const cached = pathGlobCache.get(pattern);
+  if (cached !== void 0) {
+    return cached;
+  }
+  let expanded = pattern;
+  if (!pattern.includes("/")) {
+    expanded = `**/${pattern}`;
+  }
+  const body = (expanded.match(globTokenPattern) ?? []).map((token) => globToRegex[token] ?? escapeRegex(token)).join("");
+  const compiled = new RegExp(`${body}$`, "u");
+  if (pathGlobCache.size < 512) {
+    pathGlobCache.set(pattern, compiled);
+  }
+  return compiled;
+}
+function pathMatchesGlob(filePath, pattern) {
+  if (pattern.length === 0) {
+    return false;
+  }
+  return compilePathGlob(pattern).test(filePath);
+}
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
 function inputList(value) {
   if (!Array.isArray(value)) {
     return [];
@@ -1020,7 +1096,8 @@ var AgentContext = class {
   secrets;
   currentDatetime;
   constructor(options = {}) {
-    this.skills = [...options.skills ?? []];
+    const disabled = new Set(options.disabledSkills ?? []);
+    this.skills = (options.skills ?? []).filter((skill) => !disabled.has(skill.name));
     assertUniqueSkillNames(this.skills);
     this.systemMessageSuffix = options.systemMessageSuffix ?? null;
     this.userMessageSuffix = options.userMessageSuffix ?? null;
@@ -1043,12 +1120,15 @@ var AgentContext = class {
     if (this.currentDatetime === null) {
       return null;
     }
-    return this.currentDatetime instanceof Date ? this.currentDatetime.toISOString() : this.currentDatetime;
+    return this.currentDatetime instanceof Date ? formatDatetimeToMinute(this.currentDatetime) : this.currentDatetime;
   }
   partitionSkills() {
     const repoSkills = [];
     const availableSkills = [];
     for (const skill of this.skills) {
+      if (skill.trigger?.type === "path") {
+        continue;
+      }
       if (skill.isAgentskillsFormat || skill.trigger !== null) {
         if (!skill.disableModelInvocation) {
           availableSkills.push(skill);
@@ -1071,11 +1151,11 @@ ${skill.content.trim()}
 [END Context]`).join("\n\n")}
 </REPO_CONTEXT>`);
     }
-    if (this.systemMessageSuffix !== null && this.systemMessageSuffix.trim().length > 0) {
-      sections.push(this.systemMessageSuffix.trim());
-    }
     if (availableSkills.length > 0) {
       sections.push(skillsToPrompt(availableSkills));
+    }
+    if (this.systemMessageSuffix !== null && this.systemMessageSuffix.trim().length > 0) {
+      sections.push(this.systemMessageSuffix.trim());
     }
     if (secretInfos.length > 0) {
       sections.push(`<CUSTOM_SECRETS>
@@ -1088,6 +1168,32 @@ ${datetime}
 </CURRENT_DATETIME>`);
     }
     return sections.length === 0 ? null : sections.join("\n\n");
+  }
+  getToolUseSuffix(filePath, skipSkillNames = []) {
+    if (filePath.length === 0) {
+      return null;
+    }
+    const skip = new Set(skipSkillNames);
+    const recalled = [];
+    for (const skill of this.skills) {
+      if (skill.trigger?.type !== "path" || skip.has(skill.name)) {
+        continue;
+      }
+      const pattern = skill.matchPathTrigger(filePath);
+      if (pattern !== null) {
+        recalled.push({ name: skill.name, trigger: pattern, content: skill.content, source: skill.source });
+      }
+    }
+    if (recalled.length === 0) {
+      return null;
+    }
+    const blocks = recalled.map((rule) => `<EXTRA_INFO>
+The following rule applies because a file you touched matches "${rule.trigger}". Follow it when working with matching files.
+${rule.source === null ? "" : `Rule location: ${rule.source}
+`}
+${rule.content}
+</EXTRA_INFO>`);
+    return { content: textContent(blocks.join("\n")), activatedRules: recalled.map((rule) => rule.name) };
   }
   getUserMessageSuffix(message, skipSkillNames = []) {
     const suffix = this.userMessageSuffix?.trim() ?? "";
@@ -1121,6 +1227,17 @@ ${skill.source === null ? "" : `<location>${skill.source}</location>
     return parts.length === 0 ? null : { content: textContent(parts.join("\n\n")), activatedSkills: activated.map((skill) => skill.name) };
   }
 };
+function formatDatetimeToMinute(value) {
+  const year = value.getFullYear();
+  const month = pad2(value.getMonth() + 1);
+  const day = pad2(value.getDate());
+  const hour = pad2(value.getHours());
+  const minute = pad2(value.getMinutes());
+  return `${year}-${month}-${day}T${hour}:${minute}`;
+}
+function pad2(value) {
+  return value.toString().padStart(2, "0");
+}
 function assertUniqueSkillNames(skills) {
   const seen = /* @__PURE__ */ new Set();
   for (const skill of skills) {
@@ -1246,6 +1363,28 @@ var View = class _View {
     this.events.push(...output);
   }
 };
+
+// src/llm/exceptions.ts
+var CONTENT_POLICY_PATTERNS = [
+  "content_policy",
+  "content filtering policy",
+  "output blocked by content filtering"
+];
+var LLMContentPolicyViolationError = class extends Error {
+  constructor(message = "Output blocked by content filtering policy") {
+    super(message);
+    this.name = "LLMContentPolicyViolationError";
+  }
+};
+function isContentPolicyViolation(error) {
+  if (error instanceof LLMContentPolicyViolationError) {
+    return true;
+  }
+  const text = error instanceof Error ? error.message : String(error);
+  const normalized = text.toLowerCase();
+  const typeName = error instanceof Error ? error.name.toLowerCase() : "";
+  return CONTENT_POLICY_PATTERNS.some((pattern) => normalized.includes(pattern) || typeName.includes(pattern));
+}
 
 // src/conversation/event-log.ts
 var EVENTS_DIR = "events";
@@ -1914,8 +2053,15 @@ function isSecretKey(key) {
   const upper = key.toUpperCase();
   return [...SECRET_KEY_PATTERNS].some((pattern) => upper.includes(pattern));
 }
-function redactUrlCredentials(url) {
-  return url.replace(/^(https?:\/\/)([^@/]+)@(.+)$/u, "$1****@$3");
+function redactUrlCredentials(url, options = {}) {
+  const match = /^(https?:\/\/)([^@/]+)@(.+)$/u.exec(url);
+  if (match === null) {
+    return url;
+  }
+  if (options.preservePlaceholders === true && match[2]?.includes("${")) {
+    return url;
+  }
+  return `${match[1]}****@${match[3]}`;
 }
 var embeddedUrlCredentialsPattern = /(https?:\/\/)[^/@\s]+@/gu;
 function redactUrlCredentialsInText(text) {
@@ -3054,6 +3200,7 @@ async function dispatchLlmResponse(response, state, runner, options = {}) {
 }
 
 // src/agent/agent.ts
+var CONTENT_POLICY_NUDGE = "Your previous response was blocked by the model's content filter. Please continue, rephrasing to avoid the flagged content.";
 var Agent = class {
   llm;
   tools;
@@ -3074,7 +3221,25 @@ var Agent = class {
     if (messages === null) {
       return [state.events.at(-1)].filter((event) => event !== void 0);
     }
-    const response = await this.llm.complete(messages, this.tools.filter((tool) => tool.usable));
+    let response;
+    try {
+      response = await this.llm.complete(messages, this.tools.filter((tool) => tool.usable));
+    } catch (error) {
+      if (isContentPolicyViolation(error)) {
+        return [
+          await state.appendEventAsync(
+            messageEventSchema.parse({
+              source: "user",
+              llm_message: {
+                role: "user",
+                content: [textContent(CONTENT_POLICY_NUDGE)]
+              }
+            })
+          )
+        ];
+      }
+      throw error;
+    }
     return dispatchLlmResponse(response, state, (action) => this.runTool(action), {
       maxConcurrency: this.toolConcurrencyLimit
     });
@@ -4179,7 +4344,11 @@ var AnthropicMessagesClient = class {
     });
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`Anthropic messages completion failed with HTTP ${response.status}: ${text}`);
+      const error = new Error(`Anthropic messages completion failed with HTTP ${response.status}: ${text}`);
+      if (isContentPolicyViolation(error)) {
+        throw new LLMContentPolicyViolationError(text);
+      }
+      throw error;
     }
     return parseAnthropicMessagesResponse(await response.json());
   }
@@ -5298,7 +5467,17 @@ var MCPToolExecutor = class {
   timeoutSeconds;
   async execute(action) {
     if (!this.client.isConnected()) {
-      return MCPToolObservation.fromText(`MCP client not connected for tool '${this.toolName}'. The connection may have been closed or failed to establish.`, { is_error: true, tool_name: this.toolName });
+      if (this.client.closed === true) {
+        return MCPToolObservation.fromText(`MCP client not connected for tool '${this.toolName}'. The client has been closed and cannot be reconnected.`, { is_error: true, tool_name: this.toolName });
+      }
+      if (this.client.connect === void 0) {
+        return MCPToolObservation.fromText(`MCP client not connected for tool '${this.toolName}'. The connection may have been closed or failed to establish.`, { is_error: true, tool_name: this.toolName });
+      }
+      try {
+        await this.client.connect();
+      } catch (error) {
+        return MCPToolObservation.fromText(`MCP client not connected for tool '${this.toolName}'. Reconnection attempt failed: ${String(error)}`, { is_error: true, tool_name: this.toolName });
+      }
     }
     try {
       const result = await withTimeout(this.client.callTool(this.toolName, action.toMcpArguments()), this.timeoutSeconds);
@@ -5401,11 +5580,13 @@ var openHandsAgentProfileSchema = z.object({
   agent_kind: z.literal("openhands").default("openhands"),
   llm_profile_ref: z.string().min(1),
   agent: z.string().default("CodeActAgent"),
-  skills: z.array(z.unknown()).default([]),
+  tools: z.array(z.unknown()).nullable().default(null),
   system_message_suffix: z.string().nullable().default(null),
+  disabled_skills: z.array(z.string()).default([]),
   condenser: z.unknown().default({ condenser_kind: "llm_summarizing", enabled: true }),
   verification: profileVerificationSettingsSchema.default(defaultProfileVerificationSettings),
   enable_sub_agents: z.boolean().default(false),
+  enable_switch_llm_tool: z.boolean().default(true),
   tool_concurrency_limit: z.number().int().min(1).default(1)
 }).strict();
 var acpAgentProfileSchema = z.object({
@@ -5498,6 +5679,9 @@ function maybeInitLaminar(options = {}) {
   if (!shouldEnableObservability(options.env ?? process.env)) {
     return false;
   }
+  if (options.isInitialized?.() === true) {
+    return true;
+  }
   options.initializer?.();
   return true;
 }
@@ -5527,6 +5711,15 @@ function startRootSpan(name, options = {}) {
 }
 function endRootSpan(root) {
   root?.end();
+}
+function startChildSpan(root, name, tags) {
+  if (root === null || root === void 0) {
+    return;
+  }
+  try {
+    root.handle.beginChild?.(name, tags);
+  } catch {
+  }
 }
 function extractActionName(actionEvent) {
   try {
@@ -5575,11 +5768,15 @@ var CONVERSATION_SETTINGS_SCHEMA_VERSION = 1;
 var settingsSchemaVersion = (version) => z.literal(version).default(version);
 var observabilityMetadataSchema = z.record(z.string().min(1), z.unknown());
 var observabilityTagsSchema = z.array(z.string());
+var OBSERVABILITY_SPAN_NAME_PATTERN = /^[A-Za-z0-9._:/-]+$/u;
+var OBSERVABILITY_SPAN_NAME_MAX_LENGTH = 128;
+var observabilitySpanNameSchema = z.string().min(1, "Observability span name must be a non-empty string").max(OBSERVABILITY_SPAN_NAME_MAX_LENGTH, `Observability span name exceeds maximum length of ${OBSERVABILITY_SPAN_NAME_MAX_LENGTH} characters`).regex(OBSERVABILITY_SPAN_NAME_PATTERN, "Observability span name may only contain letters, numbers, dots, underscores, colons, slashes, and hyphens");
 var conversationSettingsSchema = z.object({
   schema_version: settingsSchemaVersion(CONVERSATION_SETTINGS_SCHEMA_VERSION),
   max_iterations: z.number().int().min(1).default(500),
   observability_metadata: observabilityMetadataSchema.nullable().default(null),
-  observability_tags: observabilityTagsSchema.nullable().default(null)
+  observability_tags: observabilityTagsSchema.nullable().default(null),
+  observability_span_name: observabilitySpanNameSchema.nullable().default(null)
 }).strict();
 var agentSettingsBaseFields = {
   schema_version: settingsSchemaVersion(AGENT_SETTINGS_SCHEMA_VERSION),
@@ -5591,7 +5788,7 @@ var openHandsAgentSettingsSchema = z.object({
   agent_kind: z.literal("openhands").default("openhands"),
   llm_profile_ref: z.string().min(1),
   agent: z.string().default("CodeActAgent"),
-  tools: z.array(z.unknown()).default([]),
+  tools: z.array(z.unknown()).nullable().default(null),
   enable_sub_agents: z.boolean().default(false),
   enable_switch_llm_tool: z.boolean().default(true),
   tool_concurrency_limit: z.number().int().min(1).default(1),
@@ -5714,6 +5911,7 @@ var AgentDefinition = class _AgentDefinition {
   profile_store_dir;
   condenser;
   metadata;
+  level;
   constructor(options) {
     this.name = options.name;
     this.description = options.description ?? "";
@@ -5731,6 +5929,7 @@ var AgentDefinition = class _AgentDefinition {
     this.profile_store_dir = options.profile_store_dir ?? null;
     this.condenser = options.condenser ?? null;
     this.metadata = { ...options.metadata ?? {} };
+    this.level = options.level ?? null;
   }
   static async load(agentPath) {
     const fileContent = await readFile(agentPath, "utf8");
@@ -5763,6 +5962,30 @@ async function loadProjectAgents(projectDir) {
 }
 async function loadUserAgents() {
   return loadAgentsFromDirs(agentDirectories.map((dir) => join(homedir(), dir)));
+}
+async function discoverAgents(options = {}) {
+  const includeProject = options.includeProject ?? true;
+  const includeUser = options.includeUser ?? true;
+  const discovered = [];
+  if (includeProject && options.projectDir !== null && options.projectDir !== void 0) {
+    for (const definition of await loadProjectAgents(options.projectDir)) {
+      discovered.push({ ...definition, level: "project" });
+    }
+  }
+  if (includeUser) {
+    for (const definition of await loadUserAgents()) {
+      discovered.push({ ...definition, level: "user" });
+    }
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const result = [];
+  for (const definition of discovered) {
+    if (!seen.has(definition.name)) {
+      seen.add(definition.name);
+      result.push(definition);
+    }
+  }
+  return result;
 }
 async function loadAgentsFromDirs(directories) {
   const seen = /* @__PURE__ */ new Set();
@@ -6021,6 +6244,23 @@ function defaultTestProfile() {
 function isCompletionResponse(value) {
   return typeof value === "object" && value !== null && "message" in value;
 }
+
+// src/tool/defaults.ts
+var DEFAULT_EXEC_TOOL_NAMES = ["terminal", "file_editor", "task_tracker"];
+var BROWSER_TOOL_NAME = "browser_tool_set";
+var SUB_AGENT_TOOL_NAME = "task_tool_set";
+function defaultToolSpecs(options = {}) {
+  const names = [...DEFAULT_EXEC_TOOL_NAMES];
+  if (options.enableBrowser === true) {
+    names.push(BROWSER_TOOL_NAME);
+  }
+  if (options.enableSubAgents === true) {
+    names.push(SUB_AGENT_TOOL_NAME);
+  }
+  return names;
+}
+
+// src/tool/index.ts
 var toolAnnotationsSchema = z.object({
   title: z.string().nullable().default(null),
   readOnlyHint: z.boolean().default(false),
@@ -6283,11 +6523,16 @@ var FileEditorExecutor = class {
   async strReplace(path3, action) {
     if (action.old_str === null) throw new Error("old_str is required for str_replace");
     const oldContent = await readFile(path3, "utf8");
-    const count = oldContent.split(action.old_str).length - 1;
-    if (count === 0) throw new Error("old_str was not found in the file");
+    let oldStr = action.old_str;
+    let count = countOccurrences(oldContent, oldStr);
+    if (count === 0) {
+      oldStr = oldStr.trim();
+      count = countOccurrences(oldContent, oldStr);
+      if (count === 0) throw new Error("old_str was not found in the file");
+    }
     if (count > 1) throw new Error("old_str appears multiple times; provide a unique match");
     this.pushHistory(path3, oldContent);
-    const newContent = oldContent.replace(action.old_str, action.new_str ?? "");
+    const newContent = oldContent.replace(oldStr, action.new_str ?? "");
     await writeFile(path3, newContent);
     return this.observation({ text: `Edited ${path3}`, is_error: false, command: action.command, path: path3, old_content: oldContent, new_content: newContent });
   }
@@ -6420,6 +6665,12 @@ async function executeBrowserAction(adapter, action) {
   if (action.command === "scroll" && adapter.scroll) return adapter.scroll(action.direction);
   if (action.command === "back" && adapter.back) return adapter.back();
   return { text: `Browser adapter does not support command '${action.command}' or required arguments are missing.`, is_error: true };
+}
+function countOccurrences(content, needle) {
+  if (needle.length === 0) {
+    return 0;
+  }
+  return content.split(needle).length - 1;
 }
 async function exists3(path3) {
   return stat(path3).then(() => true).catch(() => false);
@@ -6811,6 +7062,6 @@ function isExecError3(error) {
 // src/index.ts
 var VERSION = "0.2.0";
 
-export { AGENT_PROFILE_SCHEMA_VERSION, AGENT_SETTINGS_SCHEMA_VERSION, Agent, AgentContext, AgentDefinition, AgentFinishedCritic, AnthropicMessagesClient, AsyncCallbackWrapper, AsyncProcessManager, BUILT_IN_TOOLS, BUILT_IN_TOOL_FACTORIES, BrowserTool, CONVERSATION_SETTINGS_SCHEMA_VERSION, ConversationState, CriticBase, CriticResult, DEFAULT_TEXT_CONTENT_LIMIT, DEFAULT_TRUNCATE_NOTICE, DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST, DuplicateEventError, EVENTS_DIR, EVENT_FILE_PATTERN, EmptyPatchCritic, EventLog, ExtensionFetchError, FULL_STATE_KEY, FileEditorExecutor, FileEditorTool, FinishTool, GIT_EMPTY_TREE_HASH, GeminiClient, GitChangeStatus, GitCommandError, GitError, GitPathError, GitRepositoryError, GlobExecutor, GlobTool, GrepExecutor, GrepTool, HookConfig, HookDecision, HookDefinition, HookExecutor, HookManager, HookMatcher, HookResult, HookEventType as HookTriggerEventType, HookType, InMemoryFileStore, InMemorySecretStore, InstallationInfo, InstallationMetadata, LLM_PROFILE_ID_PATTERN, LOCK_FILE_NAME, LOCK_TIMEOUT_SECONDS, LocalConversation, LocalFileStore, LocalWorkspace, LogLevel, MAX_FILE_SIZE_FOR_GIT_DIFF, MCPError, MCPTimeoutError, MCPToolAction, MCPToolDefinition, MCPToolExecutor, MCPToolObservation, MacOSKeychainSecretStore, MemoryLRUCache, N_CHAR_PREVIEW, NoCondensationAvailableError, NoOpCondenser, OPENHANDS_KEYRING_SERVICE, OpenAIChatClient, OpenAIResponsesClient, ParallelToolExecutor, PassCritic, PendingActionsQueue, PipelineCondenser, RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED, RemoteConversation, RemoteWorkspace, RepoSource, RollingCondenser, RootSpan, SECRET_KEY_PATTERNS, SENSITIVE_URL_PARAMS, Skill, StuckDetector, TaskTrackerExecutor, TaskTrackerTool, TerminalExecutor, TerminalTool, TestLLM, TestLLMExhaustedError, ThinkTool, ToolDefinition, ToolRegistry, VERSION, ValueError, View, acpAgentProfileSchema, acpAgentSettingsSchema, acpServerKindSchema, acpToolCallEventSchema, actionEventSchema, actionEventsFromMessage, agentErrorEventSchema, agentProfileSchema, agentSettingsSchema, baseObservationSchema, baseToolObservationSchema, browserActionSchema, browserObservationSchema, buildAnthropicMessagesBody, buildChatCompletionsBody, buildCloneUrl, buildGeminiInteractionsBody, buildOpenAIResponsesBody, cancellationToken, classifyResponse, clearRawLlmFieldsWhenProfileSelected, condensationRequestSchema, condensationRequirement, condensationSchema, condensationSummaryEventSchema, contentSchema, contentToString, conversationErrorEventSchema, conversationExecutionStatus, conversationSettingsSchema, conversationStateUpdateEventSchema, createAnthropicClientFromProfile, createClientFromProfile, createGeminiClientFromProfile, createMcpTools, createOpenAIChatClientFromProfile, createOpenAIResponsesClientFromProfile, criticModeSchema, defaultAgentSettings, detectProviderFromBaseUrl, disableLogger, dispatchLlmResponse, displayJson, dumps, endRootSpan, eventSchema, eventsToMessages, executeCommand, extractActionName, extractRepoName, fetchExtension, fetchWithResolution, fileEditorActionSchema, fileEditorObservationSchema, finishActionSchema, getAgentFactory, getCachePath, getChangesInRepo, getClosestGitRepo, getEnv, getFactoryInfo, getGitDiff, getLlmApiKey, getLogger, getRegisteredAgentDefinitions, getReposContext, getValidRef, globActionSchema, globObservationSchema, globalToolRegistry, grepActionSchema, grepMatchSchema, grepObservationSchema, handleDeprecatedModelFields, hookEventSchema, hookEventTypeSchema, hookExecutionEventSchema, imageContent, imageContentSchema, inputMetadataSchema, interruptEventSchema, isAbsolutePathSource, isAcpPatchEdit, isConversationStateUpdateEvent, isEnabledFor, isGitUrl, isHostAbsolutePath, isLocalPathSource, isMessageEvent, isSecretKey, keywordTriggerSchema, listRegisteredTools, listUsableTools, llmCompletionLogEventSchema, llmCompletionResponseSchema, llmConvertibleEventSchema, llmProfileIdSchema, llmProfileSchema, llmProfileSecretRef, llmProviderIdSchema, llmProviderSecretRef, llmResponseType, llmUsageSchema, loadAgentsFromDir, loadAgentsFromDirs, loadProjectAgents, loadSkillsFromDir, loadUserAgents, loads, maybeInitLaminar, maybeTruncate, mergeSkillsByName, messageEventSchema, messageSchema, messageToolCallSchema, normalizeGitUrl, observabilityEnvKeys, observabilityMetadataSchema, observabilityTagsSchema, observationEventSchema, observe, openAiApiModeSchema, openHandsAgentProfileSchema, openHandsAgentSettingsSchema, pageIterator, parseExtensionSource, pauseEventSchema, posixPathName, profileVerificationSettingsSchema, promptCacheRetentionSchema, reasoningEffortSchema, reasoningItemSchema, reasoningSummarySchema, redactTextSecrets, redactUrlCredentials, redactUrlCredentialsInText, redactUrlParams, redactedThinkingBlockSchema, reduceTextContent, registerAgent, registerAgentIfAbsent, registerTool, registerToolFactory, resetAgentRegistryForTests, resolveLlmApiKeyRef, resolveLlmProfileApiKeyRef, resolveProviderFromProfile, resolveTool, restoreConversationState, resumeTranscriptEventSchema, runGitCommand, sanitizeOpenHandsMentions, sanitizedEnv, secretRefSchema, setupLogging, shouldEnableObservability, skillResourcesSchema, skillSchema, skillsToPrompt, sourceTypeSchema, startRootSpan, streamingDeltaEventSchema, systemPromptEventSchema, taskItemSchema, taskTrackerActionSchema, taskTrackerObservationSchema, taskTriggerSchema, terminalActionSchema, terminalObservationSchema, textContent, textContentSchema, thinkActionSchema, thinkingBlockSchema, toCamelCase, toLLMMessage, toPosixPath, tokenEventSchema, toolAnnotationsSchema, toolSpecSchema, triggerSchema, userRejectObservationSchema, utcNow, validateAgentProfile, validateAgentSettings, validateConversationSettings, validateExtensionName, validateGitRepository, workspace };
+export { AGENT_PROFILE_SCHEMA_VERSION, AGENT_SETTINGS_SCHEMA_VERSION, Agent, AgentContext, AgentDefinition, AgentFinishedCritic, AnthropicMessagesClient, AsyncCallbackWrapper, AsyncProcessManager, BROWSER_TOOL_NAME, BUILT_IN_TOOLS, BUILT_IN_TOOL_FACTORIES, BrowserTool, CONTENT_POLICY_NUDGE, CONVERSATION_SETTINGS_SCHEMA_VERSION, ConversationState, CriticBase, CriticResult, DEFAULT_EXEC_TOOL_NAMES, DEFAULT_TEXT_CONTENT_LIMIT, DEFAULT_TRUNCATE_NOTICE, DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST, DuplicateEventError, EVENTS_DIR, EVENT_FILE_PATTERN, EmptyPatchCritic, EventLog, ExtensionFetchError, FULL_STATE_KEY, FileEditorExecutor, FileEditorTool, FinishTool, GIT_EMPTY_TREE_HASH, GeminiClient, GitChangeStatus, GitCommandError, GitError, GitPathError, GitRepositoryError, GlobExecutor, GlobTool, GrepExecutor, GrepTool, HookConfig, HookDecision, HookDefinition, HookExecutor, HookManager, HookMatcher, HookResult, HookEventType as HookTriggerEventType, HookType, InMemoryFileStore, InMemorySecretStore, InstallationInfo, InstallationMetadata, LLMContentPolicyViolationError, LLM_PROFILE_ID_PATTERN, LOCK_FILE_NAME, LOCK_TIMEOUT_SECONDS, LocalConversation, LocalFileStore, LocalWorkspace, LogLevel, MAX_FILE_SIZE_FOR_GIT_DIFF, MCPError, MCPTimeoutError, MCPToolAction, MCPToolDefinition, MCPToolExecutor, MCPToolObservation, MacOSKeychainSecretStore, MemoryLRUCache, N_CHAR_PREVIEW, NoCondensationAvailableError, NoOpCondenser, OPENHANDS_KEYRING_SERVICE, OpenAIChatClient, OpenAIResponsesClient, ParallelToolExecutor, PassCritic, PendingActionsQueue, PipelineCondenser, RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED, ROOT_PARENT_ID, RemoteConversation, RemoteWorkspace, RepoSource, RollingCondenser, RootSpan, SECRET_KEY_PATTERNS, SENSITIVE_URL_PARAMS, SUB_AGENT_TOOL_NAME, Skill, StuckDetector, TaskTrackerExecutor, TaskTrackerTool, TerminalExecutor, TerminalTool, TestLLM, TestLLMExhaustedError, ThinkTool, ToolDefinition, ToolRegistry, VERSION, ValueError, View, acpAgentProfileSchema, acpAgentSettingsSchema, acpServerKindSchema, acpToolCallEventSchema, actionEventSchema, actionEventsFromMessage, agentErrorEventSchema, agentProfileSchema, agentSettingsSchema, baseObservationSchema, baseToolObservationSchema, browserActionSchema, browserObservationSchema, buildAnthropicMessagesBody, buildChatCompletionsBody, buildCloneUrl, buildGeminiInteractionsBody, buildOpenAIResponsesBody, cancellationToken, classifyResponse, clearRawLlmFieldsWhenProfileSelected, condensationRequestSchema, condensationRequirement, condensationSchema, condensationSummaryEventSchema, contentSchema, contentToString, conversationErrorEventSchema, conversationExecutionStatus, conversationSettingsSchema, conversationStateUpdateEventSchema, createAnthropicClientFromProfile, createClientFromProfile, createGeminiClientFromProfile, createMcpTools, createOpenAIChatClientFromProfile, createOpenAIResponsesClientFromProfile, criticModeSchema, defaultAgentSettings, defaultToolSpecs, detectProviderFromBaseUrl, disableLogger, discoverAgents, dispatchLlmResponse, displayJson, dumps, endRootSpan, eventSchema, eventsToMessages, executeCommand, extractActionName, extractRepoName, fetchExtension, fetchWithResolution, fileEditorActionSchema, fileEditorObservationSchema, finishActionSchema, getAgentFactory, getCachePath, getChangesInRepo, getClosestGitRepo, getEnv, getFactoryInfo, getGitDiff, getLlmApiKey, getLogger, getRegisteredAgentDefinitions, getReposContext, getValidRef, globActionSchema, globObservationSchema, globalToolRegistry, grepActionSchema, grepMatchSchema, grepObservationSchema, handleDeprecatedModelFields, hookEventSchema, hookEventTypeSchema, hookExecutionEventSchema, imageContent, imageContentSchema, inputMetadataSchema, interruptEventSchema, isAbsolutePathSource, isAcpPatchEdit, isContentPolicyViolation, isConversationStateUpdateEvent, isEnabledFor, isGitUrl, isHostAbsolutePath, isLocalPathSource, isMessageEvent, isSecretKey, keywordTriggerSchema, listRegisteredTools, listUsableTools, llmCompletionLogEventSchema, llmCompletionResponseSchema, llmConvertibleEventSchema, llmProfileIdSchema, llmProfileSchema, llmProfileSecretRef, llmProviderIdSchema, llmProviderSecretRef, llmResponseType, llmUsageSchema, loadAgentsFromDir, loadAgentsFromDirs, loadProjectAgents, loadSkillsFromDir, loadUserAgents, loads, maybeInitLaminar, maybeTruncate, mergeSkillsByName, messageEventSchema, messageSchema, messageToolCallSchema, normalizeGitUrl, observabilityEnvKeys, observabilityMetadataSchema, observabilitySpanNameSchema, observabilityTagsSchema, observationEventSchema, observe, openAiApiModeSchema, openHandsAgentProfileSchema, openHandsAgentSettingsSchema, pageIterator, parseExtensionSource, pathMatchesGlob, pathTriggerSchema, pauseEventSchema, posixPathName, profileVerificationSettingsSchema, promptCacheRetentionSchema, reasoningEffortSchema, reasoningItemSchema, reasoningSummarySchema, redactTextSecrets, redactUrlCredentials, redactUrlCredentialsInText, redactUrlParams, redactedThinkingBlockSchema, reduceTextContent, registerAgent, registerAgentIfAbsent, registerTool, registerToolFactory, resetAgentRegistryForTests, resolveLlmApiKeyRef, resolveLlmProfileApiKeyRef, resolveProviderFromProfile, resolveTool, restoreConversationState, resumeTranscriptEventSchema, runGitCommand, sanitizeOpenHandsMentions, sanitizedEnv, secretRefSchema, setupLogging, shouldEnableObservability, skillResourcesSchema, skillSchema, skillsToPrompt, sourceTypeSchema, startChildSpan, startRootSpan, streamingDeltaEventSchema, systemPromptEventSchema, taskItemSchema, taskTrackerActionSchema, taskTrackerObservationSchema, taskTriggerSchema, terminalActionSchema, terminalObservationSchema, textContent, textContentSchema, thinkActionSchema, thinkingBlockSchema, toCamelCase, toLLMMessage, toPosixPath, tokenEventSchema, toolAnnotationsSchema, toolSpecSchema, triggerSchema, userRejectObservationSchema, utcNow, validateAgentProfile, validateAgentSettings, validateConversationSettings, validateExtensionName, validateGitRepository, workspace };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

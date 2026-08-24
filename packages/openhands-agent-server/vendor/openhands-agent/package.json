@@ -18,17 +18,12 @@
     "dist",
     "transpile"
   ],
-  "sideEffects": false,
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/smolpaws/openhands-agent.git"
-  },
   "dependencies": {
     "zod": "^4.4.3"
   },
+  "sideEffects": false,
   "_smolpawsProvenance": {
     "source": "github.com/smolpaws/openhands-agent",
-    "gitTag": "v0.3.4",
-    "gitCommit": "6a088faaa30b9330a5fa3d9c7e95653f1a1c203e"
+    "gitCommit": "c1bc2823b43ab3166710bea6fcbfec7e6a19cbc2"
   }
 }

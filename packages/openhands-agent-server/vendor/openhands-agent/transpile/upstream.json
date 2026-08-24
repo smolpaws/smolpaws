@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "OpenHands/software-agent-sdk",
-  "commit": "966340979be26c2162e9ab8805557b715e1f1a78",
+  "commit": "2eff609f9cd4ae31b219d36bd429f74f5348aeef",
   "targets": {
     "sdk": {
       "sourcePrefixes": [
@@ -78,7 +78,8 @@
   "ignorePrefixes": [
     ".agents/",
     ".github/",
-    ".openhands/"
+    ".openhands/",
+    ".pr/"
   ],
   "ignorePaths": [
     ".dockerignore",
@@ -94,7 +95,8 @@
     "Makefile",
     "README.md",
     "tests/README.md",
-    "tests/__init__.py"
+    "tests/__init__.py",
+    "tests/fixtures/conversations/v1_17_0_with_mcp_config/base_state.json"
   ],
   "policies": [
     {
@@ -250,68 +252,6 @@
       "target": "server",
       "prefixes": [],
       "paths": []
-    }
-  ],
-  "policyHints": [
-    {
-      "prefix": "openhands-sdk/openhands/sdk/agent/acp_",
-      "target": "sdk",
-      "policy": "DEV-SDK-005"
-    },
-    {
-      "prefix": "openhands-sdk/openhands/sdk/conversation/secret_registry.py",
-      "target": "sdk",
-      "policy": "DEV-SDK-003"
-    },
-    {
-      "prefix": "openhands-sdk/openhands/sdk/marketplace/",
-      "target": "sdk",
-      "policy": "EXC-SDK-002"
-    },
-    {
-      "prefix": "openhands-sdk/openhands/sdk/plugin/",
-      "target": "sdk",
-      "policy": "EXC-SDK-001"
-    },
-    {
-      "prefix": "openhands-sdk/openhands/sdk/secret/",
-      "target": "sdk",
-      "policy": "DEV-SDK-003"
-    },
-    {
-      "prefix": "openhands-sdk/openhands/sdk/security/",
-      "target": "sdk",
-      "policy": "DEV-SDK-001"
-    },
-    {
-      "prefix": "openhands-sdk/openhands/sdk/settings/acp_",
-      "target": "sdk",
-      "policy": "DEV-SDK-005"
-    },
-    {
-      "prefix": "openhands-sdk/openhands/sdk/utils/pydantic_secrets.py",
-      "target": "sdk",
-      "policy": "DEV-SDK-003"
-    },
-    {
-      "prefix": "openhands-agent-server/openhands/agent_server/_secret",
-      "target": "server",
-      "policy": "DEV-SERVER-003"
-    },
-    {
-      "prefix": "openhands-agent-server/openhands/agent_server/desktop_",
-      "target": "server",
-      "policy": "EXC-SERVER-002"
-    },
-    {
-      "prefix": "openhands-agent-server/openhands/agent_server/init_router.py",
-      "target": "server",
-      "policy": "DEV-SERVER-005"
-    },
-    {
-      "prefix": "openhands-agent-server/openhands/agent_server/vscode_",
-      "target": "server",
-      "policy": "EXC-SERVER-002"
     }
   ]
 }

@@ -434,6 +434,38 @@
               "type": "string",
               "nullable": true
             }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "sort_order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "CREATED_AT",
+                "UPDATED_AT",
+                "CREATED_AT_DESC",
+                "UPDATED_AT_DESC"
+              ]
+            }
+          },
+          {
+            "name": "include_skills",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
           }
         ],
         "responses": {
@@ -725,7 +757,17 @@
           "Conversations"
         ],
         "summary": "Count conversations",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -757,6 +799,15 @@
             "description": "Comma-separated IDs.",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "include_skills",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
             }
           }
         ],
@@ -1033,7 +1084,17 @@
           "Conversations"
         ],
         "summary": "Start conversation",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "include_skills",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -1969,6 +2030,15 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "include_skills",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
           }
         ],
         "responses": {
@@ -2598,6 +2668,9 @@
           "404": {
             "description": "Error"
           },
+          "409": {
+            "description": "Error"
+          },
           "501": {
             "description": "Error"
           }
@@ -2692,6 +2765,9 @@
             }
           },
           "404": {
+            "description": "Error"
+          },
+          "409": {
             "description": "Error"
           },
           "501": {
@@ -3051,10 +3127,19 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "include_skills",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -3461,7 +3546,7 @@
             }
           },
           {
-            "name": "timestamp_gte",
+            "name": "timestamp__gte",
             "in": "query",
             "required": false,
             "schema": {
@@ -3471,7 +3556,7 @@
             }
           },
           {
-            "name": "timestamp_lt",
+            "name": "timestamp__lt",
             "in": "query",
             "required": false,
             "schema": {
@@ -3576,7 +3661,7 @@
             }
           },
           {
-            "name": "timestamp_gte",
+            "name": "timestamp__gte",
             "in": "query",
             "required": false,
             "schema": {
@@ -3586,7 +3671,7 @@
             }
           },
           {
-            "name": "timestamp_lt",
+            "name": "timestamp__lt",
             "in": "query",
             "required": false,
             "schema": {
@@ -3642,6 +3727,20 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -3953,6 +4052,71 @@
         ],
         "summary": "Search bash events",
         "parameters": [
+          {
+            "name": "kind__eq",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "BashCommand",
+                "BashOutput"
+              ],
+              "nullable": true
+            }
+          },
+          {
+            "name": "command_id__eq",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "nullable": true
+            }
+          },
+          {
+            "name": "timestamp__gte",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "nullable": true
+            }
+          },
+          {
+            "name": "timestamp__lt",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "nullable": true
+            }
+          },
+          {
+            "name": "order__gt",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "nullable": true
+            }
+          },
+          {
+            "name": "sort_order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "TIMESTAMP",
+                "TIMESTAMP_DESC"
+              ],
+              "default": "TIMESTAMP"
+            }
+          },
           {
             "name": "limit",
             "in": "query",
@@ -4356,6 +4520,20 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -7840,7 +8018,7 @@
           }
         },
         "responses": {
-          "201": {
+          "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
@@ -8367,10 +8545,19 @@
           {
             "name": "path",
             "in": "query",
-            "required": false,
+            "required": true,
             "description": "Filesystem path.",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "ref",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
             }
           }
         ],
@@ -8423,10 +8610,19 @@
           {
             "name": "path",
             "in": "query",
-            "required": false,
+            "required": true,
             "description": "Filesystem path.",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "ref",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
             }
           }
         ],
@@ -8601,13 +8797,23 @@
           {
             "name": "path",
             "in": "query",
-            "required": false,
+            "required": true,
             "description": "Filesystem path.",
             "schema": {
               "type": "string"
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -8649,7 +8855,7 @@
           {
             "name": "path",
             "in": "query",
-            "required": false,
+            "required": true,
             "description": "Filesystem path.",
             "schema": {
               "type": "string"
@@ -8771,7 +8977,17 @@
           "File"
         ],
         "summary": "Get home and favorite directories",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "include_hidden",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -8844,7 +9060,44 @@
           "File"
         ],
         "summary": "Search subdirectories",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "include_hidden",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",

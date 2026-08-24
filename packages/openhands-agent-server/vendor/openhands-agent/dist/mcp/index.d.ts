@@ -29,6 +29,8 @@ export interface McpToolSpec {
 }
 export interface McpClientLike {
     isConnected(): boolean;
+    connect?(): Promise<void> | void;
+    readonly closed?: boolean;
     callTool(name: string, arguments_: Record<string, unknown>): Promise<McpCallToolResult>;
 }
 export declare class MCPToolAction {

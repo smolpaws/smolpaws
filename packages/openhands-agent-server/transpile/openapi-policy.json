@@ -37,6 +37,11 @@
       "tracking": "OPENAPI-DEFERRED-001",
       "reason": "Desktop integration is deployment-specific and has not yet been ported."
     },
+    "GET /api/file/archive": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation file archive (zip/tar.gz export) depends on upstream trajectory artifacts not yet reproduced by the TypeScript server."
+    },
     "GET /api/file/download-trajectory/{conversation_id}": {
       "disposition": "DEFERRED",
       "tracking": "OPENAPI-DEFERRED-001",
@@ -46,6 +51,76 @@
       "disposition": "DEVIATION",
       "policy": "DEV-SERVER-005",
       "reason": "The TypeScript product intentionally does not implement upstream deferred-init behavior as an active flow."
+    },
+    "DELETE /api/plugins/installed/{plugin_name}": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Installed-plugin management is not yet ported to the TypeScript server package."
+    },
+    "GET /api/mcp/oauth/status/{job_id}": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Install-time MCP OAuth probe flow is not yet ported to the TypeScript server."
+    },
+    "GET /api/plugins/installed": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Installed-plugin management is not yet ported to the TypeScript server package."
+    },
+    "GET /api/plugins/installed/{plugin_name}": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Installed-plugin management is not yet ported to the TypeScript server package."
+    },
+    "GET /api/plugins/marketplace": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Plugin marketplace catalog is not yet ported to the TypeScript server package."
+    },
+    "PATCH /api/plugins/installed/{plugin_name}": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Installed-plugin management is not yet ported to the TypeScript server package."
+    },
+    "POST /api/conversations/{conversation_id}/load_plugin": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Plugin loading into a conversation is not yet ported to the TypeScript server."
+    },
+    "POST /api/conversations/{conversation_id}/navigate": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation HEAD navigation/re-rooting is not yet ported to the TypeScript server."
+    },
+    "POST /api/mcp/oauth/callback/{job_id}": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Install-time MCP OAuth probe flow is not yet ported to the TypeScript server."
+    },
+    "POST /api/mcp/oauth/start": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Install-time MCP OAuth probe flow is not yet ported to the TypeScript server."
+    },
+    "POST /api/plugins": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Plugin listing is not yet ported to the TypeScript server package."
+    },
+    "POST /api/plugins/install": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Installed-plugin management is not yet ported to the TypeScript server package."
+    },
+    "POST /api/plugins/installed/{plugin_name}/refresh": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Installed-plugin management is not yet ported to the TypeScript server package."
+    },
+    "POST /api/sub-agents": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Sub-agent catalog discovery is not yet ported to the TypeScript server package."
     },
     "GET /api/llm/models": {
       "disposition": "DEFERRED",
