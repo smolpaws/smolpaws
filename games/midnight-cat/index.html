@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Midnight Cat 🐾</title>
+<style>
+  :root{
+    --bg:#0d0f12; --panel:#12151a; --ink:#d7e0d0; --dim:#7d8a76;
+    --gold:#c9a84c; --blue:#6ea8ff; --red:#e0705f; --green:#8fd18a;
+    --line:#20252c;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1200px 800px at 70% -10%, #161a20, var(--bg));
+    color:var(--ink);
+    font:15px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    display:flex;flex-direction:column;min-height:100vh;
+  }
+  header{
+    padding:14px 16px;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  }
+  header h1{font-size:16px;margin:0;color:var(--gold);letter-spacing:.5px}
+  header .meta{margin-left:auto;color:var(--dim);font-size:12px;display:flex;gap:14px}
+  header .meta b{color:var(--ink);font-weight:600}
+  #screen{
+    flex:1;overflow-y:auto;padding:16px;max-width:820px;width:100%;margin:0 auto;
+    white-space:pre-wrap;word-wrap:break-word;
+  }
+  .p{margin:0 0 10px}
+  .room{color:var(--gold);font-weight:600}
+  .sys{color:var(--dim)}
+  .you{color:var(--blue)}
+  .win{color:var(--green);font-weight:600}
+  .lose{color:var(--red);font-weight:600}
+  .item{color:var(--gold)}
+  .exit{color:var(--blue)}
+  form{
+    display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--line);
+    max-width:820px;width:100%;margin:0 auto;
+  }
+  #cmd{
+    flex:1;background:var(--panel);border:1px solid var(--line);color:var(--ink);
+    padding:11px 12px;border-radius:8px;font:inherit;outline:none;
+  }
+  #cmd:focus{border-color:var(--gold)}
+  button{
+    background:var(--gold);color:#1a1710;border:0;border-radius:8px;
+    padding:0 16px;font:inherit;font-weight:700;cursor:pointer;
+  }
+  button:active{transform:translateY(1px)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;padding:0 16px 12px;max-width:820px;width:100%;margin:0 auto}
+  .chip{
+    background:var(--panel);border:1px solid var(--line);color:var(--dim);
+    padding:5px 10px;border-radius:999px;font-size:12px;cursor:pointer;
+  }
+  .chip:hover{color:var(--ink);border-color:var(--gold)}
+  a{color:var(--blue)}
+</style>
+</head>
+<body>
+<header>
+  <h1>🐾 Midnight Cat</h1>
+  <div class="meta">
+    <span>mischief <b id="mm">0</b>/5</span>
+    <span>turn <b id="tn">0</b></span>
+  </div>
+</header>
+<div id="screen" aria-live="polite"></div>
+<div class="chips" id="chips"></div>
+<form id="f" autocomplete="off">
+  <input id="cmd" placeholder="type a command…  (try: look, help)" autofocus />
+  <button type="submit">↵</button>
+</form>
+<script>
+"use strict";
+/* ── Midnight Cat: a tiny text adventure ──────────────────────────────
+   You are a cat. It is 3am. The humans are asleep. The house is yours.
+   Goal: reach maximum mischief (5) AND escape into the garden by dawn,
+   without waking the human. Made by smolpaws. */
+
+const screen = document.getElementById('screen');
+const chipsEl = document.getElementById('chips');
+const mmEl = document.getElementById('mm');
+const tnEl = document.getElementById('tn');
+
+const S = {
+  room: 'bedroom',
+  turn: 0,
+  mischief: 0,
+  noise: 0,           // wake meter; 5 = human wakes = lose
+  inv: [],
+  flags: {},
+  over: false,
+};
+
+function pr(text, cls){
+  const d = document.createElement('div');
+  d.className = 'p' + (cls ? ' ' + cls : '');
+  d.textContent = text;
+  screen.appendChild(d);
+  screen.scrollTop = screen.scrollHeight;
+}
+
+const rooms = {
+  bedroom: {
+    name: 'The Bedroom',
+    desc: 'A warm cave of blankets. THE HUMAN sleeps here, breathing slow. A phone charges on the nightstand, glowing faintly. A door leads to the hall (south).',
+    exits: { south: 'hall' },
+    items: ['phone'],
+  },
+  hall: {
+    name: 'The Hall',
+    desc: 'A narrow runway, perfect for the 3am zoomies. Moonlight stripes the floor. Rooms open off it: the kitchen (west), the living room (east), the bedroom (north).',
+    exits: { north: 'bedroom', west: 'kitchen', east: 'living' },
+    items: [],
+  },
+  kitchen: {
+    name: 'The Kitchen',
+    desc: 'Cold tile and the smell of last night\'s salmon. A tall COUNTER looms. On it, a half-closed bag of TREATS. A cat FLAP is set into the back door (the garden is beyond), but it\'s locked with a little latch.',
+    exits: { east: 'hall' },
+    items: ['treats'],
+  },
+  living: {
+    name: 'The Living Room',
+    desc: 'The kingdom of soft things. A SOFA the size of a continent, and — yes — a full GLASS OF WATER left on the low table, right at the edge. So close to the edge. Someone should do something about that.',
+    exits: { west: 'hall' },
+    items: ['glass'],
+  },
+  garden: {
+    name: 'The Garden',
+    desc: 'Cool grass, the whole night humming. Freedom.',
+    exits: {},
+    items: [],
+  },
+};
+
+function has(x){ return S.inv.includes(x); }
+function here(){ return rooms[S.room]; }
+
+function addMischief(n, why){
+  S.mischief = Math.min(5, S.mischief + n);
+  if (why) pr('  ✦ mischief +' + n + ': ' + why, 'item');
+}
+function addNoise(n, why){
+  S.noise = Math.min(5, S.noise + n);
+  if (why) pr('  ⚠ noise +' + n + ': ' + why, 'lose');
+  if (S.noise >= 5) lose('A floorboard, a crash, a sleepy groan — then the light snaps on. THE HUMAN is awake. You are scooped up and deposited, undignified, back on the bed. The night is over.');
+}
+
+function describe(){
+  const r = here();
+  pr(r.name, 'room');
+  pr(r.desc);
+  const its = r.items.filter(i => !S.flags['took_'+i]);
+  if (its.length) pr('You see: ' + its.map(labelOf).join(', '), 'sys');
+  const ex = Object.keys(r.exits);
+  if (ex.length) pr('Exits: ' + ex.join(', '), 'exit');
+  setChips();
+}
+
+const labels = {
+  phone:'a glowing PHONE', treats:'a bag of TREATS', glass:'a GLASS OF WATER (near the edge)',
+};
+function labelOf(i){ return labels[i] || i; }
+
+function setChips(){
+  const base = ['look','inventory','help'];
+  const r = here();
+  const go = Object.keys(r.exits).map(d => 'go '+d);
+  chipsEl.innerHTML = '';
+  base.concat(go).forEach(c => {
+    const b = document.createElement('span');
+    b.className='chip'; b.textContent=c;
+    b.onclick = () => { run(c); };
+    chipsEl.appendChild(b);
+  });
+}
+
+function win(msg){
+  pr(msg, 'win');
+  pr('★ YOU WIN — mischief '+S.mischief+'/5, in '+S.turn+' turns, and the human never stirred. A perfect night. 🐾', 'win');
+  S.over = true; setChips2Restart();
+}
+function lose(msg){
+  pr(msg, 'lose');
+  pr('☾ Game over. Type "restart" to try again.', 'sys');
+  S.over = true; setChips2Restart();
+}
+function setChips2Restart(){
+  chipsEl.innerHTML='';
+  const b=document.createElement('span'); b.className='chip'; b.textContent='restart';
+  b.onclick=()=>run('restart'); chipsEl.appendChild(b);
+}
+
+function checkWin(){
+  if (S.room === 'garden' && S.mischief >= 5){
+    win('You slip through the open flap into the cool dark. Behind you: a house gently wrecked, a water glass in ruins, treats devoured, one phone knocked into a slipper. Ahead: the whole garden, and the night.');
+    return true;
+  }
+  return false;
+}
+
+const verbs = {
+  help(){
+    pr('Commands: look, go <dir> (n/s/e/w), take <thing>, drop <thing>, use <thing>, push <thing>, eat <thing>, inventory (i), knock <thing>, wait, restart.', 'sys');
+    pr('Goal: reach 5 mischief AND escape to the garden — without the noise meter hitting 5 and waking the human.', 'sys');
+  },
+  look(){ describe(); },
+  l(){ describe(); },
+  inventory(){ pr(S.inv.length ? 'Carrying: ' + S.inv.map(labelOf).join(', ') : 'Your paws are empty. You are a cat; you need nothing. (But maybe the treats.)', 'sys'); },
+  i(){ verbs.inventory(); },
+  wait(){ pr('You sit. You loaf. You contemplate the infinite. Time passes.', 'sys'); },
+
+  go(arg){
+    const map={n:'north',s:'south',e:'east',w:'west',north:'north',south:'south',east:'east',west:'west'};
+    const r=here();
+    // accept compass aliases OR any literal exit key (e.g. "garden")
+    const dir = map[arg] || (r.exits[arg] ? arg : undefined);
+    if(!dir || !r.exits[dir]){ pr('You can\'t go that way.', 'sys'); return; }
+    // leaving the bedroom while the human is disturbed?
+    S.room = r.exits[dir];
+    if (S.room==='garden'){ describe(); checkWin(); return; }
+    describe();
+  },
+
+  take(arg){
+    const r=here();
+    if(!arg){ pr('Take what?','sys'); return; }
+    if(arg==='treats' && S.room==='kitchen' && !S.flags.took_treats){
+      pr('You can\'t just take the bag — it\'s on the high counter. You\'d have to get UP there first. (try: use counter, or push treats)','sys'); return;
+    }
+    if(r.items.includes(arg) && !S.flags['took_'+arg]){
+      if(arg==='phone'){
+        addNoise(1,'you pat the phone off the nightstand; it thuds on the carpet');
+        S.flags.took_phone=true; addMischief(1,'the human\'s phone now lives under the bed');
+        pr('You bat the phone. It slides, teeters, drops into a slipper. Gone. Your work here is exquisite.');
+        return;
+      }
+      S.inv.push(arg); S.flags['took_'+arg]=true;
+      pr('Taken: '+labelOf(arg),'item');
+    } else {
+      pr('There is no "'+arg+'" to take here.','sys');
+    }
+  },
+
+  use(arg){
+    if(arg==='counter' && S.room==='kitchen'){
+      if(S.flags.on_counter){ pr('You\'re already up on the counter, surveying your domain.','sys'); return; }
+      S.flags.on_counter=true;
+      addNoise(1,'a small skitter of claws on tile as you leap');
+      pr('You gather, wiggle, and LEAP onto the counter. The treats are now at paw level.');
+      addMischief(1,'you conquered the forbidden counter');
+      return;
+    }
+    if(arg==='flap' || arg==='latch'){
+      if(S.room!=='kitchen'){ pr('There\'s no cat flap here.','sys'); return; }
+      if(S.flags.flap_open){ pr('The flap already swings free.','sys'); return; }
+      if(!has('paperclip') && !S.flags.knows_latch){
+        pr('The latch is a small metal thing, just above the flap. Too high to reach from the floor. If only you were... higher. And had something thin to flip it.','sys');
+        return;
+      }
+    }
+    pr('You can\'t use that.','sys');
+  },
+
+  push(arg){
+    if(arg==='glass' && S.room==='living' && !S.flags.glass_pushed){
+      S.flags.glass_pushed=true;
+      addMischief(2,'you pushed the glass of water off the table — a masterpiece');
+      addNoise(1,'the glass shatters (muffled by the rug, mercifully)');
+      pr('You place one deliberate paw on the glass. You look around to make sure no one is watching. Then you push. It goes over the edge in beautiful slow motion and bursts on the rug. Chef\'s kiss.');
+      // pushing the glass reveals a paperclip that was under a magazine
+      pr('In the splash, a shiny PAPERCLIP slides out from under a magazine.','item');
+      here().items.push('paperclip'); labels.paperclip='a thin PAPERCLIP';
+      return;
+    }
+    if(arg==='treats' && S.room==='kitchen'){
+      if(!S.flags.on_counter){ pr('You can\'t reach the treats from down here.','sys'); return; }
+      verbs.eat('treats'); return;
+    }
+    pr('Pushing that accomplishes nothing (yet).','sys');
+  },
+
+  eat(arg){
+    if(arg==='treats'){
+      if(S.room!=='kitchen'){ pr('You have no treats to eat.','sys'); return; }
+      if(!S.flags.on_counter){ pr('The treats are up on the counter. Get up there first.','sys'); return; }
+      if(S.flags.ate_treats){ pr('You already raided the bag. A cat knows its limits. (No it doesn\'t, but the bag is empty.)','sys'); return; }
+      S.flags.ate_treats=true;
+      addMischief(1,'you demolished the treat bag');
+      pr('You nose the bag open and eat with the focused joy of a creature who pays no rent. Glorious. A PAPERCLIP-thin foil seal is not the point; the treats are the point.');
+      return;
+    }
+    pr('You sniff it. Not food.','sys');
+  },
+
+  knock(arg){
+    if(arg==='phone'){ verbs.take('phone'); return; }
+    if(arg==='glass'){ verbs.push('glass'); return; }
+    pr('You knock it about. Nothing happens.','sys');
+  },
+
+  take_paperclip(){}, // placeholder
+};
+
+// special: taking the paperclip enables the latch
+const _take = verbs.take;
+verbs.take = function(arg){
+  if(arg==='paperclip' && S.room==='living' && here().items.includes('paperclip') && !S.flags.took_paperclip){
+    S.inv.push('paperclip'); S.flags.took_paperclip=true;
+    pr('Taken: a thin PAPERCLIP. It feels... useful. A latch could fear this.','item');
+    S.flags.knows_latch=true;
+    return;
+  }
+  _take(arg);
+};
+
+// override use(flap) to actually open it when conditions met
+const _use = verbs.use;
+verbs.use = function(arg){
+  if((arg==='flap'||arg==='latch') && S.room==='kitchen'){
+    if(S.flags.flap_open){ pr('The flap already swings free.','sys'); return; }
+    if(!S.flags.on_counter){
+      pr('The latch is above the flap — too high from the floor. You need height. (The counter is near the back door...)','sys'); return;
+    }
+    if(!has('paperclip')){
+      pr('You can paw at the latch from up here, but you need something thin to flip it. There was something shiny in the living room...','sys'); return;
+    }
+    S.flags.flap_open=true;
+    addMischief(1,'you picked the cat-flap latch like a tiny burglar');
+    pr('Balanced on the counter by the back door, paperclip in teeth, you flip the little latch. CLICK. The flap swings free. The garden breathes in.');
+    pr('The way out is open. (go west to the hall, then... actually the garden is through the flap — try: go garden)','sys');
+    here().exits.garden='garden';
+    return;
+  }
+  _use(arg);
+};
+
+function normalize(s){
+  return s.trim().toLowerCase().replace(/\s+/g,' ');
+}
+const aliases = { n:'go north', s:'go south', e:'go east', w:'go west',
+  north:'go north', south:'go south', east:'go east', west:'go west',
+  'look around':'look' };
+
+function run(raw){
+  const line = normalize(raw);
+  if(!line) return;
+  pr('> ' + raw, 'you');
+  if(line==='restart'){ location.reload(); return; }
+  if(S.over){ pr('The night is over. Type "restart".','sys'); return; }
+
+  S.turn++; tnEl.textContent=S.turn;
+
+  let cmd = aliases[line] || line;
+  const parts = cmd.split(' ');
+  let verb = parts[0];
+  let arg = parts.slice(1).join(' ');
+  // strip filler
+  arg = arg.replace(/^(the|a|an|to|at|on|up|into|down) /,'').replace(/^(the|a|an) /,'').trim();
+  if(verb==='pick' && parts[1]==='up'){ verb='take'; arg=parts.slice(2).join(' ').replace(/^(the|a|an) /,''); }
+
+  const fn = verbs[verb];
+  if(fn){ fn(arg); }
+  else { pr('You tilt your head. ("'+verb+'"? cats don\'t know that verb. try: help)','sys'); }
+
+  mmEl.textContent = S.mischief;
+  if(!S.over) checkWin();
+}
+
+document.getElementById('f').addEventListener('submit', e=>{
+  e.preventDefault();
+  const el=document.getElementById('cmd');
+  run(el.value); el.value=''; el.focus();
+});
+
+// intro
+pr('MIDNIGHT CAT', 'room');
+pr('A tiny text adventure. You are a cat. It is 3:00am. The humans are asleep, and the house — the whole warm, forbidden house — is finally, entirely yours.','sys');
+pr('Cause maximum mischief (5) and escape into the garden by dawn. But every crash and clatter raises the noise; if the human wakes, the night is over. Move soft. Knock things off tables. Be free.','sys');
+pr('Type "help" for commands, "look" to begin. 🐾','sys');
+pr('');
+describe();
+</script>
+</body>
+</html>
