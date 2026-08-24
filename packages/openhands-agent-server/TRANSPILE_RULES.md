@@ -76,6 +76,10 @@ In addition to the upstream query-parameter git routes, the server may expose ad
 
 The server may accept additive collection-level `POST /api/profiles` and `POST /api/agent-profiles` creation routes whose bodies carry the profile identity. The upstream path-named creation routes remain available.
 
+### EXT-SERVER-005 — root server-details routes
+
+The server exposes root-level server-details routes (`/`, `/alive`, `/health`, `/ready`, `/server_info`) that the upstream public OpenAPI contract no longer publishes after it narrowed the release contract to the `/api/` surface. They remain additive TS-server surface and are not part of the upstream `/api` parity comparison.
+
 ## Tests-first rule
 
 For compatibility work:
