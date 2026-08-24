@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "OpenHands/software-agent-sdk",
-  "commit": "56ac31719f91059dc9b319dbc6bb79f17ef60cd7",
+  "commit": "54dfbc551408d10de54eb8ac5612bae6d3f99d16",
   "targets": {
     "sdk": {
       "sourcePrefixes": [
@@ -248,6 +248,13 @@
     },
     {
       "id": "EXT-SERVER-004",
+      "kind": "EXTENSION",
+      "target": "server",
+      "prefixes": [],
+      "paths": []
+    },
+    {
+      "id": "EXT-SERVER-005",
       "kind": "EXTENSION",
       "target": "server",
       "prefixes": [],

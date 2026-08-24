@@ -1,5 +1,5 @@
 import { z } from 'zod';
-export declare const AGENT_PROFILE_SCHEMA_VERSION = 1;
+export declare const AGENT_PROFILE_SCHEMA_VERSION = 2;
 export declare const acpServerKindSchema: z.ZodUnion<readonly [z.ZodLiteral<"claude-code">, z.ZodLiteral<"codex">, z.ZodLiteral<"gemini-cli">, z.ZodLiteral<"custom">]>;
 export declare const criticModeSchema: z.ZodUnion<readonly [z.ZodLiteral<"finish_and_message">, z.ZodLiteral<"all_actions">]>;
 export declare const profileVerificationSettingsSchema: z.ZodObject<{
@@ -31,7 +31,7 @@ export declare const openHandsAgentProfileSchema: z.ZodObject<{
     enable_sub_agents: z.ZodDefault<z.ZodBoolean>;
     enable_switch_llm_tool: z.ZodDefault<z.ZodBoolean>;
     tool_concurrency_limit: z.ZodDefault<z.ZodNumber>;
-    schema_version: z.ZodDefault<z.ZodLiteral<1>>;
+    schema_version: z.ZodDefault<z.ZodLiteral<2>>;
     id: z.ZodDefault<z.ZodString>;
     name: z.ZodString;
     revision: z.ZodDefault<z.ZodNumber>;
@@ -43,9 +43,10 @@ export declare const acpAgentProfileSchema: z.ZodObject<{
     acp_model: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     acp_session_mode: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     acp_prompt_timeout: z.ZodDefault<z.ZodNumber>;
+    acp_startup_timeout: z.ZodDefault<z.ZodNumber>;
     acp_command: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     acp_args: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
-    schema_version: z.ZodDefault<z.ZodLiteral<1>>;
+    schema_version: z.ZodDefault<z.ZodLiteral<2>>;
     id: z.ZodDefault<z.ZodString>;
     name: z.ZodString;
     revision: z.ZodDefault<z.ZodNumber>;
@@ -71,7 +72,7 @@ export declare const agentProfileSchema: z.ZodUnion<readonly [z.ZodObject<{
     enable_sub_agents: z.ZodDefault<z.ZodBoolean>;
     enable_switch_llm_tool: z.ZodDefault<z.ZodBoolean>;
     tool_concurrency_limit: z.ZodDefault<z.ZodNumber>;
-    schema_version: z.ZodDefault<z.ZodLiteral<1>>;
+    schema_version: z.ZodDefault<z.ZodLiteral<2>>;
     id: z.ZodDefault<z.ZodString>;
     name: z.ZodString;
     revision: z.ZodDefault<z.ZodNumber>;
@@ -82,9 +83,10 @@ export declare const agentProfileSchema: z.ZodUnion<readonly [z.ZodObject<{
     acp_model: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     acp_session_mode: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     acp_prompt_timeout: z.ZodDefault<z.ZodNumber>;
+    acp_startup_timeout: z.ZodDefault<z.ZodNumber>;
     acp_command: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     acp_args: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
-    schema_version: z.ZodDefault<z.ZodLiteral<1>>;
+    schema_version: z.ZodDefault<z.ZodLiteral<2>>;
     id: z.ZodDefault<z.ZodString>;
     name: z.ZodString;
     revision: z.ZodDefault<z.ZodNumber>;
