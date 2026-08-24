@@ -39,7 +39,8 @@ This file captures local-machine facts that help SmolPaws work effectively.
 ## Browser
 
 - Dedicated Chrome: `/Applications/Google Chrome.app` (SmolPaws' own)
-- Engel uses Dia (`/Applications/Dia.app`) — never control it by accident
+- Engel uses **Comet** (Perplexity's browser) as his personal browser — never control it by accident. (Dia was removed; ignore older notes.)
+- Engel is often on other devices too (e.g. iPad Safari), reaching the Mac over Tailscale
 - AppleScript: always `tell application id "com.google.Chrome"`, never by name
 - Slack tab lives in Chrome, stays logged in
 
