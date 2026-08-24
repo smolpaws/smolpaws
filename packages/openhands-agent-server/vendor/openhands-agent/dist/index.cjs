@@ -1557,6 +1557,9 @@ var EventLog = class {
       if (pendingIndex !== void 0) {
         throw new DuplicateEventError(event.id, pendingIndex);
       }
+      if (event.parent_id !== null && event.parent_id !== ROOT_PARENT_ID && !this.idToIndex.has(event.parent_id)) {
+        throw new Error(`Parent event '${event.parent_id}' does not exist for event '${event.id}'`);
+      }
       batchIds.set(event.id, this.lengthValue + batchIds.size);
     }
     for (const event of events) {
@@ -3169,6 +3172,7 @@ var llmResponseType = {
   REASONING_ONLY: "reasoning_only",
   EMPTY: "empty"
 };
+var CORRECTIVE_NUDGE = "Your last response did not include a function call or a message. Please use a tool to proceed with the task.";
 function classifyResponse(message) {
   const parsed = messageSchema.parse(message);
   if (parsed.tool_calls !== null && parsed.tool_calls.length > 0) {
@@ -3209,7 +3213,20 @@ async function dispatchLlmResponse(response, state, runner, options = {}) {
         })
       )
     );
+    return emitted;
   }
+  emitted.push(
+    await state.appendEventAsync(
+      messageEventSchema.parse({
+        source: "environment",
+        llm_message: {
+          role: "user",
+          content: [textContent(CORRECTIVE_NUDGE)]
+        },
+        llm_response_id: options.llmResponseId ?? null
+      })
+    )
+  );
   return emitted;
 }
 
@@ -5807,7 +5824,7 @@ function isMcpTextBlock(block) {
 function isMcpImageBlock(block) {
   return block.type === "image" && typeof block.mimeType === "string" && typeof block.data === "string";
 }
-var AGENT_PROFILE_SCHEMA_VERSION = 1;
+var AGENT_PROFILE_SCHEMA_VERSION = 2;
 var acpServerKindSchema = zod.z.union([
   zod.z.literal("claude-code"),
   zod.z.literal("codex"),
@@ -5853,6 +5870,7 @@ var acpAgentProfileSchema = zod.z.object({
   acp_model: zod.z.string().nullable().default(null),
   acp_session_mode: zod.z.string().nullable().default(null),
   acp_prompt_timeout: zod.z.number().positive().default(1800),
+  acp_startup_timeout: zod.z.number().positive().default(90),
   acp_command: zod.z.string().nullable().default(null),
   acp_args: zod.z.array(zod.z.string()).nullable().default(null)
 }).strict();
@@ -5889,6 +5907,12 @@ function applyAgentProfileMigrations(data) {
     throw new Error(
       `AgentProfile schema_version ${version} is newer than supported version ${AGENT_PROFILE_SCHEMA_VERSION}.`
     );
+  }
+  if (version === 1) {
+    if ((migrated.agent_kind ?? "openhands") === "openhands" && migrated.name === "default" && (migrated.revision ?? 0) === 0 && Array.isArray(migrated.tools) && migrated.tools.length === 0) {
+      migrated.tools = null;
+    }
+    migrated.schema_version = 2;
   }
   return migrated;
 }
@@ -6020,7 +6044,7 @@ var RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED = [
   "inputCostPerToken",
   "outputCostPerToken"
 ];
-var AGENT_SETTINGS_SCHEMA_VERSION = 4;
+var AGENT_SETTINGS_SCHEMA_VERSION = 5;
 var CONVERSATION_SETTINGS_SCHEMA_VERSION = 1;
 var settingsSchemaVersion = (version) => zod.z.literal(version).default(version);
 var observabilityMetadataSchema = zod.z.record(zod.z.string().min(1), zod.z.unknown());
@@ -6060,7 +6084,8 @@ var acpAgentSettingsSchema = zod.z.object({
   acp_args: zod.z.array(zod.z.string()).default([]),
   acp_model: zod.z.string().nullable().default(null),
   acp_session_mode: zod.z.string().nullable().default(null),
-  acp_prompt_timeout: zod.z.number().positive().default(1800)
+  acp_prompt_timeout: zod.z.number().positive().default(1800),
+  acp_startup_timeout: zod.z.number().positive().default(90)
 }).strict();
 var agentSettingsSchema = zod.z.union([openHandsAgentSettingsSchema, acpAgentSettingsSchema]);
 function clearRawLlmFieldsWhenProfileSelected(llm) {
@@ -7334,6 +7359,7 @@ exports.BUILT_IN_TOOL_FACTORIES = BUILT_IN_TOOL_FACTORIES;
 exports.BrowserTool = BrowserTool;
 exports.CONTENT_POLICY_NUDGE = CONTENT_POLICY_NUDGE;
 exports.CONVERSATION_SETTINGS_SCHEMA_VERSION = CONVERSATION_SETTINGS_SCHEMA_VERSION;
+exports.CORRECTIVE_NUDGE = CORRECTIVE_NUDGE;
 exports.ConversationState = ConversationState;
 exports.CriticBase = CriticBase;
 exports.CriticResult = CriticResult;

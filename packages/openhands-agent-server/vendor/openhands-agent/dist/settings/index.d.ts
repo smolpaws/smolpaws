@@ -7,7 +7,7 @@ export type ProfileSelectedLlmSettings = {
 } & {
     readonly [K in RawLlmFieldIgnoredWhenProfileSelected]?: unknown;
 };
-export declare const AGENT_SETTINGS_SCHEMA_VERSION = 4;
+export declare const AGENT_SETTINGS_SCHEMA_VERSION = 5;
 export declare const CONVERSATION_SETTINGS_SCHEMA_VERSION = 1;
 export declare const observabilityMetadataSchema: z.ZodRecord<z.ZodString, z.ZodUnknown>;
 export declare const observabilityTagsSchema: z.ZodArray<z.ZodString>;
@@ -48,6 +48,7 @@ export declare const acpAgentSettingsSchema: z.ZodObject<{
     acp_model: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     acp_session_mode: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     acp_prompt_timeout: z.ZodDefault<z.ZodNumber>;
+    acp_startup_timeout: z.ZodDefault<z.ZodNumber>;
     schema_version: z.ZodDefault<z.ZodLiteral<number>>;
     mcp_config: z.ZodDefault<z.ZodNullable<z.ZodUnknown>>;
 }, z.core.$strict>;
@@ -79,6 +80,7 @@ export declare const agentSettingsSchema: z.ZodUnion<readonly [z.ZodObject<{
     acp_model: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     acp_session_mode: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     acp_prompt_timeout: z.ZodDefault<z.ZodNumber>;
+    acp_startup_timeout: z.ZodDefault<z.ZodNumber>;
     schema_version: z.ZodDefault<z.ZodLiteral<number>>;
     mcp_config: z.ZodDefault<z.ZodNullable<z.ZodUnknown>>;
 }, z.core.$strict>]>;

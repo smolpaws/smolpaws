@@ -14,5 +14,6 @@ export interface DispatchLlmResponseOptions {
     readonly maxConcurrency?: number;
     readonly executor?: ParallelToolExecutor;
 }
+export declare const CORRECTIVE_NUDGE = "Your last response did not include a function call or a message. Please use a tool to proceed with the task.";
 export declare function classifyResponse(message: Message): LLMResponseType;
 export declare function dispatchLlmResponse(response: LLMCompletionResponse, state: ConversationState, runner: ToolRunner, options?: DispatchLlmResponseOptions): Promise<readonly Event[]>;

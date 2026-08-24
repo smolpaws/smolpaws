@@ -25,14 +25,14 @@
                     "basic": "#/components/schemas/MCPBasicAuthCredential-Input",
                     "bearer": "#/components/schemas/MCPBearerAuthCredential-Input",
                     "header": "#/components/schemas/MCPHeaderAuthCredential-Input",
-                    "none": "#/components/schemas/MCPNoneAuthCredential-Input",
+                    "none": "#/components/schemas/MCPNoneAuthCredential",
                     "oauth2": "#/components/schemas/MCPOAuthAuthCredential-Input"
                   },
                   "propertyName": "strategy"
                 },
                 "oneOf": [
                   {
-                    "$ref": "#/components/schemas/MCPNoneAuthCredential-Input"
+                    "$ref": "#/components/schemas/MCPNoneAuthCredential"
                   },
                   {
                     "$ref": "#/components/schemas/MCPApiKeyAuthCredential-Input"
@@ -254,6 +254,12 @@
             "description": "Session mode ID to set after creating a session. If None (default), auto-detected from the ACP server type: 'bypassPermissions' for claude-agent-acp, 'agent-full-access' for codex-acp.",
             "title": "Acp Session Mode"
           },
+          "acp_startup_timeout": {
+            "default": 90,
+            "description": "Timeout in seconds for ACP server startup: spawning the subprocess, the initialize/authenticate handshake, and new_session()/load_session(). Unlike acp_prompt_timeout, this is a hard deadline rather than an idle deadline, since startup has no intermediate progress signal to reset it against. Prevents an indefinite hang when the ACP server blocks on authentication (e.g. an expired token) without ever raising.",
+            "title": "Acp Startup Timeout",
+            "type": "number"
+          },
           "agent_context": {
             "anyOf": [
               {
@@ -364,7 +370,9 @@
               {
                 "fetch": {
                   "args": [
-                    "mcp-server-fetch"
+                    "--with",
+                    "mcp==1.29.0",
+                    "mcp-server-fetch==2026.7.10"
                   ],
                   "command": "uvx"
                 }
@@ -516,6 +524,12 @@
             "description": "Session mode ID to set after creating a session. If None (default), auto-detected from the ACP server type: 'bypassPermissions' for claude-agent-acp, 'agent-full-access' for codex-acp.",
             "title": "Acp Session Mode"
           },
+          "acp_startup_timeout": {
+            "default": 90,
+            "description": "Timeout in seconds for ACP server startup: spawning the subprocess, the initialize/authenticate handshake, and new_session()/load_session(). Unlike acp_prompt_timeout, this is a hard deadline rather than an idle deadline, since startup has no intermediate progress signal to reset it against. Prevents an indefinite hang when the ACP server blocks on authentication (e.g. an expired token) without ever raising.",
+            "title": "Acp Startup Timeout",
+            "type": "number"
+          },
           "agent_context": {
             "anyOf": [
               {
@@ -626,7 +640,9 @@
               {
                 "fetch": {
                   "args": [
-                    "mcp-server-fetch"
+                    "--with",
+                    "mcp==1.29.0",
+                    "mcp-server-fetch==2026.7.10"
                   ],
                   "command": "uvx"
                 }
@@ -1410,7 +1426,9 @@
               {
                 "fetch": {
                   "args": [
-                    "mcp-server-fetch"
+                    "--with",
+                    "mcp==1.29.0",
+                    "mcp-server-fetch==2026.7.10"
                   ],
                   "command": "uvx"
                 }
@@ -1622,7 +1640,9 @@
               {
                 "fetch": {
                   "args": [
-                    "mcp-server-fetch"
+                    "--with",
+                    "mcp==1.29.0",
+                    "mcp-server-fetch==2026.7.10"
                   ],
                   "command": "uvx"
                 }
@@ -1766,6 +1786,18 @@
             "title": "Disabled Skills",
             "type": "array"
           },
+          "load_memory": {
+            "acp_compatible": true,
+            "default": false,
+            "description": "Whether to load persistent agent memory (MEMORY.md indexes under ~/.openhands/memory/ and <workspace>/.openhands/memory/) into the system prompt. Like load_project_skills, this flag is not resolved by AgentContext itself (the workspace path is unknown at validation time); LocalConversation resolves it lazily on the first send_message() / run() and stores the result in memory_context.",
+            "openhands_settings": {
+              "depends_on": [],
+              "label": "Persistent memory",
+              "prominence": "major"
+            },
+            "title": "Load Memory",
+            "type": "boolean"
+          },
           "load_project_skills": {
             "acp_compatible": true,
             "default": false,
@@ -1800,6 +1832,19 @@
             "default": "marketplaces/default.json",
             "description": "Relative marketplace JSON path within the public skills repository. Set to None to load all public skills without marketplace filtering.",
             "title": "Marketplace Path"
+          },
+          "memory_context": {
+            "acp_compatible": true,
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Resolved memory-index text rendered into the <MEMORY_CONTEXT> prompt block. Populated via model_copy by LocalConversation when load_memory is set; excluded from serialization because it is re-resolved from disk each session and must not bloat persisted conversation state.",
+            "title": "Memory Context"
           },
           "registered_marketplaces": {
             "acp_compatible": true,
@@ -1900,6 +1945,18 @@
             },
             "title": "Disabled Skills",
             "type": "array"
+          },
+          "load_memory": {
+            "acp_compatible": true,
+            "default": false,
+            "description": "Whether to load persistent agent memory (MEMORY.md indexes under ~/.openhands/memory/ and <workspace>/.openhands/memory/) into the system prompt. Like load_project_skills, this flag is not resolved by AgentContext itself (the workspace path is unknown at validation time); LocalConversation resolves it lazily on the first send_message() / run() and stores the result in memory_context.",
+            "openhands_settings": {
+              "depends_on": [],
+              "label": "Persistent memory",
+              "prominence": "major"
+            },
+            "title": "Load Memory",
+            "type": "boolean"
           },
           "load_project_skills": {
             "acp_compatible": true,
@@ -2103,7 +2160,9 @@
               {
                 "fetch": {
                   "args": [
-                    "mcp-server-fetch"
+                    "--with",
+                    "mcp==1.29.0",
+                    "mcp-server-fetch==2026.7.10"
                   ],
                   "command": "uvx"
                 }
@@ -2126,7 +2185,9 @@
               {
                 "fetch": {
                   "args": [
-                    "mcp-server-fetch"
+                    "--with",
+                    "mcp==1.29.0",
+                    "mcp-server-fetch==2026.7.10"
                   ],
                   "command": "uvx"
                 }
@@ -2358,6 +2419,27 @@
           "kind"
         ],
         "title": "AgentFinishedCritic",
+        "type": "object"
+      },
+      "AgentLaunchAdditions": {
+        "additionalProperties": false,
+        "description": "Add deployment context after agent resolution.",
+        "properties": {
+          "system_message_suffix_append": {
+            "anyOf": [
+              {
+                "maxLength": 32768,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deployment-controlled text appended to the resolved agent's system-message suffix.",
+            "title": "System Message Suffix Append"
+          }
+        },
+        "title": "AgentLaunchAdditions",
         "type": "object"
       },
       "AgentProfileDetailResponse": {
@@ -2643,6 +2725,63 @@
         "title": "AgentResponseResult",
         "type": "object"
       },
+      "AgentSettings": {
+        "additionalProperties": true,
+        "properties": {
+          "agent_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "openhands",
+                  "acp"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Kind"
+          },
+          "mcp_config": {
+            "$ref": "#/components/schemas/MCPConfig"
+          },
+          "schema_version": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Version"
+          }
+        },
+        "required": [
+          "mcp_config"
+        ],
+        "title": "AgentSettings",
+        "type": "object"
+      },
+      "AgentSettingsPatch": {
+        "additionalProperties": true,
+        "properties": {
+          "mcp_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MCPConfigPatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "AgentSettingsPatch",
+        "type": "object"
+      },
       "AlwaysConfirm-Input": {
         "properties": {
           "kind": {
@@ -2666,56 +2805,6 @@
           "kind"
         ],
         "title": "AlwaysConfirm",
-        "type": "object"
-      },
-      "Annotation": {
-        "additionalProperties": true,
-        "description": "A URL citation when using web search.",
-        "properties": {
-          "type": {
-            "const": "url_citation",
-            "title": "Type",
-            "type": "string"
-          },
-          "url_citation": {
-            "$ref": "#/components/schemas/AnnotationURLCitation"
-          }
-        },
-        "required": [
-          "type",
-          "url_citation"
-        ],
-        "title": "Annotation",
-        "type": "object"
-      },
-      "AnnotationURLCitation": {
-        "additionalProperties": true,
-        "description": "A URL citation when using web search.",
-        "properties": {
-          "end_index": {
-            "title": "End Index",
-            "type": "integer"
-          },
-          "start_index": {
-            "title": "Start Index",
-            "type": "integer"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          },
-          "url": {
-            "title": "Url",
-            "type": "string"
-          }
-        },
-        "required": [
-          "end_index",
-          "start_index",
-          "title",
-          "url"
-        ],
-        "title": "AnnotationURLCitation",
         "type": "object"
       },
       "APIBasedCritic-Input": {
@@ -4721,374 +4810,6 @@
         "title": "BrowserTypeTool",
         "type": "object"
       },
-      "ChatCompletion": {
-        "additionalProperties": true,
-        "description": "Represents a chat completion response returned by model, based on the provided input.",
-        "properties": {
-          "choices": {
-            "items": {
-              "$ref": "#/components/schemas/Choice"
-            },
-            "title": "Choices",
-            "type": "array"
-          },
-          "created": {
-            "title": "Created",
-            "type": "integer"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "model": {
-            "title": "Model",
-            "type": "string"
-          },
-          "object": {
-            "const": "chat.completion",
-            "title": "Object",
-            "type": "string"
-          },
-          "service_tier": {
-            "anyOf": [
-              {
-                "enum": [
-                  "auto",
-                  "default",
-                  "flex",
-                  "scale",
-                  "priority"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Service Tier"
-          },
-          "system_fingerprint": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "System Fingerprint"
-          },
-          "usage": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CompletionUsage"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "id",
-          "choices",
-          "created",
-          "model",
-          "object"
-        ],
-        "title": "ChatCompletion",
-        "type": "object"
-      },
-      "ChatCompletionAudio": {
-        "additionalProperties": true,
-        "description": "If the audio output modality is requested, this object contains data\nabout the audio response from the model. [Learn more](https://platform.openai.com/docs/guides/audio).",
-        "properties": {
-          "data": {
-            "title": "Data",
-            "type": "string"
-          },
-          "expires_at": {
-            "title": "Expires At",
-            "type": "integer"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "transcript": {
-            "title": "Transcript",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "data",
-          "expires_at",
-          "transcript"
-        ],
-        "title": "ChatCompletionAudio",
-        "type": "object"
-      },
-      "ChatCompletionMessage": {
-        "additionalProperties": true,
-        "description": "A chat completion message generated by the model.",
-        "properties": {
-          "annotations": {
-            "anyOf": [
-              {
-                "items": {
-                  "$ref": "#/components/schemas/Annotation"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Annotations"
-          },
-          "audio": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ChatCompletionAudio"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "content": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Content"
-          },
-          "function_call": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/FunctionCall"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "refusal": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Refusal"
-          },
-          "role": {
-            "const": "assistant",
-            "title": "Role",
-            "type": "string"
-          },
-          "tool_calls": {
-            "anyOf": [
-              {
-                "items": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/ChatCompletionMessageFunctionToolCall"
-                    },
-                    {
-                      "$ref": "#/components/schemas/ChatCompletionMessageCustomToolCall"
-                    }
-                  ]
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Tool Calls"
-          }
-        },
-        "required": [
-          "role"
-        ],
-        "title": "ChatCompletionMessage",
-        "type": "object"
-      },
-      "ChatCompletionMessageCustomToolCall": {
-        "additionalProperties": true,
-        "description": "A call to a custom tool created by the model.",
-        "properties": {
-          "custom": {
-            "$ref": "#/components/schemas/Custom"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "type": {
-            "const": "custom",
-            "title": "Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "custom",
-          "type"
-        ],
-        "title": "ChatCompletionMessageCustomToolCall",
-        "type": "object"
-      },
-      "ChatCompletionMessageFunctionToolCall": {
-        "additionalProperties": true,
-        "description": "A call to a function tool created by the model.",
-        "properties": {
-          "function": {
-            "$ref": "#/components/schemas/Function"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "type": {
-            "const": "function",
-            "title": "Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "function",
-          "type"
-        ],
-        "title": "ChatCompletionMessageFunctionToolCall",
-        "type": "object"
-      },
-      "ChatCompletionTokenLogprob": {
-        "additionalProperties": true,
-        "properties": {
-          "bytes": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "integer"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Bytes"
-          },
-          "logprob": {
-            "title": "Logprob",
-            "type": "number"
-          },
-          "token": {
-            "title": "Token",
-            "type": "string"
-          },
-          "top_logprobs": {
-            "items": {
-              "$ref": "#/components/schemas/TopLogprob"
-            },
-            "title": "Top Logprobs",
-            "type": "array"
-          }
-        },
-        "required": [
-          "token",
-          "logprob",
-          "top_logprobs"
-        ],
-        "title": "ChatCompletionTokenLogprob",
-        "type": "object"
-      },
-      "Choice": {
-        "additionalProperties": true,
-        "properties": {
-          "finish_reason": {
-            "enum": [
-              "stop",
-              "length",
-              "tool_calls",
-              "content_filter",
-              "function_call"
-            ],
-            "title": "Finish Reason",
-            "type": "string"
-          },
-          "index": {
-            "title": "Index",
-            "type": "integer"
-          },
-          "logprobs": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ChoiceLogprobs"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "message": {
-            "$ref": "#/components/schemas/ChatCompletionMessage"
-          }
-        },
-        "required": [
-          "finish_reason",
-          "index",
-          "message"
-        ],
-        "title": "Choice",
-        "type": "object"
-      },
-      "ChoiceLogprobs": {
-        "additionalProperties": true,
-        "description": "Log probability information for the choice.",
-        "properties": {
-          "content": {
-            "anyOf": [
-              {
-                "items": {
-                  "$ref": "#/components/schemas/ChatCompletionTokenLogprob"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Content"
-          },
-          "refusal": {
-            "anyOf": [
-              {
-                "items": {
-                  "$ref": "#/components/schemas/ChatCompletionTokenLogprob"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Refusal"
-          }
-        },
-        "title": "ChoiceLogprobs",
-        "type": "object"
-      },
       "ClientTool": {
         "description": "A tool whose execution is deferred to the external client.\n\nCreated from a :class:`ClientToolSpec` at conversation start. The agent\nsees it as a normal tool and can call it; the ActionEvent is emitted\nover WebSocket for the client to handle.",
         "properties": {
@@ -5356,103 +5077,6 @@
           }
         },
         "title": "CmdOutputMetadata",
-        "type": "object"
-      },
-      "CompletionTokensDetails": {
-        "additionalProperties": true,
-        "description": "Breakdown of tokens used in a completion.",
-        "properties": {
-          "accepted_prediction_tokens": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Accepted Prediction Tokens"
-          },
-          "audio_tokens": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Audio Tokens"
-          },
-          "reasoning_tokens": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reasoning Tokens"
-          },
-          "rejected_prediction_tokens": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rejected Prediction Tokens"
-          }
-        },
-        "title": "CompletionTokensDetails",
-        "type": "object"
-      },
-      "CompletionUsage": {
-        "additionalProperties": true,
-        "description": "Usage statistics for the completion request.",
-        "properties": {
-          "completion_tokens": {
-            "title": "Completion Tokens",
-            "type": "integer"
-          },
-          "completion_tokens_details": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CompletionTokensDetails"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "prompt_tokens": {
-            "title": "Prompt Tokens",
-            "type": "integer"
-          },
-          "prompt_tokens_details": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/PromptTokensDetails"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "total_tokens": {
-            "title": "Total Tokens",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "completion_tokens",
-          "prompt_tokens",
-          "total_tokens"
-        ],
-        "title": "CompletionUsage",
         "type": "object"
       },
       "Condensation": {
@@ -6052,6 +5676,19 @@
               }
             ]
           },
+          "parent_conversation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ID of the conversation that owns this one. ``None`` for top-level conversations.",
+            "title": "Parent Conversation Id"
+          },
           "persistence_dir": {
             "anyOf": [
               {
@@ -6089,6 +5726,15 @@
             "description": "Whether to enable stuck detection for the agent.",
             "title": "Stuck Detection",
             "type": "boolean"
+          },
+          "sub_conversation_ids": {
+            "description": "IDs of conversations naming this one as their parent. Derived from the server catalog; empty on webhook payloads. Name mirrors the Cloud API field.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Sub Conversation Ids",
+            "type": "array"
           },
           "supports_runtime_model_switch": {
             "default": false,
@@ -6234,30 +5880,6 @@
         "additionalProperties": true,
         "type": "object"
       },
-      "Cost": {
-        "properties": {
-          "cost": {
-            "description": "Cost must be non-negative",
-            "minimum": 0,
-            "title": "Cost",
-            "type": "number"
-          },
-          "model": {
-            "title": "Model",
-            "type": "string"
-          },
-          "timestamp": {
-            "title": "Timestamp",
-            "type": "number"
-          }
-        },
-        "required": [
-          "model",
-          "cost"
-        ],
-        "title": "Cost",
-        "type": "object"
-      },
       "CriticBase-Input": {
         "discriminator": {
           "mapping": {
@@ -6349,26 +5971,6 @@
           "message"
         ],
         "title": "CriticResult",
-        "type": "object"
-      },
-      "Custom": {
-        "additionalProperties": true,
-        "description": "The custom tool that the model called.",
-        "properties": {
-          "input": {
-            "title": "Input",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "input",
-          "name"
-        ],
-        "title": "Custom",
         "type": "object"
       },
       "DelegateAction": {
@@ -7526,46 +7128,6 @@
         "title": "ForkConversationRequest",
         "type": "object"
       },
-      "Function": {
-        "additionalProperties": true,
-        "description": "The function that the model called.",
-        "properties": {
-          "arguments": {
-            "title": "Arguments",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "arguments",
-          "name"
-        ],
-        "title": "Function",
-        "type": "object"
-      },
-      "FunctionCall": {
-        "additionalProperties": true,
-        "description": "Deprecated and replaced by `tool_calls`.\n\nThe name and arguments of a function that should be called, as generated by the model.",
-        "properties": {
-          "arguments": {
-            "title": "Arguments",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "arguments",
-          "name"
-        ],
-        "title": "FunctionCall",
-        "type": "object"
-      },
       "GitChange": {
         "properties": {
           "path": {
@@ -8177,19 +7739,6 @@
           "title"
         ],
         "title": "GrepTool",
-        "type": "object"
-      },
-      "HealthStatus": {
-        "properties": {
-          "status": {
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "HealthStatus",
         "type": "object"
       },
       "HomeResponse": {
@@ -8858,6 +8407,17 @@
             "description": "Per-user session API keys. If provided, all subsequent /api/* requests must authenticate with one of these keys via the X-Session-API-Key header.",
             "title": "Session Api Keys"
           },
+          "telemetry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TelemetrySpec"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Product-analytics policy for this pod. Without this, a warm-pool pod keeps whatever mode it booted with (normally 'disabled'), so a deployment that expects telemetry must supply it here."
+          },
           "web_url": {
             "anyOf": [
               {
@@ -8956,6 +8516,21 @@
             "title": "Enabled",
             "type": "boolean"
           },
+          "files": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Plugin files, relative to install_path (None if load failed)",
+            "title": "Files"
+          },
           "install_path": {
             "description": "Path where the plugin is installed",
             "title": "Install Path",
@@ -8994,6 +8569,21 @@
             ],
             "description": "Resolved git commit SHA",
             "title": "Resolved Ref"
+          },
+          "skills": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PluginSkillSummary"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Skills bundled in the plugin (None if it failed to load)",
+            "title": "Skills"
           },
           "source": {
             "description": "Original source (e.g., 'github:owner/repo')",
@@ -9647,6 +9237,21 @@
             },
             "title": "Api Key"
           },
+          "api_mode": {
+            "default": "auto",
+            "description": "LLM API endpoint mode. 'auto' resolves from model metadata and SDK fallbacks; use 'chat' or 'responses' to override endpoint selection for proxy aliases and newly released models.",
+            "enum": [
+              "auto",
+              "chat",
+              "responses"
+            ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
+            "title": "Api Mode",
+            "type": "string"
+          },
           "api_version": {
             "anyOf": [
               {
@@ -9657,6 +9262,10 @@
               }
             ],
             "description": "API version (e.g., Azure).",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Api Version"
           },
           "auth_type": {
@@ -9688,6 +9297,10 @@
                 "type": "null"
               }
             ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Aws Access Key Id"
           },
           "aws_bedrock_runtime_endpoint": {
@@ -9699,6 +9312,10 @@
                 "type": "null"
               }
             ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Aws Bedrock Runtime Endpoint"
           },
           "aws_profile_name": {
@@ -9710,6 +9327,10 @@
                 "type": "null"
               }
             ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Aws Profile Name"
           },
           "aws_region_name": {
@@ -9721,6 +9342,10 @@
                 "type": "null"
               }
             ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Aws Region Name"
           },
           "aws_role_name": {
@@ -9732,6 +9357,10 @@
                 "type": "null"
               }
             ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Aws Role Name"
           },
           "aws_secret_access_key": {
@@ -9748,6 +9377,10 @@
                 "type": "null"
               }
             ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Aws Secret Access Key"
           },
           "aws_session_name": {
@@ -9759,6 +9392,10 @@
                 "type": "null"
               }
             ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Aws Session Name"
           },
           "aws_session_token": {
@@ -9775,6 +9412,10 @@
                 "type": "null"
               }
             ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Aws Session Token"
           },
           "base_url": {
@@ -9796,8 +9437,31 @@
           "caching_prompt": {
             "default": true,
             "description": "Enable caching of prompts.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Caching Prompt",
             "type": "boolean"
+          },
+          "capability_overrides": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Explicit model capability overrides. Supported keys include supports_reasoning_effort, thinking_mode (adaptive, manual, none, or unknown), supports_sampling_params, supports_prompt_cache, supports_stop_words, supports_responses_api, supports_vision, and supports_prompt_cache_retention. Overrides take precedence over LiteLLM metadata and SDK fallbacks.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
+            "title": "Capability Overrides",
+            "type": "object"
           },
           "custom_tokenizer": {
             "anyOf": [
@@ -9809,6 +9473,10 @@
               }
             ],
             "description": "A custom tokenizer to use for token counting.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Custom Tokenizer"
           },
           "disable_stop_word": {
@@ -9822,6 +9490,10 @@
             ],
             "default": false,
             "description": "Disable using of stop word.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Disable Stop Word"
           },
           "disable_vision": {
@@ -9834,16 +9506,28 @@
               }
             ],
             "description": "If model is vision capable, this option allows to disable image processing (useful for cost reduction).",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Disable Vision"
           },
           "drop_params": {
             "default": true,
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Drop Params",
             "type": "boolean"
           },
           "enable_encrypted_reasoning": {
             "default": true,
             "description": "If True, ask for ['reasoning.encrypted_content'] in Responses API include.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Enable Encrypted Reasoning",
             "type": "boolean"
           },
@@ -9857,7 +9541,11 @@
               }
             ],
             "default": 200000,
-            "description": "The budget tokens for extended thinking, supported by Anthropic models.",
+            "description": "Legacy token budget for models confirmed to use manual Anthropic extended thinking. Ignored for adaptive-thinking models. Prefer reasoning_effort for new integrations.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Extended Thinking Budget"
           },
           "extra_headers": {
@@ -9873,6 +9561,10 @@
               }
             ],
             "description": "Optional HTTP headers to forward to LiteLLM requests.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Extra Headers"
           },
           "fallback_strategy": {
@@ -9896,6 +9588,10 @@
               }
             ],
             "description": "Force using string content serializer when sending to LLM API. If None (default), auto-detect based on model. Useful for providers that do not support list content, like HuggingFace and Groq.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Force String Serializer"
           },
           "inline_image_urls": {
@@ -9907,7 +9603,11 @@
                 "type": "null"
               }
             ],
-            "description": "If True, fetch any http(s) image URL in outgoing messages and inline it as a base64 ``data:`` URL before sending. If None (default), auto-detect based on model (some APIs such as Moonshot's public Kimi endpoint reject URL-formatted images and require base64). Set this explicitly when the model is reached through a proxy alias that hides the underlying provider (e.g. ``litellm_proxy/<custom-alias>``). Note: inlining only runs when ``vision_is_active()`` is True, so the alias must still be recognised as vision-capable by litellm — otherwise images are not sent at all and there is nothing to inline.",
+            "description": "If True, fetch any http(s) image URL in outgoing messages and inline it as a base64 ``data:`` URL before sending. If None (default), auto-detect based on model (some APIs such as Moonshot's public Kimi endpoint reject URL-formatted images and require base64). Set this explicitly when the model is reached through a proxy alias that hides the underlying provider (e.g. ``litellm_proxy/<custom-alias>``). Note: inlining only runs when ``vision_is_active()`` is True, so the alias must still be recognised as vision-capable by the SDK feature registry or proxy model metadata.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Inline Image Urls"
           },
           "input_cost_per_token": {
@@ -9921,23 +9621,39 @@
               }
             ],
             "description": "The cost per input token. This will available in logs for user.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Input Cost Per Token"
           },
           "litellm_extra_body": {
             "additionalProperties": true,
             "description": "Additional key-value pairs to pass to litellm's extra_body parameter. This is useful for custom inference endpoints that need additional parameters for configuration, routing, or advanced features. NOTE: Not all LLM providers support extra_body parameters. Some providers (e.g., OpenAI) may reject requests with unrecognized options. This is commonly supported by: - LiteLLM proxy servers (routing metadata, tracing) - vLLM endpoints (return_token_ids, etc.) - Custom inference clusters Examples: - Proxy routing: {'trace_version': '1.0.0', 'tags': ['agent:my-agent']} - vLLM features: {'return_token_ids': True}",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Litellm Extra Body",
             "type": "object"
           },
           "log_completions": {
             "default": false,
             "description": "Enable logging of completions.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Log Completions",
             "type": "boolean"
           },
           "log_completions_folder": {
             "default": "logs/completions",
             "description": "The folder to log LLM completions to. Required if log_completions is True.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Log Completions Folder",
             "type": "string"
           },
@@ -9952,12 +9668,20 @@
               }
             ],
             "description": "The maximum number of input tokens. Note that this is currently unused, and the value at runtime is actually the total tokens in OpenAI (e.g. 128,000 tokens for GPT-4).",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Max Input Tokens"
           },
           "max_message_chars": {
             "default": 30000,
             "description": "Approx max chars in each event/content sent to the LLM.",
             "minimum": 1,
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Max Message Chars",
             "type": "integer"
           },
@@ -9972,6 +9696,10 @@
               }
             ],
             "description": "The maximum number of output tokens. This is sent to the LLM.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Max Output Tokens"
           },
           "model": {
@@ -9994,23 +9722,39 @@
               }
             ],
             "description": "Optional canonical model name for feature registry lookups. The OpenHands SDK maintains a model feature registry that maps model names to capabilities (e.g., vision support, prompt caching, responses API support). When using proxied or aliased model identifiers, set this field to the canonical model name (e.g., 'openai/gpt-4o') to ensure correct capability detection. If not provided, the 'model' field will be used for capability lookups.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Model Canonical Name"
           },
           "modify_params": {
             "default": true,
             "description": "Modify params allows litellm to do transformations like adding a default message, when a message is empty.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Modify Params",
             "type": "boolean"
           },
           "native_tool_calling": {
             "default": true,
             "description": "Whether to use native tool calling.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Native Tool Calling",
             "type": "boolean"
           },
           "num_retries": {
             "default": 5,
             "minimum": 0,
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Num Retries",
             "type": "integer"
           },
@@ -10023,15 +9767,27 @@
                 "type": "null"
               }
             ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Ollama Base Url"
           },
           "openrouter_app_name": {
             "default": "OpenHands",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Openrouter App Name",
             "type": "string"
           },
           "openrouter_site_url": {
             "default": "https://docs.all-hands.dev/",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Openrouter Site Url",
             "type": "string"
           },
@@ -10046,6 +9802,10 @@
               }
             ],
             "description": "The cost per output token. This will available in logs for user.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Output Cost Per Token"
           },
           "prompt_cache_retention": {
@@ -10059,6 +9819,10 @@
             ],
             "default": "24h",
             "description": "Retention policy for prompt cache. Only sent for supported models (GPT-5+ and GPT-4.1, excluding Azure deployments); explicitly stripped for all others.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Prompt Cache Retention"
           },
           "reasoning_effort": {
@@ -10078,7 +9842,11 @@
               }
             ],
             "default": "high",
-            "description": "The effort to put into reasoning. This is a string that can be one of 'low', 'medium', 'high', 'xhigh', or 'none'. Can apply to all reasoning models.",
+            "description": "Provider-neutral reasoning effort. Common values include 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', and 'max'. The SDK accepts future provider values and lets LiteLLM translate them.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Reasoning Effort"
           },
           "reasoning_summary": {
@@ -10096,23 +9864,39 @@
               }
             ],
             "description": "The level of detail for reasoning summaries. This is a string that can be one of 'auto', 'concise', or 'detailed'. Requires verified OpenAI organization. Only sent when explicitly set.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Reasoning Summary"
           },
           "retry_max_wait": {
             "default": 64,
             "minimum": 0,
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Retry Max Wait",
             "type": "integer"
           },
           "retry_min_wait": {
             "default": 8,
             "minimum": 0,
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Retry Min Wait",
             "type": "integer"
           },
           "retry_multiplier": {
             "default": 8,
             "minimum": 0,
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Retry Multiplier",
             "type": "number"
           },
@@ -10126,11 +9910,19 @@
               }
             ],
             "description": "The seed to use for random number generation.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Seed"
           },
           "stream": {
             "default": false,
             "description": "Enable streaming responses from the LLM. When enabled, the provided `on_token` callback in .completions and .responses will be invoked for each chunk of tokens.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Stream",
             "type": "boolean"
           },
@@ -10165,6 +9957,10 @@
               }
             ],
             "description": "Sampling temperature for response generation. Defaults to None (uses provider default temperature). Set to 0.0 for deterministic outputs, or higher values (0.7-1.0) for more creative responses.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Temperature"
           },
           "timeout": {
@@ -10179,6 +9975,10 @@
             ],
             "default": 300,
             "description": "HTTP timeout in seconds. Default is 300s (5 minutes). Set to None to disable timeout (not recommended for production).",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Timeout"
           },
           "top_k": {
@@ -10191,6 +9991,10 @@
                 "type": "null"
               }
             ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Top K"
           },
           "top_p": {
@@ -10205,11 +10009,19 @@
               }
             ],
             "description": "Nucleus sampling parameter. Defaults to None (uses provider default). Set to a value between 0 and 1 to control diversity of outputs.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Top P"
           },
           "usage_id": {
             "default": "default",
             "description": "Unique usage identifier for the LLM. Used for registry lookups, telemetry, and spend tracking.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Usage Id",
             "type": "string"
           }
@@ -10242,6 +10054,21 @@
             },
             "title": "Api Key"
           },
+          "api_mode": {
+            "default": "auto",
+            "description": "LLM API endpoint mode. 'auto' resolves from model metadata and SDK fallbacks; use 'chat' or 'responses' to override endpoint selection for proxy aliases and newly released models.",
+            "enum": [
+              "auto",
+              "chat",
+              "responses"
+            ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
+            "title": "Api Mode",
+            "type": "string"
+          },
           "api_version": {
             "anyOf": [
               {
@@ -10252,6 +10079,10 @@
               }
             ],
             "description": "API version (e.g., Azure).",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Api Version"
           },
           "auth_type": {
@@ -10283,6 +10114,10 @@
                 "type": "null"
               }
             ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Aws Access Key Id"
           },
           "aws_bedrock_runtime_endpoint": {
@@ -10294,6 +10129,10 @@
                 "type": "null"
               }
             ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Aws Bedrock Runtime Endpoint"
           },
           "aws_profile_name": {
@@ -10305,6 +10144,10 @@
                 "type": "null"
               }
             ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Aws Profile Name"
           },
           "aws_region_name": {
@@ -10316,6 +10159,10 @@
                 "type": "null"
               }
             ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Aws Region Name"
           },
           "aws_role_name": {
@@ -10327,6 +10174,10 @@
                 "type": "null"
               }
             ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Aws Role Name"
           },
           "aws_secret_access_key": {
@@ -10343,6 +10194,10 @@
                 "type": "null"
               }
             ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Aws Secret Access Key"
           },
           "aws_session_name": {
@@ -10354,6 +10209,10 @@
                 "type": "null"
               }
             ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Aws Session Name"
           },
           "aws_session_token": {
@@ -10370,6 +10229,10 @@
                 "type": "null"
               }
             ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Aws Session Token"
           },
           "base_url": {
@@ -10391,8 +10254,31 @@
           "caching_prompt": {
             "default": true,
             "description": "Enable caching of prompts.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Caching Prompt",
             "type": "boolean"
+          },
+          "capability_overrides": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Explicit model capability overrides. Supported keys include supports_reasoning_effort, thinking_mode (adaptive, manual, none, or unknown), supports_sampling_params, supports_prompt_cache, supports_stop_words, supports_responses_api, supports_vision, and supports_prompt_cache_retention. Overrides take precedence over LiteLLM metadata and SDK fallbacks.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
+            "title": "Capability Overrides",
+            "type": "object"
           },
           "custom_tokenizer": {
             "anyOf": [
@@ -10404,6 +10290,10 @@
               }
             ],
             "description": "A custom tokenizer to use for token counting.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Custom Tokenizer"
           },
           "disable_stop_word": {
@@ -10417,6 +10307,10 @@
             ],
             "default": false,
             "description": "Disable using of stop word.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Disable Stop Word"
           },
           "disable_vision": {
@@ -10429,16 +10323,28 @@
               }
             ],
             "description": "If model is vision capable, this option allows to disable image processing (useful for cost reduction).",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Disable Vision"
           },
           "drop_params": {
             "default": true,
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Drop Params",
             "type": "boolean"
           },
           "enable_encrypted_reasoning": {
             "default": true,
             "description": "If True, ask for ['reasoning.encrypted_content'] in Responses API include.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Enable Encrypted Reasoning",
             "type": "boolean"
           },
@@ -10452,7 +10358,11 @@
               }
             ],
             "default": 200000,
-            "description": "The budget tokens for extended thinking, supported by Anthropic models.",
+            "description": "Legacy token budget for models confirmed to use manual Anthropic extended thinking. Ignored for adaptive-thinking models. Prefer reasoning_effort for new integrations.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Extended Thinking Budget"
           },
           "extra_headers": {
@@ -10468,6 +10378,10 @@
               }
             ],
             "description": "Optional HTTP headers to forward to LiteLLM requests.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Extra Headers"
           },
           "force_string_serializer": {
@@ -10480,6 +10394,10 @@
               }
             ],
             "description": "Force using string content serializer when sending to LLM API. If None (default), auto-detect based on model. Useful for providers that do not support list content, like HuggingFace and Groq.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Force String Serializer"
           },
           "inline_image_urls": {
@@ -10491,7 +10409,11 @@
                 "type": "null"
               }
             ],
-            "description": "If True, fetch any http(s) image URL in outgoing messages and inline it as a base64 ``data:`` URL before sending. If None (default), auto-detect based on model (some APIs such as Moonshot's public Kimi endpoint reject URL-formatted images and require base64). Set this explicitly when the model is reached through a proxy alias that hides the underlying provider (e.g. ``litellm_proxy/<custom-alias>``). Note: inlining only runs when ``vision_is_active()`` is True, so the alias must still be recognised as vision-capable by litellm — otherwise images are not sent at all and there is nothing to inline.",
+            "description": "If True, fetch any http(s) image URL in outgoing messages and inline it as a base64 ``data:`` URL before sending. If None (default), auto-detect based on model (some APIs such as Moonshot's public Kimi endpoint reject URL-formatted images and require base64). Set this explicitly when the model is reached through a proxy alias that hides the underlying provider (e.g. ``litellm_proxy/<custom-alias>``). Note: inlining only runs when ``vision_is_active()`` is True, so the alias must still be recognised as vision-capable by the SDK feature registry or proxy model metadata.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Inline Image Urls"
           },
           "input_cost_per_token": {
@@ -10505,6 +10427,10 @@
               }
             ],
             "description": "The cost per input token. This will available in logs for user.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Input Cost Per Token"
           },
           "is_subscription": {
@@ -10516,18 +10442,30 @@
           "litellm_extra_body": {
             "additionalProperties": true,
             "description": "Additional key-value pairs to pass to litellm's extra_body parameter. This is useful for custom inference endpoints that need additional parameters for configuration, routing, or advanced features. NOTE: Not all LLM providers support extra_body parameters. Some providers (e.g., OpenAI) may reject requests with unrecognized options. This is commonly supported by: - LiteLLM proxy servers (routing metadata, tracing) - vLLM endpoints (return_token_ids, etc.) - Custom inference clusters Examples: - Proxy routing: {'trace_version': '1.0.0', 'tags': ['agent:my-agent']} - vLLM features: {'return_token_ids': True}",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Litellm Extra Body",
             "type": "object"
           },
           "log_completions": {
             "default": false,
             "description": "Enable logging of completions.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Log Completions",
             "type": "boolean"
           },
           "log_completions_folder": {
             "default": "logs/completions",
             "description": "The folder to log LLM completions to. Required if log_completions is True.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Log Completions Folder",
             "type": "string"
           },
@@ -10542,12 +10480,20 @@
               }
             ],
             "description": "The maximum number of input tokens. Note that this is currently unused, and the value at runtime is actually the total tokens in OpenAI (e.g. 128,000 tokens for GPT-4).",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Max Input Tokens"
           },
           "max_message_chars": {
             "default": 30000,
             "description": "Approx max chars in each event/content sent to the LLM.",
             "minimum": 1,
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Max Message Chars",
             "type": "integer"
           },
@@ -10562,6 +10508,10 @@
               }
             ],
             "description": "The maximum number of output tokens. This is sent to the LLM.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Max Output Tokens"
           },
           "model": {
@@ -10584,23 +10534,39 @@
               }
             ],
             "description": "Optional canonical model name for feature registry lookups. The OpenHands SDK maintains a model feature registry that maps model names to capabilities (e.g., vision support, prompt caching, responses API support). When using proxied or aliased model identifiers, set this field to the canonical model name (e.g., 'openai/gpt-4o') to ensure correct capability detection. If not provided, the 'model' field will be used for capability lookups.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Model Canonical Name"
           },
           "modify_params": {
             "default": true,
             "description": "Modify params allows litellm to do transformations like adding a default message, when a message is empty.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Modify Params",
             "type": "boolean"
           },
           "native_tool_calling": {
             "default": true,
             "description": "Whether to use native tool calling.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Native Tool Calling",
             "type": "boolean"
           },
           "num_retries": {
             "default": 5,
             "minimum": 0,
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Num Retries",
             "type": "integer"
           },
@@ -10613,15 +10579,27 @@
                 "type": "null"
               }
             ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Ollama Base Url"
           },
           "openrouter_app_name": {
             "default": "OpenHands",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Openrouter App Name",
             "type": "string"
           },
           "openrouter_site_url": {
             "default": "https://docs.all-hands.dev/",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Openrouter Site Url",
             "type": "string"
           },
@@ -10636,6 +10614,10 @@
               }
             ],
             "description": "The cost per output token. This will available in logs for user.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Output Cost Per Token"
           },
           "prompt_cache_retention": {
@@ -10649,6 +10631,10 @@
             ],
             "default": "24h",
             "description": "Retention policy for prompt cache. Only sent for supported models (GPT-5+ and GPT-4.1, excluding Azure deployments); explicitly stripped for all others.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Prompt Cache Retention"
           },
           "reasoning_effort": {
@@ -10668,7 +10654,11 @@
               }
             ],
             "default": "high",
-            "description": "The effort to put into reasoning. This is a string that can be one of 'low', 'medium', 'high', 'xhigh', or 'none'. Can apply to all reasoning models.",
+            "description": "Provider-neutral reasoning effort. Common values include 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', and 'max'. The SDK accepts future provider values and lets LiteLLM translate them.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Reasoning Effort"
           },
           "reasoning_summary": {
@@ -10686,23 +10676,39 @@
               }
             ],
             "description": "The level of detail for reasoning summaries. This is a string that can be one of 'auto', 'concise', or 'detailed'. Requires verified OpenAI organization. Only sent when explicitly set.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Reasoning Summary"
           },
           "retry_max_wait": {
             "default": 64,
             "minimum": 0,
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Retry Max Wait",
             "type": "integer"
           },
           "retry_min_wait": {
             "default": 8,
             "minimum": 0,
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Retry Min Wait",
             "type": "integer"
           },
           "retry_multiplier": {
             "default": 8,
             "minimum": 0,
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Retry Multiplier",
             "type": "number"
           },
@@ -10716,11 +10722,19 @@
               }
             ],
             "description": "The seed to use for random number generation.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Seed"
           },
           "stream": {
             "default": false,
             "description": "Enable streaming responses from the LLM. When enabled, the provided `on_token` callback in .completions and .responses will be invoked for each chunk of tokens.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Stream",
             "type": "boolean"
           },
@@ -10755,6 +10769,10 @@
               }
             ],
             "description": "Sampling temperature for response generation. Defaults to None (uses provider default temperature). Set to 0.0 for deterministic outputs, or higher values (0.7-1.0) for more creative responses.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Temperature"
           },
           "timeout": {
@@ -10769,6 +10787,10 @@
             ],
             "default": 300,
             "description": "HTTP timeout in seconds. Default is 300s (5 minutes). Set to None to disable timeout (not recommended for production).",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Timeout"
           },
           "top_k": {
@@ -10781,6 +10803,10 @@
                 "type": "null"
               }
             ],
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Top K"
           },
           "top_p": {
@@ -10795,11 +10821,19 @@
               }
             ],
             "description": "Nucleus sampling parameter. Defaults to None (uses provider default). Set to a value between 0 and 1 to control diversity of outputs.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Top P"
           },
           "usage_id": {
             "default": "default",
             "description": "Unique usage identifier for the LLM. Used for registry lookups, telemetry, and spend tracking.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "minor"
+            },
             "title": "Usage Id",
             "type": "string"
           }
@@ -11165,6 +11199,20 @@
             ],
             "title": "Description"
           },
+          "files": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Files"
+          },
           "installed": {
             "title": "Installed",
             "type": "boolean"
@@ -11172,6 +11220,17 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
           },
           "ref": {
             "anyOf": [
@@ -11194,6 +11253,20 @@
               }
             ],
             "title": "Repo Path"
+          },
+          "skills": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PluginSkillSummary"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skills"
           },
           "source": {
             "title": "Source",
@@ -11225,7 +11298,7 @@
               }
             ],
             "default": false,
-            "description": "Whether to load marketplace plugins at conversation start. Use True for all plugins, False or [] for none, or a list of plugin names for selective loading.",
+            "description": "Whether to load marketplace plugins and standalone skills at conversation start. Use True for all, False or [] for none, or a list of plugin/skill names for selective loading.",
             "title": "Auto Load"
           },
           "name": {
@@ -11508,7 +11581,76 @@
         "title": "MCPApiKeyAuthCredential",
         "type": "object"
       },
-      "MCPApiKeyAuthCredential-Output": {},
+      "MCPApiKeyAuthCredential-Output": {
+        "properties": {
+          "header_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Header Name"
+          },
+          "strategy": {
+            "const": "api_key",
+            "title": "Strategy",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "strategy"
+        ],
+        "title": "MCPApiKeyAuthCredential",
+        "type": "object"
+      },
+      "MCPAuthCredential": {
+        "discriminator": {
+          "mapping": {
+            "api_key": "#/components/schemas/MCPApiKeyAuthCredential-Output",
+            "basic": "#/components/schemas/MCPBasicAuthCredential-Output",
+            "bearer": "#/components/schemas/MCPBearerAuthCredential-Output",
+            "header": "#/components/schemas/MCPHeaderAuthCredential-Output",
+            "none": "#/components/schemas/MCPNoneAuthCredential",
+            "oauth2": "#/components/schemas/MCPOAuthAuthCredential-Output"
+          },
+          "propertyName": "strategy"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/MCPNoneAuthCredential"
+          },
+          {
+            "$ref": "#/components/schemas/MCPApiKeyAuthCredential-Output"
+          },
+          {
+            "$ref": "#/components/schemas/MCPBearerAuthCredential-Output"
+          },
+          {
+            "$ref": "#/components/schemas/MCPBasicAuthCredential-Output"
+          },
+          {
+            "$ref": "#/components/schemas/MCPHeaderAuthCredential-Output"
+          },
+          {
+            "$ref": "#/components/schemas/MCPOAuthAuthCredential-Output"
+          }
+        ],
+        "title": "MCPAuthCredential"
+      },
       "MCPBasicAuthCredential-Input": {
         "properties": {
           "password": {
@@ -11541,7 +11683,36 @@
         "title": "MCPBasicAuthCredential",
         "type": "object"
       },
-      "MCPBasicAuthCredential-Output": {},
+      "MCPBasicAuthCredential-Output": {
+        "properties": {
+          "password": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          },
+          "strategy": {
+            "const": "basic",
+            "title": "Strategy",
+            "type": "string"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "strategy",
+          "username"
+        ],
+        "title": "MCPBasicAuthCredential",
+        "type": "object"
+      },
       "MCPBearerAuthCredential-Input": {
         "properties": {
           "strategy": {
@@ -11569,7 +11740,54 @@
         "title": "MCPBearerAuthCredential",
         "type": "object"
       },
-      "MCPBearerAuthCredential-Output": {},
+      "MCPBearerAuthCredential-Output": {
+        "properties": {
+          "strategy": {
+            "const": "bearer",
+            "title": "Strategy",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "strategy"
+        ],
+        "title": "MCPBearerAuthCredential",
+        "type": "object"
+      },
+      "MCPConfig": {
+        "additionalProperties": {
+          "$ref": "#/components/schemas/MCPServer-Output"
+        },
+        "description": "Canonical persisted MCP server map keyed by stable server name.",
+        "title": "MCPConfig",
+        "type": "object"
+      },
+      "MCPConfigPatch": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/MCPServerPatch"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": "Sparse MCP map patch; a null map value deletes that named server.",
+        "title": "MCPConfigPatch",
+        "type": "object"
+      },
       "MCPHeaderAuthCredential-Input": {
         "properties": {
           "headers": {
@@ -11593,8 +11811,35 @@
         "title": "MCPHeaderAuthCredential",
         "type": "object"
       },
-      "MCPHeaderAuthCredential-Output": {},
-      "MCPNoneAuthCredential-Input": {
+      "MCPHeaderAuthCredential-Output": {
+        "properties": {
+          "headers": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Headers",
+            "type": "object"
+          },
+          "strategy": {
+            "const": "header",
+            "title": "Strategy",
+            "type": "string"
+          }
+        },
+        "required": [
+          "strategy"
+        ],
+        "title": "MCPHeaderAuthCredential",
+        "type": "object"
+      },
+      "MCPNoneAuthCredential": {
         "properties": {
           "strategy": {
             "const": "none",
@@ -11608,7 +11853,6 @@
         "title": "MCPNoneAuthCredential",
         "type": "object"
       },
-      "MCPNoneAuthCredential-Output": {},
       "MCPOAuthAuthCredential-Input": {
         "properties": {
           "authentication": {
@@ -11643,7 +11887,40 @@
         "title": "MCPOAuthAuthCredential",
         "type": "object"
       },
-      "MCPOAuthAuthCredential-Output": {},
+      "MCPOAuthAuthCredential-Output": {
+        "properties": {
+          "authentication": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MCPOAuthAuthentication-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MCPOAuthState-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "strategy": {
+            "const": "oauth2",
+            "title": "Strategy",
+            "type": "string"
+          }
+        },
+        "required": [
+          "strategy"
+        ],
+        "title": "MCPOAuthAuthCredential",
+        "type": "object"
+      },
       "MCPOAuthAuthentication-Input": {
         "additionalProperties": false,
         "properties": {
@@ -11751,7 +12028,111 @@
         "title": "MCPOAuthAuthentication",
         "type": "object"
       },
-      "MCPOAuthAuthentication-Output": {},
+      "MCPOAuthAuthentication-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "additional_client_metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Additional Client Metadata"
+          },
+          "client_auth_method": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "client_secret_post",
+                  "client_secret_basic",
+                  "private_key_jwt"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Auth Method"
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "client_metadata_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Metadata Url"
+          },
+          "client_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Name"
+          },
+          "client_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Secret"
+          },
+          "scopes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scopes"
+          },
+          "type": {
+            "const": "oauth",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "MCPOAuthAuthentication",
+        "type": "object"
+      },
       "MCPOAuthCallbackRequest": {
         "description": "Callback URL copied from a browser OAuth redirect.",
         "properties": {
@@ -11787,7 +12168,24 @@
         "title": "MCPOAuthClientInfoState",
         "type": "object"
       },
-      "MCPOAuthClientInfoState-Output": {},
+      "MCPOAuthClientInfoState-Output": {
+        "additionalProperties": true,
+        "properties": {
+          "client_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Secret"
+          }
+        },
+        "title": "MCPOAuthClientInfoState",
+        "type": "object"
+      },
       "MCPOAuthStartResponse": {
         "description": "Response for starting an install-time OAuth MCP probe.",
         "properties": {
@@ -11888,8 +12286,123 @@
         "title": "MCPOAuthState",
         "type": "object"
       },
-      "MCPOAuthState-Output": {},
-      "MCPOAuthStateResponse": {},
+      "MCPOAuthState-Output": {
+        "properties": {
+          "client_info": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MCPOAuthClientInfoState-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "token_expires_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Expires At"
+          },
+          "tokens": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MCPOAuthTokenState-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "MCPOAuthState",
+        "type": "object"
+      },
+      "MCPOAuthStateResponse": {
+        "properties": {
+          "client_info": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "properties": {
+                  "client_secret": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Client Secret"
+                  }
+                },
+                "title": "MCPOAuthClientInfoState",
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Info"
+          },
+          "token_expires_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Expires At"
+          },
+          "tokens": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "properties": {
+                  "access_token": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Access Token"
+                  },
+                  "refresh_token": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Refresh Token"
+                  }
+                },
+                "title": "MCPOAuthTokenState",
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokens"
+          }
+        },
+        "title": "MCPOAuthStateResponse",
+        "type": "object"
+      },
       "MCPOAuthStatusResponse": {
         "description": "Current state of an install-time OAuth MCP probe.",
         "properties": {
@@ -12030,7 +12543,247 @@
         "title": "MCPOAuthTokenState",
         "type": "object"
       },
-      "MCPOAuthTokenState-Output": {},
+      "MCPOAuthTokenState-Output": {
+        "additionalProperties": true,
+        "properties": {
+          "access_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Token"
+          },
+          "refresh_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Token"
+          }
+        },
+        "title": "MCPOAuthTokenState",
+        "type": "object"
+      },
+      "MCPServer": {
+        "additionalProperties": false,
+        "description": "One MCP server in the settings DataModel.",
+        "properties": {
+          "args": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Args"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "api_key": "#/components/schemas/MCPApiKeyAuthCredential-Output",
+                    "basic": "#/components/schemas/MCPBasicAuthCredential-Output",
+                    "bearer": "#/components/schemas/MCPBearerAuthCredential-Output",
+                    "header": "#/components/schemas/MCPHeaderAuthCredential-Output",
+                    "none": "#/components/schemas/MCPNoneAuthCredential",
+                    "oauth2": "#/components/schemas/MCPOAuthAuthCredential-Output"
+                  },
+                  "propertyName": "strategy"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/MCPNoneAuthCredential"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPApiKeyAuthCredential-Output"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPBearerAuthCredential-Output"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPBasicAuthCredential-Output"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPHeaderAuthCredential-Output"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPOAuthAuthCredential-Output"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth"
+          },
+          "command": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command"
+          },
+          "cwd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cwd"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "env": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Env"
+          },
+          "headers": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headers"
+          },
+          "icon": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon"
+          },
+          "keep_alive": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keep Alive"
+          },
+          "sse_read_timeout": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sse Read Timeout"
+          },
+          "timeout": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeout"
+          },
+          "transport": {
+            "anyOf": [
+              {
+                "enum": [
+                  "stdio",
+                  "http",
+                  "sse",
+                  "streamable-http"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transport"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "title": "MCPServer",
+        "type": "object"
+      },
       "MCPServer-Input": {
         "additionalProperties": false,
         "description": "One MCP server in the settings DataModel.",
@@ -12058,14 +12811,14 @@
                     "basic": "#/components/schemas/MCPBasicAuthCredential-Input",
                     "bearer": "#/components/schemas/MCPBearerAuthCredential-Input",
                     "header": "#/components/schemas/MCPHeaderAuthCredential-Input",
-                    "none": "#/components/schemas/MCPNoneAuthCredential-Input",
+                    "none": "#/components/schemas/MCPNoneAuthCredential",
                     "oauth2": "#/components/schemas/MCPOAuthAuthCredential-Input"
                   },
                   "propertyName": "strategy"
                 },
                 "oneOf": [
                   {
-                    "$ref": "#/components/schemas/MCPNoneAuthCredential-Input"
+                    "$ref": "#/components/schemas/MCPNoneAuthCredential"
                   },
                   {
                     "$ref": "#/components/schemas/MCPApiKeyAuthCredential-Input"
@@ -12233,7 +12986,434 @@
         "title": "MCPServer",
         "type": "object"
       },
-      "MCPServer-Output": {},
+      "MCPServer-Output": {
+        "additionalProperties": false,
+        "description": "One MCP server in the settings DataModel.",
+        "properties": {
+          "args": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Args"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "api_key": "#/components/schemas/MCPApiKeyAuthCredential-Output",
+                    "basic": "#/components/schemas/MCPBasicAuthCredential-Output",
+                    "bearer": "#/components/schemas/MCPBearerAuthCredential-Output",
+                    "header": "#/components/schemas/MCPHeaderAuthCredential-Output",
+                    "none": "#/components/schemas/MCPNoneAuthCredential",
+                    "oauth2": "#/components/schemas/MCPOAuthAuthCredential-Output"
+                  },
+                  "propertyName": "strategy"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/MCPNoneAuthCredential"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPApiKeyAuthCredential-Output"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPBearerAuthCredential-Output"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPBasicAuthCredential-Output"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPHeaderAuthCredential-Output"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPOAuthAuthCredential-Output"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth"
+          },
+          "command": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command"
+          },
+          "cwd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cwd"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "env": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Env"
+          },
+          "headers": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headers"
+          },
+          "icon": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon"
+          },
+          "keep_alive": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keep Alive"
+          },
+          "sse_read_timeout": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sse Read Timeout"
+          },
+          "timeout": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeout"
+          },
+          "transport": {
+            "anyOf": [
+              {
+                "enum": [
+                  "stdio",
+                  "http",
+                  "sse",
+                  "streamable-http"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transport"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "title": "MCPServer",
+        "type": "object"
+      },
+      "MCPServerPatch": {
+        "additionalProperties": false,
+        "description": "Sparse RFC 7386 merge patch for one persisted MCP server.",
+        "properties": {
+          "args": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Args"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "api_key": "#/components/schemas/MCPApiKeyAuthCredential-Input",
+                    "basic": "#/components/schemas/MCPBasicAuthCredential-Input",
+                    "bearer": "#/components/schemas/MCPBearerAuthCredential-Input",
+                    "header": "#/components/schemas/MCPHeaderAuthCredential-Input",
+                    "none": "#/components/schemas/MCPNoneAuthCredential",
+                    "oauth2": "#/components/schemas/MCPOAuthAuthCredential-Input"
+                  },
+                  "propertyName": "strategy"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/MCPNoneAuthCredential"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPApiKeyAuthCredential-Input"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPBearerAuthCredential-Input"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPBasicAuthCredential-Input"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPHeaderAuthCredential-Input"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPOAuthAuthCredential-Input"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth"
+          },
+          "command": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command"
+          },
+          "cwd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cwd"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "env": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "format": "password",
+                      "type": "string",
+                      "writeOnly": true
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Env"
+          },
+          "headers": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "format": "password",
+                      "type": "string",
+                      "writeOnly": true
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headers"
+          },
+          "icon": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon"
+          },
+          "keep_alive": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keep Alive"
+          },
+          "sse_read_timeout": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sse Read Timeout"
+          },
+          "timeout": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeout"
+          },
+          "transport": {
+            "anyOf": [
+              {
+                "enum": [
+                  "stdio",
+                  "http",
+                  "sse",
+                  "streamable-http"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transport"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "title": "MCPServerPatch",
+        "type": "object"
+      },
       "MCPTestFailure": {
         "description": "Response when the candidate server fails to connect or list tools.\n\nThe endpoint returns HTTP 200 in both success and failure cases: a\nfailure here is the *expected* outcome of validating a user-supplied\nconfig, not a server-side error. The structured shape makes it easy\nfor the UI to render an actionable message.",
         "properties": {
@@ -12323,6 +13503,24 @@
         ],
         "title": "MCPTestRequest",
         "type": "object"
+      },
+      "MCPTestResponse": {
+        "discriminator": {
+          "mapping": {
+            "False": "#/components/schemas/MCPTestFailure",
+            "True": "#/components/schemas/MCPTestSuccess"
+          },
+          "propertyName": "ok"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/MCPTestSuccess"
+          },
+          {
+            "$ref": "#/components/schemas/MCPTestFailure"
+          }
+        ],
+        "title": "MCPTestResponse"
       },
       "MCPTestSuccess": {
         "description": "Response when the candidate server connects and lists its tools.",
@@ -12821,73 +14019,6 @@
         "title": "MessageToolCall",
         "type": "object"
       },
-      "Metrics": {
-        "description": "Metrics class can record various metrics during running and evaluation.\nWe track:\n  - accumulated_cost and costs\n  - max_budget_per_task (budget limit)\n  - A list of ResponseLatency\n  - A list of TokenUsage (one per call).",
-        "properties": {
-          "accumulated_cost": {
-            "default": 0,
-            "description": "Total accumulated cost, must be non-negative",
-            "minimum": 0,
-            "title": "Accumulated Cost",
-            "type": "number"
-          },
-          "accumulated_token_usage": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TokenUsage"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Accumulated token usage across all calls"
-          },
-          "costs": {
-            "description": "List of individual costs",
-            "items": {
-              "$ref": "#/components/schemas/Cost"
-            },
-            "title": "Costs",
-            "type": "array"
-          },
-          "max_budget_per_task": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Maximum budget per task",
-            "title": "Max Budget Per Task"
-          },
-          "model_name": {
-            "default": "default",
-            "description": "Name of the model",
-            "title": "Model Name",
-            "type": "string"
-          },
-          "response_latencies": {
-            "description": "List of response latencies",
-            "items": {
-              "$ref": "#/components/schemas/ResponseLatency"
-            },
-            "title": "Response Latencies",
-            "type": "array"
-          },
-          "token_usages": {
-            "description": "List of token usage records",
-            "items": {
-              "$ref": "#/components/schemas/TokenUsage"
-            },
-            "title": "Token Usages",
-            "type": "array"
-          }
-        },
-        "title": "Metrics",
-        "type": "object"
-      },
       "MetricsSnapshot": {
         "description": "A snapshot of metrics at a point in time.\n\nDoes not include lists of individual costs, latencies, or token usages.",
         "properties": {
@@ -12929,37 +14060,6 @@
           }
         },
         "title": "MetricsSnapshot",
-        "type": "object"
-      },
-      "Model": {
-        "additionalProperties": true,
-        "description": "Describes an OpenAI model offering that can be used with the API.",
-        "properties": {
-          "created": {
-            "title": "Created",
-            "type": "integer"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "object": {
-            "const": "model",
-            "title": "Object",
-            "type": "string"
-          },
-          "owned_by": {
-            "title": "Owned By",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "created",
-          "object",
-          "owned_by"
-        ],
-        "title": "Model",
         "type": "object"
       },
       "ModelsResponse": {
@@ -13220,163 +14320,6 @@
           "kind"
         ],
         "title": "ObservationEvent",
-        "type": "object"
-      },
-      "OpenAIChatCompletionRequest": {
-        "properties": {
-          "messages": {
-            "items": {
-              "$ref": "#/components/schemas/OpenAIChatMessage"
-            },
-            "title": "Messages",
-            "type": "array"
-          },
-          "model": {
-            "title": "Model",
-            "type": "string"
-          },
-          "stream": {
-            "default": false,
-            "title": "Stream",
-            "type": "boolean"
-          },
-          "stream_options": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/OpenAIStreamOptions"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "model",
-          "messages"
-        ],
-        "title": "OpenAIChatCompletionRequest",
-        "type": "object"
-      },
-      "OpenAIChatMessage": {
-        "properties": {
-          "content": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "items": {
-                  "$ref": "#/components/schemas/OpenAIContentPart"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Content"
-          },
-          "role": {
-            "enum": [
-              "system",
-              "developer",
-              "user",
-              "assistant",
-              "tool"
-            ],
-            "title": "Role",
-            "type": "string"
-          }
-        },
-        "required": [
-          "role"
-        ],
-        "title": "OpenAIChatMessage",
-        "type": "object"
-      },
-      "OpenAIContentPart": {
-        "properties": {
-          "image_url": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/OpenAIImageURL"
-              },
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Image Url"
-          },
-          "text": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Text"
-          },
-          "type": {
-            "title": "Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "type"
-        ],
-        "title": "OpenAIContentPart",
-        "type": "object"
-      },
-      "OpenAIImageURL": {
-        "properties": {
-          "url": {
-            "title": "Url",
-            "type": "string"
-          }
-        },
-        "required": [
-          "url"
-        ],
-        "title": "OpenAIImageURL",
-        "type": "object"
-      },
-      "OpenAIModelListResponse": {
-        "properties": {
-          "data": {
-            "items": {
-              "$ref": "#/components/schemas/Model"
-            },
-            "title": "Data",
-            "type": "array"
-          },
-          "object": {
-            "const": "list",
-            "default": "list",
-            "title": "Object",
-            "type": "string"
-          }
-        },
-        "required": [
-          "data"
-        ],
-        "title": "OpenAIModelListResponse",
-        "type": "object"
-      },
-      "OpenAIStreamOptions": {
-        "properties": {
-          "include_usage": {
-            "default": false,
-            "title": "Include Usage",
-            "type": "boolean"
-          }
-        },
-        "title": "OpenAIStreamOptions",
         "type": "object"
       },
       "openhands__agent_server__plugins_router__MarketplaceCatalogResponse": {
@@ -14164,9 +15107,31 @@
             "title": "Description",
             "type": "string"
           },
+          "files": {
+            "description": "Plugin files, relative to the plugin directory",
+            "items": {
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "array"
+          },
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "path": {
+            "default": "",
+            "description": "Path to the plugin directory",
+            "title": "Path",
+            "type": "string"
+          },
+          "skills": {
+            "description": "Skills bundled in the plugin",
+            "items": {
+              "$ref": "#/components/schemas/PluginSkillSummary"
+            },
+            "title": "Skills",
+            "type": "array"
           },
           "version": {
             "default": "",
@@ -14178,6 +15143,31 @@
           "name"
         ],
         "title": "PluginInfo",
+        "type": "object"
+      },
+      "PluginSkillSummary": {
+        "description": "Summary of a skill bundled in a plugin.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "PluginSkillSummary",
         "type": "object"
       },
       "PluginSource": {
@@ -14402,36 +15392,6 @@
           "message"
         ],
         "title": "ProfileMutationResponse",
-        "type": "object"
-      },
-      "PromptTokensDetails": {
-        "additionalProperties": true,
-        "description": "Breakdown of tokens used in the prompt.",
-        "properties": {
-          "audio_tokens": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Audio Tokens"
-          },
-          "cached_tokens": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Cached Tokens"
-          }
-        },
-        "title": "PromptTokensDetails",
         "type": "object"
       },
       "ProvidersResponse": {
@@ -14734,6 +15694,125 @@
         "title": "RedactedThinkingBlock",
         "type": "object"
       },
+      "RemoteMCPServer": {
+        "description": "Legacy remote MCP server spec accepted by the public REST API.",
+        "properties": {
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deprecated bearer token. Prefer auth.strategy='bearer'. If provided without auth, sent as 'Authorization: Bearer <token>'.",
+            "title": "Api Key"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "api_key": "#/components/schemas/MCPApiKeyAuthCredential-Input",
+                    "basic": "#/components/schemas/MCPBasicAuthCredential-Input",
+                    "bearer": "#/components/schemas/MCPBearerAuthCredential-Input",
+                    "header": "#/components/schemas/MCPHeaderAuthCredential-Input",
+                    "none": "#/components/schemas/MCPNoneAuthCredential",
+                    "oauth2": "#/components/schemas/MCPOAuthAuthCredential-Input"
+                  },
+                  "propertyName": "strategy"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/MCPNoneAuthCredential"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPApiKeyAuthCredential-Input"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPBearerAuthCredential-Input"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPBasicAuthCredential-Input"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPHeaderAuthCredential-Input"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MCPOAuthAuthCredential-Input"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Headers",
+            "type": "object"
+          },
+          "keep_alive": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keep Alive"
+          },
+          "sse_read_timeout": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sse Read Timeout"
+          },
+          "timeout": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeout"
+          },
+          "type": {
+            "enum": [
+              "http",
+              "shttp",
+              "streamable-http",
+              "sse"
+            ],
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "url"
+        ],
+        "title": "RemoteMCPServer",
+        "type": "object"
+      },
       "RemoteWorkspace": {
         "description": "Remote workspace implementation that connects to an OpenHands agent server.\n\nRemoteWorkspace provides access to a sandboxed environment running on a remote\nOpenHands agent server. This is the recommended approach for production deployments\nas it provides better isolation and security.\n\nSupports optional completion callbacks on exit via environment variables:\n  - ``AUTOMATION_CALLBACK_URL`` — URL to POST completion status to\n  - ``AUTOMATION_CALLBACK_API_KEY`` — Bearer token for callback auth (optional)\n  - ``AUTOMATION_RUN_ID`` — Run ID to include in callback payload (optional)\n\nExample:\n    >>> workspace = RemoteWorkspace(\n    ...     host=\"https://agent-server.example.com\",\n    ...     working_dir=\"/workspace\"\n    ... )\n    >>> with workspace:\n    ...     result = workspace.execute_command(\"ls -la\")\n    ...     content = workspace.read_file(\"README.md\")",
         "properties": {
@@ -14821,32 +15900,6 @@
           "new_name"
         ],
         "title": "RenameProfileRequest",
-        "type": "object"
-      },
-      "ResponseLatency": {
-        "description": "Metric tracking the round-trip time per completion call.",
-        "properties": {
-          "latency": {
-            "description": "Latency must be non-negative",
-            "minimum": 0,
-            "title": "Latency",
-            "type": "number"
-          },
-          "model": {
-            "title": "Model",
-            "type": "string"
-          },
-          "response_id": {
-            "title": "Response Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "model",
-          "latency",
-          "response_id"
-        ],
-        "title": "ResponseLatency",
         "type": "object"
       },
       "SandboxConfig": {
@@ -15181,96 +16234,6 @@
         "title": "ServerErrorEvent",
         "type": "object"
       },
-      "ServerInfo": {
-        "properties": {
-          "build_git_ref": {
-            "title": "Build Git Ref",
-            "type": "string"
-          },
-          "build_git_sha": {
-            "title": "Build Git Sha",
-            "type": "string"
-          },
-          "docs": {
-            "default": "/docs",
-            "title": "Docs",
-            "type": "string"
-          },
-          "idle_time": {
-            "title": "Idle Time",
-            "type": "number"
-          },
-          "max_foreground_terminal_timeout_seconds": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Foreground Terminal Timeout Seconds"
-          },
-          "python_version": {
-            "title": "Python Version",
-            "type": "string"
-          },
-          "redoc": {
-            "default": "/redoc",
-            "title": "Redoc",
-            "type": "string"
-          },
-          "runtime_idle_timeout_seconds": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Runtime Idle Timeout Seconds"
-          },
-          "sdk_version": {
-            "title": "Sdk Version",
-            "type": "string"
-          },
-          "title": {
-            "default": "OpenHands Agent Server",
-            "title": "Title",
-            "type": "string"
-          },
-          "tools_version": {
-            "title": "Tools Version",
-            "type": "string"
-          },
-          "uptime": {
-            "title": "Uptime",
-            "type": "number"
-          },
-          "usable_tools": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Usable Tools",
-            "type": "array"
-          },
-          "version": {
-            "title": "Version",
-            "type": "string"
-          },
-          "workspace_version": {
-            "title": "Workspace Version",
-            "type": "string"
-          }
-        },
-        "required": [
-          "uptime",
-          "idle_time"
-        ],
-        "title": "ServerInfo",
-        "type": "object"
-      },
       "SetConfirmationPolicyRequest": {
         "description": "Payload to set confirmation policy for a conversation.",
         "properties": {
@@ -15465,7 +16428,42 @@
           },
           "agent_settings": {
             "additionalProperties": true,
-            "title": "Agent Settings",
+            "properties": {
+              "agent_kind": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "openhands",
+                      "acp"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Agent Kind"
+              },
+              "mcp_config": {
+                "$ref": "#/components/schemas/MCPConfig"
+              },
+              "schema_version": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Schema Version"
+              }
+            },
+            "required": [
+              "mcp_config"
+            ],
+            "title": "_AgentSettingsContract",
             "type": "object"
           },
           "conversation_settings": {
@@ -15583,6 +16581,19 @@
             "anyOf": [
               {
                 "additionalProperties": true,
+                "properties": {
+                  "mcp_config": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/MCPConfigPatch"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "title": "_AgentSettingsPatchContract",
                 "type": "object"
               },
               {
@@ -15979,7 +16990,7 @@
         "type": "object"
       },
       "SkillInfo": {
-        "description": "Skill information returned by the API.",
+        "description": "Lightweight representation of a skill's essential information.\n\nThis class provides a standardized, serializable format for skill metadata\nthat can be used across different components of the system.",
         "properties": {
           "content": {
             "title": "Content",
@@ -16226,6 +17237,17 @@
             "title": "Agent Definitions",
             "type": "array"
           },
+          "agent_launch_additions": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentLaunchAdditions"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deployment context applied after agent or Agent Profile resolution. The stored Agent Profile is not modified."
+          },
           "agent_profile_id": {
             "anyOf": [
               {
@@ -16337,6 +17359,19 @@
             "title": "Observability Tags",
             "type": "array"
           },
+          "parent_conversation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional ID of an existing conversation that owns this one. The parent must already exist and share this conversation's workspace.",
+            "title": "Parent Conversation Id"
+          },
           "plugins": {
             "anyOf": [
               {
@@ -16420,7 +17455,7 @@
                 "type": "null"
               }
             ],
-            "description": "Optional user ID to associate with observability traces. When set, this is passed to Laminar.set_trace_user_id() so traces can be queried by user.",
+            "description": "Optional user ID supplied by the hosting deployment, used to correlate this conversation with the identity that deployment already established. When set it is passed to Laminar.set_trace_user_id() so traces can be queried by user, and — where a host has enabled product analytics — it is reused verbatim as the analytics correlation id so events attach to the existing person rather than creating a duplicate identity. It is never generated by the SDK, and is omitted entirely when unset.",
             "title": "User Id"
           },
           "workspace": {
@@ -16537,6 +17572,53 @@
           "kind"
         ],
         "title": "StaticSecret",
+        "type": "object"
+      },
+      "StdioMCPServer": {
+        "description": "Legacy stdio MCP server spec accepted by the public REST API.",
+        "properties": {
+          "args": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Args",
+            "type": "array"
+          },
+          "command": {
+            "description": "Executable to invoke",
+            "minLength": 1,
+            "title": "Command",
+            "type": "string"
+          },
+          "cwd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cwd"
+          },
+          "env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Env",
+            "type": "object"
+          },
+          "type": {
+            "const": "stdio",
+            "default": "stdio",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "title": "StdioMCPServer",
         "type": "object"
       },
       "StreamingDeltaEvent": {
@@ -17734,6 +18816,119 @@
         "title": "TaskTrigger",
         "type": "object"
       },
+      "TelemetrySpec": {
+        "description": "Deployment-supplied product-analytics transport settings.\n\nThis carries *transport* only. Whether telemetry may be delivered is\nresolved from consent (``misc_settings.telemetry.consent``, optionally\nseeded or overridden by ``OH_TELEMETRY_CONSENT``) — there is no deployment\n\"mode\" here, and nothing in the agent-server special-cases a hosted\ndeployment.",
+        "properties": {
+          "event_buffer_size": {
+            "default": 20,
+            "description": "Maximum events per delivery batch.",
+            "minimum": 1,
+            "title": "Event Buffer Size",
+            "type": "integer"
+          },
+          "exporter": {
+            "default": "none",
+            "description": "Exporter to use. 'none' (the default) never delivers, and is what library and headless consumers get. 'posthog' requires the [posthog] extra. 'http' POSTs sanitized batches to telemetry_http_endpoint.",
+            "enum": [
+              "none",
+              "posthog",
+              "http"
+            ],
+            "title": "Exporter",
+            "type": "string"
+          },
+          "flush_delay": {
+            "default": 30,
+            "description": "Seconds to wait before flushing a partial batch.",
+            "exclusiveMinimum": 0,
+            "title": "Flush Delay",
+            "type": "number"
+          },
+          "http_endpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Endpoint the 'http' exporter POSTs sanitized event batches to. Intended to front a backend that revalidates auth and consent before forwarding onward.",
+            "title": "Http Endpoint"
+          },
+          "http_token": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Bearer token sent by the 'http' exporter, if required.",
+            "title": "Http Token"
+          },
+          "max_queue_size": {
+            "default": 1000,
+            "description": "Upper bound on buffered diagnostic events. The queue is bounded on ingest: past this many events the oldest are dropped, so a failing exporter cannot grow memory without limit.",
+            "minimum": 1,
+            "title": "Max Queue Size",
+            "type": "integer"
+          },
+          "num_retries": {
+            "default": 2,
+            "description": "Retries before a batch is dropped.",
+            "minimum": 0,
+            "title": "Num Retries",
+            "type": "integer"
+          },
+          "posthog_api_key": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "PostHog project API key. Required by the 'posthog' exporter; without it telemetry stays inactive.",
+            "title": "Posthog Api Key"
+          },
+          "posthog_host": {
+            "default": "https://us.i.posthog.com",
+            "description": "PostHog ingestion host.",
+            "title": "Posthog Host",
+            "type": "string"
+          },
+          "retry_delay": {
+            "default": 5,
+            "description": "Base seconds between delivery retries.",
+            "minimum": 0,
+            "title": "Retry Delay",
+            "type": "number"
+          },
+          "salt": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Key used to pseudonymize conversation identifiers. Falls back to a per-process random salt, which keeps pseudonyms stable within a run but unlinkable across runs.",
+            "title": "Salt"
+          }
+        },
+        "title": "TelemetrySpec",
+        "type": "object"
+      },
       "TerminalAction": {
         "additionalProperties": false,
         "description": "Schema for terminal command execution.",
@@ -18555,39 +19750,6 @@
           "kind"
         ],
         "title": "ToolShieldLLMSecurityAnalyzer",
-        "type": "object"
-      },
-      "TopLogprob": {
-        "additionalProperties": true,
-        "properties": {
-          "bytes": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "integer"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Bytes"
-          },
-          "logprob": {
-            "title": "Logprob",
-            "type": "number"
-          },
-          "token": {
-            "title": "Token",
-            "type": "string"
-          }
-        },
-        "required": [
-          "token",
-          "logprob"
-        ],
-        "title": "TopLogprob",
         "type": "object"
       },
       "TraceMetadataValue": {
@@ -19737,53 +20899,10 @@
   "info": {
     "description": "OpenHands Agent Server - REST/WebSocket interface for OpenHands AI Agent",
     "title": "OpenHands Agent Server",
-    "version": "0.1.0"
+    "version": "1.36.0"
   },
   "openapi": "3.1.0",
   "paths": {
-    "/": {
-      "get": {
-        "operationId": "get_server_info__get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServerInfo"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Get Server Info",
-        "tags": [
-          "Server Details"
-        ]
-      }
-    },
-    "/alive": {
-      "get": {
-        "description": "Basic liveness check - returns OK if the server process is running.",
-        "operationId": "alive_alive_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HealthStatus"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Alive",
-        "tags": [
-          "Server Details"
-        ]
-      }
-    },
     "/api/agent-profiles": {
       "get": {
         "description": "List all stored agent profiles and the active pointer.\n\nOn the first call against an empty store with no active pointer, lazily\nseeds one default profile from the current ``agent_settings`` and activates\nit (the one-time migration that replaces a dedicated seed step).",
@@ -24143,7 +25262,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "anyOf": [
+                  "discriminator": {
+                    "mapping": {
+                      "False": "#/components/schemas/MCPTestFailure",
+                      "True": "#/components/schemas/MCPTestSuccess"
+                    },
+                    "propertyName": "ok"
+                  },
+                  "oneOf": [
                     {
                       "$ref": "#/components/schemas/MCPTestSuccess"
                     },
@@ -24980,6 +26106,166 @@
         ]
       }
     },
+    "/api/settings/mcp/{settings_key}": {
+      "delete": {
+        "description": "Delete one existing named MCP server without altering sibling entries.",
+        "operationId": "delete_mcp_server_api_settings_mcp__settings_key__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "settings_key",
+            "required": true,
+            "schema": {
+              "title": "Settings Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Delete Mcp Server",
+        "tags": [
+          "Settings"
+        ]
+      },
+      "patch": {
+        "description": "Sparsely update one existing named MCP server.",
+        "operationId": "patch_mcp_server_api_settings_mcp__settings_key__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "settings_key",
+            "required": true,
+            "schema": {
+              "title": "Settings Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MCPServerPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Patch Mcp Server",
+        "tags": [
+          "Settings"
+        ]
+      },
+      "post": {
+        "description": "Create one named MCP server without replacing an existing map entry.",
+        "operationId": "create_mcp_server_api_settings_mcp__settings_key__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "settings_key",
+            "required": true,
+            "schema": {
+              "title": "Settings Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MCPServer-Input"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Create Mcp Server",
+        "tags": [
+          "Settings"
+        ]
+      }
+    },
     "/api/settings/secrets": {
       "get": {
         "description": "List all available secrets (names and descriptions only, no values).",
@@ -25670,7 +26956,7 @@
     },
     "/api/vscode/url": {
       "get": {
-        "description": "Get the VSCode URL with authentication token.\n\nArgs:\n    base_url: Base URL for the VSCode server (default: http://localhost:8001)\n    workspace_dir: Path to workspace directory\n\nReturns:\n    VSCode URL with token if available, None otherwise",
+        "description": "Get the VSCode URL with authentication token.\n\nArgs:\n    base_url: Base URL for the VSCode server. When omitted, the URL is\n        built from the actually configured VSCode port\n        (``http://localhost:{vscode_port}``), so callers that don't know\n        the deployment topology get a URL that matches where the server\n        really binds instead of a hardcoded ``:8001``.\n    workspace_dir: Path to workspace directory\n\nReturns:\n    VSCode URL with token if available, None otherwise",
         "operationId": "get_vscode_url_api_vscode_url_get",
         "parameters": [
           {
@@ -25678,9 +26964,15 @@
             "name": "base_url",
             "required": false,
             "schema": {
-              "default": "http://localhost:8001",
-              "title": "Base Url",
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Base Url"
             }
           },
           {
@@ -25939,220 +27231,6 @@
         "summary": "Add Workspace Parents",
         "tags": [
           "Workspaces"
-        ]
-      }
-    },
-    "/health": {
-      "get": {
-        "description": "Basic health check - returns OK if the server process is running.",
-        "operationId": "health_health_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HealthStatus"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Health",
-        "tags": [
-          "Server Details"
-        ]
-      }
-    },
-    "/ready": {
-      "get": {
-        "description": "Readiness check - returns OK only if the server has completed initialization.\n\nThis endpoint should be used by Kubernetes readiness probes to determine\nwhen the pod is ready to receive traffic. Returns 503 during initialization.",
-        "operationId": "ready_ready_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Ready Ready Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Ready",
-        "tags": [
-          "Server Details"
-        ]
-      }
-    },
-    "/server_info": {
-      "get": {
-        "operationId": "get_server_info_server_info_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServerInfo"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Get Server Info",
-        "tags": [
-          "Server Details"
-        ]
-      }
-    },
-    "/v1/chat/completions": {
-      "post": {
-        "operationId": "create_chat_completion_v1_chat_completions_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-OpenHands-ServerConversation-ID",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "format": "uuid",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Openhands-Serverconversation-Id"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-OpenHands-Observability-Span-Name",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Openhands-Observability-Span-Name"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-OpenHands-Observability-Tags",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Openhands-Observability-Tags"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-OpenHands-Observability-Metadata",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Openhands-Observability-Metadata"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/OpenAIChatCompletionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ChatCompletion"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          },
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Create Chat Completion",
-        "tags": [
-          "OpenAI Compatibility"
-        ]
-      }
-    },
-    "/v1/models": {
-      "get": {
-        "operationId": "get_openai_models_v1_models_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OpenAIModelListResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          },
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Openai Models",
-        "tags": [
-          "OpenAI Compatibility"
         ]
       }
     }
