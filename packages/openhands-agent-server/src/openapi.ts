@@ -11,6 +11,7 @@ import {
   conversationPageSchema,
   forkConversationRequestSchema,
   gitChangeSchema,
+  gitCommitsPageSchema,
   gitDiffSchema,
   healthStatusSchema,
   homeResponseSchema,
@@ -130,6 +131,8 @@ const statusQuery: readonly QueryParameterSpec[] = [{ name: 'status', schema: { 
 const conversationSortOrderQuery: readonly QueryParameterSpec[] = [{ name: 'sort_order', schema: { type: 'string', enum: ['CREATED_AT', 'UPDATED_AT', 'CREATED_AT_DESC', 'UPDATED_AT_DESC'] } }];
 const includeHiddenQuery: readonly QueryParameterSpec[] = [{ name: 'include_hidden', schema: { type: 'boolean', default: false } }];
 const refQuery: readonly QueryParameterSpec[] = [{ name: 'ref', schema: { type: 'string', nullable: true } }];
+const commitQuery: readonly QueryParameterSpec[] = [{ name: 'commit', schema: { type: 'string', nullable: true, pattern: '^[0-9a-fA-F]{4,64}$' }, description: 'Optional commit SHA. Mutually exclusive with ref.' }];
+const commitLimitQuery: readonly QueryParameterSpec[] = [{ name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 200 }, description: 'Maximum commits to return.' }];
 
 const bashSearchQuery: readonly QueryParameterSpec[] = [
   { name: 'kind__eq', schema: { type: 'string', enum: ['BashCommand', 'BashOutput'], nullable: true } },
@@ -233,7 +236,9 @@ export const routeSpecs = [
 
 
   { method: 'get', path: '/api/git/changes', tags: ['Git'], summary: 'Get git changes', query: [...pathQuery, ...refQuery], responses: { 200: z.array(gitChangeSchema), 400: null } },
-  { method: 'get', path: '/api/git/diff', tags: ['Git'], summary: 'Get git diff', query: [...pathQuery, ...refQuery], responses: { 200: gitDiffSchema, 400: null } },
+  { method: 'get', path: '/api/git/diff', tags: ['Git'], summary: 'Get git diff', query: [...pathQuery, ...refQuery, ...commitQuery], responses: { 200: gitDiffSchema, 400: null } },
+  { method: 'get', path: '/api/git/commits', tags: ['Git'], summary: 'List recent commits', query: [...pathQuery, ...commitLimitQuery], responses: { 200: gitCommitsPageSchema, 400: null } },
+  { method: 'get', path: '/api/git/commits/{sha}/changes', tags: ['Git'], summary: 'Get files changed by a commit', query: pathQuery, responses: { 200: z.array(gitChangeSchema), 400: null } },
   { method: 'get', path: '/api/git/changes/{path}', tags: ['Git'], summary: 'Get git changes for path', responses: { 200: z.array(gitChangeSchema), 400: null } },
   { method: 'get', path: '/api/git/diff/{path}', tags: ['Git'], summary: 'Get git diff for path', responses: { 200: gitDiffSchema, 400: null } },
 

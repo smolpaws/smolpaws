@@ -14,6 +14,23 @@ export interface GitDiff {
     readonly modified: string | null;
     readonly original: string | null;
 }
+export interface GitCommit {
+    readonly sha: string;
+    readonly short_sha: string;
+    readonly subject: string;
+    readonly author: string;
+    readonly timestamp: string;
+}
+export interface GitCommitsPage {
+    readonly commits: readonly GitCommit[];
+    readonly has_more: boolean;
+}
+export interface GitRepositoryMetadata {
+    readonly repo_remote?: string;
+    readonly head_commit?: string;
+    readonly branch?: string;
+}
+export type GitRefPurpose = 'export' | 'display';
 export declare class GitError extends Error {
 }
 export declare class GitRepositoryError extends GitError {
@@ -34,10 +51,15 @@ export declare function runGitCommand(args: readonly string[], options?: {
     readonly timeoutSeconds?: number;
 }): Promise<string>;
 export declare function validateGitRepository(repoDir: string): Promise<string>;
-export declare function getValidRef(repoDir: string, override?: string | null): Promise<string>;
+export declare function getValidRef(repoDir: string, override?: string | null, purpose?: GitRefPurpose): Promise<string>;
+export declare function getDisplayBaseRef(repoDir: string): Promise<string>;
+export declare function getGitRepositoryMetadata(repoDir: string): Promise<GitRepositoryMetadata>;
 export declare function getChangesInRepo(repoDir: string, ref?: string | null): Promise<GitChange[]>;
 export declare function getClosestGitRepo(path: string): Promise<string | null>;
 export declare function getGitDiff(filePath: string, ref?: string | null): Promise<GitDiff>;
+export declare function getGitCommits(repoPath: string, limit?: number): Promise<GitCommitsPage>;
+export declare function getCommitChanges(repoDir: string, commit: string): Promise<GitChange[]>;
+export declare function getCommitFileDiff(filePath: string, commit: string): Promise<GitDiff>;
 export declare function isGitUrl(source: string): boolean;
 export declare function normalizeGitUrl(url: string): string;
 export declare function extractRepoName(source: string): string;

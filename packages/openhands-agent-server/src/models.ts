@@ -305,9 +305,26 @@ export const gitDiffSchema = z
     original: z.string().nullable(),
   })
   .strict();
+export const gitCommitSchema = z
+  .object({
+    sha: z.string(),
+    short_sha: z.string(),
+    subject: z.string(),
+    author: z.string(),
+    timestamp: z.string(),
+  })
+  .strict();
+export const gitCommitsPageSchema = z
+  .object({
+    commits: z.array(gitCommitSchema),
+    has_more: z.boolean(),
+  })
+  .strict();
 export const gitPathQuerySchema = z.object({ path: z.string(), ref: z.string().optional() }).strict();
 export type GitChange = z.infer<typeof gitChangeSchema>;
 export type GitDiff = z.infer<typeof gitDiffSchema>;
+export type GitCommit = z.infer<typeof gitCommitSchema>;
+export type GitCommitsPage = z.infer<typeof gitCommitsPageSchema>;
 
 export const fileBrowserEntrySchema = z.object({ label: z.string(), path: z.string() }).strict();
 export const homeResponseSchema = z

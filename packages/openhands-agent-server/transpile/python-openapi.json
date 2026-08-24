@@ -251,7 +251,7 @@
                 "type": "null"
               }
             ],
-            "description": "Session mode ID to set after creating a session. If None (default), auto-detected from the ACP server type: 'bypassPermissions' for claude-agent-acp, 'full-access' for codex-acp.",
+            "description": "Session mode ID to set after creating a session. If None (default), auto-detected from the ACP server type: 'bypassPermissions' for claude-agent-acp, 'agent-full-access' for codex-acp.",
             "title": "Acp Session Mode"
           },
           "agent_context": {
@@ -513,7 +513,7 @@
                 "type": "null"
               }
             ],
-            "description": "Session mode ID to set after creating a session. If None (default), auto-detected from the ACP server type: 'bypassPermissions' for claude-agent-acp, 'full-access' for codex-acp.",
+            "description": "Session mode ID to set after creating a session. If None (default), auto-detected from the ACP server type: 'bypassPermissions' for claude-agent-acp, 'agent-full-access' for codex-acp.",
             "title": "Acp Session Mode"
           },
           "agent_context": {
@@ -7593,6 +7593,60 @@
         ],
         "title": "GitChangeStatus",
         "type": "string"
+      },
+      "GitCommit": {
+        "properties": {
+          "author": {
+            "title": "Author",
+            "type": "string"
+          },
+          "sha": {
+            "title": "Sha",
+            "type": "string"
+          },
+          "short_sha": {
+            "title": "Short Sha",
+            "type": "string"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sha",
+          "short_sha",
+          "subject",
+          "author",
+          "timestamp"
+        ],
+        "title": "GitCommit",
+        "type": "object"
+      },
+      "GitCommitsPage": {
+        "properties": {
+          "commits": {
+            "items": {
+              "$ref": "#/components/schemas/GitCommit"
+            },
+            "title": "Commits",
+            "type": "array"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "commits",
+          "has_more"
+        ],
+        "title": "GitCommitsPage",
+        "type": "object"
       },
       "GitDiff": {
         "properties": {
@@ -14957,7 +15011,8 @@
             "openhands__sdk__security__defense_in_depth__policy_rails__PolicyRailSecurityAnalyzer-Input__1": "#/components/schemas/PolicyRailSecurityAnalyzer-Input",
             "openhands__sdk__security__ensemble__EnsembleSecurityAnalyzer-Input__1": "#/components/schemas/EnsembleSecurityAnalyzer-Input",
             "openhands__sdk__security__grayswan__analyzer__GraySwanAnalyzer-Input__1": "#/components/schemas/GraySwanAnalyzer-Input",
-            "openhands__sdk__security__llm_analyzer__LLMSecurityAnalyzer-Input__1": "#/components/schemas/LLMSecurityAnalyzer-Input"
+            "openhands__sdk__security__llm_analyzer__LLMSecurityAnalyzer-Input__1": "#/components/schemas/LLMSecurityAnalyzer-Input",
+            "openhands__sdk__security__toolshield_llm_analyzer__ToolShieldLLMSecurityAnalyzer-Input__1": "#/components/schemas/ToolShieldLLMSecurityAnalyzer-Input"
           },
           "propertyName": "kind"
         },
@@ -14976,6 +15031,9 @@
           },
           {
             "$ref": "#/components/schemas/LLMSecurityAnalyzer-Input"
+          },
+          {
+            "$ref": "#/components/schemas/ToolShieldLLMSecurityAnalyzer-Input"
           }
         ]
       },
@@ -14986,7 +15044,8 @@
             "openhands__sdk__security__defense_in_depth__policy_rails__PolicyRailSecurityAnalyzer-Output__1": "#/components/schemas/PolicyRailSecurityAnalyzer-Output",
             "openhands__sdk__security__ensemble__EnsembleSecurityAnalyzer-Output__1": "#/components/schemas/EnsembleSecurityAnalyzer-Output",
             "openhands__sdk__security__grayswan__analyzer__GraySwanAnalyzer-Output__1": "#/components/schemas/GraySwanAnalyzer-Output",
-            "openhands__sdk__security__llm_analyzer__LLMSecurityAnalyzer-Output__1": "#/components/schemas/LLMSecurityAnalyzer-Output"
+            "openhands__sdk__security__llm_analyzer__LLMSecurityAnalyzer-Output__1": "#/components/schemas/LLMSecurityAnalyzer-Output",
+            "openhands__sdk__security__toolshield_llm_analyzer__ToolShieldLLMSecurityAnalyzer-Output__1": "#/components/schemas/ToolShieldLLMSecurityAnalyzer-Output"
           },
           "propertyName": "kind"
         },
@@ -15005,6 +15064,9 @@
           },
           {
             "$ref": "#/components/schemas/LLMSecurityAnalyzer-Output"
+          },
+          {
+            "$ref": "#/components/schemas/ToolShieldLLMSecurityAnalyzer-Output"
           }
         ]
       },
@@ -16103,7 +16165,7 @@
             "title": "Project Dir"
           },
           "registered_marketplaces": {
-            "description": "Marketplace registrations for plugin-based skill loading. Registrations with auto_load=True or a list of plugin names replace legacy public skills.",
+            "description": "Marketplace registrations for plugin-based skill loading. Registrations with auto_load=True or a list of plugin names add their skills to the public skills.",
             "items": {
               "$ref": "#/components/schemas/MarketplaceRegistration"
             },
@@ -18430,6 +18492,69 @@
           }
         },
         "title": "ToolExecution",
+        "type": "object"
+      },
+      "ToolShieldLLMSecurityAnalyzer-Input": {
+        "description": "Evaluate each action via a separate guardrail LLM.\n\nPairs with the existing ``ConfirmRisky`` policy unchanged: this\nanalyzer only *assigns* the risk level; ``ConfirmRisky`` decides\nwhether to pause for user confirmation.\n\nBy default the analyzer runs as a bare guardrail (no distilled\nsafety experiences). To enable the ToolShield seed, install\n``pip install openhands-sdk[toolshield]`` and pass the rendered\nexperiences via the ``safety_experiences`` field -- typically via\none of the helpers (``default_safety_experiences()``,\n``load_safety_experiences(...)``, ``auto_detect_safety_experiences()``).\nTested against ``toolshield>=0.1.3,<0.2``.\n\nNote: ``reasoning_content`` and ``thinking_blocks`` from extended-\nthinking models are deliberately excluded from the guardrail\ncontext. The risk signal lives in the tool call's name and\narguments; including reasoning text would inflate the prompt\nwithout proportional safety gain. Subclasses needing reasoning\nvisibility should override :func:`_format_action_for_guardrail`.\n\nLifecycle: instances maintain a per-conversation deque of recent\nactions (``history_window`` items) for guardrail context. Each\ninstance is intended for SINGLE-CONVERSATION use. Reusing one\nanalyzer instance across multiple conversations will leak action\nhistory between them, which is both a privacy issue (conversation\nA's tool arguments visible in conversation B's guardrail prompt)\nand a correctness issue (the guardrail evaluates conversation B's\nactions against irrelevant history). Construct one analyzer per\nconversation, OR call :meth:`reset_history` at conversation\nboundaries.\n\nThe recent-action-context propagation across analyzers (this one,\n:class:`LLMSecurityAnalyzer`, :class:`GraySwanAnalyzer`) is tracked\nfor convergence in a separate follow-up; until that lands,\nsingle-conversation lifecycle is the contract.\n\nFailure modes are consistent and ensemble-safe -- both an\ninfrastructure error (network, rate limit) and a parse failure\n(the guardrail responded but its output had no parseable\n``RISK:`` label) return ``SecurityRisk.UNKNOWN``. ``ConfirmRisky``\nwith ``confirm_unknown=True`` then pauses for user confirmation,\nmatching the conservative posture without dominating ``max()`` in\nensemble fusion.",
+        "properties": {
+          "history_window": {
+            "default": 20,
+            "description": "Number of prior actions to include as context.",
+            "title": "History Window",
+            "type": "integer"
+          },
+          "kind": {
+            "const": "ToolShieldLLMSecurityAnalyzer",
+            "title": "Kind",
+            "type": "string"
+          },
+          "llm": {
+            "$ref": "#/components/schemas/LLM-Input",
+            "description": "LLM used as the guardrail. Can be a smaller/cheaper model than the actor LLM; only the model's ability to classify action risk matters."
+          },
+          "safety_experiences": {
+            "default": "",
+            "description": "Pre-generated safety guidelines injected into the guardrail's system prompt.\n- ``\"\"`` (default): bare guardrail -- no experiences. The analyzer still separates actor from judge; it just classifies without distilled tool-specific guidance.\n- Any non-empty string: used as-is. The intended pattern is to call one of the helpers (``default_safety_experiences()``, ``load_safety_experiences(tool_names)``, ``auto_detect_safety_experiences()``) which require the ``[toolshield]`` optional extra (``pip install openhands-sdk[toolshield]``). Callers with their own source of guidelines can pass any custom string.",
+            "title": "Safety Experiences",
+            "type": "string"
+          }
+        },
+        "required": [
+          "llm"
+        ],
+        "title": "ToolShieldLLMSecurityAnalyzer",
+        "type": "object"
+      },
+      "ToolShieldLLMSecurityAnalyzer-Output": {
+        "description": "Evaluate each action via a separate guardrail LLM.\n\nPairs with the existing ``ConfirmRisky`` policy unchanged: this\nanalyzer only *assigns* the risk level; ``ConfirmRisky`` decides\nwhether to pause for user confirmation.\n\nBy default the analyzer runs as a bare guardrail (no distilled\nsafety experiences). To enable the ToolShield seed, install\n``pip install openhands-sdk[toolshield]`` and pass the rendered\nexperiences via the ``safety_experiences`` field -- typically via\none of the helpers (``default_safety_experiences()``,\n``load_safety_experiences(...)``, ``auto_detect_safety_experiences()``).\nTested against ``toolshield>=0.1.3,<0.2``.\n\nNote: ``reasoning_content`` and ``thinking_blocks`` from extended-\nthinking models are deliberately excluded from the guardrail\ncontext. The risk signal lives in the tool call's name and\narguments; including reasoning text would inflate the prompt\nwithout proportional safety gain. Subclasses needing reasoning\nvisibility should override :func:`_format_action_for_guardrail`.\n\nLifecycle: instances maintain a per-conversation deque of recent\nactions (``history_window`` items) for guardrail context. Each\ninstance is intended for SINGLE-CONVERSATION use. Reusing one\nanalyzer instance across multiple conversations will leak action\nhistory between them, which is both a privacy issue (conversation\nA's tool arguments visible in conversation B's guardrail prompt)\nand a correctness issue (the guardrail evaluates conversation B's\nactions against irrelevant history). Construct one analyzer per\nconversation, OR call :meth:`reset_history` at conversation\nboundaries.\n\nThe recent-action-context propagation across analyzers (this one,\n:class:`LLMSecurityAnalyzer`, :class:`GraySwanAnalyzer`) is tracked\nfor convergence in a separate follow-up; until that lands,\nsingle-conversation lifecycle is the contract.\n\nFailure modes are consistent and ensemble-safe -- both an\ninfrastructure error (network, rate limit) and a parse failure\n(the guardrail responded but its output had no parseable\n``RISK:`` label) return ``SecurityRisk.UNKNOWN``. ``ConfirmRisky``\nwith ``confirm_unknown=True`` then pauses for user confirmation,\nmatching the conservative posture without dominating ``max()`` in\nensemble fusion.",
+        "properties": {
+          "history_window": {
+            "default": 20,
+            "description": "Number of prior actions to include as context.",
+            "title": "History Window",
+            "type": "integer"
+          },
+          "kind": {
+            "const": "ToolShieldLLMSecurityAnalyzer",
+            "title": "Kind",
+            "type": "string"
+          },
+          "llm": {
+            "$ref": "#/components/schemas/LLM-Output",
+            "description": "LLM used as the guardrail. Can be a smaller/cheaper model than the actor LLM; only the model's ability to classify action risk matters."
+          },
+          "safety_experiences": {
+            "default": "",
+            "description": "Pre-generated safety guidelines injected into the guardrail's system prompt.\n- ``\"\"`` (default): bare guardrail -- no experiences. The analyzer still separates actor from judge; it just classifies without distilled tool-specific guidance.\n- Any non-empty string: used as-is. The intended pattern is to call one of the helpers (``default_safety_experiences()``, ``load_safety_experiences(tool_names)``, ``auto_detect_safety_experiences()``) which require the ``[toolshield]`` optional extra (``pip install openhands-sdk[toolshield]``). Callers with their own source of guidelines can pass any custom string.",
+            "title": "Safety Experiences",
+            "type": "string"
+          }
+        },
+        "required": [
+          "llm",
+          "kind"
+        ],
+        "title": "ToolShieldLLMSecurityAnalyzer",
         "type": "object"
       },
       "TopLogprob": {
@@ -23251,6 +23376,136 @@
         ]
       }
     },
+    "/api/git/commits": {
+      "get": {
+        "description": "List the repository's most recent commits, newest first.",
+        "operationId": "git_commits_query_api_git_commits_get",
+        "parameters": [
+          {
+            "description": "The git repository path",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "The git repository path",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum commits to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Maximum commits to return",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitCommitsPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Git Commits Query",
+        "tags": [
+          "Git"
+        ]
+      }
+    },
+    "/api/git/commits/{sha}/changes": {
+      "get": {
+        "description": "Get the files changed by a single commit (vs its first parent).",
+        "operationId": "git_commit_changes_query_api_git_commits__sha__changes_get",
+        "parameters": [
+          {
+            "description": "Commit SHA",
+            "in": "path",
+            "name": "sha",
+            "required": true,
+            "schema": {
+              "description": "Commit SHA",
+              "pattern": "^[0-9a-fA-F]{4,64}$",
+              "title": "Sha",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The git repository path",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "The git repository path",
+              "title": "Path",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GitChange"
+                  },
+                  "title": "Response Git Commit Changes Query Api Git Commits  Sha  Changes Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Git Commit Changes Query",
+        "tags": [
+          "Git"
+        ]
+      }
+    },
     "/api/git/diff": {
       "get": {
         "description": "Get git diff using query parameter (preferred method).",
@@ -23283,6 +23538,25 @@
               ],
               "description": "Optional git ref to diff against (e.g. 'HEAD' for git status-style changes, or a commit hash). When omitted, the upstream/default branch is auto-detected.",
               "title": "Ref"
+            }
+          },
+          {
+            "description": "Optional commit SHA. When set, the diff is the change that commit introduced (vs its first parent), read entirely from git objects so deleted files still render. Mutually exclusive with 'ref'.",
+            "in": "query",
+            "name": "commit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9a-fA-F]{4,64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional commit SHA. When set, the diff is the change that commit introduced (vs its first parent), read entirely from git objects so deleted files still render. Mutually exclusive with 'ref'.",
+              "title": "Commit"
             }
           }
         ],
