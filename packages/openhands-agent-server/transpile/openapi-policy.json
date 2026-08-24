@@ -167,11 +167,6 @@
       "tracking": "OPENAPI-DEFERRED-001",
       "reason": "Multi-workspace discovery is not yet implemented in this server package."
     },
-    "GET /v1/models": {
-      "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "The OpenAI-compatible gateway is not yet part of the replaceable TypeScript server slice."
-    },
     "POST /api/auth/workspace-session": {
       "disposition": "DEFERRED",
       "tracking": "OPENAPI-DEFERRED-001",
@@ -231,11 +226,6 @@
       "disposition": "DEFERRED",
       "tracking": "OPENAPI-DEFERRED-001",
       "reason": "Workspace-parent lifecycle management is not yet implemented in this server package."
-    },
-    "POST /v1/chat/completions": {
-      "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "The OpenAI-compatible gateway is not yet part of the replaceable TypeScript server slice."
     }
   },
   "contractExemptions": {
@@ -276,6 +266,26 @@
     "POST /api/profiles": {
       "policy": "EXT-SERVER-004",
       "reason": "Additive body-named creation route; the upstream path-named route remains available."
+    },
+    "GET /": {
+      "policy": "EXT-SERVER-005",
+      "reason": "Root server-details routes predate the upstream oracle narrowing to /api/ and remain as additive TS-server surface."
+    },
+    "GET /alive": {
+      "policy": "EXT-SERVER-005",
+      "reason": "Root server-details routes predate the upstream oracle narrowing to /api/ and remain as additive TS-server surface."
+    },
+    "GET /health": {
+      "policy": "EXT-SERVER-005",
+      "reason": "Root server-details routes predate the upstream oracle narrowing to /api/ and remain as additive TS-server surface."
+    },
+    "GET /ready": {
+      "policy": "EXT-SERVER-005",
+      "reason": "Root server-details routes predate the upstream oracle narrowing to /api/ and remain as additive TS-server surface."
+    },
+    "GET /server_info": {
+      "policy": "EXT-SERVER-005",
+      "reason": "Root server-details routes predate the upstream oracle narrowing to /api/ and remain as additive TS-server surface."
     }
   }
 }
