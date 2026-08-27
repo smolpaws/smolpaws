@@ -5,7 +5,7 @@ import {
   askAgentRequestSchema,
   conversationSortOrderSchema,
   forkConversationRequestSchema,
-  startConversationRequestSchema,
+  publicStartConversationRequestSchema,
   startGoalRequestSchema,
   updateConversationRequestSchema,
   updateSecretsRequestSchema,
@@ -70,7 +70,7 @@ export function registerConversationRoutes(app: FastifyInstance, service: Conver
 
   app.post('/api/conversations', async (request, reply) => {
     const startRequest = options.prepareStartRequest === undefined
-      ? parseBody(startConversationRequestSchema, request.body)
+      ? parseBody(publicStartConversationRequestSchema, request.body)
       : await options.prepareStartRequest(request.body);
     const result = await service.startConversation(startRequest);
     reply.status(result.isNew ? 201 : 200);

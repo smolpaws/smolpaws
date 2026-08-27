@@ -18,7 +18,7 @@ import {
 } from '@smolpaws/openhands-agent';
 
 import type { AgentFactory } from './eventService.js';
-import { startConversationRequestSchema, type StartConversationRequest } from './models.js';
+import { publicStartConversationRequestSchema, startConversationRequestSchema, type StartConversationRequest } from './models.js';
 import type { ServerStateService } from './serverState.js';
 
 export type ProfileLlmClientFactory = (profile: LLMProfile, secretStore: SecretStore) => Promise<LLMClient>;
@@ -51,7 +51,8 @@ export function createProfileAgentFactory(options: ProfileAgentFactoryOptions): 
 }
 
 export async function prepareProfileStartRequest(input: unknown, state: ServerStateService): Promise<StartConversationRequest> {
-  const request = isRecord(input) ? input : {};
+  const request = publicStartConversationRequestSchema.parse(input);
+  const hasRequestedMaxIterations = isRecord(input) && Object.hasOwn(input, 'max_iterations');
   const settings = await state.settings();
   const agentSettings = validateAgentSettings(request.agent ?? settings.agent_settings);
   if (agentSettings.agent_kind !== 'openhands') throw new Error('acp_runtime_not_ported');
@@ -61,7 +62,7 @@ export async function prepareProfileStartRequest(input: unknown, state: ServerSt
     ...request,
     agent: agentSettings,
     llm_profile_snapshot: snapshotProfile(profile),
-    ...(request.max_iterations === undefined ? { max_iterations: settings.conversation_settings.max_iterations } : {}),
+    ...(hasRequestedMaxIterations ? {} : { max_iterations: settings.conversation_settings.max_iterations }),
   });
 }
 

@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
@@ -8,6 +8,8 @@ import { InMemorySecretStore, llmProfileSchema, type LLMProfile } from '@smolpaw
 
 import { createAgentServerApp } from '../src/app.js';
 import { AgentServerHttpClient, assert } from './httpClient.js';
+import { pathContainsPlaintext } from './plaintextScan.js';
+
 import { runProfileWorkflowScenario } from './profileWorkflowScenario.js';
 import { createReadmeWorkspace } from './workspaceFixture.js';
 
@@ -18,27 +20,28 @@ const dummySecretValue = 'profile-workflow-dummy-secret-not-persisted';
 
 async function main(): Promise<void> {
   const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-profile-workflow-'));
-  const conversationsPath = path.join(root, 'conversations');
-  const workspaceRoot = path.join(root, 'workspaces');
-  const statePath = path.join(root, 'state');
-  const sourceReadme = fileURLToPath(new URL('../README.md', import.meta.url));
-  const profiles = await loadProfiles();
-  const [firstWorkspace, secondWorkspace] = await Promise.all([
-    createReadmeWorkspace(workspaceRoot, 'nano-readme-task', sourceReadme),
-    createReadmeWorkspace(workspaceRoot, 'mini-readme-task', sourceReadme),
-  ]);
-  const server = await createAgentServerApp({
-    secretStore: new InMemorySecretStore(),
-    config: {
-      conversationsPath,
-      workspaceRoot,
-      statePath,
-      allowedFileRoots: [workspaceRoot],
-      sessionApiKey,
-    },
-  });
-
+  let server: Awaited<ReturnType<typeof createAgentServerApp>> | null = null;
   try {
+    const conversationsPath = path.join(root, 'conversations');
+    const workspaceRoot = path.join(root, 'workspaces');
+    const statePath = path.join(root, 'state');
+    const sourceReadme = fileURLToPath(new URL('../README.md', import.meta.url));
+    const profiles = await loadProfiles();
+    const [firstWorkspace, secondWorkspace] = await Promise.all([
+      createReadmeWorkspace(workspaceRoot, 'nano-readme-task', sourceReadme),
+      createReadmeWorkspace(workspaceRoot, 'mini-readme-task', sourceReadme),
+    ]);
+    server = await createAgentServerApp({
+      secretStore: new InMemorySecretStore(),
+      config: {
+        conversationsPath,
+        workspaceRoot,
+        statePath,
+        allowedFileRoots: [workspaceRoot],
+        sessionApiKey,
+      },
+    });
+
     await server.app.listen({ host: '127.0.0.1', port: 0 });
     const client = new AgentServerHttpClient(localHost(server.app.server.address()), sessionApiKey);
     const result = await runProfileWorkflowScenario({
@@ -49,8 +52,8 @@ async function main(): Promise<void> {
       firstWorkspace,
       secondWorkspace,
     });
-    assert(!(await pathContains(root, apiKey)), 'OPENAI_API_KEY was persisted in plaintext');
-    assert(!(await pathContains(root, dummySecretValue)), 'dummy OH_SECRET was persisted in plaintext');
+    assert(!(await pathContainsPlaintext(root, apiKey)), 'OPENAI_API_KEY was persisted in plaintext');
+    assert(!(await pathContainsPlaintext(root, dummySecretValue)), 'dummy OH_SECRET was persisted in plaintext');
 
     console.log(JSON.stringify({
       ok: true,
@@ -62,7 +65,7 @@ async function main(): Promise<void> {
       result,
     }, null, 2));
   } finally {
-    await server.app.close().catch(() => undefined);
+    await server?.app.close().catch(() => undefined);
     if (process.env.KEEP_PROFILE_WORKFLOW_ARTIFACTS === '1') {
       console.log(`Profile workflow artifacts retained at ${root}`);
     } else {
@@ -85,18 +88,6 @@ async function loadProfiles(): Promise<readonly [LLMProfile, LLMProfile]> {
   const raw = JSON.parse(await readFile(file, 'utf8')) as { readonly profiles?: unknown };
   if (!Array.isArray(raw.profiles) || raw.profiles.length !== 2) throw new Error('llm-profiles.json must contain exactly two profiles.');
   return [llmProfileSchema.parse(raw.profiles[0]), llmProfileSchema.parse(raw.profiles[1])];
-}
-
-async function pathContains(root: string, needle: string): Promise<boolean> {
-  for (const entry of await readdir(root, { withFileTypes: true })) {
-    const fullPath = path.join(root, entry.name);
-    if (entry.isDirectory()) {
-      if (await pathContains(fullPath, needle)) return true;
-    } else if (entry.isFile() && (await stat(fullPath)).size <= 1_000_000) {
-      if ((await readFile(fullPath, 'utf8')).includes(needle)) return true;
-    }
-  }
-  return false;
 }
 
 function localHost(address: string | AddressInfo | null): string {

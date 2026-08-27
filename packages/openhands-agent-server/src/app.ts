@@ -143,6 +143,10 @@ function registerErrorHandler(app: FastifyInstance): void {
       reply.status(400).send({ detail: error.message });
       return;
     }
+    if (error instanceof Error && (error.message === 'profile_not_found' || error.message.startsWith('llm_profile_not_found:'))) {
+      reply.status(404).send({ detail: error.message });
+      return;
+    }
     reply.status(500).send({ detail: error instanceof Error ? error.message : String(error) });
   });
 }

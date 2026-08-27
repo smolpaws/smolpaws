@@ -50,9 +50,15 @@ export class ServerStateService {
     const activeProfileId = update.active_profile_id === undefined ? state.settings.active_profile_id : update.active_profile_id;
     if (activeProfileId !== null && state.llmProfiles[activeProfileId] === undefined) throw new Error('profile_not_found');
     const requestedAgentSettings = update.agent_settings === undefined ? state.settings.agent_settings : validateAgentSettings(update.agent_settings);
-    const agentSettings = update.agent_settings === undefined && activeProfileId !== null && requestedAgentSettings.agent_kind === 'openhands'
+    const agentSettings = update.agent_settings === undefined && update.active_profile_id !== undefined && activeProfileId !== null && requestedAgentSettings.agent_kind === 'openhands'
       ? { ...requestedAgentSettings, llm_profile_ref: activeProfileId }
       : requestedAgentSettings;
+    if (update.agent_settings !== undefined && agentSettings.agent_kind === 'openhands') {
+      const profileRef = agentSettings.llm_profile_ref;
+      if (typeof profileRef !== 'string' || state.llmProfiles[profileRef] === undefined) {
+        throw new Error('profile_not_found');
+      }
+    }
     const settings: SettingsResponse = {
       ...state.settings,
       agent_settings: agentSettings,

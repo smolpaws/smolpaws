@@ -62,12 +62,11 @@ export const sendMessageResponseSchema = z
   .strict();
 export type SendMessageResponse = z.infer<typeof sendMessageResponseSchema>;
 
-export const startConversationRequestSchema = z
+const startConversationRequestBaseSchema = z
   .object({
     id: z.string().uuid().optional(),
     conversation_id: z.string().uuid().optional(),
     agent: z.unknown().optional(),
-    llm_profile_snapshot: llmProfileSchema.optional(),
     workspace: workspaceSchema.default({ kind: 'LocalWorkspace', working_dir: 'workspace/project' }),
     initial_message: sendMessageRequestSchema.optional(),
     persistence_dir: z.string().nullable().default('workspace/conversations'),
@@ -79,7 +78,16 @@ export const startConversationRequestSchema = z
     worktree: z.boolean().default(false),
   })
   .passthrough();
+
+export const publicStartConversationRequestSchema = startConversationRequestBaseSchema.transform(stripServerOwnedStartFields);
+export const startConversationRequestSchema = startConversationRequestBaseSchema.extend({ llm_profile_snapshot: llmProfileSchema.optional() });
 export type StartConversationRequest = z.infer<typeof startConversationRequestSchema>;
+
+function stripServerOwnedStartFields(request: z.infer<typeof startConversationRequestBaseSchema>): z.infer<typeof startConversationRequestBaseSchema> {
+  const publicRequest = { ...request } as Record<string, unknown>;
+  delete publicRequest.llm_profile_snapshot;
+  return publicRequest as z.infer<typeof startConversationRequestBaseSchema>;
+}
 
 export const updateConversationRequestSchema = z
   .object({
