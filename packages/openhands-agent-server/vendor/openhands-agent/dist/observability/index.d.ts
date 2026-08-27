@@ -18,6 +18,7 @@ export interface ObserveAdapter {
 export interface LaminarInitOptions {
     readonly env?: EnvLike;
     readonly initializer?: () => void;
+    readonly isInitialized?: () => boolean;
 }
 export interface RootSpanOptions {
     readonly sessionId?: string | null;
@@ -30,6 +31,7 @@ export interface RootSpanOptions {
 }
 export interface RootSpanHandle {
     readonly setAttribute?: (key: string, value: string) => void;
+    readonly beginChild?: (name: string, tags?: readonly string[] | null) => void;
     readonly end?: () => void;
 }
 export declare class RootSpan {
@@ -45,4 +47,5 @@ export declare function maybeInitLaminar(options?: LaminarInitOptions): boolean;
 export declare function observe(options?: ObserveOptions): <Args extends unknown[], Result>(fn: (...args: Args) => Result) => (...args: Args) => Result;
 export declare function startRootSpan(name: string, options?: RootSpanOptions): RootSpan | null;
 export declare function endRootSpan(root: RootSpan | null | undefined): void;
+export declare function startChildSpan(root: RootSpan | null | undefined, name: string, tags?: readonly string[] | null): void;
 export declare function extractActionName(actionEvent: unknown): string;

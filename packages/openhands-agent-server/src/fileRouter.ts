@@ -69,8 +69,11 @@ async function searchSubdirs(reply: ReplyLike, request: FastifyRequest, config: 
   const query = queryRecord(request);
   const targetPath = await resolveAllowedAbsolutePath(reply, stringQuery(query.path), config, 'read');
   if (targetPath === null) return undefined;
-  const limitRaw = typeof query.limit === 'string' ? query.limit : '100';
-  const limit = Math.max(1, Math.min(100, Number.parseInt(limitRaw, 10) || 100));
+  const limit = query.limit === undefined ? 100 : Number(query.limit);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    reply.status(422).send({ detail: 'limit must be an integer between 1 and 100' });
+    return undefined;
+  }
   const includeHidden = query.include_hidden === 'true';
   const stats = await fs.stat(targetPath).catch((error: unknown) => {
     if (isErrno(error, 'ENOENT')) return null;

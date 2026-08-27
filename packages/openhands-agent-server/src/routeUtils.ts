@@ -36,6 +36,19 @@ export function arrayQuery(value: unknown): string[] {
   return [];
 }
 
+export function stringArrayBody(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+}
+
+export function booleanQuery(value: unknown, fallback = false): boolean {
+  const raw = stringQuery(value)?.trim().toLowerCase();
+  if (raw === undefined) return fallback;
+  if (raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on') return true;
+  if (raw === 'false' || raw === '0' || raw === 'no' || raw === 'off') return false;
+  return fallback;
+}
+
 export function intQuery(value: unknown, fallback: number): number {
   const raw = stringQuery(value);
   if (raw === null) return fallback;
@@ -80,4 +93,3 @@ export function acceptedDeviation(reply: FastifyReply, feature: string): { reado
     feature,
   };
 }
-

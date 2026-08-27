@@ -242,10 +242,17 @@ var sourceTypeSchema = z.union([
   z.literal("hook")
 ]);
 var recordSchema = z.record(z.string(), z.unknown());
+var ROOT_PARENT_ID = "__root__";
 var baseEventFields = {
-  id: z.string().default(() => randomUUID()),
+  id: z.string().refine((value) => value !== ROOT_PARENT_ID, `Event id may not equal reserved sentinel '${ROOT_PARENT_ID}'`).default(() => randomUUID()),
   timestamp: z.string().default(() => (/* @__PURE__ */ new Date()).toISOString()),
-  source: sourceTypeSchema
+  source: sourceTypeSchema,
+  // Conversation-tree linkage (6575534). None for the root or for legacy events
+  // predating the tree; events sharing a parent_id are sibling branches. The TS
+  // EventLog still persists a flat, index-ordered log — the tree field is carried
+  // through the wire/serialization boundary for compatibility while fork/navigate
+  // semantics remain deferred (see the review for 6575534).
+  parent_id: z.string().nullable().default(null)
 };
 function eventObject(shape) {
   return z.object({ ...baseEventFields, ...shape }).strict();
@@ -323,7 +330,8 @@ var observationEventSchema = eventObject({
   observation: recordSchema,
   action_id: z.string(),
   tool_name: z.string(),
-  tool_call_id: z.string()
+  tool_call_id: z.string(),
+  extended_content: z.array(contentSchema).default([])
 });
 var userRejectObservationSchema = eventObject({
   kind: z.literal("UserRejectObservation").default("UserRejectObservation"),
@@ -499,7 +507,7 @@ function toLLMMessage(event) {
         responses_reasoning_item: event.responses_reasoning_item
       };
     case "ObservationEvent":
-      return toolMessage(event.tool_name, event.tool_call_id, observationContent(event.observation));
+      return toolMessage(event.tool_name, event.tool_call_id, [...observationContent(event.observation), ...event.extended_content]);
     case "UserRejectObservation":
       return toolMessage(event.tool_name, event.tool_call_id, [textContent(`Action rejected: ${event.rejection_reason}`)]);
     case "AgentErrorEvent":
@@ -605,7 +613,8 @@ function canMergeUserMessages(previous, current) {
 }
 var keywordTriggerSchema = z.object({ type: z.literal("keyword").default("keyword"), keywords: z.array(z.string()) }).strict();
 var taskTriggerSchema = z.object({ type: z.literal("task").default("task"), triggers: z.array(z.string()) }).strict();
-var triggerSchema = z.discriminatedUnion("type", [keywordTriggerSchema, taskTriggerSchema]);
+var pathTriggerSchema = z.object({ type: z.literal("path").default("path"), paths: z.array(z.string()) }).strict();
+var triggerSchema = z.discriminatedUnion("type", [keywordTriggerSchema, taskTriggerSchema, pathTriggerSchema]);
 var inputMetadataSchema = z.object({ name: z.string(), description: z.string() }).strict();
 var skillResourcesSchema = z.object({ skillRoot: z.string(), scripts: z.array(z.string()).default([]), references: z.array(z.string()).default([]), assets: z.array(z.string()).default([]) }).strict();
 var skillDataSchema = z.object({
@@ -666,18 +675,27 @@ var Skill = class {
     return loadLegacySkill(path3, fileContent, skillBaseDir);
   }
   matchTrigger(message) {
-    if (this.trigger === null) {
+    if (this.trigger === null || this.trigger.type === "path") {
       return null;
     }
     const messageLower = message.toLowerCase();
     const candidates = this.trigger.type === "keyword" ? this.trigger.keywords : this.trigger.triggers;
-    return candidates.find((candidate) => messageLower.includes(candidate.toLowerCase())) ?? null;
+    return candidates.find((candidate) => keywordMatches(candidate, messageLower)) ?? null;
   }
   getTriggers() {
     if (this.trigger === null) {
       return [];
     }
+    if (this.trigger.type === "path") {
+      return [...this.trigger.paths];
+    }
     return this.trigger.type === "keyword" ? [...this.trigger.keywords] : [...this.trigger.triggers];
+  }
+  matchPathTrigger(filePath) {
+    if (this.trigger?.type !== "path") {
+      return null;
+    }
+    return this.trigger.paths.find((pattern) => pathMatchesGlob(filePath, pattern)) ?? null;
   }
   getSkillType() {
     if (this.isAgentskillsFormat) {
@@ -768,14 +786,26 @@ function loadLegacySkill(path3, fileContent, skillBaseDir) {
 function createSkillFromMetadata(name, content, source, metadata, resources, isAgentskillsFormat) {
   const triggers = stringList(metadata.triggers);
   const inputs = inputList(metadata.inputs);
-  const trigger = inputs.length > 0 ? taskTriggerSchema.parse({ triggers: triggers.includes(`/${name}`) ? triggers : [...triggers, `/${name}`] }) : triggers.length > 0 ? keywordTriggerSchema.parse({ keywords: triggers }) : null;
+  const paths = parsePaths(metadata.paths);
+  let trigger;
+  let triggerInputs = inputs;
+  if (paths !== null && paths.length > 0) {
+    trigger = pathTriggerSchema.parse({ paths });
+    triggerInputs = [];
+  } else if (inputs.length > 0) {
+    trigger = taskTriggerSchema.parse({ triggers: triggers.includes(`/${name}`) ? triggers : [...triggers, `/${name}`] });
+  } else if (triggers.length > 0) {
+    trigger = keywordTriggerSchema.parse({ keywords: triggers });
+  } else {
+    trigger = null;
+  }
   const allowedRaw = metadata["allowed-tools"] ?? metadata.allowed_tools;
   return skillSchema.parse({
     name,
-    content: appendMissingVariablesPrompt(content, trigger, inputs),
+    content: appendMissingVariablesPrompt(content, trigger, triggerInputs),
     source,
     trigger,
-    inputs,
+    inputs: triggerInputs,
     isAgentskillsFormat,
     description: stringValue(metadata.description),
     license: stringValue(metadata.license),
@@ -962,6 +992,60 @@ function stringList(value) {
   }
   return value.map((item) => String(item));
 }
+function parsePaths(value) {
+  if (value === void 0 || value === null) {
+    return null;
+  }
+  if (typeof value === "string") {
+    return value.split(",").map((part) => part.trim()).filter((part) => part.length > 0) || null;
+  }
+  if (Array.isArray(value)) {
+    const paths = value.map((item) => String(item).trim()).filter((item) => item.length > 0);
+    return paths.length > 0 ? paths : null;
+  }
+  return null;
+}
+var globTokenPattern = /\*\*\/|\*\*|\*|\?|[^*?]+/gu;
+var globToRegex = {
+  "**/": "(?:.*/)?",
+  "**": ".*",
+  "*": "[^/]*",
+  "?": "[^/]"
+};
+var pathGlobCache = /* @__PURE__ */ new Map();
+function compilePathGlob(pattern) {
+  const cached = pathGlobCache.get(pattern);
+  if (cached !== void 0) {
+    return cached;
+  }
+  let expanded = pattern;
+  if (!pattern.includes("/")) {
+    expanded = `**/${pattern}`;
+  }
+  const body = (expanded.match(globTokenPattern) ?? []).map((token) => globToRegex[token] ?? escapeRegex(token)).join("");
+  const compiled = new RegExp(`${body}$`, "u");
+  if (pathGlobCache.size < 512) {
+    pathGlobCache.set(pattern, compiled);
+  }
+  return compiled;
+}
+function pathMatchesGlob(filePath, pattern) {
+  if (pattern.length === 0) {
+    return false;
+  }
+  return compilePathGlob(pattern).test(filePath);
+}
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+function keywordMatches(keyword, messageLower) {
+  const keywordLower = keyword.toLowerCase();
+  if (keywordLower.length === 0) {
+    return false;
+  }
+  const pattern = new RegExp(`(?<![a-z0-9])${escapeRegex(keywordLower)}(?![a-z0-9])`, "u");
+  return pattern.test(messageLower);
+}
 function inputList(value) {
   if (!Array.isArray(value)) {
     return [];
@@ -1020,7 +1104,8 @@ var AgentContext = class {
   secrets;
   currentDatetime;
   constructor(options = {}) {
-    this.skills = [...options.skills ?? []];
+    const disabled = new Set(options.disabledSkills ?? []);
+    this.skills = (options.skills ?? []).filter((skill) => !disabled.has(skill.name));
     assertUniqueSkillNames(this.skills);
     this.systemMessageSuffix = options.systemMessageSuffix ?? null;
     this.userMessageSuffix = options.userMessageSuffix ?? null;
@@ -1043,12 +1128,15 @@ var AgentContext = class {
     if (this.currentDatetime === null) {
       return null;
     }
-    return this.currentDatetime instanceof Date ? this.currentDatetime.toISOString() : this.currentDatetime;
+    return this.currentDatetime instanceof Date ? formatDatetimeToMinute(this.currentDatetime) : this.currentDatetime;
   }
   partitionSkills() {
     const repoSkills = [];
     const availableSkills = [];
     for (const skill of this.skills) {
+      if (skill.trigger?.type === "path") {
+        continue;
+      }
       if (skill.isAgentskillsFormat || skill.trigger !== null) {
         if (!skill.disableModelInvocation) {
           availableSkills.push(skill);
@@ -1071,11 +1159,11 @@ ${skill.content.trim()}
 [END Context]`).join("\n\n")}
 </REPO_CONTEXT>`);
     }
-    if (this.systemMessageSuffix !== null && this.systemMessageSuffix.trim().length > 0) {
-      sections.push(this.systemMessageSuffix.trim());
-    }
     if (availableSkills.length > 0) {
       sections.push(skillsToPrompt(availableSkills));
+    }
+    if (this.systemMessageSuffix !== null && this.systemMessageSuffix.trim().length > 0) {
+      sections.push(this.systemMessageSuffix.trim());
     }
     if (secretInfos.length > 0) {
       sections.push(`<CUSTOM_SECRETS>
@@ -1088,6 +1176,32 @@ ${datetime}
 </CURRENT_DATETIME>`);
     }
     return sections.length === 0 ? null : sections.join("\n\n");
+  }
+  getToolUseSuffix(filePath, skipSkillNames = []) {
+    if (filePath.length === 0) {
+      return null;
+    }
+    const skip = new Set(skipSkillNames);
+    const recalled = [];
+    for (const skill of this.skills) {
+      if (skill.trigger?.type !== "path" || skip.has(skill.name)) {
+        continue;
+      }
+      const pattern = skill.matchPathTrigger(filePath);
+      if (pattern !== null) {
+        recalled.push({ name: skill.name, trigger: pattern, content: skill.content, source: skill.source });
+      }
+    }
+    if (recalled.length === 0) {
+      return null;
+    }
+    const blocks = recalled.map((rule) => `<EXTRA_INFO>
+The following rule applies because a file you touched matches "${rule.trigger}". Follow it when working with matching files.
+${rule.source === null ? "" : `Rule location: ${rule.source}
+`}
+${rule.content}
+</EXTRA_INFO>`);
+    return { content: textContent(blocks.join("\n")), activatedRules: recalled.map((rule) => rule.name) };
   }
   getUserMessageSuffix(message, skipSkillNames = []) {
     const suffix = this.userMessageSuffix?.trim() ?? "";
@@ -1121,6 +1235,17 @@ ${skill.source === null ? "" : `<location>${skill.source}</location>
     return parts.length === 0 ? null : { content: textContent(parts.join("\n\n")), activatedSkills: activated.map((skill) => skill.name) };
   }
 };
+function formatDatetimeToMinute(value) {
+  const year = value.getFullYear();
+  const month = pad2(value.getMonth() + 1);
+  const day = pad2(value.getDate());
+  const hour = pad2(value.getHours());
+  const minute = pad2(value.getMinutes());
+  return `${year}-${month}-${day}T${hour}:${minute}`;
+}
+function pad2(value) {
+  return value.toString().padStart(2, "0");
+}
 function assertUniqueSkillNames(skills) {
   const seen = /* @__PURE__ */ new Set();
   for (const skill of skills) {
@@ -1246,6 +1371,28 @@ var View = class _View {
     this.events.push(...output);
   }
 };
+
+// src/llm/exceptions.ts
+var CONTENT_POLICY_PATTERNS = [
+  "content_policy",
+  "content filtering policy",
+  "output blocked by content filtering"
+];
+var LLMContentPolicyViolationError = class extends Error {
+  constructor(message = "Output blocked by content filtering policy") {
+    super(message);
+    this.name = "LLMContentPolicyViolationError";
+  }
+};
+function isContentPolicyViolation(error) {
+  if (error instanceof LLMContentPolicyViolationError) {
+    return true;
+  }
+  const text = error instanceof Error ? error.message : String(error);
+  const normalized = text.toLowerCase();
+  const typeName = error instanceof Error ? error.name.toLowerCase() : "";
+  return CONTENT_POLICY_PATTERNS.some((pattern) => normalized.includes(pattern) || typeName.includes(pattern));
+}
 
 // src/conversation/event-log.ts
 var EVENTS_DIR = "events";
@@ -1914,10 +2061,17 @@ function isSecretKey(key) {
   const upper = key.toUpperCase();
   return [...SECRET_KEY_PATTERNS].some((pattern) => upper.includes(pattern));
 }
-function redactUrlCredentials(url) {
-  return url.replace(/^(https?:\/\/)([^@/]+)@(.+)$/u, "$1****@$3");
+function redactUrlCredentials(url, options = {}) {
+  const match = /^(https?:\/\/)([^@/]+)@(.+)$/u.exec(url);
+  if (match === null) {
+    return url;
+  }
+  if (options.preservePlaceholders === true && match[2]?.includes("${")) {
+    return url;
+  }
+  return `${match[1]}****@${match[3]}`;
 }
-var embeddedUrlCredentialsPattern = /(https?:\/\/)[^/@\s]+@/gu;
+var embeddedUrlCredentialsPattern = /(https?:\/\/)[^/@\s]+@/giu;
 function redactUrlCredentialsInText(text) {
   return text.replace(embeddedUrlCredentialsPattern, "$1****@");
 }
@@ -3054,6 +3208,7 @@ async function dispatchLlmResponse(response, state, runner, options = {}) {
 }
 
 // src/agent/agent.ts
+var CONTENT_POLICY_NUDGE = "Your previous response was blocked by the model's content filter. Please continue, rephrasing to avoid the flagged content.";
 var Agent = class {
   llm;
   tools;
@@ -3074,7 +3229,25 @@ var Agent = class {
     if (messages === null) {
       return [state.events.at(-1)].filter((event) => event !== void 0);
     }
-    const response = await this.llm.complete(messages, this.tools.filter((tool) => tool.usable));
+    let response;
+    try {
+      response = await this.llm.complete(messages, this.tools.filter((tool) => tool.usable));
+    } catch (error) {
+      if (isContentPolicyViolation(error)) {
+        return [
+          await state.appendEventAsync(
+            messageEventSchema.parse({
+              source: "user",
+              llm_message: {
+                role: "user",
+                content: [textContent(CONTENT_POLICY_NUDGE)]
+              }
+            })
+          )
+        ];
+      }
+      throw error;
+    }
     return dispatchLlmResponse(response, state, (action) => this.runTool(action), {
       maxConcurrency: this.toolConcurrencyLimit
     });
@@ -3285,7 +3458,7 @@ async function validateGitRepository(repoDir) {
   }
   return repoPath;
 }
-async function getValidRef(repoDir, override) {
+async function getValidRef(repoDir, override, purpose = "export") {
   if (override !== void 0 && override !== null) {
     try {
       return await runGitCommand(["git", "--no-pager", "rev-parse", "--verify", `${override}^{commit}`], { cwd: repoDir });
@@ -3299,26 +3472,162 @@ async function getValidRef(repoDir, override) {
   if (!await repoHasCommits(repoDir)) {
     return GIT_EMPTY_TREE_HASH;
   }
+  if (purpose === "display") {
+    return getDisplayBaseRef(repoDir);
+  }
   return GIT_EMPTY_TREE_HASH;
+}
+async function getDisplayBaseRef(repoDir) {
+  const head = await revParse(repoDir, "HEAD");
+  const currentBranch = await getCurrentBranch(repoDir);
+  if (currentBranch !== null) {
+    const upstreamSha = await revParse(repoDir, `origin/${currentBranch}`);
+    if (upstreamSha !== null) {
+      if (upstreamSha === head && !await hasTrackedChanges(repoDir)) ; else {
+        return upstreamSha;
+      }
+    }
+  }
+  const defaultBranch = await getRemoteDefaultBranch(repoDir);
+  if (defaultBranch !== null) {
+    const forkPoint = await mergeBase(repoDir, "HEAD", `origin/${defaultBranch}`);
+    if (forkPoint !== null) {
+      return forkPoint;
+    }
+    const defaultSha = await revParse(repoDir, `origin/${defaultBranch}`);
+    if (defaultSha !== null) {
+      return defaultSha;
+    }
+  } else {
+    for (const localDefault of ["main", "master"]) {
+      const localDefaultSha = await revParse(repoDir, localDefault);
+      if (localDefaultSha === null) {
+        continue;
+      }
+      if (localDefault === currentBranch) {
+        break;
+      }
+      const base = await mergeBase(repoDir, "HEAD", localDefault);
+      if (base !== null && base === localDefaultSha) {
+        return base;
+      }
+      break;
+    }
+  }
+  if (head !== null) {
+    return head;
+  }
+  return GIT_EMPTY_TREE_HASH;
+}
+async function revParse(repoDir, ref) {
+  try {
+    const result = await runGitCommand(["git", "--no-pager", "rev-parse", "--verify", ref], { cwd: repoDir });
+    return result || null;
+  } catch (error) {
+    if (error instanceof GitCommandError) {
+      return null;
+    }
+    throw error;
+  }
+}
+async function mergeBase(repoDir, refA, refB) {
+  try {
+    const result = await runGitCommand(["git", "--no-pager", "merge-base", refA, refB], { cwd: repoDir });
+    return result || null;
+  } catch (error) {
+    if (error instanceof GitCommandError) {
+      return null;
+    }
+    throw error;
+  }
+}
+async function getCurrentBranch(repoDir) {
+  try {
+    const branch = await runGitCommand(["git", "--no-pager", "rev-parse", "--abbrev-ref", "HEAD"], { cwd: repoDir });
+    if (branch && branch !== "HEAD") {
+      return branch;
+    }
+  } catch (error) {
+    if (!(error instanceof GitCommandError)) {
+      throw error;
+    }
+  }
+  return null;
+}
+async function getRemoteDefaultBranch(repoDir) {
+  try {
+    const symref = await runGitCommand(["git", "--no-pager", "rev-parse", "--abbrev-ref", "origin/HEAD"], { cwd: repoDir });
+    if (symref.startsWith("origin/") && symref.length > "origin/".length) {
+      return symref.slice("origin/".length);
+    }
+  } catch (error) {
+    if (!(error instanceof GitCommandError)) {
+      throw error;
+    }
+  }
+  try {
+    const remoteInfo = await runGitCommand(["git", "--no-pager", "remote", "show", "origin"], { cwd: repoDir });
+    for (const line of remoteInfo.split(/\r?\n/u)) {
+      if (line.includes("HEAD branch:")) {
+        const defaultBranch = line.split(":").at(-1)?.trim() ?? "";
+        if (defaultBranch && defaultBranch !== "(unknown)") {
+          return defaultBranch;
+        }
+        break;
+      }
+    }
+  } catch (error) {
+    if (!(error instanceof GitCommandError)) {
+      throw error;
+    }
+  }
+  return null;
+}
+async function hasTrackedChanges(repoDir) {
+  try {
+    const status = await runGitCommand(["git", "--no-pager", "status", "--porcelain", "--untracked-files=no"], { cwd: repoDir });
+    return status.trim().length > 0;
+  } catch (error) {
+    if (error instanceof GitCommandError) {
+      return true;
+    }
+    throw error;
+  }
+}
+async function getGitRepositoryMetadata(repoDir) {
+  const metadata = {};
+  const remote = await runGitProbe(["remote", "get-url", "origin"], repoDir);
+  if (remote !== null) {
+    metadata.repo_remote = redactUrlParams(redactUrlCredentialsInText(remote));
+  }
+  const headAndBranch = await runGitProbe(["rev-parse", "HEAD", "--abbrev-ref", "HEAD"], repoDir);
+  if (headAndBranch !== null) {
+    const lines = headAndBranch.split(/\r?\n/u);
+    if (lines.length === 2) {
+      const head = lines[0] ?? "";
+      const branch = lines[1] ?? "";
+      metadata.head_commit = head;
+      metadata.branch = branch === "HEAD" ? "DETACHED" : branch;
+    }
+  }
+  return metadata;
+}
+async function runGitProbe(args, cwd) {
+  try {
+    const result = await runGitCommand(["git", "--no-pager", ...args], { cwd, timeoutSeconds: 30 });
+    return result === "" ? null : result;
+  } catch (error) {
+    if (error instanceof GitCommandError) {
+      return null;
+    }
+    throw error;
+  }
 }
 async function getChangesInRepo(repoDir, ref) {
   const repo = await validateGitRepository(repoDir);
-  const base = await getValidRef(repo, ref);
+  const base = await getValidRef(repo, ref, "display");
   const output = await runGitCommand(["git", "--no-pager", "diff", "--name-status", base], { cwd: repo });
-  const changes = [];
-  for (const line of output.split(/\r?\n/u).filter((entry) => entry.trim().length > 0)) {
-    const parts = line.split(/\s+/u);
-    const status = parts[0] ?? "";
-    if (status.startsWith("R") && parts.length === 3) {
-      changes.push({ status: "DELETED" /* DELETED */, path: toPosixPath2(parts[1] ?? "") }, { status: "ADDED" /* ADDED */, path: toPosixPath2(parts[2] ?? "") });
-    } else if (status.startsWith("C") && parts.length === 3) {
-      changes.push({ status: "ADDED" /* ADDED */, path: toPosixPath2(parts[2] ?? "") });
-    } else if (parts.length === 2) {
-      changes.push({ status: mapGitStatus(status), path: toPosixPath2(parts[1] ?? "") });
-    } else {
-      throw new GitCommandError(`Unexpected git diff output format: ${line}`, ["git", "diff", "--name-status"], 0, "Invalid output format");
-    }
-  }
+  const changes = parseNameStatus(output.split(/\r?\n/u).filter((entry) => entry.trim().length > 0));
   const untracked = await runGitCommand(["git", "--no-pager", "ls-files", "--others", "--exclude-standard"], { cwd: repo }).catch(() => "");
   for (const path3 of untracked.split(/\r?\n/u).filter((entry) => entry.trim().length > 0)) {
     changes.push({ status: "ADDED" /* ADDED */, path: toPosixPath2(path3.trim()) });
@@ -3355,11 +3664,118 @@ async function getGitDiff(filePath, ref) {
     throw new GitRepositoryError(`File is not in a git repository: ${path3}`);
   }
   const validRepo = await validateGitRepository(repo);
-  const base = await getValidRef(validRepo, ref);
+  const base = await getValidRef(validRepo, ref, "display");
   const relative2 = toPosixPath2(path3.slice(validRepo.length + 1));
   const original = await runGitCommand(["git", "show", `${base}:${relative2}`], { cwd: validRepo }).catch(() => "");
   const modified = (await readFile(path3, "utf8")).split(/\r?\n/u).join("\n").replace(/\n$/u, "");
   return { modified, original };
+}
+var DEFAULT_COMMIT_LIMIT = 50;
+var LOG_FORMAT = "%H%h%an%aI%s";
+async function getGitCommits(repoPath, limit = DEFAULT_COMMIT_LIMIT) {
+  const validatedRepo = await validateGitRepository(repoPath);
+  const head = await revParse(validatedRepo, "HEAD");
+  if (head === null) {
+    return { commits: [], has_more: false };
+  }
+  let output;
+  try {
+    output = await runGitCommand(
+      ["git", "--no-pager", "log", "--no-show-signature", `--format=${LOG_FORMAT}`, "-n", String(limit + 1), head],
+      { cwd: validatedRepo }
+    );
+  } catch (error) {
+    if (error instanceof GitCommandError) {
+      return { commits: [], has_more: false };
+    }
+    throw error;
+  }
+  const commits = [];
+  for (const line of output.split(/\r?\n/u)) {
+    if (line.length === 0) {
+      continue;
+    }
+    const fields = line.split("");
+    if (fields.length !== 5) {
+      continue;
+    }
+    const sha = fields[0] ?? "";
+    const shortSha = fields[1] ?? "";
+    const author = fields[2] ?? "";
+    const timestamp = fields[3] ?? "";
+    const subject = fields[4] ?? "";
+    commits.push({ sha, short_sha: shortSha, subject, author, timestamp });
+  }
+  return { commits: commits.slice(0, limit), has_more: commits.length > limit };
+}
+async function resolveCommit(repoDir, commit) {
+  return runGitCommand(["git", "--no-pager", "rev-parse", "--verify", `${commit}^{commit}`], { cwd: repoDir });
+}
+async function getCommitChanges(repoDir, commit) {
+  const validatedRepo = await validateGitRepository(repoDir);
+  const sha = await resolveCommit(validatedRepo, commit);
+  const parent = await revParse(validatedRepo, `${sha}^`) ?? GIT_EMPTY_TREE_HASH;
+  const output = await runGitCommand(["git", "--no-pager", "diff", "--name-status", parent, sha], { cwd: validatedRepo });
+  return parseNameStatus(output.split(/\r?\n/u).filter((entry) => entry.trim().length > 0));
+}
+async function getCommitFileDiff(filePath, commit) {
+  const path3 = resolve(filePath);
+  const closestRepo = await getClosestGitRepo(path3);
+  if (closestRepo === null) {
+    throw new GitRepositoryError(`File is not in a git repository: ${path3}`);
+  }
+  const validatedRepo = await validateGitRepository(closestRepo);
+  const sha = await resolveCommit(validatedRepo, commit);
+  const parent = await revParse(validatedRepo, `${sha}^`) ?? GIT_EMPTY_TREE_HASH;
+  if (!path3.startsWith(validatedRepo + sep) && path3 !== validatedRepo) {
+    throw new GitPathError(`File is not within git repository: ${path3}`);
+  }
+  const relativePath = toPosixPath2(path3.slice(validatedRepo.length + 1));
+  const original = await showFileAtRev(validatedRepo, parent, relativePath);
+  const modified = await showFileAtRev(validatedRepo, sha, relativePath);
+  return { modified, original };
+}
+async function showFileAtRev(repo, rev, relativePath) {
+  const spec = `${rev}:${relativePath}`;
+  let sizeOutput = null;
+  try {
+    sizeOutput = await runGitCommand(["git", "--no-pager", "cat-file", "-s", spec], { cwd: repo });
+  } catch (error) {
+    if (!(error instanceof GitCommandError)) {
+      throw error;
+    }
+  }
+  if (sizeOutput !== null) {
+    const size = Number.parseInt(sizeOutput, 10);
+    if (Number.isFinite(size) && size > MAX_FILE_SIZE_FOR_GIT_DIFF) {
+      throw new GitPathError(`File too large for git diff: ${size} bytes (max: ${MAX_FILE_SIZE_FOR_GIT_DIFF} bytes)`);
+    }
+  }
+  try {
+    return await runGitCommand(["git", "--no-pager", "show", spec], { cwd: repo });
+  } catch (error) {
+    if (error instanceof GitCommandError) {
+      return "";
+    }
+    throw error;
+  }
+}
+function parseNameStatus(lines) {
+  const changes = [];
+  for (const line of lines) {
+    const parts = line.split(/\s+/u);
+    const status = parts[0] ?? "";
+    if (status.startsWith("R") && parts.length === 3) {
+      changes.push({ status: "DELETED" /* DELETED */, path: toPosixPath2(parts[1] ?? "") }, { status: "ADDED" /* ADDED */, path: toPosixPath2(parts[2] ?? "") });
+    } else if (status.startsWith("C") && parts.length === 3) {
+      changes.push({ status: "ADDED" /* ADDED */, path: toPosixPath2(parts[2] ?? "") });
+    } else if (parts.length === 2) {
+      changes.push({ status: mapGitStatus(status), path: toPosixPath2(parts[1] ?? "") });
+    } else {
+      throw new GitCommandError(`Unexpected git diff output format: ${line}`, ["git", "diff", "--name-status"], 0, "Invalid output format");
+    }
+  }
+  return changes;
 }
 function isGitUrl(source) {
   return source.startsWith("https://") || source.startsWith("http://") || source.startsWith("git://") || source.startsWith("file://") || /^[\w.-]+@[\w.-]+:/u.test(source);
@@ -4156,19 +4572,6 @@ function normalizeGenerationParamsForModel(profile) {
   }
   return profile;
 }
-function toGeminiThinkingLevel(reasoningEffort) {
-  if (reasoningEffort === null) {
-    return void 0;
-  }
-  switch (reasoningEffort) {
-    case "low":
-      return "LOW";
-    case "medium":
-      return "MEDIUM";
-    case "high":
-      return "HIGH";
-  }
-}
 
 // src/llm/anthropic.ts
 var DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com";
@@ -4183,8 +4586,8 @@ var AnthropicMessagesClient = class {
     this.apiKey = apiKey;
     this.fetchImpl = fetchImpl;
   }
-  async complete(messages) {
-    const body = buildAnthropicMessagesBody(this.profile, messages);
+  async complete(messages, tools) {
+    const body = buildAnthropicMessagesBody(this.profile, messages, tools);
     const response = await this.fetchImpl(`${resolveBaseUrl(this.profile)}/v1/messages`, {
       method: "POST",
       headers: buildHeaders(this.profile, this.apiKey),
@@ -4192,7 +4595,11 @@ var AnthropicMessagesClient = class {
     });
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`Anthropic messages completion failed with HTTP ${response.status}: ${text}`);
+      const error = new Error(`Anthropic messages completion failed with HTTP ${response.status}: ${text}`);
+      if (isContentPolicyViolation(error)) {
+        throw new LLMContentPolicyViolationError(text);
+      }
+      throw error;
     }
     return parseAnthropicMessagesResponse(await response.json());
   }
@@ -4213,7 +4620,7 @@ async function createAnthropicClientFromProfile(profile, store, options = {}) {
   }
   return new AnthropicMessagesClient(profile, apiKey, options.fetch ?? defaultFetch);
 }
-function buildAnthropicMessagesBody(profile, messages) {
+function buildAnthropicMessagesBody(profile, messages, tools) {
   const normalizedProfile = normalizeGenerationParamsForModel(profile);
   const parsedMessages = messages.map((message) => messageSchema.parse(message));
   const systemMessages = parsedMessages.filter((message) => message.role === "system");
@@ -4224,10 +4631,17 @@ function buildAnthropicMessagesBody(profile, messages) {
   const body = {
     model: normalizedProfile.model,
     max_tokens: maxTokens,
-    messages: parsedMessages.filter((message) => message.role !== "system").map((message) => toAnthropicMessage(normalizedProfile, message))
+    messages: toAnthropicMessages(
+      normalizedProfile,
+      parsedMessages.filter((message) => message.role !== "system")
+    )
   };
   if (system.length > 0) {
     body.system = shouldCacheSystem ? [{ type: "text", text: system.join("\n"), cache_control: { type: "ephemeral" } }] : system.join("\n");
+  }
+  if (tools && tools.length > 0) {
+    body.tools = tools.map(toAnthropicTool);
+    body.tool_choice = { type: "auto" };
   }
   if (normalizedProfile.temperature !== null) {
     body.temperature = normalizedProfile.temperature;
@@ -4243,6 +4657,31 @@ function buildAnthropicMessagesBody(profile, messages) {
   }
   return body;
 }
+function toAnthropicTool(tool) {
+  const responsesTool = tool.toResponsesTool();
+  return {
+    name: responsesTool.name,
+    description: responsesTool.description,
+    input_schema: responsesTool.parameters
+  };
+}
+function toAnthropicMessages(profile, messages) {
+  const result = [];
+  for (const message of messages) {
+    if (message.role !== "tool") {
+      result.push(toAnthropicMessage(profile, message));
+      continue;
+    }
+    const toolResult = toAnthropicToolResultBlock(message);
+    const previous = result.at(-1);
+    if (previous?.role === "user" && Array.isArray(previous.content)) {
+      previous.content.push(toolResult);
+    } else {
+      result.push({ role: "user", content: [toolResult] });
+    }
+  }
+  return result;
+}
 function toAnthropicMessage(profile, message) {
   if (message.role === "assistant") {
     return { role: "assistant", content: toAnthropicAssistantContent(message) };
@@ -4257,11 +4696,12 @@ function toAnthropicMessage(profile, message) {
 }
 function toAnthropicAssistantContent(message) {
   const blocks = [];
-  const thinkingBlock = message.thinking_blocks.find(
-    (block) => block.type === "thinking" && block.signature !== null
-  );
-  if (thinkingBlock !== void 0) {
-    blocks.push({ type: "thinking", thinking: thinkingBlock.thinking, signature: thinkingBlock.signature });
+  for (const block of message.thinking_blocks) {
+    if (block.type === "redacted_thinking") {
+      blocks.push({ type: "redacted_thinking", data: block.data });
+    } else if (block.signature !== null) {
+      blocks.push({ type: "thinking", thinking: block.thinking, signature: block.signature });
+    }
   }
   const text = reduceTextContent(message);
   if (text.length > 0) {
@@ -4277,16 +4717,18 @@ function toAnthropicToolUseBlock(toolCall) {
     type: "tool_use",
     id: toolCall.id,
     name: toolCall.name,
-    input: parseToolArguments2(toolCall.arguments)
+    input: parseToolArguments2(toolCall)
   };
 }
 function toAnthropicToolResultBlock(message) {
-  const block = {
+  if (message.tool_call_id === null) {
+    throw new Error("Anthropic tool result requires a tool_call_id.");
+  }
+  return {
     type: "tool_result",
-    tool_use_id: message.tool_call_id ?? "",
+    tool_use_id: message.tool_call_id,
     content: reduceTextContent(message)
   };
-  return block;
 }
 function toAnthropicContentBlock(profile, content) {
   const block = content.type === "text" ? { type: "text", text: content.text } : {
@@ -4301,28 +4743,34 @@ function toAnthropicContentBlock(profile, content) {
   }
   return block;
 }
-function parseToolArguments2(args) {
+function parseToolArguments2(toolCall) {
+  let parsed;
   try {
-    return JSON.parse(args);
+    parsed = JSON.parse(toolCall.arguments);
   } catch {
-    return args;
+    throw new Error(`Anthropic tool call '${toolCall.id}' arguments must be a valid JSON object.`);
   }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`Anthropic tool call '${toolCall.id}' arguments must be a valid JSON object.`);
+  }
+  return parsed;
 }
 function parseAnthropicMessagesResponse(raw) {
   const parsed = anthropicMessagesResponseSchema.parse(raw);
   const text = parsed.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
-  const thinkingBlocks = parsed.content.filter((block) => block.type === "thinking");
-  const reasoningContent = thinkingBlocks.map((block) => block.thinking).join("");
+  const thinkingBlocks = parsed.content.filter(
+    (block) => block.type === "thinking" || block.type === "redacted_thinking"
+  );
+  const reasoningContent = thinkingBlocks.filter((block) => block.type === "thinking").map((block) => block.thinking).join("");
+  const toolUseBlocks = parsed.content.filter((block) => block.type === "tool_use");
+  const toolCalls = toolUseBlocks.map(fromAnthropicToolUse);
   return llmCompletionResponseSchema.parse({
     message: {
       role: "assistant",
       content: text,
+      tool_calls: toolCalls.length > 0 ? toolCalls : null,
       reasoning_content: reasoningContent.length > 0 ? reasoningContent : null,
-      thinking_blocks: thinkingBlocks.map((block) => ({
-        type: "thinking",
-        thinking: block.thinking,
-        signature: block.signature ?? null
-      }))
+      thinking_blocks: thinkingBlocks.map((block) => block.type === "thinking" ? { type: "thinking", thinking: block.thinking, signature: block.signature ?? null } : { type: "redacted_thinking", data: block.data })
     },
     usage: parsed.usage === null ? null : {
       promptTokens: parsed.usage.input_tokens,
@@ -4331,6 +4779,15 @@ function parseAnthropicMessagesResponse(raw) {
     },
     raw
   });
+}
+function fromAnthropicToolUse(block) {
+  return {
+    id: block.id,
+    responses_item_id: null,
+    name: block.name,
+    arguments: JSON.stringify(block.input),
+    origin: "completion"
+  };
 }
 function resolveBaseUrl(profile) {
   return (profile.baseUrl ?? DEFAULT_ANTHROPIC_BASE_URL).replace(/\/+$/u, "");
@@ -4348,8 +4805,22 @@ async function defaultFetch(url, init) {
 }
 var anthropicTextBlockSchema = z.object({ type: z.literal("text"), text: z.string() }).passthrough();
 var anthropicThinkingBlockSchema = z.object({ type: z.literal("thinking"), thinking: z.string(), signature: z.string().nullable().optional() }).passthrough();
-var anthropicOtherBlockSchema = z.object({ type: z.string() }).passthrough();
-var anthropicContentBlockSchema = z.union([anthropicTextBlockSchema, anthropicThinkingBlockSchema, anthropicOtherBlockSchema]);
+var anthropicRedactedThinkingBlockSchema = z.object({ type: z.literal("redacted_thinking"), data: z.string() }).passthrough();
+var anthropicToolUseBlockSchema = z.object({
+  type: z.literal("tool_use"),
+  id: z.string(),
+  name: z.string(),
+  input: z.record(z.string(), z.unknown())
+}).passthrough();
+var knownAnthropicBlockTypes = /* @__PURE__ */ new Set(["text", "thinking", "redacted_thinking", "tool_use"]);
+var anthropicOtherBlockSchema = z.object({ type: z.string().refine((type) => !knownAnthropicBlockTypes.has(type)) }).passthrough();
+var anthropicContentBlockSchema = z.union([
+  anthropicTextBlockSchema,
+  anthropicThinkingBlockSchema,
+  anthropicRedactedThinkingBlockSchema,
+  anthropicToolUseBlockSchema,
+  anthropicOtherBlockSchema
+]);
 var anthropicMessagesResponseSchema = z.object({
   role: z.literal("assistant").default("assistant"),
   content: z.array(anthropicContentBlockSchema),
@@ -4368,17 +4839,17 @@ var GeminiClient = class {
     this.apiKey = apiKey;
     this.fetchImpl = fetchImpl;
   }
-  async complete(messages) {
-    const response = await this.fetchImpl(`${resolveBaseUrl2(this.profile)}/models/${encodeURIComponent(this.profile.model)}:generateContent`, {
+  async complete(messages, tools) {
+    const response = await this.fetchImpl(`${resolveBaseUrl2(this.profile)}/interactions`, {
       method: "POST",
       headers: buildHeaders2(this.profile, this.apiKey),
-      body: JSON.stringify(buildGeminiGenerateContentBody(this.profile, messages))
+      body: JSON.stringify(buildGeminiInteractionsBody(this.profile, messages, tools))
     });
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`Gemini generateContent failed with HTTP ${response.status}: ${text}`);
+      throw new Error(`Gemini Interactions completion failed with HTTP ${response.status}: ${text}`);
     }
-    return parseGeminiGenerateContentResponse(await response.json());
+    return parseGeminiInteractionResponse(await response.json());
   }
 };
 async function createGeminiClientFromProfile(profile, store, options = {}) {
@@ -4397,128 +4868,180 @@ async function createGeminiClientFromProfile(profile, store, options = {}) {
   }
   return new GeminiClient(profile, apiKey, options.fetch ?? defaultFetch2);
 }
-function buildGeminiGenerateContentBody(profile, messages) {
-  const normalizedProfile = normalizeGenerationParamsForModel(profile);
+function buildGeminiInteractionsBody(profile, messages, tools = []) {
+  assertSupportedGenerationParams(profile);
   const parsedMessages = messages.map((message) => messageSchema.parse(message));
-  const system = parsedMessages.filter((message) => message.role === "system").flatMap((message) => contentToString(message.content));
+  const systemInstruction = parsedMessages.filter((message) => message.role === "system").flatMap((message) => contentToString(message.content)).join("\n");
   const body = {
-    contents: parsedMessages.filter((message) => message.role !== "system").map(toGeminiContent)
+    model: profile.model,
+    store: false,
+    input: parsedMessages.filter((message) => message.role !== "system").flatMap(toGeminiInteractionSteps)
   };
-  if (system.length > 0) {
-    body.systemInstruction = { parts: system.map((text) => ({ text })) };
+  if (systemInstruction.length > 0) {
+    body.system_instruction = systemInstruction;
   }
-  const generationConfig = buildGenerationConfig(normalizedProfile);
+  if (tools.length > 0) {
+    body.tools = tools.map(toGeminiInteractionTool);
+  }
+  const generationConfig = buildGenerationConfig(profile, tools.length > 0);
   if (Object.keys(generationConfig).length > 0) {
-    body.generationConfig = generationConfig;
+    body.generation_config = generationConfig;
   }
   return body;
 }
-function toGeminiContent(message) {
-  if (message.role === "tool") {
-    return {
-      role: "user",
-      parts: [{ functionResponse: { name: message.name ?? "unknown_tool", response: { content: contentToString(message.content).join("\n") } } }]
-    };
+function assertSupportedGenerationParams(profile) {
+  const unsupported = [
+    ["temperature", profile.temperature],
+    ["topP", profile.topP],
+    ["topK", profile.topK]
+  ].filter((entry) => entry[1] !== null);
+  if (unsupported.length > 0) {
+    throw new Error(
+      `Gemini Interactions does not support profile fields: ${unsupported.map(([name]) => name).join(", ")}.`
+    );
   }
-  return {
-    role: message.role === "assistant" ? "model" : "user",
-    parts: toGeminiParts(message)
-  };
 }
-function toGeminiParts(message) {
-  const signature = firstThinkingSignature(message);
-  const parts = message.content.flatMap((content) => {
-    if (content.type === "text" && content.text.length === 0) {
-      return [];
-    }
-    return [toGeminiPart(content, signature)];
-  });
-  if (message.tool_calls !== null) {
-    parts.push(...message.tool_calls.map((toolCall, index) => toGeminiFunctionCallPart(toolCall, index === 0 ? signature : null)));
-  }
-  return parts;
-}
-function toGeminiPart(content, thoughtSignature) {
-  if (content.type === "text") {
-    const part = { text: content.text };
-    if (thoughtSignature !== null) {
-      part.thoughtSignature = thoughtSignature;
-    }
-    return part;
-  }
-  return { fileData: { fileUri: content.image_urls[0] ?? "" } };
-}
-function toGeminiFunctionCallPart(toolCall, thoughtSignature) {
-  const part = { functionCall: { name: toolCall.name, args: parseToolArguments3(toolCall.arguments) } };
-  if (thoughtSignature !== null) {
-    part.thoughtSignature = thoughtSignature;
-  }
-  return part;
-}
-function buildGenerationConfig(profile) {
+function buildGenerationConfig(profile, hasTools) {
   const config = {};
-  if (profile.temperature !== null) {
-    config.temperature = profile.temperature;
-  }
-  if (profile.topP !== null) {
-    config.topP = profile.topP;
-  }
-  if (profile.topK !== null) {
-    config.topK = profile.topK;
-  }
   if (profile.maxOutputTokens !== null) {
-    config.maxOutputTokens = profile.maxOutputTokens;
+    config.max_output_tokens = profile.maxOutputTokens;
   }
-  const thinkingLevel = toGeminiThinkingLevel(profile.reasoningEffort);
-  if (thinkingLevel !== void 0) {
-    config.thinkingConfig = { thinkingLevel, includeThoughts: true };
+  if (profile.reasoningEffort !== null) {
+    config.thinking_level = profile.reasoningEffort;
+    config.thinking_summaries = "auto";
+  }
+  if (hasTools) {
+    config.tool_choice = "auto";
   }
   return config;
 }
-function parseGeminiGenerateContentResponse(raw) {
-  const parsed = geminiGenerateContentResponseSchema.parse(raw);
-  const firstCandidate = parsed.candidates[0];
-  if (firstCandidate === void 0) {
-    throw new Error("Gemini generateContent returned no candidates.");
+function toGeminiInteractionTool(tool) {
+  const responsesTool = tool.toResponsesTool();
+  return {
+    type: "function",
+    name: responsesTool.name,
+    description: responsesTool.description,
+    parameters: stripUnsupportedSchemaProperties(responsesTool.parameters)
+  };
+}
+function stripUnsupportedSchemaProperties(value) {
+  if (Array.isArray(value)) {
+    return value.map(stripUnsupportedSchemaProperties);
   }
-  const parts = firstCandidate.content.parts;
-  const text = parts.flatMap((part) => part.text === void 0 || part.text.length === 0 || part.thought === true ? [] : [part.text]).join("\n");
-  const reasoningContent = parts.flatMap((part) => part.text === void 0 || part.text.length === 0 || part.thought !== true ? [] : [part.text]).join("");
-  const thoughtSignature = parts.find((part) => part.thoughtSignature !== void 0)?.thoughtSignature ?? null;
-  const toolCalls = parts.flatMap((part, index) => part.functionCall === void 0 ? [] : [fromGeminiFunctionCall(part.functionCall, index)]);
-  const promptTokens = parsed.usageMetadata?.promptTokenCount ?? 0;
-  const completionTokens = parsed.usageMetadata?.candidatesTokenCount ?? 0;
-  const totalTokens = parsed.usageMetadata?.totalTokenCount ?? promptTokens + completionTokens;
+  if (!isJsonObject(value)) {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value).filter(([key]) => key !== "$schema" && key !== "additionalProperties").map(([key, child]) => [key, stripUnsupportedSchemaProperties(child)])
+  );
+}
+function toGeminiInteractionSteps(message) {
+  if (message.role === "user") {
+    return [{ type: "user_input", content: toGeminiContent(message.content) }];
+  }
+  if (message.role === "tool") {
+    if (message.tool_call_id === null) {
+      throw new Error("Gemini function result requires a tool_call_id.");
+    }
+    const step = {
+      type: "function_result",
+      call_id: message.tool_call_id,
+      result: toGeminiContent(message.content)
+    };
+    if (message.name !== null) {
+      step.name = message.name;
+    }
+    return [step];
+  }
+  const steps = [];
+  for (const block of message.thinking_blocks) {
+    if (block.type !== "thinking") {
+      continue;
+    }
+    const step = {
+      type: "thought",
+      summary: block.thinking.length === 0 ? [] : [{ type: "text", text: block.thinking }]
+    };
+    if (block.signature !== null) {
+      step.signature = block.signature;
+    }
+    steps.push(step);
+  }
+  const content = toGeminiContent(message.content);
+  if (content.length > 0) {
+    steps.push({ type: "model_output", content });
+  }
+  if (message.tool_calls !== null) {
+    steps.push(...message.tool_calls.map(toGeminiFunctionCallStep));
+  }
+  return steps;
+}
+function toGeminiContent(content) {
+  const result = [];
+  for (const item of content) {
+    if (item.type === "text") {
+      if (item.text.length > 0) {
+        result.push({ type: "text", text: item.text });
+      }
+    } else {
+      result.push(...item.image_urls.map((uri) => ({ type: "image", uri })));
+    }
+  }
+  return result;
+}
+function toGeminiFunctionCallStep(toolCall) {
+  return {
+    type: "function_call",
+    id: toolCall.id,
+    name: toolCall.name,
+    arguments: parseFunctionCallArguments(toolCall)
+  };
+}
+function parseFunctionCallArguments(toolCall) {
+  let parsed;
+  try {
+    parsed = JSON.parse(toolCall.arguments);
+  } catch {
+    throw new Error(`Gemini function call '${toolCall.id}' arguments must be a valid JSON object.`);
+  }
+  if (!isJsonObject(parsed)) {
+    throw new Error(`Gemini function call '${toolCall.id}' arguments must be a valid JSON object.`);
+  }
+  return parsed;
+}
+function parseGeminiInteractionResponse(raw) {
+  const parsed = geminiInteractionResponseSchema.parse(raw);
+  const modelOutputSteps = parsed.steps.filter((step) => step.type === "model_output");
+  const text = modelOutputSteps.flatMap((step) => step.content).filter((content) => content.type === "text").map((content) => content.text).join("\n");
+  const thoughtSteps = parsed.steps.filter((step) => step.type === "thought");
+  const thinkingBlocks = thoughtSteps.map((step) => {
+    const thinking = step.summary.filter((content) => content.type === "text").map((content) => content.text).join("");
+    return { type: "thinking", thinking, signature: step.signature ?? null };
+  });
+  const reasoningContent = thinkingBlocks.map((block) => block.thinking).join("");
+  const toolCalls = parsed.steps.filter((step) => step.type === "function_call").map(fromGeminiFunctionCallStep);
   return llmCompletionResponseSchema.parse({
     message: {
       role: "assistant",
       content: text,
       tool_calls: toolCalls.length > 0 ? toolCalls : null,
       reasoning_content: reasoningContent.length > 0 ? reasoningContent : null,
-      thinking_blocks: thoughtSignature === null ? [] : [{ type: "thinking", thinking: reasoningContent, signature: thoughtSignature }]
+      thinking_blocks: thinkingBlocks
     },
-    usage: { promptTokens, completionTokens, totalTokens },
+    usage: parsed.usage === null ? null : {
+      promptTokens: parsed.usage.total_input_tokens,
+      completionTokens: parsed.usage.total_output_tokens,
+      totalTokens: parsed.usage.total_tokens
+    },
     raw
   });
 }
-function firstThinkingSignature(message) {
-  return message.thinking_blocks.find(
-    (block) => block.type === "thinking" && block.signature !== null
-  )?.signature ?? null;
-}
-function parseToolArguments3(args) {
-  try {
-    return JSON.parse(args);
-  } catch {
-    return args;
-  }
-}
-function fromGeminiFunctionCall(functionCall, index) {
+function fromGeminiFunctionCallStep(step) {
   return {
-    id: `gemini_call_${index}`,
+    id: step.id,
     responses_item_id: null,
-    name: functionCall.name,
-    arguments: JSON.stringify(functionCall.args ?? {}),
+    name: step.name,
+    arguments: JSON.stringify(step.arguments),
     origin: "completion"
   };
 }
@@ -4535,27 +5058,40 @@ function buildHeaders2(profile, apiKey) {
 async function defaultFetch2(url, init) {
   return globalThis.fetch(url, init);
 }
-var geminiFunctionCallSchema = z.object({ name: z.string(), args: z.unknown().optional() }).passthrough();
-var geminiPartSchema = z.object({
-  text: z.string().optional(),
-  thought: z.boolean().optional(),
-  thoughtSignature: z.string().optional(),
-  functionCall: geminiFunctionCallSchema.optional()
+function isJsonObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+var geminiTextContentSchema = z.object({ type: z.literal("text"), text: z.string() }).passthrough();
+var geminiOtherContentSchema = z.object({ type: z.string().refine((type) => type !== "text") }).passthrough();
+var geminiContentSchema = z.union([geminiTextContentSchema, geminiOtherContentSchema]);
+var geminiModelOutputStepSchema = z.object({ type: z.literal("model_output"), content: z.array(geminiContentSchema).default([]) }).passthrough();
+var geminiThoughtStepSchema = z.object({
+  type: z.literal("thought"),
+  signature: z.string().nullable().optional(),
+  summary: z.array(geminiContentSchema).default([])
 }).passthrough();
-var geminiGenerateContentResponseSchema = z.object({
-  candidates: z.array(
-    z.object({
-      content: z.object({
-        role: z.string().default("model"),
-        parts: z.array(geminiPartSchema).default([])
-      }).passthrough()
-    }).passthrough()
-  ),
-  usageMetadata: z.object({
-    promptTokenCount: z.number().int().min(0).optional(),
-    candidatesTokenCount: z.number().int().min(0).optional(),
-    totalTokenCount: z.number().int().min(0).optional()
-  }).passthrough().optional()
+var geminiFunctionCallStepSchema = z.object({
+  type: z.literal("function_call"),
+  id: z.string(),
+  name: z.string(),
+  arguments: z.record(z.string(), z.unknown())
+}).passthrough();
+var knownGeminiStepTypes = /* @__PURE__ */ new Set(["model_output", "thought", "function_call"]);
+var geminiOtherStepSchema = z.object({ type: z.string().refine((type) => !knownGeminiStepTypes.has(type)) }).passthrough();
+var geminiStepSchema = z.union([
+  geminiModelOutputStepSchema,
+  geminiThoughtStepSchema,
+  geminiFunctionCallStepSchema,
+  geminiOtherStepSchema
+]);
+var geminiUsageSchema = z.object({
+  total_input_tokens: z.number().int().min(0).default(0),
+  total_output_tokens: z.number().int().min(0).default(0),
+  total_tokens: z.number().int().min(0).default(0)
+}).passthrough();
+var geminiInteractionResponseSchema = z.object({
+  steps: z.array(geminiStepSchema).default([]),
+  usage: geminiUsageSchema.nullable().default(null)
 }).passthrough();
 var DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 var DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
@@ -5182,7 +5718,17 @@ var MCPToolExecutor = class {
   timeoutSeconds;
   async execute(action) {
     if (!this.client.isConnected()) {
-      return MCPToolObservation.fromText(`MCP client not connected for tool '${this.toolName}'. The connection may have been closed or failed to establish.`, { is_error: true, tool_name: this.toolName });
+      if (this.client.closed === true) {
+        return MCPToolObservation.fromText(`MCP client not connected for tool '${this.toolName}'. The client has been closed and cannot be reconnected.`, { is_error: true, tool_name: this.toolName });
+      }
+      if (this.client.connect === void 0) {
+        return MCPToolObservation.fromText(`MCP client not connected for tool '${this.toolName}'. The connection may have been closed or failed to establish.`, { is_error: true, tool_name: this.toolName });
+      }
+      try {
+        await this.client.connect();
+      } catch (error) {
+        return MCPToolObservation.fromText(`MCP client not connected for tool '${this.toolName}'. Reconnection attempt failed: ${String(error)}`, { is_error: true, tool_name: this.toolName });
+      }
     }
     try {
       const result = await withTimeout(this.client.callTool(this.toolName, action.toMcpArguments()), this.timeoutSeconds);
@@ -5285,11 +5831,13 @@ var openHandsAgentProfileSchema = z.object({
   agent_kind: z.literal("openhands").default("openhands"),
   llm_profile_ref: z.string().min(1),
   agent: z.string().default("CodeActAgent"),
-  skills: z.array(z.unknown()).default([]),
+  tools: z.array(z.unknown()).nullable().default(null),
   system_message_suffix: z.string().nullable().default(null),
+  disabled_skills: z.array(z.string()).default([]),
   condenser: z.unknown().default({ condenser_kind: "llm_summarizing", enabled: true }),
   verification: profileVerificationSettingsSchema.default(defaultProfileVerificationSettings),
   enable_sub_agents: z.boolean().default(false),
+  enable_switch_llm_tool: z.boolean().default(true),
   tool_concurrency_limit: z.number().int().min(1).default(1)
 }).strict();
 var acpAgentProfileSchema = z.object({
@@ -5382,6 +5930,9 @@ function maybeInitLaminar(options = {}) {
   if (!shouldEnableObservability(options.env ?? process.env)) {
     return false;
   }
+  if (options.isInitialized?.() === true) {
+    return true;
+  }
   options.initializer?.();
   return true;
 }
@@ -5411,6 +5962,15 @@ function startRootSpan(name, options = {}) {
 }
 function endRootSpan(root) {
   root?.end();
+}
+function startChildSpan(root, name, tags) {
+  if (root === null || root === void 0) {
+    return;
+  }
+  try {
+    root.handle.beginChild?.(name, tags);
+  } catch {
+  }
 }
 function extractActionName(actionEvent) {
   try {
@@ -5459,11 +6019,15 @@ var CONVERSATION_SETTINGS_SCHEMA_VERSION = 1;
 var settingsSchemaVersion = (version) => z.literal(version).default(version);
 var observabilityMetadataSchema = z.record(z.string().min(1), z.unknown());
 var observabilityTagsSchema = z.array(z.string());
+var OBSERVABILITY_SPAN_NAME_PATTERN = /^[A-Za-z0-9._:/-]+$/u;
+var OBSERVABILITY_SPAN_NAME_MAX_LENGTH = 128;
+var observabilitySpanNameSchema = z.string().min(1, "Observability span name must be a non-empty string").max(OBSERVABILITY_SPAN_NAME_MAX_LENGTH, `Observability span name exceeds maximum length of ${OBSERVABILITY_SPAN_NAME_MAX_LENGTH} characters`).regex(OBSERVABILITY_SPAN_NAME_PATTERN, "Observability span name may only contain letters, numbers, dots, underscores, colons, slashes, and hyphens");
 var conversationSettingsSchema = z.object({
   schema_version: settingsSchemaVersion(CONVERSATION_SETTINGS_SCHEMA_VERSION),
   max_iterations: z.number().int().min(1).default(500),
   observability_metadata: observabilityMetadataSchema.nullable().default(null),
-  observability_tags: observabilityTagsSchema.nullable().default(null)
+  observability_tags: observabilityTagsSchema.nullable().default(null),
+  observability_span_name: observabilitySpanNameSchema.nullable().default(null)
 }).strict();
 var agentSettingsBaseFields = {
   schema_version: settingsSchemaVersion(AGENT_SETTINGS_SCHEMA_VERSION),
@@ -5475,7 +6039,7 @@ var openHandsAgentSettingsSchema = z.object({
   agent_kind: z.literal("openhands").default("openhands"),
   llm_profile_ref: z.string().min(1),
   agent: z.string().default("CodeActAgent"),
-  tools: z.array(z.unknown()).default([]),
+  tools: z.array(z.unknown()).nullable().default(null),
   enable_sub_agents: z.boolean().default(false),
   enable_switch_llm_tool: z.boolean().default(true),
   tool_concurrency_limit: z.number().int().min(1).default(1),
@@ -5598,6 +6162,7 @@ var AgentDefinition = class _AgentDefinition {
   profile_store_dir;
   condenser;
   metadata;
+  level;
   constructor(options) {
     this.name = options.name;
     this.description = options.description ?? "";
@@ -5615,6 +6180,7 @@ var AgentDefinition = class _AgentDefinition {
     this.profile_store_dir = options.profile_store_dir ?? null;
     this.condenser = options.condenser ?? null;
     this.metadata = { ...options.metadata ?? {} };
+    this.level = options.level ?? null;
   }
   static async load(agentPath) {
     const fileContent = await readFile(agentPath, "utf8");
@@ -5647,6 +6213,30 @@ async function loadProjectAgents(projectDir) {
 }
 async function loadUserAgents() {
   return loadAgentsFromDirs(agentDirectories.map((dir) => join(homedir(), dir)));
+}
+async function discoverAgents(options = {}) {
+  const includeProject = options.includeProject ?? true;
+  const includeUser = options.includeUser ?? true;
+  const discovered = [];
+  if (includeProject && options.projectDir !== null && options.projectDir !== void 0) {
+    for (const definition of await loadProjectAgents(options.projectDir)) {
+      discovered.push({ ...definition, level: "project" });
+    }
+  }
+  if (includeUser) {
+    for (const definition of await loadUserAgents()) {
+      discovered.push({ ...definition, level: "user" });
+    }
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const result = [];
+  for (const definition of discovered) {
+    if (!seen.has(definition.name)) {
+      seen.add(definition.name);
+      result.push(definition);
+    }
+  }
+  return result;
 }
 async function loadAgentsFromDirs(directories) {
   const seen = /* @__PURE__ */ new Set();
@@ -5905,6 +6495,23 @@ function defaultTestProfile() {
 function isCompletionResponse(value) {
   return typeof value === "object" && value !== null && "message" in value;
 }
+
+// src/tool/defaults.ts
+var DEFAULT_EXEC_TOOL_NAMES = ["terminal", "file_editor", "task_tracker"];
+var BROWSER_TOOL_NAME = "browser_tool_set";
+var SUB_AGENT_TOOL_NAME = "task_tool_set";
+function defaultToolSpecs(options = {}) {
+  const names = [...DEFAULT_EXEC_TOOL_NAMES];
+  if (options.enableBrowser === true) {
+    names.push(BROWSER_TOOL_NAME);
+  }
+  if (options.enableSubAgents === true) {
+    names.push(SUB_AGENT_TOOL_NAME);
+  }
+  return names;
+}
+
+// src/tool/index.ts
 var toolAnnotationsSchema = z.object({
   title: z.string().nullable().default(null),
   readOnlyHint: z.boolean().default(false),
@@ -6021,12 +6628,12 @@ function listUsableTools() {
 }
 function schemaToJsonObject(schema) {
   const jsonSchema = z.toJSONSchema(schema);
-  if (!isJsonObject(jsonSchema)) {
+  if (!isJsonObject2(jsonSchema)) {
     throw new Error("Zod schema did not produce a JSON object schema");
   }
   return jsonSchema;
 }
-function isJsonObject(value) {
+function isJsonObject2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 var baseObservationSchema = z.object({
@@ -6167,11 +6774,16 @@ var FileEditorExecutor = class {
   async strReplace(path3, action) {
     if (action.old_str === null) throw new Error("old_str is required for str_replace");
     const oldContent = await readFile(path3, "utf8");
-    const count = oldContent.split(action.old_str).length - 1;
-    if (count === 0) throw new Error("old_str was not found in the file");
+    let oldStr = action.old_str;
+    let count = countOccurrences(oldContent, oldStr);
+    if (count === 0) {
+      oldStr = oldStr.trim();
+      count = countOccurrences(oldContent, oldStr);
+      if (count === 0) throw new Error("old_str was not found in the file");
+    }
     if (count > 1) throw new Error("old_str appears multiple times; provide a unique match");
     this.pushHistory(path3, oldContent);
-    const newContent = oldContent.replace(action.old_str, action.new_str ?? "");
+    const newContent = oldContent.replace(oldStr, action.new_str ?? "");
     await writeFile(path3, newContent);
     return this.observation({ text: `Edited ${path3}`, is_error: false, command: action.command, path: path3, old_content: oldContent, new_content: newContent });
   }
@@ -6304,6 +6916,12 @@ async function executeBrowserAction(adapter, action) {
   if (action.command === "scroll" && adapter.scroll) return adapter.scroll(action.direction);
   if (action.command === "back" && adapter.back) return adapter.back();
   return { text: `Browser adapter does not support command '${action.command}' or required arguments are missing.`, is_error: true };
+}
+function countOccurrences(content, needle) {
+  if (needle.length === 0) {
+    return 0;
+  }
+  return content.split(needle).length - 1;
 }
 async function exists3(path3) {
   return stat(path3).then(() => true).catch(() => false);
@@ -6695,6 +7313,6 @@ function isExecError3(error) {
 // src/index.ts
 var VERSION = "0.2.0";
 
-export { AGENT_PROFILE_SCHEMA_VERSION, AGENT_SETTINGS_SCHEMA_VERSION, Agent, AgentContext, AgentDefinition, AgentFinishedCritic, AnthropicMessagesClient, AsyncCallbackWrapper, AsyncProcessManager, BUILT_IN_TOOLS, BUILT_IN_TOOL_FACTORIES, BrowserTool, CONVERSATION_SETTINGS_SCHEMA_VERSION, ConversationState, CriticBase, CriticResult, DEFAULT_TEXT_CONTENT_LIMIT, DEFAULT_TRUNCATE_NOTICE, DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST, DuplicateEventError, EVENTS_DIR, EVENT_FILE_PATTERN, EmptyPatchCritic, EventLog, ExtensionFetchError, FULL_STATE_KEY, FileEditorExecutor, FileEditorTool, FinishTool, GIT_EMPTY_TREE_HASH, GeminiClient, GitChangeStatus, GitCommandError, GitError, GitPathError, GitRepositoryError, GlobExecutor, GlobTool, GrepExecutor, GrepTool, HookConfig, HookDecision, HookDefinition, HookExecutor, HookManager, HookMatcher, HookResult, HookEventType as HookTriggerEventType, HookType, InMemoryFileStore, InMemorySecretStore, InstallationInfo, InstallationMetadata, LLM_PROFILE_ID_PATTERN, LOCK_FILE_NAME, LOCK_TIMEOUT_SECONDS, LocalConversation, LocalFileStore, LocalWorkspace, LogLevel, MAX_FILE_SIZE_FOR_GIT_DIFF, MCPError, MCPTimeoutError, MCPToolAction, MCPToolDefinition, MCPToolExecutor, MCPToolObservation, MacOSKeychainSecretStore, MemoryLRUCache, N_CHAR_PREVIEW, NoCondensationAvailableError, NoOpCondenser, OPENHANDS_KEYRING_SERVICE, OpenAIChatClient, OpenAIResponsesClient, ParallelToolExecutor, PassCritic, PendingActionsQueue, PipelineCondenser, RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED, RemoteConversation, RemoteWorkspace, RepoSource, RollingCondenser, RootSpan, SECRET_KEY_PATTERNS, SENSITIVE_URL_PARAMS, Skill, StuckDetector, TaskTrackerExecutor, TaskTrackerTool, TerminalExecutor, TerminalTool, TestLLM, TestLLMExhaustedError, ThinkTool, ToolDefinition, ToolRegistry, VERSION, ValueError, View, acpAgentProfileSchema, acpAgentSettingsSchema, acpServerKindSchema, acpToolCallEventSchema, actionEventSchema, actionEventsFromMessage, agentErrorEventSchema, agentProfileSchema, agentSettingsSchema, baseObservationSchema, baseToolObservationSchema, browserActionSchema, browserObservationSchema, buildAnthropicMessagesBody, buildChatCompletionsBody, buildCloneUrl, buildGeminiGenerateContentBody, buildOpenAIResponsesBody, cancellationToken, classifyResponse, clearRawLlmFieldsWhenProfileSelected, condensationRequestSchema, condensationRequirement, condensationSchema, condensationSummaryEventSchema, contentSchema, contentToString, conversationErrorEventSchema, conversationExecutionStatus, conversationSettingsSchema, conversationStateUpdateEventSchema, createAnthropicClientFromProfile, createClientFromProfile, createGeminiClientFromProfile, createMcpTools, createOpenAIChatClientFromProfile, createOpenAIResponsesClientFromProfile, criticModeSchema, defaultAgentSettings, detectProviderFromBaseUrl, disableLogger, dispatchLlmResponse, displayJson, dumps, endRootSpan, eventSchema, eventsToMessages, executeCommand, extractActionName, extractRepoName, fetchExtension, fetchWithResolution, fileEditorActionSchema, fileEditorObservationSchema, finishActionSchema, getAgentFactory, getCachePath, getChangesInRepo, getClosestGitRepo, getEnv, getFactoryInfo, getGitDiff, getLlmApiKey, getLogger, getRegisteredAgentDefinitions, getReposContext, getValidRef, globActionSchema, globObservationSchema, globalToolRegistry, grepActionSchema, grepMatchSchema, grepObservationSchema, handleDeprecatedModelFields, hookEventSchema, hookEventTypeSchema, hookExecutionEventSchema, imageContent, imageContentSchema, inputMetadataSchema, interruptEventSchema, isAbsolutePathSource, isAcpPatchEdit, isConversationStateUpdateEvent, isEnabledFor, isGitUrl, isHostAbsolutePath, isLocalPathSource, isMessageEvent, isSecretKey, keywordTriggerSchema, listRegisteredTools, listUsableTools, llmCompletionLogEventSchema, llmCompletionResponseSchema, llmConvertibleEventSchema, llmProfileIdSchema, llmProfileSchema, llmProfileSecretRef, llmProviderIdSchema, llmProviderSecretRef, llmResponseType, llmUsageSchema, loadAgentsFromDir, loadAgentsFromDirs, loadProjectAgents, loadSkillsFromDir, loadUserAgents, loads, maybeInitLaminar, maybeTruncate, mergeSkillsByName, messageEventSchema, messageSchema, messageToolCallSchema, normalizeGitUrl, observabilityEnvKeys, observabilityMetadataSchema, observabilityTagsSchema, observationEventSchema, observe, openAiApiModeSchema, openHandsAgentProfileSchema, openHandsAgentSettingsSchema, pageIterator, parseExtensionSource, pauseEventSchema, posixPathName, profileVerificationSettingsSchema, promptCacheRetentionSchema, reasoningEffortSchema, reasoningItemSchema, reasoningSummarySchema, redactTextSecrets, redactUrlCredentials, redactUrlCredentialsInText, redactUrlParams, redactedThinkingBlockSchema, reduceTextContent, registerAgent, registerAgentIfAbsent, registerTool, registerToolFactory, resetAgentRegistryForTests, resolveLlmApiKeyRef, resolveLlmProfileApiKeyRef, resolveProviderFromProfile, resolveTool, restoreConversationState, resumeTranscriptEventSchema, runGitCommand, sanitizeOpenHandsMentions, sanitizedEnv, secretRefSchema, setupLogging, shouldEnableObservability, skillResourcesSchema, skillSchema, skillsToPrompt, sourceTypeSchema, startRootSpan, streamingDeltaEventSchema, systemPromptEventSchema, taskItemSchema, taskTrackerActionSchema, taskTrackerObservationSchema, taskTriggerSchema, terminalActionSchema, terminalObservationSchema, textContent, textContentSchema, thinkActionSchema, thinkingBlockSchema, toCamelCase, toLLMMessage, toPosixPath, tokenEventSchema, toolAnnotationsSchema, toolSpecSchema, triggerSchema, userRejectObservationSchema, utcNow, validateAgentProfile, validateAgentSettings, validateConversationSettings, validateExtensionName, validateGitRepository, workspace };
+export { AGENT_PROFILE_SCHEMA_VERSION, AGENT_SETTINGS_SCHEMA_VERSION, Agent, AgentContext, AgentDefinition, AgentFinishedCritic, AnthropicMessagesClient, AsyncCallbackWrapper, AsyncProcessManager, BROWSER_TOOL_NAME, BUILT_IN_TOOLS, BUILT_IN_TOOL_FACTORIES, BrowserTool, CONTENT_POLICY_NUDGE, CONVERSATION_SETTINGS_SCHEMA_VERSION, ConversationState, CriticBase, CriticResult, DEFAULT_EXEC_TOOL_NAMES, DEFAULT_TEXT_CONTENT_LIMIT, DEFAULT_TRUNCATE_NOTICE, DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST, DuplicateEventError, EVENTS_DIR, EVENT_FILE_PATTERN, EmptyPatchCritic, EventLog, ExtensionFetchError, FULL_STATE_KEY, FileEditorExecutor, FileEditorTool, FinishTool, GIT_EMPTY_TREE_HASH, GeminiClient, GitChangeStatus, GitCommandError, GitError, GitPathError, GitRepositoryError, GlobExecutor, GlobTool, GrepExecutor, GrepTool, HookConfig, HookDecision, HookDefinition, HookExecutor, HookManager, HookMatcher, HookResult, HookEventType as HookTriggerEventType, HookType, InMemoryFileStore, InMemorySecretStore, InstallationInfo, InstallationMetadata, LLMContentPolicyViolationError, LLM_PROFILE_ID_PATTERN, LOCK_FILE_NAME, LOCK_TIMEOUT_SECONDS, LocalConversation, LocalFileStore, LocalWorkspace, LogLevel, MAX_FILE_SIZE_FOR_GIT_DIFF, MCPError, MCPTimeoutError, MCPToolAction, MCPToolDefinition, MCPToolExecutor, MCPToolObservation, MacOSKeychainSecretStore, MemoryLRUCache, N_CHAR_PREVIEW, NoCondensationAvailableError, NoOpCondenser, OPENHANDS_KEYRING_SERVICE, OpenAIChatClient, OpenAIResponsesClient, ParallelToolExecutor, PassCritic, PendingActionsQueue, PipelineCondenser, RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED, ROOT_PARENT_ID, RemoteConversation, RemoteWorkspace, RepoSource, RollingCondenser, RootSpan, SECRET_KEY_PATTERNS, SENSITIVE_URL_PARAMS, SUB_AGENT_TOOL_NAME, Skill, StuckDetector, TaskTrackerExecutor, TaskTrackerTool, TerminalExecutor, TerminalTool, TestLLM, TestLLMExhaustedError, ThinkTool, ToolDefinition, ToolRegistry, VERSION, ValueError, View, acpAgentProfileSchema, acpAgentSettingsSchema, acpServerKindSchema, acpToolCallEventSchema, actionEventSchema, actionEventsFromMessage, agentErrorEventSchema, agentProfileSchema, agentSettingsSchema, baseObservationSchema, baseToolObservationSchema, browserActionSchema, browserObservationSchema, buildAnthropicMessagesBody, buildChatCompletionsBody, buildCloneUrl, buildGeminiInteractionsBody, buildOpenAIResponsesBody, cancellationToken, classifyResponse, clearRawLlmFieldsWhenProfileSelected, condensationRequestSchema, condensationRequirement, condensationSchema, condensationSummaryEventSchema, contentSchema, contentToString, conversationErrorEventSchema, conversationExecutionStatus, conversationSettingsSchema, conversationStateUpdateEventSchema, createAnthropicClientFromProfile, createClientFromProfile, createGeminiClientFromProfile, createMcpTools, createOpenAIChatClientFromProfile, createOpenAIResponsesClientFromProfile, criticModeSchema, defaultAgentSettings, defaultToolSpecs, detectProviderFromBaseUrl, disableLogger, discoverAgents, dispatchLlmResponse, displayJson, dumps, endRootSpan, eventSchema, eventsToMessages, executeCommand, extractActionName, extractRepoName, fetchExtension, fetchWithResolution, fileEditorActionSchema, fileEditorObservationSchema, finishActionSchema, getAgentFactory, getCachePath, getChangesInRepo, getClosestGitRepo, getCommitChanges, getCommitFileDiff, getDisplayBaseRef, getEnv, getFactoryInfo, getGitCommits, getGitDiff, getGitRepositoryMetadata, getLlmApiKey, getLogger, getRegisteredAgentDefinitions, getReposContext, getValidRef, globActionSchema, globObservationSchema, globalToolRegistry, grepActionSchema, grepMatchSchema, grepObservationSchema, handleDeprecatedModelFields, hookEventSchema, hookEventTypeSchema, hookExecutionEventSchema, imageContent, imageContentSchema, inputMetadataSchema, interruptEventSchema, isAbsolutePathSource, isAcpPatchEdit, isContentPolicyViolation, isConversationStateUpdateEvent, isEnabledFor, isGitUrl, isHostAbsolutePath, isLocalPathSource, isMessageEvent, isSecretKey, keywordTriggerSchema, listRegisteredTools, listUsableTools, llmCompletionLogEventSchema, llmCompletionResponseSchema, llmConvertibleEventSchema, llmProfileIdSchema, llmProfileSchema, llmProfileSecretRef, llmProviderIdSchema, llmProviderSecretRef, llmResponseType, llmUsageSchema, loadAgentsFromDir, loadAgentsFromDirs, loadProjectAgents, loadSkillsFromDir, loadUserAgents, loads, maybeInitLaminar, maybeTruncate, mergeSkillsByName, messageEventSchema, messageSchema, messageToolCallSchema, normalizeGitUrl, observabilityEnvKeys, observabilityMetadataSchema, observabilitySpanNameSchema, observabilityTagsSchema, observationEventSchema, observe, openAiApiModeSchema, openHandsAgentProfileSchema, openHandsAgentSettingsSchema, pageIterator, parseExtensionSource, pathMatchesGlob, pathTriggerSchema, pauseEventSchema, posixPathName, profileVerificationSettingsSchema, promptCacheRetentionSchema, reasoningEffortSchema, reasoningItemSchema, reasoningSummarySchema, redactTextSecrets, redactUrlCredentials, redactUrlCredentialsInText, redactUrlParams, redactedThinkingBlockSchema, reduceTextContent, registerAgent, registerAgentIfAbsent, registerTool, registerToolFactory, resetAgentRegistryForTests, resolveLlmApiKeyRef, resolveLlmProfileApiKeyRef, resolveProviderFromProfile, resolveTool, restoreConversationState, resumeTranscriptEventSchema, runGitCommand, sanitizeOpenHandsMentions, sanitizedEnv, secretRefSchema, setupLogging, shouldEnableObservability, skillResourcesSchema, skillSchema, skillsToPrompt, sourceTypeSchema, startChildSpan, startRootSpan, streamingDeltaEventSchema, systemPromptEventSchema, taskItemSchema, taskTrackerActionSchema, taskTrackerObservationSchema, taskTriggerSchema, terminalActionSchema, terminalObservationSchema, textContent, textContentSchema, thinkActionSchema, thinkingBlockSchema, toCamelCase, toLLMMessage, toPosixPath, tokenEventSchema, toolAnnotationsSchema, toolSpecSchema, triggerSchema, userRejectObservationSchema, utcNow, validateAgentProfile, validateAgentSettings, validateConversationSettings, validateExtensionName, validateGitRepository, workspace };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

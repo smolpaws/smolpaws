@@ -72,7 +72,7 @@ export function buildHeartbeatRequest(now: Date): StartConversationRequest {
     conversation_id: buildHeartbeatConversationId(now),
     agent: {
       llm: {
-        profile_id: 'gpt-5-4',
+        profile_id: 'gpt-5-6-proxy',
       },
     },
     workspace: {

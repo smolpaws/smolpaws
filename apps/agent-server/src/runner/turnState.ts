@@ -45,10 +45,12 @@ export type ConversationTurnState = {
   turns: ConversationTurn[];
 };
 
-const DEFAULT_TURN_STATE: ConversationTurnState = {
-  next_sequence: 1,
-  turns: [],
-};
+function createDefaultTurnState(): ConversationTurnState {
+  return {
+    next_sequence: 1,
+    turns: [],
+  };
+}
 
 function normalizeTextContentArray(value: unknown): TextContent[] {
   if (!Array.isArray(value)) {
@@ -165,16 +167,35 @@ function normalizeTurn(value: unknown): ConversationTurn | null {
   };
 }
 
+function compareTurnsChronologically(
+  left: ConversationTurn,
+  right: ConversationTurn,
+): number {
+  const leftStartedAt = Date.parse(left.started_at);
+  const rightStartedAt = Date.parse(right.started_at);
+  if (
+    Number.isFinite(leftStartedAt) &&
+    Number.isFinite(rightStartedAt) &&
+    leftStartedAt !== rightStartedAt
+  ) {
+    return leftStartedAt - rightStartedAt;
+  }
+  return (
+    left.started_at.localeCompare(right.started_at) ||
+    left.sequence - right.sequence
+  );
+}
+
 function normalizeTurnState(value: unknown): ConversationTurnState {
   if (!value || typeof value !== 'object') {
-    return { ...DEFAULT_TURN_STATE };
+    return createDefaultTurnState();
   }
   const record = value as Record<string, unknown>;
   const turns = Array.isArray(record.turns)
     ? record.turns
         .map((turn) => normalizeTurn(turn))
         .filter((turn): turn is ConversationTurn => Boolean(turn))
-        .sort((left, right) => left.sequence - right.sequence)
+        .sort(compareTurnsChronologically)
     : [];
   const nextSequence =
     typeof record.next_sequence === 'number' &&
@@ -212,7 +233,7 @@ export async function readPersistedTurnState(
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
     if (err.code === 'ENOENT') {
-      return { ...DEFAULT_TURN_STATE };
+      return createDefaultTurnState();
     }
     throw error;
   }

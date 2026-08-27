@@ -11,17 +11,19 @@ export declare const AGENT_SETTINGS_SCHEMA_VERSION = 4;
 export declare const CONVERSATION_SETTINGS_SCHEMA_VERSION = 1;
 export declare const observabilityMetadataSchema: z.ZodRecord<z.ZodString, z.ZodUnknown>;
 export declare const observabilityTagsSchema: z.ZodArray<z.ZodString>;
+export declare const observabilitySpanNameSchema: z.ZodString;
 export declare const conversationSettingsSchema: z.ZodObject<{
     schema_version: z.ZodDefault<z.ZodLiteral<number>>;
     max_iterations: z.ZodDefault<z.ZodNumber>;
     observability_metadata: z.ZodDefault<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
     observability_tags: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+    observability_span_name: z.ZodDefault<z.ZodNullable<z.ZodString>>;
 }, z.core.$strict>;
 export declare const openHandsAgentSettingsSchema: z.ZodObject<{
     agent_kind: z.ZodDefault<z.ZodLiteral<"openhands">>;
     llm_profile_ref: z.ZodString;
     agent: z.ZodDefault<z.ZodString>;
-    tools: z.ZodDefault<z.ZodArray<z.ZodUnknown>>;
+    tools: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodUnknown>>>;
     enable_sub_agents: z.ZodDefault<z.ZodBoolean>;
     enable_switch_llm_tool: z.ZodDefault<z.ZodBoolean>;
     tool_concurrency_limit: z.ZodDefault<z.ZodNumber>;
@@ -53,7 +55,7 @@ export declare const agentSettingsSchema: z.ZodUnion<readonly [z.ZodObject<{
     agent_kind: z.ZodDefault<z.ZodLiteral<"openhands">>;
     llm_profile_ref: z.ZodString;
     agent: z.ZodDefault<z.ZodString>;
-    tools: z.ZodDefault<z.ZodArray<z.ZodUnknown>>;
+    tools: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodUnknown>>>;
     enable_sub_agents: z.ZodDefault<z.ZodBoolean>;
     enable_switch_llm_tool: z.ZodDefault<z.ZodBoolean>;
     tool_concurrency_limit: z.ZodDefault<z.ZodNumber>;

@@ -12,6 +12,17 @@ export interface BashEventServiceOptions {
   readonly bashEventsDir: string;
 }
 
+interface BashEventSearchOptions {
+  readonly kind?: string | null;
+  readonly commandId?: string | null;
+  readonly timestampGte?: Date | null;
+  readonly timestampLt?: Date | null;
+  readonly orderGt?: number | null;
+  readonly pageId?: string | null;
+  readonly limit?: number;
+  readonly sortOrder?: 'TIMESTAMP' | 'TIMESTAMP_DESC';
+}
+
 export class BashEventService {
   private readonly pubSub = new PubSub<BashEvent>(50);
 
@@ -48,7 +59,7 @@ export class BashEventService {
     return Promise.all(eventIds.map((eventId) => this.getBashEvent(eventId)));
   }
 
-  async searchBashEvents(options: { readonly kind?: string | null; readonly commandId?: string | null; readonly orderGt?: number | null; readonly pageId?: string | null; readonly limit?: number; readonly sortOrder?: 'TIMESTAMP' | 'TIMESTAMP_DESC' } = {}): Promise<BashEventPage> {
+  async searchBashEvents(options: BashEventSearchOptions = {}): Promise<BashEventPage> {
     const limit = Math.max(1, Math.min(100, Math.trunc(options.limit ?? 100)));
     const files = await this.eventFiles();
     const ordered = options.sortOrder === 'TIMESTAMP_DESC' ? [...files].reverse() : files;
@@ -62,6 +73,9 @@ export class BashEventService {
       }
       const event = await this.loadEvent(file);
       if (event === null) continue;
+      const eventTimestamp = Date.parse(event.timestamp);
+      if (options.timestampGte !== undefined && options.timestampGte !== null && eventTimestamp < options.timestampGte.getTime()) continue;
+      if (options.timestampLt !== undefined && options.timestampLt !== null && eventTimestamp >= options.timestampLt.getTime()) continue;
       if (options.kind !== undefined && options.kind !== null && event.kind !== options.kind) continue;
       if (options.commandId !== undefined && options.commandId !== null && event.kind === 'BashOutput' && event.command_id !== options.commandId) continue;
       if (options.commandId !== undefined && options.commandId !== null && event.kind === 'BashCommand' && event.id !== options.commandId) continue;
@@ -75,6 +89,33 @@ export class BashEventService {
     const files = await this.eventFiles();
     await Promise.all(files.map(async (file) => fs.unlink(file).catch(() => undefined)));
     return files.length;
+  }
+
+  async deleteEventsOlderThan(cutoff: Date): Promise<number> {
+    const cutoffPrefix = timestampPrefix(cutoff.toISOString());
+    let count = 0;
+    for (const file of await this.eventFiles()) {
+      if (path.basename(file) >= cutoffPrefix) break;
+      try {
+        await fs.unlink(file);
+        count += 1;
+      } catch (error) {
+        console.error('Failed to delete expired bash event', error);
+      }
+    }
+    return count;
+  }
+
+  async runRetentionCleanupLoop(retentionSeconds: number, intervalSeconds = Math.max(60, retentionSeconds / 2), signal?: AbortSignal): Promise<void> {
+    while (signal?.aborted !== true) {
+      try {
+        await this.deleteEventsOlderThan(new Date(Date.now() - retentionSeconds * 1000));
+      } catch (error) {
+        console.error('Bash event retention cleanup failed', error);
+        await abortableDelay(Math.min(intervalSeconds, 60) * 1000, signal);
+      }
+      await abortableDelay(intervalSeconds * 1000, signal);
+    }
   }
 
   async subscribeToEvents(subscriber: Subscriber<BashEvent>): Promise<string> {
@@ -185,3 +226,17 @@ function isErrno(error: unknown, code: string): error is { readonly code: string
   return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
 }
 
+function abortableDelay(timeoutMs: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted === true) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, timeoutMs);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      resolve();
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}

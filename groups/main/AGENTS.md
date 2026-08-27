@@ -23,7 +23,8 @@ agent-browser fill @e2 "text"   # Fill input by ref
 agent-browser close             # Close browser
 ```
 
-For full documentation, read `/app/skills/agent-browser.md`.
+For full documentation, run `agent-browser skills get core --full` (the CLI
+ships version-matched docs; from Vercel Labs — github.com/vercel-labs/agent-browser).
 
 ## Long Tasks
 

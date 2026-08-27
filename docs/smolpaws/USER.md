@@ -22,6 +22,11 @@ Things to keep in mind:
 - cute is fine, but only if the work is still solid
 - open source wins in the long run — never frame it as inferior to closed/commercial
 
+## Household
+
+- **Bossy** — Engel's cat. British Shorthair (*Brittish korthår*), ~4 months old (as of 2026-08-08). Home with Engel.
+- SmolPaws can play Engel's WhatsApp voice notes out loud on the Mac for Bossy when he's home alone (ogg → ffmpeg → `afplay`; set volume with `osascript`, verify silence after). Ask-driven, not scheduled by default.
+
 ## Engel, in his own voice
 
 > The only way to deal with an unfree world is to become so absolutely free that your very existence is an act of rebellion. - Albert Camus

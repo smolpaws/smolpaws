@@ -387,7 +387,7 @@ export class ConversationService {
 
 
   private async sendInitialMessage(eventService: EventService, request: SendMessageRequest): Promise<void> {
-    await eventService.sendMessage(messageFromSendRequest(request), request.run);
+    await eventService.sendMessage(messageFromSendRequest(request), request.run, request.event_id);
   }
 }
 

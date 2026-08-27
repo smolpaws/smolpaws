@@ -56,66 +56,88 @@ export type SlackDeps = {
 
 export async function handleSlackEvent(ctx: SlackEventContext, deps: SlackDeps): Promise<void> {
   const dedupKey = `${ctx.channelId}:${ctx.ts}`;
-  if (deps.dedup.isDuplicate(dedupKey)) {
+  if (!deps.dedup.tryBegin(dedupKey)) {
     deps.logger.debug({ dedupKey }, 'Duplicate Slack event, skipping');
     return;
   }
 
-  const access = checkAccess(ctx, deps.config);
-  if (access === 'denied') {
-    deps.logger.info({ userId: ctx.userId, channelId: ctx.channelId }, 'Slack event denied by allowlist');
-    return;
-  }
-  const isGuest = access === 'guest';
-  if (isGuest) {
-    if (!deps.guestLimiter.isWithinLimit(ctx.userId)) {
-      deps.logger.info({ userId: ctx.userId }, 'Guest user exceeded conversation limit');
-      await deps.postMessage(ctx.channelId,
-        '🐾 You\'ve used your guest conversations. Ask Engel to add you to the allowlist.',
-        replyThreadTs(ctx));
-      return;
-    }
-  }
-
-  deps.addReaction(ctx.channelId, ctx.ts, 'eyes').catch(() => {});
-
-  const prompt = stripBotMention(ctx.text, ctx.botUserId);
-  if (!prompt) {
-    const hint = ctx.isDm
-      ? '🐾 Send me a message and I\'ll help.'
-      : '🐾 You called? Say something after the mention and I\'ll help.';
-    await deps.postMessage(ctx.channelId, hint, replyThreadTs(ctx));
-    return;
-  }
-
-  if (!ctx.isDm) {
-    const threadRoot = ctx.threadTs ?? ctx.ts;
-    deps.mentionedThreads.track(threadRoot);
-  }
-
-  const conversationId = buildConversationId(ctx);
-  const threadTs = replyThreadTs(ctx);
-
-  // Fetch thread context for threaded conversations
-  let fullPrompt = prompt;
-  if (ctx.threadTs && ctx.threadTs !== ctx.ts && deps.fetchThreadMessages) {
-    try {
-      const threadMessages = await deps.fetchThreadMessages(ctx.channelId, ctx.threadTs);
-      const contextPrefix = formatThreadContext(threadMessages, ctx.ts, ctx.botUserId);
-      if (contextPrefix) {
-        fullPrompt = contextPrefix + prompt;
-      }
-    } catch (err) {
-      deps.logger.warn({ err, channelId: ctx.channelId, threadTs: ctx.threadTs }, 'Failed to fetch thread context');
-    }
-  }
-
-  deps.logger.info(
-    { userId: ctx.userId, channelId: ctx.channelId, conversationId, isDm: ctx.isDm, promptLength: fullPrompt.length },
-    'Processing Slack message',
-  );
+  let completed = false;
+  let reservationHeld = true;
+  const releaseReservation = (): void => {
+    if (!reservationHeld) return;
+    deps.dedup.release(dedupKey);
+    reservationHeld = false;
+  };
 
   try {
+    const access = checkAccess(ctx, deps.config);
+    if (access === 'denied') {
+      deps.logger.info(
+        { userId: ctx.userId, channelId: ctx.channelId },
+        'Slack event denied by allowlist',
+      );
+      completed = true;
+      return;
+    }
+
+    const isGuest = access === 'guest';
+    if (isGuest && !deps.guestLimiter.isWithinLimit(ctx.userId)) {
+      deps.logger.info({ userId: ctx.userId }, 'Guest user exceeded conversation limit');
+      await deps.postMessage(
+        ctx.channelId,
+        '🐾 You\'ve used your guest conversations. Ask Engel to add you to the allowlist.',
+        replyThreadTs(ctx),
+      );
+      completed = true;
+      return;
+    }
+
+    deps.addReaction(ctx.channelId, ctx.ts, 'eyes').catch(() => {});
+
+    const prompt = stripBotMention(ctx.text, ctx.botUserId);
+    if (!prompt) {
+      const hint = ctx.isDm
+        ? '🐾 Send me a message and I\'ll help.'
+        : '🐾 You called? Say something after the mention and I\'ll help.';
+      await deps.postMessage(ctx.channelId, hint, replyThreadTs(ctx));
+      completed = true;
+      return;
+    }
+
+    const conversationId = buildConversationId(ctx);
+    const threadTs = replyThreadTs(ctx);
+
+    // Fetch thread context for threaded conversations.
+    let fullPrompt = prompt;
+    if (ctx.threadTs && ctx.threadTs !== ctx.ts && deps.fetchThreadMessages) {
+      try {
+        const threadMessages = await deps.fetchThreadMessages(ctx.channelId, ctx.threadTs);
+        const contextPrefix = formatThreadContext(threadMessages, ctx.ts, ctx.botUserId);
+        if (contextPrefix) {
+          fullPrompt = contextPrefix + prompt;
+        }
+      } catch (error) {
+        deps.logger.warn(
+          { err: error, channelId: ctx.channelId, threadTs: ctx.threadTs },
+          'Failed to fetch thread context',
+        );
+      }
+    }
+
+    deps.logger.info(
+      {
+        userId: ctx.userId,
+        channelId: ctx.channelId,
+        conversationId,
+        isDm: ctx.isDm,
+        promptLength: fullPrompt.length,
+      },
+      'Processing Slack message',
+    );
+
+    // For the coordinator path, this resolves only after the message has crossed the durable SQLite
+    // acceptance boundary. That is the point at which process-local dedup and thread-follow-up state may
+    // safely be committed.
     await deps.dispatch(
       {
         conversationId,
@@ -131,13 +153,27 @@ export async function handleSlackEvent(ctx: SlackEventContext, deps: SlackDeps):
       { original: ctx, conversationId },
     );
 
-    // Record guest usage only after successful dispatch — don't burn a
-    // conversation slot on agent-server failures.
+    if (!ctx.isDm) {
+      deps.mentionedThreads.track(ctx.threadTs ?? ctx.ts);
+    }
     if (isGuest) deps.guestLimiter.record(ctx.userId);
+    completed = true;
   } catch (error) {
-    deps.logger.error({ err: error, conversationId }, 'Error processing Slack message');
-    await deps.postMessage(ctx.channelId,
-      '🐾 Something went wrong on my end. Try again in a moment.',
-      threadTs).catch(() => {});
+    // A rejected dispatch means the durable intake boundary was not crossed. Release immediately,
+    // before the best-effort Slack error reply, so a platform retry cannot be suppressed by slow or
+    // failing chat.postMessage I/O.
+    releaseReservation();
+    deps.logger.error({ err: error }, 'Error processing Slack message');
+    await deps
+      .postMessage(
+        ctx.channelId,
+        '🐾 Something went wrong on my end. Try again in a moment.',
+        replyThreadTs(ctx),
+      )
+      .catch(() => {});
+  } finally {
+    if (!reservationHeld) return;
+    if (completed) deps.dedup.commit(dedupKey);
+    else deps.dedup.release(dedupKey);
   }
 }

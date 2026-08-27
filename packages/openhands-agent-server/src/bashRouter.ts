@@ -2,7 +2,15 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 
 import type { BashEventService } from './bashService.js';
 import { executeBashRequestSchema } from './models.js';
-import { arrayQuery, intQuery, parseBody, queryRecord, stringQuery } from './routeUtils.js';
+import {
+  arrayQuery,
+  dateQuery,
+  intQuery,
+  parseBody,
+  queryRecord,
+  stringArrayBody,
+  stringQuery,
+} from './routeUtils.js';
 
 export function registerBashRoutes(app: FastifyInstance, service: BashEventService): void {
   app.get('/api/bash/bash_events/search', async (request) => {
@@ -10,6 +18,8 @@ export function registerBashRoutes(app: FastifyInstance, service: BashEventServi
     return service.searchBashEvents({
       kind: stringQuery(query.kind__eq),
       commandId: stringQuery(query.command_id__eq),
+      timestampGte: dateQuery(query.timestamp__gte),
+      timestampLt: dateQuery(query.timestamp__lt),
       orderGt: intQuery(query.order__gt, Number.NaN),
       pageId: stringQuery(query.page_id),
       limit: intQuery(query.limit, 100),
@@ -17,7 +27,13 @@ export function registerBashRoutes(app: FastifyInstance, service: BashEventServi
     });
   });
 
-  const batchGetBashEvents = async (request: FastifyRequest) => service.batchGetBashEvents(arrayQuery(queryRecord(request).event_ids));
+  const batchGetBashEvents = async (request: FastifyRequest) => {
+    const bodyIds = stringArrayBody(request.body);
+    const eventIds = bodyIds.length > 0
+      ? bodyIds
+      : arrayQuery(queryRecord(request).event_ids);
+    return service.batchGetBashEvents(eventIds);
+  };
 
   app.get('/api/bash/bash_events', batchGetBashEvents);
   app.get('/api/bash/bash_events/', batchGetBashEvents);

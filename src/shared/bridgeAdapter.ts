@@ -18,6 +18,7 @@
 
 import type { Logger } from 'pino';
 import type { SmolpawsOutboundMessage } from './runner.js';
+import { getSharedShadowIntake, isShadowEnabled } from './shadowIntake.js';
 import {
   createDeliveryOwnerId,
   monitorTurn,
@@ -150,10 +151,25 @@ export abstract class BaseBridgeAdapter {
    *
    * Subclasses call this from their platform event handler.
    */
+  /**
+   * Fire-and-forget SHADOW intake (ADR step 3): when `SMOLPAWS_COORD_SHADOW=1` and this ingress is
+   * shadow-enabled (Slack only), ALSO forward the message to the Message-Work Coordinator on the new
+   * server. Additive and OFF by default — when disabled this returns before constructing anything. It is
+   * never awaited and `accept()` never throws, so it cannot affect the real dispatch below or the user.
+   */
+  private emitShadowIntake(msg: IncomingMessage): void {
+    if (!isShadowEnabled(this.name)) return;
+    const shadow = getSharedShadowIntake(this.logger);
+    if (shadow === null) return;
+    void shadow.accept(msg);
+  }
+
   protected async dispatch(
     msg: IncomingMessage,
     replyCtx: ReplyContext,
   ): Promise<void> {
+    this.emitShadowIntake(msg);
+
     const deliveryOwnerId = createDeliveryOwnerId();
     const userMessage: ConversationMessagePayload = {
       role: 'user',

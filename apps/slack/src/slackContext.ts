@@ -182,23 +182,44 @@ export class MentionedThreadTracker {
 
 const DEDUP_TTL_MS = 60_000;
 
+/**
+ * A short-lived, process-local gate around Slack event handling.
+ *
+ * This is not the durable idempotency authority. Coordinator SQLite owns that through the stable Slack
+ * message id. The gate only suppresses simultaneous/recent duplicate callbacks and is committed after
+ * durable acceptance. Failed acceptance releases the reservation so a Slack retry can try again.
+ */
 export class MessageDeduplicator {
-  private seen = new Map<string, number>();
+  private readonly seen = new Map<string, number>();
+  private readonly inFlight = new Set<string>();
 
-  isDuplicate(key: string): boolean {
+  /** Reserve a key while an event is being handled. Returns false for in-flight/recent duplicates. */
+  tryBegin(key: string): boolean {
     const now = Date.now();
     this.prune(now);
-    if (this.seen.has(key)) return true;
+    if (this.inFlight.has(key) || this.seen.has(key)) return false;
+    this.inFlight.add(key);
+    return true;
+  }
+
+  /** Commit a successfully handled event to the short-lived recent set. */
+  commit(key: string): void {
+    const now = Date.now();
+    this.inFlight.delete(key);
+    this.prune(now);
     this.seen.set(key, now);
-    return false;
+  }
+
+  /** Release a failed reservation so the platform can retry it. */
+  release(key: string): void {
+    this.inFlight.delete(key);
   }
 
   private prune(now: number): void {
-    if (this.seen.size < 200) return;
-    // Map preserves insertion order — oldest entries come first.
-    // Break on first non-expired entry since all subsequent are newer.
-    for (const [k, ts] of this.seen) {
-      if (now - ts > DEDUP_TTL_MS) this.seen.delete(k);
+    // Map preserves insertion order. Once the first non-expired item is reached, all later items are
+    // newer. Prune on every access so the advertised TTL remains true even for small maps.
+    for (const [key, timestamp] of this.seen) {
+      if (now - timestamp > DEDUP_TTL_MS) this.seen.delete(key);
       else break;
     }
   }

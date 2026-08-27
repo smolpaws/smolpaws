@@ -43,9 +43,24 @@ export const sendMessageRequestSchema = z
     extended_content: z.array(contentSchema).optional(),
     run: z.boolean().default(true),
     sender: z.string().nullable().optional(),
+    // Optional caller-supplied idempotency key. Additive, upstream-compatible reliability extension
+    // (NOT a queue): when present, the event is persisted once under this id and a repeated request
+    // returns the existing event with created:false — closing the append-response-loss window without
+    // any durable message-queue semantics living in this package. Omit it and behavior is unchanged.
+    // Sanctioned by ADR §8 (durable message work); the queue itself stays in the external coordinator.
+    event_id: z.string().uuid().optional(),
   })
   .strict();
 export type SendMessageRequest = z.infer<typeof sendMessageRequestSchema>;
+
+/**
+ * Response for `POST /events`. Additive over {@link successSchema}: reports the persisted event id and
+ * whether this request created it (`created:false` on an idempotent replay of the same `event_id`).
+ */
+export const sendMessageResponseSchema = z
+  .object({ success: z.boolean().default(true), event_id: z.string(), created: z.boolean() })
+  .strict();
+export type SendMessageResponse = z.infer<typeof sendMessageResponseSchema>;
 
 const startConversationRequestBaseSchema = z
   .object({
@@ -298,9 +313,26 @@ export const gitDiffSchema = z
     original: z.string().nullable(),
   })
   .strict();
+export const gitCommitSchema = z
+  .object({
+    sha: z.string(),
+    short_sha: z.string(),
+    subject: z.string(),
+    author: z.string(),
+    timestamp: z.string(),
+  })
+  .strict();
+export const gitCommitsPageSchema = z
+  .object({
+    commits: z.array(gitCommitSchema),
+    has_more: z.boolean(),
+  })
+  .strict();
 export const gitPathQuerySchema = z.object({ path: z.string(), ref: z.string().optional() }).strict();
 export type GitChange = z.infer<typeof gitChangeSchema>;
 export type GitDiff = z.infer<typeof gitDiffSchema>;
+export type GitCommit = z.infer<typeof gitCommitSchema>;
+export type GitCommitsPage = z.infer<typeof gitCommitsPageSchema>;
 
 export const fileBrowserEntrySchema = z.object({ label: z.string(), path: z.string() }).strict();
 export const homeResponseSchema = z

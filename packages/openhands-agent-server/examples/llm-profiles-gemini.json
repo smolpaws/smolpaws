@@ -1,0 +1,38 @@
+{
+  "profiles": [
+    {
+      "profileId": "gemini-36-flash",
+      "providerId": "gemini",
+      "model": "gemini-3.6-flash",
+      "baseUrl": null,
+      "openAiApiMode": "chat_completions",
+      "temperature": null,
+      "topP": null,
+      "topK": null,
+      "maxInputTokens": null,
+      "maxOutputTokens": null,
+      "timeoutSeconds": 180,
+      "reasoningEffort": null,
+      "reasoningSummary": null,
+      "headers": {},
+      "useProfileKeyOverride": true
+    },
+    {
+      "profileId": "gemini-flash-latest",
+      "providerId": "gemini",
+      "model": "gemini-flash-latest",
+      "baseUrl": null,
+      "openAiApiMode": "chat_completions",
+      "temperature": null,
+      "topP": null,
+      "topK": null,
+      "maxInputTokens": null,
+      "maxOutputTokens": null,
+      "timeoutSeconds": 180,
+      "reasoningEffort": null,
+      "reasoningSummary": null,
+      "headers": {},
+      "useProfileKeyOverride": true
+    }
+  ]
+}

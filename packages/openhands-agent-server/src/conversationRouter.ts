@@ -1,6 +1,4 @@
 import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
-
 
 import type { ConversationService } from './conversationService.js';
 import {
@@ -13,17 +11,20 @@ import {
   updateSecretsRequestSchema,
   setConfirmationPolicyRequestSchema,
   setSecurityAnalyzerRequestSchema,
+  type ConversationInfo,
   type StartConversationRequest,
 } from './models.js';
 import {
+  acceptedDeviation,
   arrayQuery,
+  booleanQuery,
   eventServiceOr404,
   intQuery,
-  acceptedDeviation,
   notImplemented,
   param,
   parseBody,
   queryRecord,
+  stringArrayBody,
   stringQuery,
   successOrNotFound,
 } from './routeUtils.js';
@@ -35,42 +36,48 @@ interface ConversationRouteOptions {
 export function registerConversationRoutes(app: FastifyInstance, service: ConversationService, options: ConversationRouteOptions = {}): void {
   app.get('/api/conversations/search', async (request) => {
     const query = queryRecord(request);
-    return service.searchConversations(
+    const includeSkills = booleanQuery(query.include_skills);
+    const page = await service.searchConversations(
       stringQuery(query.page_id),
       intQuery(query.limit, 100),
       stringQuery(query.status),
       conversationSortOrderSchema.catch('CREATED_AT_DESC').parse(query.sort_order),
     );
+    return {
+      ...page,
+      items: page.items.map((info) => conversationForResponse(info, includeSkills)),
+    };
   });
 
   app.get('/api/conversations/count', async (request) => service.countConversations(stringQuery(queryRecord(request).status)));
 
   app.get('/api/conversations', async (request, reply) => {
-    const ids = arrayQuery(queryRecord(request).ids);
-    if (ids.length === 0) return service.searchConversations(null, 100, null, 'CREATED_AT_DESC');
+    const query = queryRecord(request);
+    const bodyIds = stringArrayBody(request.body);
+    const ids = bodyIds.length > 0 ? bodyIds : arrayQuery(query.ids);
+    if (ids.length === 0) {
+      reply.status(422);
+      return { detail: 'ids is required' };
+    }
     if (ids.length >= 100) {
       reply.status(400);
       return { detail: 'ids must contain fewer than 100 items' };
     }
-    return service.batchGetConversations(ids);
+    const includeSkills = booleanQuery(query.include_skills);
+    const conversations = await service.batchGetConversations(ids);
+    return conversations.map((info) => info === null ? null : conversationForResponse(info, includeSkills));
   });
 
   app.post('/api/conversations', async (request, reply) => {
-    let startRequest: StartConversationRequest;
-    try {
-      startRequest = options.prepareStartRequest === undefined
-        ? parseBody(publicStartConversationRequestSchema, request.body)
-        : await options.prepareStartRequest(request.body);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        reply.status(400);
-        return { detail: error.issues.map((issue) => ({ path: issue.path, message: issue.message })) };
-      }
-      throw error;
-    }
+    const startRequest = options.prepareStartRequest === undefined
+      ? parseBody(publicStartConversationRequestSchema, request.body)
+      : await options.prepareStartRequest(request.body);
     const result = await service.startConversation(startRequest);
     reply.status(result.isNew ? 201 : 200);
-    return result.info;
+    return conversationForResponse(
+      result.info,
+      booleanQuery(queryRecord(request).include_skills),
+    );
   });
 
   app.get('/api/conversations/:conversation_id', async (request, reply) => {
@@ -79,7 +86,10 @@ export function registerConversationRoutes(app: FastifyInstance, service: Conver
       reply.status(404);
       return { detail: 'Conversation not found' };
     }
-    return info;
+    return conversationForResponse(
+      info,
+      booleanQuery(queryRecord(request).include_skills),
+    );
   });
 
   app.patch('/api/conversations/:conversation_id', async (request, reply) => {
@@ -158,6 +168,32 @@ export function registerConversationRoutes(app: FastifyInstance, service: Conver
       return { detail: 'Source conversation not found' };
     }
     reply.status(201);
-    return forked;
+    return conversationForResponse(
+      forked,
+      booleanQuery(queryRecord(request).include_skills),
+    );
   });
+}
+
+function conversationForResponse(info: ConversationInfo, includeSkills: boolean): ConversationInfo {
+  if (includeSkills || !isRecord(info.agent)) return info;
+  const agentContext = info.agent.agent_context;
+  if (!isRecord(agentContext) || !Array.isArray(agentContext.skills) || agentContext.skills.length === 0) {
+    return info;
+  }
+
+  return {
+    ...info,
+    agent: {
+      ...info.agent,
+      agent_context: {
+        ...agentContext,
+        skills: [],
+      },
+    },
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

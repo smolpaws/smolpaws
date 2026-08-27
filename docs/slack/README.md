@@ -1,177 +1,153 @@
-# Slack Ingress Plan
+# Slack Message Relay Architecture
 
-This document is the build plan for replacing SmolPaws' current Slack-via-Chrome setup with a real Slack app.
+Slack is the first greenfield bridge for SmolPaws' durable Message Relay.
 
-## Why
+It intentionally does **not** preserve the unused legacy Slack implementation, inherit the shared bridge adapter, or route messages through the old `/turns` runner. Slack runs as its own Socket Mode process beside the upstream-shaped TypeScript agent-server.
 
-Today Slack access is a browser hack: SmolPaws reads and writes Slack by injecting JavaScript into a logged-in Chrome tab. That is fragile, visible, and hard to reason about.
-
-The replacement should be a proper Slack app that:
-
-- receives DMs and `@smolpaws` mentions directly from Slack
-- submits work to the shared SmolPaws turn API
-- posts replies back to the right DM, channel thread, or app thread
-- can run locally without a public webhook URL
-
-## Primary Decision
-
-Start with **Socket Mode**, not HTTP webhooks.
-
-Why:
-
-- it avoids another public ingress surface
-- it avoids a Cloudflare Worker or tunnel just for Slack
-- it fits local development well
-- it keeps the delivery model close to Discord and WhatsApp: one local long-running process
-
-The first version should be a conventional Slack bot. Slack's richer AI-native surfaces can come later as a second phase.
-
-## Target Architecture
+## Current flow
 
 ```text
-Slack DM or @mention
-  -> apps/slack (Bolt + Socket Mode)
-  -> shared turn client
-  -> apps/agent-server
-  -> turn result + claimed outbound messages
-  -> Slack Web API reply
+Slack Socket Mode
+  -> SlackBridge / slackHandler
+  -> SlackRelayRuntime.accept()
+  -> MessageRelay durable intake in SQLite
+  -> TypeScript OpenHands agent-server on :8790
+  -> durable agent EventLog
+  -> OutboundRelay.syncDeliveryOutbox()
+  -> durable delivery outbox
+  -> DeliveryDispatcher
+  -> SlackDeliveryTarget
+  -> chat.postMessage
 ```
 
-## MVP Scope
+The ingress success boundary is durable acceptance, not an in-memory request finishing. A reply may be produced later after a process delay or restart.
 
-Phase 1 should support:
+## Names and boundaries
 
-- DMs via `message.im`
-- channel and thread mentions via `app_mention`
-- replying in-thread with Slack `thread_ts`
-- stable conversation ids derived from workspace/channel/thread
-- optional allowlists for workspace, channel, and user
-- additive outbound delivery using the existing turn API
+### Message Relay
 
-Phase 1 should **not** try to solve everything:
+**Message Relay** is the complete product subsystem around agent-server for durable external messaging.
 
-- no Chrome dependency
-- no Slack-specific scheduling UI
-- no app-home polish requirement
-- no full channel-history scraping by default
+`MessageRelay` owns:
 
-## Conversation Model
+- canonical lane-to-conversation binding;
+- durable and idempotent intake acceptance;
+- ordered intake integration into agent-server;
+- `syncDeliveryOutbox()`, which catches durable agent events up into delivery work.
 
-Use stable Slack-scoped conversation ids:
+### Outbound Relay
 
-- DM: `slack-im-{team_id}-{channel_id}`
-- channel root message: `slack-thread-{team_id}-{channel_id}-{ts}`
-- threaded reply chain: `slack-thread-{team_id}-{channel_id}-{thread_ts}`
+`OutboundRelay` runs the outbound half. It repeatedly calls `syncDeliveryOutbox()` for known conversations and asks the Delivery Dispatcher to drain bounded work. It does not know Slack APIs.
 
-This keeps continuity aligned with Slack's own thread model.
+### Delivery Dispatcher
 
-## Delivery Model
+`DeliveryDispatcher` owns the external side-effect boundary:
 
-The Slack app should use the existing turn API, not bespoke conversation plumbing.
+```text
+claim
+  -> validate target and payload
+  -> durably mark send_attempted
+  -> call platform DeliveryTarget
+  -> settle done / failed / delivery_unknown
+```
 
-Expected flow:
+Validation happens before `send_attempted`. Once sending may have begun, an exception is treated conservatively as `delivery_unknown`; the system does not blindly repeat an effect that may already have reached Slack.
 
-1. Slack policy code normalizes the event into the shared bridge message shape.
-2. `BaseBridgeAdapter` builds a `create_conversation` payload with `ingress: "slack"` and Slack metadata.
-3. Shared dispatch submits the user message through `POST /api/conversations/:id/turns` and monitors it.
-4. If the app is the delivery owner, shared dispatch claims turn-scoped outbound messages.
-5. `SlackAdapter` posts claimed outbound messages through `chat.postMessage`.
-6. The final reply is the fallback when no outbound message was delivered.
+### Slack Relay Runtime
 
-This mirrors Discord's shared bridge dispatch path while leaving Slack policy and delivery in Slack.
+`apps/slack/src/relayRuntime.ts` hosts the Slack workers:
 
-## Slack Permissions Strategy
+1. durably accept normalized Slack messages;
+2. integrate ready intake into the new agent-server with deterministic event IDs;
+3. reconcile expired claims and retry waits;
+4. synchronize the delivery outbox;
+5. dispatch bounded Slack sends.
 
-Keep the first version narrow.
+### Slack bridge and delivery target
 
-Expected minimum bot scopes:
+`SlackBridge` owns Bolt Socket Mode, event subscriptions, bot-loop guards, and Slack API wiring. `SlackDeliveryTarget` translates a durable Slack lane plus payload into `chat.postMessage`, preserves `thread_ts`, splits long messages, and returns Slack's timestamp as the external message ID.
 
-- `app_mentions:read`
-- `chat:write`
-- `im:history`
+The installed Slack app contains configuration rather than this TypeScript. Slack stores bot identity, OAuth/app tokens, scopes, event subscriptions, and Socket Mode settings. The executable bridge runs from this repository on the SmolPaws host.
 
-Possible follow-up scopes only if needed:
+Changing internal Relay code or the local agent-server URL does not require reinstalling the Slack app. Reauthorization is needed only when scopes or event subscriptions change.
 
-- `channels:history` for bounded public-thread context
-- `groups:history` for bounded private-channel thread context
-- `channels:read` or `groups:read` if channel metadata lookup becomes necessary
+## Identity and idempotency
 
-Do not request broad history scopes unless we actually implement and need them.
+A Slack event uses the stable source identity:
 
-## Thread Context Strategy
+```text
+{channel_id}:{message_ts}
+```
 
-Thread context should be permission-aware.
+The Message Relay combines it with the workspace and derives a deterministic agent event ID. Replays therefore converge on the existing intake row and agent event.
 
-Rules:
+A Slack conversation maps to one durable lane:
 
-- DMs: okay to fetch bounded prior context
-- public/private channel threads: start with the current message and thread identifiers only
-- later, if we add channel thread history, fetch only a bounded recent window
-- never dump an entire long Slack thread into the prompt by default
+```text
+channel:slack:{team_id}:{channel_id}:{thread_ts-or-root}
+```
 
-This keeps the first version cheap, safer, and less likely to run into rate-limit or permission surprises.
+The first authoritative generation uses:
 
-## Slack-Native UX Later
+```text
+~/.smolpaws/coordinator/slack-relay-v1.db
+conversation namespace: slack-relay:v1
+```
 
-After the basic bot works, a second phase can explore:
+Both identities are separate from earlier shadow experiments, preventing first catch-up from rediscovering and sending historical shadow responses.
 
-- App Home / Chat tab
-- loading status for long-running turns
-- streamed replies
-- richer Slack blocks
-- Slack-specific confirmation or task surfaces
+## Outbound policy
 
-Those should be optional polish layers over the same turn API, not a separate execution model.
+The first Slack canary delivers the normal terminal `finish` observation. Ordinary chat does not require the agent to call a Slack-specific `send_message` tool.
 
-## App Layout
+The extractor remains replaceable. Explicit outbound-intent events can later support richer multi-message behavior without changing the durable dispatcher.
 
-- `apps/slack/src/index.ts` - thin standalone entrypoint
-- `apps/slack/src/adapter.ts` - Socket Mode lifecycle, shared dispatch seam, and Slack delivery
-- `apps/slack/src/config.ts` - env parsing and allowlist config
-- `apps/slack/src/slackHandler.ts` - access, deduplication, thread context, and normalization
-- `apps/slack/src/slackContext.ts` - conversation-id and metadata helpers
-- `apps/slack/src/__tests__/...` - policy, normalization, and shared-dispatch regression tests
-- `apps/slack/package.json` - isolated app scripts
-- `apps/slack/AGENTS.md` - app-local guidance
+## Configuration
 
-## Local Runtime Shape
+Preferred local configuration in `~/.smolpaws/.env`:
 
-The Slack app should run as a local process, similar to Discord:
+```bash
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_APP_TOKEN=xapp-...
+SMOLPAWS_RELAY_SERVER_URL=http://127.0.0.1:8790
+SMOLPAWS_RELAY_SERVER_API_KEY=...
 
-- loads `~/.smolpaws/.env`
-- connects to Slack via Socket Mode
-- talks to the local runner at `http://127.0.0.1:8788`
-- does not require a public callback URL
+# Optional policy
+SLACK_ALLOWED_TEAM_IDS=T12345
+SLACK_ALLOWED_CHANNEL_IDS=C12345,D12345
+SLACK_ALLOWED_USER_IDS=U12345
+```
 
-Expected env vars:
+The old `SMOLPAWS_COORD_SERVER_*` names remain temporary fallbacks. Raw provider credentials do not belong in Relay SQLite or delivery rows; the agent-server resolves its active profile credential through its own state/keychain.
 
-- `SLACK_BOT_TOKEN`
-- `SLACK_APP_TOKEN`
-- `SMOLPAWS_RUNNER_URL`
-- `SMOLPAWS_RUNNER_TOKEN` if the runner requires auth
-- optional allowlists such as `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_CHANNEL_IDS`, `SLACK_ALLOWED_USER_IDS`
+## Running the canary
 
-## Testing Plan
+```bash
+npm ci
+npm ci --prefix packages/openhands-agent-server
+npm ci --prefix apps/slack
 
-Implementation should come with:
+./scripts/run-local-smolpaws.sh npm --prefix packages/openhands-agent-server run dev:server
+./scripts/run-local-smolpaws.sh npm --prefix apps/slack run start
+```
 
-- pure unit tests for Slack event parsing and conversation-id generation
-- unit tests for delivery-owner behavior and duplicate suppression
-- tests for DM and app-mention payload handling
-- tests for bounded thread-context fetching rules
-- a local smoke-test checklist for one DM and one channel-thread mention
+The new server listens on `127.0.0.1:8790` by default. Do not rely on the old `apps/agent-server` process to host Slack.
 
-## Rollout Plan
+## Verification
 
-1. Build the scaffold and env/config shape.
-2. Get DMs working end to end.
-3. Add `app_mention` replies in channels and threads.
-4. Add bounded thread context where permissions allow it.
-5. Add service management and health checks.
-6. Retire the Chrome Slack path once the app is stable.
+The focused Slack workflow runs typechecking plus the Slack and Relay tests. It covers durable lane derivation, outbox replay, successful and ambiguous delivery settlement, retryable acceptance, concurrent duplicate suppression, and a deterministic end-to-end run through the real TypeScript agent-server, fake LLM, SQLite, Outbound Relay, Delivery Dispatcher, and Slack Delivery Target.
 
-## Open Questions
+A live canary requires evidence from every boundary:
 
-- Whether channel-thread history is worth the extra scopes in this workspace
-- Whether to support the newer Slack AI app surfaces in phase 2 or keep the app as a classic bot
-- Whether Slack should have its own LaunchAgent from day one or first ship as a manual dev process
+1. Slack event accepted;
+2. intake row present in `~/.smolpaws/coordinator/slack-relay-v1.db`;
+3. deterministic user event and completed run present in the new agent-server;
+4. delivery row created by `syncDeliveryOutbox()`;
+5. delivery settled `done` with Slack's timestamp;
+6. reply visible in the correct thread or DM.
+
+A visible reply alone is not proof. In particular, `🐾 Done — nothing to report back.` is the old `/turns` fallback and proves the Message Relay did not handle that message.
+
+## Rollout boundary
+
+Slack is the non-critical canary. WhatsApp, Discord, and other bridges remain unchanged until their real usage and platform semantics are reviewed separately.

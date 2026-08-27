@@ -7,6 +7,41 @@ on:
     branches: [main]
 
 jobs:
+  slack-coordinator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check Slack Relay launcher syntax
+        run: bash -n scripts/run-local-slack-relay.sh
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install OpenHands agent-server package dependencies
+        run: npm ci --prefix packages/openhands-agent-server
+
+      - name: Build OpenHands agent-server for coordinator integration tests
+        run: npm run build --prefix packages/openhands-agent-server
+
+      - name: Run coordinator core and real-server integration tests
+        run: npm run coordinator:test
+
+      - name: Install Slack bridge dependencies
+        run: npm ci --prefix apps/slack
+
+      - name: Typecheck Slack coordinator bridge
+        run: npm run typecheck --prefix apps/slack
+
+      - name: Run Slack coordinator bridge tests
+        run: npm run test --prefix apps/slack
+
   checks:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -29,6 +64,9 @@ jobs:
 
       - name: Install GitHub ingress dependencies
         run: npm ci --prefix apps/github
+
+      - name: Build OpenHands agent-server package for root typecheck
+        run: npm run build --prefix packages/openhands-agent-server
 
       - name: Typecheck root
         run: npm run typecheck

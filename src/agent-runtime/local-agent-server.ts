@@ -107,6 +107,9 @@ function shouldStartFreshConversationAfterError(
   if (errorCode === 'conversation_not_found') {
     return true;
   }
+  if (errorCode === 'interrupted_turn') {
+    return true;
+  }
   if (errorCode === 'max_iterations_exceeded') {
     return true;
   }

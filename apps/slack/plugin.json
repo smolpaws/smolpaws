@@ -1,9 +1,9 @@
 {
   "name": "slack",
   "label": "Slack",
-  "kind": "bridge",
-  "version": "1.0.0",
-  "description": "Slack Socket Mode ingress \u2014 connects via @slack/bolt WebSocket with thread tracking and access control.",
+  "kind": "standalone",
+  "version": "2.0.0",
+  "description": "Standalone Slack Socket Mode bridge for the durable Message Relay and Delivery Dispatcher path.",
   "requiredEnv": [
     "SLACK_BOT_TOKEN",
     "SLACK_APP_TOKEN"
@@ -15,6 +15,10 @@
   "optionalEnv": [
     "SLACK_ALLOWED_TEAM_IDS",
     "SLACK_ALLOWED_CHANNEL_IDS",
-    "SLACK_ALLOWED_USER_IDS"
+    "SLACK_ALLOWED_USER_IDS",
+    "SMOLPAWS_RELAY_SERVER_URL",
+    "SMOLPAWS_RELAY_SERVER_API_KEY",
+    "SMOLPAWS_COORD_SERVER_URL",
+    "SMOLPAWS_COORD_SERVER_API_KEY"
   ]
 }

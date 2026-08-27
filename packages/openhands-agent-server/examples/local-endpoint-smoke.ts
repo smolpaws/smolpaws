@@ -178,7 +178,7 @@ async function coverSkills(client: LocalClient): Promise<void> {
   assert(loaded.skills.some((skill) => skill.name === 'demo'), 'project skill is loaded');
   assert((loaded.sources.project ?? 0) >= 1, 'project skill source count is set');
   assertEqual((await client.postJson<{ status: string }>('/api/skills/sync', {})).status, 'success', 'skills sync compatibility response');
-  const installed = await client.postJson<{ name: string; enabled: boolean }>('/api/skills/install', { source: path.dirname(localSkill) }, 201);
+  const installed = await client.postJson<{ name: string; enabled: boolean }>('/api/skills/install', { source: path.dirname(localSkill) }, 200);
   assertEqual(installed.name, 'installed-demo', 'local skill installed');
   assertEqual((await client.getJson<{ name: string }>('/api/skills/installed/installed-demo')).name, 'installed-demo', 'installed skill get');
   const disabled = await client.patchJson<{ name: string; enabled: boolean }>('/api/skills/installed/installed-demo', { enabled: false });

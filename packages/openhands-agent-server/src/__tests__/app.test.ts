@@ -4,12 +4,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-import { Agent, EventLog, FinishTool, InMemorySecretStore, LocalFileStore, RemoteConversation, RemoteWorkspace, TestLLM, ToolDefinition, textContent } from '@smolpaws/openhands-agent';
+import { Agent, EventLog, FinishTool, InMemorySecretStore, LocalFileStore, RemoteConversation, RemoteWorkspace, TestLLM, ToolDefinition, llmProfileSchema, textContent, type LLMClient } from '@smolpaws/openhands-agent';
 import { describe, expect, test } from 'vitest';
 import { z } from 'zod';
 
 import { createAgentServerApp } from '../app.js';
+import { BashEventService } from '../bashService.js';
+import { getDefaultConfig } from '../config.js';
 import { leaseFileName } from '../conversationLease.js';
+import { PubSub } from '../pubSub.js';
 import { conversationSecretRef } from '../conversationSecrets.js';
 import { generateOpenApiSchema } from '../openapi.js';
 import { ServerStateService } from '../serverState.js';
@@ -69,6 +72,14 @@ function delayedFinishAgentFactory() {
     ]),
     tools: [delayTool, FinishTool.create()],
   });
+}
+
+function failingAgentFactory() {
+  const llm: LLMClient = {
+    profile: llmProfileSchema.parse({ profileId: 'failing-provider', providerId: 'openai', model: 'test-model' }),
+    complete: () => Promise.reject(new Error('provider_response_invalid')),
+  };
+  return new Agent({ llm, tools: [FinishTool.create()] });
 }
 
 function llmProfilePayload(profileId: string, model: string) {
@@ -131,6 +142,39 @@ async function waitForWebSocketMessage(socket: WebSocket, timeoutMs = 1000): Pro
   const event = await waitForWebSocketEvent<MessageEvent>(socket, 'message', timeoutMs);
   return typeof event.data === 'string' ? event.data : Buffer.from(event.data as ArrayBuffer).toString('utf8');
 }
+
+async function waitForWebSocketJson<T>(socket: WebSocket, predicate: (value: T) => boolean, timeoutMs = 1000): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('Timed out waiting for matching WebSocket message'));
+    }, timeoutMs);
+    const onMessage = (event: MessageEvent) => {
+      const value = JSON.parse(typeof event.data === 'string' ? event.data : Buffer.from(event.data as ArrayBuffer).toString('utf8')) as T;
+      if (!predicate(value)) return;
+      cleanup();
+      resolve(value);
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error('WebSocket errored before matching message'));
+    };
+    const onClose = () => {
+      cleanup();
+      reject(new Error('WebSocket closed before matching message'));
+    };
+    const cleanup = () => {
+      clearTimeout(timeout);
+      socket.removeEventListener('message', onMessage);
+      socket.removeEventListener('error', onError);
+      socket.removeEventListener('close', onClose);
+    };
+    socket.addEventListener('message', onMessage);
+    socket.addEventListener('error', onError);
+    socket.addEventListener('close', onClose);
+  });
+}
+
 
 function waitForWebSocketEvent<T extends Event>(socket: WebSocket, eventName: string, timeoutMs: number): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -274,6 +318,34 @@ describe('createAgentServerApp', () => {
     }
   });
 
+  test('marks a conversation as error when the provider rejects a run', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
+    const { app, conversationService } = await createAgentServerApp({ agentFactory: failingAgentFactory, config: { conversationsPath: root } });
+    try {
+      const start = await app.inject({ method: 'POST', url: '/api/conversations', payload: {} });
+      const id = start.json<{ id: string }>().id;
+      const stateStatuses: string[] = [];
+      const eventService = await conversationService.getEventService(id);
+      expect(eventService).not.toBeNull();
+      await eventService?.subscribeToEvents((event) => {
+        if (event.kind === 'ConversationStateUpdateEvent') stateStatuses.push(event.value.execution_status);
+      });
+      await app.inject({ method: 'POST', url: `/api/conversations/${id}/events`, payload: { role: 'user', content: [textContent('fail')], run: false } });
+      expect((await app.inject({ method: 'POST', url: `/api/conversations/${id}/run` })).statusCode).toBe(200);
+
+      await waitFor(async () => {
+        const info = await app.inject({ method: 'GET', url: `/api/conversations/${id}` });
+        expect(info.json<{ execution_status: string }>().execution_status).toBe('error');
+        expect(stateStatuses).toContain('error');
+      });
+      const eventDir = path.join(root, id, 'events');
+      const persistedEvents = await Promise.all((await readdir(eventDir)).map((file) => readFile(path.join(eventDir, file), 'utf8')));
+      expect(persistedEvents.join('\n')).not.toContain('provider_response_invalid');
+    } finally {
+      await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 
   test('accepts a run=true message while a conversation is already running', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
@@ -353,6 +425,13 @@ describe('createAgentServerApp', () => {
     }
   });
 
+  test('parses the pinned OH bash retention setting strictly', () => {
+    expect(getDefaultConfig({ OH_BASH_EVENTS_RETENTION_SECONDS: '42' }).bashEventsRetentionSeconds).toBe(42);
+    expect(() => getDefaultConfig({ OH_BASH_EVENTS_RETENTION_SECONDS: '0' })).toThrow('must be a positive integer');
+    expect(() => getDefaultConfig({ OH_BASH_EVENTS_RETENTION_SECONDS: '1.5' })).toThrow('must be a positive integer');
+  });
+
+
   test('enforces X-Session-API-Key when configured', async () => {
     const { app } = await createAgentServerApp({ config: { sessionApiKey: 'secret' } });
     const denied = await app.inject({ method: 'GET', url: '/api/conversations/count' });
@@ -413,7 +492,7 @@ describe('createAgentServerApp', () => {
       expect(JSON.stringify(info)).not.toContain('client-injected-model');
 
       const invalid = await app.inject({ method: 'POST', url: '/api/conversations', payload: [] });
-      expect(invalid.statusCode).toBe(400);
+      expect(invalid.statusCode).toBe(422);
     } finally {
       await app.close();
       await rm(root, { recursive: true, force: true });
@@ -567,7 +646,6 @@ describe('createAgentServerApp', () => {
     }
   });
 
-
   test('validates explicit settings profile refs and only syncs active profile on explicit activation', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
     const { app } = await createAgentServerApp({
@@ -607,6 +685,46 @@ describe('createAgentServerApp', () => {
     }
   });
 
+  test('replays conversation events with all, since, and deprecated precedence modes', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-ws-'));
+    const { app, conversationService } = await createAgentServerApp({ config: { conversationsPath: path.join(root, 'conversations') }, secretStore: new InMemorySecretStore() });
+    const sockets: WebSocket[] = [];
+    try {
+      const start = await app.inject({ method: 'POST', url: '/api/conversations', payload: {} });
+      const id = start.json<{ id: string }>().id;
+      await app.inject({ method: 'POST', url: `/api/conversations/${id}/events`, payload: { role: 'user', content: [textContent('original')], run: false } });
+      const eventService = await conversationService.getEventService(id);
+      const original = eventService?.state.events.at(-1);
+      if (original === undefined) throw new Error('Expected persisted original event');
+      await app.listen({ host: '127.0.0.1', port: 0 });
+      const address = app.server.address();
+      if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
+      const base = `ws://127.0.0.1:${address.port}/sockets/events/${id}`;
+
+      for (const query of [`resend_mode=all`, `resend_mode=since&after_timestamp=${encodeURIComponent(original.timestamp)}`]) {
+        const socket = new WebSocket(`${base}?${query}`);
+        sockets.push(socket);
+        const replay = waitForWebSocketJson<{ id?: string; kind?: string }>(socket, (event) => event.kind !== 'ConversationStateUpdateEvent');
+        await waitForWebSocketOpen(socket);
+        expect((await replay).id).toBe(original.id);
+        socket.close();
+      }
+
+      const noReplaySocket = new WebSocket(`${base}?resend_mode=none&resend_all=true`);
+      sockets.push(noReplaySocket);
+      const firstNonState = waitForWebSocketJson<{ id?: string; kind?: string }>(noReplaySocket, (event) => event.kind !== 'ConversationStateUpdateEvent');
+      await waitForWebSocketOpen(noReplaySocket);
+      await app.inject({ method: 'POST', url: `/api/conversations/${id}/events`, payload: { role: 'user', content: [textContent('fresh')], run: false } });
+      const fresh = eventService.state.events.at(-1);
+      if (fresh === undefined) throw new Error('Expected persisted fresh event');
+      expect((await firstNonState).id).toBe(fresh.id);
+    } finally {
+      for (const socket of sockets) socket.close();
+      await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('plaintext scan covers large files and chunk-spanning secrets', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-scan-'));
     const secret = 'secret-crosses-stream-chunk-boundary';
@@ -621,7 +739,6 @@ describe('createAgentServerApp', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
-
 
   test('canonicalizes git paths reached through a filesystem alias', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
@@ -648,6 +765,138 @@ describe('createAgentServerApp', () => {
     }
   });
 
+  test('handles unborn HEAD and real deleted and renamed git changes', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-git-'));
+    const emptyRepo = path.join(root, 'empty');
+    const changedRepo = path.join(root, 'changed');
+    const nonRepo = path.join(root, 'non-repo');
+    await mkdir(nonRepo);
+    await writeFile(path.join(nonRepo, 'plain.txt'), 'plain', 'utf8');
+    await mkdir(emptyRepo);
+    await execFileAsync('git', ['-C', emptyRepo, 'init', '-q']);
+    await writeFile(path.join(emptyRepo, 'untracked.txt'), 'new', 'utf8');
+    await mkdir(changedRepo);
+    await execFileAsync('git', ['-C', changedRepo, 'init', '-q']);
+    await execFileAsync('git', ['-C', changedRepo, 'config', 'user.email', 'test@example.com']);
+    await execFileAsync('git', ['-C', changedRepo, 'config', 'user.name', 'Test User']);
+    await writeFile(path.join(changedRepo, 'deleted.txt'), 'delete me\n', 'utf8');
+    await writeFile(path.join(changedRepo, 'old-name.txt'), 'rename me\n', 'utf8');
+    await execFileAsync('git', ['-C', changedRepo, 'add', '.']);
+    await execFileAsync('git', ['-C', changedRepo, 'commit', '-q', '-m', 'init']);
+    await rm(path.join(changedRepo, 'deleted.txt'));
+    await execFileAsync('git', ['-C', changedRepo, 'mv', 'old-name.txt', 'new-name.txt']);
+    const { app } = await createAgentServerApp({ config: { conversationsPath: path.join(root, 'conversations'), workspaceRoot: root } });
+    try {
+      const nonRepoChanges = await app.inject({ method: 'GET', url: `/api/git/changes?path=${encodeURIComponent(nonRepo)}` });
+      expect(nonRepoChanges.statusCode).toBe(200);
+      expect(nonRepoChanges.json()).toEqual([]);
+      const nonRepoDiff = await app.inject({ method: 'GET', url: `/api/git/diff?path=${encodeURIComponent(path.join(nonRepo, 'plain.txt'))}` });
+      expect(nonRepoDiff.statusCode).toBe(200);
+      expect(nonRepoDiff.json()).toEqual({ modified: null, original: null });
+
+      const empty = await app.inject({ method: 'GET', url: `/api/git/changes?path=${encodeURIComponent(emptyRepo)}&ref=HEAD` });
+      expect(empty.statusCode).toBe(200);
+      expect(empty.json()).toEqual([{ status: 'ADDED', path: 'untracked.txt' }]);
+      const invalidRef = await app.inject({ method: 'GET', url: `/api/git/changes?path=${encodeURIComponent(emptyRepo)}&ref=missing-ref` });
+      expect(invalidRef.statusCode).toBe(400);
+
+      const changed = await app.inject({ method: 'GET', url: `/api/git/changes?path=${encodeURIComponent(changedRepo)}&ref=HEAD` });
+      expect(changed.statusCode).toBe(200);
+      expect(changed.json()).toEqual(expect.arrayContaining([
+        { status: 'DELETED', path: 'deleted.txt' },
+        { status: 'DELETED', path: 'old-name.txt' },
+        { status: 'ADDED', path: 'new-name.txt' },
+      ]));
+    } finally {
+      await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('lists git commits and per-commit diffs for a repository path', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-git-commits-'));
+    const repo = path.join(root, 'repo');
+    const nonRepo = path.join(root, 'non-repo');
+    await mkdir(repo);
+    await mkdir(nonRepo);
+    await writeFile(path.join(nonRepo, 'plain.txt'), 'plain', 'utf8');
+    await execFileAsync('git', ['-C', repo, 'init', '-q']);
+    await execFileAsync('git', ['-C', repo, 'config', 'user.email', 'test@example.com']);
+    await execFileAsync('git', ['-C', repo, 'config', 'user.name', 'Test User']);
+    await writeFile(path.join(repo, 'tracked.txt'), 'base\n', 'utf8');
+    await execFileAsync('git', ['-C', repo, 'add', 'tracked.txt']);
+    await execFileAsync('git', ['-C', repo, 'commit', '-q', '-m', 'first commit']);
+    await writeFile(path.join(repo, 'tracked.txt'), 'changed\n', 'utf8');
+    await execFileAsync('git', ['-C', repo, 'add', 'tracked.txt']);
+    await execFileAsync('git', ['-C', repo, 'commit', '-q', '-m', 'second commit']);
+    const secondSha = (await execFileAsync('git', ['-C', repo, 'rev-parse', 'HEAD'])).stdout.trim();
+    const { app } = await createAgentServerApp({ config: { conversationsPath: path.join(root, 'conversations'), workspaceRoot: root } });
+    try {
+      const commits = await app.inject({ method: 'GET', url: `/api/git/commits?path=${encodeURIComponent(repo)}` });
+      expect(commits.statusCode).toBe(200);
+      const page = commits.json<{ commits: Array<{ subject: string; sha: string }>; has_more: boolean }>();
+      expect(page.has_more).toBe(false);
+      expect(page.commits.map((commit) => commit.subject)).toEqual(['second commit', 'first commit']);
+      expect(page.commits[0]?.sha).toBe(secondSha);
+
+      const changes = await app.inject({ method: 'GET', url: `/api/git/commits/${secondSha}/changes?path=${encodeURIComponent(repo)}` });
+      expect(changes.statusCode).toBe(200);
+      expect(changes.json()).toEqual([{ status: 'UPDATED', path: 'tracked.txt' }]);
+
+      const fileDiff = await app.inject({ method: 'GET', url: `/api/git/diff?path=${encodeURIComponent(path.join(repo, 'tracked.txt'))}&commit=${secondSha}` });
+      expect(fileDiff.statusCode).toBe(200);
+      expect(fileDiff.json()).toEqual({ modified: 'changed', original: 'base' });
+
+      const nonRepoCommits = await app.inject({ method: 'GET', url: `/api/git/commits?path=${encodeURIComponent(nonRepo)}` });
+      expect(nonRepoCommits.statusCode).toBe(200);
+      expect(nonRepoCommits.json()).toEqual({ commits: [], has_more: false });
+
+      const mutualExclusion = await app.inject({ method: 'GET', url: `/api/git/diff?path=${encodeURIComponent(repo)}&ref=HEAD&commit=${secondSha}` });
+      expect(mutualExclusion.statusCode).toBe(400);
+
+      const badSha = await app.inject({ method: 'GET', url: `/api/git/commits/${encodeURIComponent('not-a-sha!')}/changes?path=${encodeURIComponent(repo)}` });
+      expect(badSha.statusCode).toBe(400);
+
+      const unresolvedSha = await app.inject({ method: 'GET', url: `/api/git/commits/${'deadbeef'.padEnd(40, '0')}/changes?path=${encodeURIComponent(repo)}` });
+      expect(unresolvedSha.statusCode).toBe(400);
+    } finally {
+      await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('enforces allowed roots through file symlinks and validates search limits', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-files-'));
+    const allowed = path.join(root, 'allowed');
+    const inside = path.join(allowed, 'inside');
+    const outside = path.join(root, 'outside');
+    await mkdir(inside, { recursive: true });
+    await mkdir(outside);
+    await writeFile(path.join(outside, 'secret.txt'), 'secret', 'utf8');
+    await symlink(outside, path.join(allowed, 'outside-link'));
+    await symlink(inside, path.join(allowed, 'inside-link'));
+    const { app } = await createAgentServerApp({ config: { conversationsPath: path.join(root, 'conversations'), workspaceRoot: allowed, allowedFileRoots: [allowed] } });
+    try {
+      const deniedRead = await app.inject({ method: 'GET', url: `/api/file/download?path=${encodeURIComponent(path.join(allowed, 'outside-link', 'secret.txt'))}` });
+      expect(deniedRead.statusCode).toBe(403);
+      const deniedWrite = await app.inject({ method: 'POST', url: `/api/file/upload?path=${encodeURIComponent(path.join(allowed, 'outside-link', 'escape.txt'))}`, headers: { 'content-type': 'text/plain' }, payload: 'nope' });
+      expect(deniedWrite.statusCode).toBe(403);
+      await expect(stat(path.join(outside, 'escape.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
+
+      const allowedWritePath = path.join(allowed, 'inside-link', 'ok.txt');
+      const allowedWrite = await app.inject({ method: 'POST', url: `/api/file/upload?path=${encodeURIComponent(allowedWritePath)}`, headers: { 'content-type': 'text/plain' }, payload: 'ok' });
+      expect(allowedWrite.statusCode).toBe(200);
+      expect(await readFile(path.join(inside, 'ok.txt'), 'utf8')).toBe('ok');
+
+      const invalidLimit = await app.inject({ method: 'GET', url: `/api/file/search_subdirs?path=${encodeURIComponent(allowed)}&limit=0` });
+      expect(invalidLimit.statusCode).toBe(422);
+    } finally {
+      await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+
   test('serves bash batch events on documented and upstream trailing-slash paths', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
     const { app } = await createAgentServerApp({ config: { conversationsPath: path.join(root, 'conversations'), bashEventsPath: path.join(root, 'bash-events') } });
@@ -662,6 +911,111 @@ describe('createAgentServerApp', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  test('replays persisted bash events to a live WebSocket subscriber', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-bash-replay-'));
+    const { app } = await createAgentServerApp({ config: { conversationsPath: path.join(root, 'conversations'), bashEventsPath: path.join(root, 'bash-events') } });
+    let socket: WebSocket | null = null;
+    try {
+      const executed = await app.inject({ method: 'POST', url: '/api/bash/execute_bash_command', payload: { command: 'printf replay-ok', timeout: 2 } });
+      expect(executed.statusCode).toBe(200);
+      await app.listen({ host: '127.0.0.1', port: 0 });
+      const address = app.server.address();
+      if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
+      socket = new WebSocket(`ws://127.0.0.1:${address.port}/sockets/bash-events?resend_mode=all`);
+      const replay = waitForWebSocketJson<{ kind?: string; stdout?: string }>(socket, (event) => event.kind === 'BashOutput');
+      await waitForWebSocketOpen(socket);
+      expect((await replay).stdout).toBe('replay-ok');
+    } finally {
+      socket?.close();
+      await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('lets bash SIGTERM traps run before reporting timeout completion', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-bash-'));
+    const marker = path.join(root, 'cleanup-ran');
+    const { app } = await createAgentServerApp({ config: { conversationsPath: path.join(root, 'conversations'), bashEventsPath: path.join(root, 'bash-events') } });
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/bash/execute_bash_command',
+        payload: { command: `trap 'touch "${marker}"; exit 0' TERM; sleep 30`, timeout: 1 },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json<{ exit_code: number; stderr: string }>().exit_code).toBe(-1);
+      await waitFor(async () => expect((await stat(marker)).isFile()).toBe(true), 3000);
+    } finally {
+      await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('purges expired bash event files when retention is configured', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-retention-'));
+    const bashEventsPath = path.join(root, 'bash-events');
+    await mkdir(bashEventsPath);
+    const expired = '20200101000000000000_BashCommand_expired.json';
+    const current = `${new Date(Date.now() + 60_000).toISOString().replace(/[-:.TZ]/gu, '').padEnd(20, '0')}_BashCommand_current.json`;
+    await writeFile(path.join(bashEventsPath, expired), '{}', 'utf8');
+    await writeFile(path.join(bashEventsPath, current), '{}', 'utf8');
+    const { app } = await createAgentServerApp({
+      config: {
+        conversationsPath: path.join(root, 'conversations'),
+        bashEventsPath,
+        bashEventsRetentionSeconds: 1,
+      },
+    });
+    try {
+      await waitFor(async () => expect(await readdir(bashEventsPath)).toEqual([current]), 1000);
+    } finally {
+      await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+
+  test('coalesces a five-megabyte bash flood into bounded output events', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-bash-flood-'));
+    const service = new BashEventService({ bashEventsDir: root });
+    try {
+      const final = await service.executeBashCommand({ command: 'yes | head -c 5242880', timeout: 10 });
+      const page = await service.searchBashEvents({ commandId: final.command_id, limit: 100 });
+      const outputs = page.items.filter((event) => event.kind === 'BashOutput');
+      expect(outputs.length).toBeLessThan(10);
+      expect(outputs.reduce((size, event) => size + (event.stdout?.length ?? 0), 0)).toBe(5 * 1024 * 1024);
+      expect(outputs.at(-1)?.exit_code).toBe(0);
+    } finally {
+      await service.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('does not let a stalled subscriber block peers or leak reconnect subscriptions', async () => {
+    const pubSub = new PubSub<number>(50);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let stalledCalls = 0;
+    let fastCalls = 0;
+    const stalledId = pubSub.subscribe(async () => {
+      stalledCalls += 1;
+      await gate;
+    });
+    const fastId = pubSub.subscribe(() => { fastCalls += 1; });
+    for (let index = 0; index < 200; index += 1) await pubSub.publish(index);
+    expect(stalledCalls).toBe(200);
+    expect(fastCalls).toBe(200);
+    release();
+    expect(pubSub.unsubscribe(stalledId)).toBe(true);
+    expect(pubSub.unsubscribe(fastId)).toBe(true);
+    for (let index = 0; index < 100; index += 1) {
+      const id = pubSub.subscribe(() => undefined);
+      expect(pubSub.unsubscribe(id)).toBe(true);
+    }
+    await pubSub.close();
+  });
+
 
 
   test('serves settings, profiles, agent-profiles, and secret metadata without plaintext persistence', async () => {
@@ -983,7 +1337,7 @@ describe('createAgentServerApp', () => {
       expect(loaded.statusCode).toBe(200);
       expect(loaded.json<{ skills: Array<{ name: string }> }>().skills.some((skill) => skill.name === 'demo')).toBe(true);
       const installed = await app.inject({ method: 'POST', url: '/api/skills/install', payload: { source: path.dirname(localSkill) } });
-      expect(installed.statusCode).toBe(201);
+      expect(installed.statusCode).toBe(200);
       const list = await app.inject({ method: 'GET', url: '/api/skills/installed' });
       expect(list.json<{ skills: Array<{ name: string; enabled: boolean }> }>().skills).toContainEqual(expect.objectContaining({ name: 'installed-demo', enabled: true }));
       const disabled = await app.inject({ method: 'PATCH', url: '/api/skills/installed/installed-demo', payload: { enabled: false } });

@@ -1,0 +1,36 @@
+name: Slack Relay
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/slack/**'
+      - 'src/coordinator/**'
+      - 'src/shared/**'
+      - '.github/workflows/slack-relay.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install root dependencies
+        run: npm ci
+      - name: Install Slack app dependencies
+        run: npm --prefix apps/slack ci
+      - name: Typecheck root
+        run: npm run typecheck
+      - name: Test coordinator relay
+        run: node --import tsx --test src/coordinator/*.test.ts
+      - name: Typecheck Slack app
+        run: npm --prefix apps/slack run typecheck
+      - name: Test Slack app
+        run: npm --prefix apps/slack test

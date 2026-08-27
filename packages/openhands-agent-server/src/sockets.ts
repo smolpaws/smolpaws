@@ -62,7 +62,7 @@ async function handleEventsSocket(socket: SocketLike, request: FastifyRequest, d
     void (async () => {
       const payload = JSON.parse(bufferToString(data)) as unknown;
       const requestBody = sendMessageRequestSchema.parse(payload);
-      await eventService.sendMessage(messageFromSendRequest(requestBody), requestBody.run);
+      await eventService.sendMessage(messageFromSendRequest(requestBody), requestBody.run, requestBody.event_id);
     })().catch((error: unknown) => {
       if (socket.readyState === OPEN_SOCKET_STATE) socket.send(JSON.stringify({ kind: 'ServerErrorEvent', code: 'WebSocketMessageError', detail: error instanceof Error ? error.message : String(error) }));
     });

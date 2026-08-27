@@ -1,0 +1,86 @@
+name: Harden oracle acceptance
+
+on:
+  push:
+    paths:
+      - .github/workflows/harden-oracle-acceptance.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Make OpenAPI refresh explicit and runtime parity zero-tolerance
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          refresh = Path('.github/workflows/refresh-agent-server-openapi.yml')
+          if refresh.exists():
+              text = refresh.read_text()
+              start = text.find('on:\n')
+              permissions = text.find('\npermissions:\n', start)
+              if start < 0 or permissions < 0:
+                  raise SystemExit('Could not locate OpenAPI workflow trigger block')
+              text = text[:start] + 'on:\n  workflow_dispatch:\n' + text[permissions:]
+              refresh.write_text(text)
+
+          scenario = Path('packages/openhands-agent-server/scripts/generate-server-scenario-report.ts')
+          text = scenario.read_text()
+          marker = '''const outputPath = resolve(packageRoot, options.output);
+          const rendered = `${JSON.stringify(report, null, 2)}\\n`;
+          '''.replace('          ', '')
+          replacement = marker + '''
+          if (report.mismatchCount > 0) {
+            await writeFile(outputPath, rendered);
+            console.error(
+              `Basic server scenario parity failed: ${report.mismatchCount} of `
+              + `${report.scenarioCount} scenarios differ.`,
+            );
+            for (const [scenarioId, mismatch] of Object.entries(report.mismatches)) {
+              console.error(`\\n${scenarioId}`);
+              for (const difference of mismatch.differences.slice(0, 20)) {
+                console.error(`  - ${difference.path}: ${difference.python ?? '<missing>'} != ${difference.typescript ?? '<missing>'}`);
+              }
+            }
+            process.exit(1);
+          }
+          '''.replace('          ', '')
+          if 'Basic server scenario parity failed:' not in text:
+              if marker not in text:
+                  raise SystemExit('Could not locate server scenario report render point')
+              text = text.replace(marker, replacement, 1)
+              scenario.write_text(text)
+
+          schema_report = Path('packages/openhands-agent-server/scripts/generate-openapi-schema-report.ts')
+          if schema_report.exists():
+              text = schema_report.read_text().replace(
+                  '  type SchemaOperation,\n',
+                  '',
+              )
+              schema_report.write_text(text)
+          PY
+
+      - name: Remove one-shot workflow and commit
+        run: |
+          rm .github/workflows/harden-oracle-acceptance.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            .github/workflows/harden-oracle-acceptance.yml \
+            .github/workflows/refresh-agent-server-openapi.yml \
+            packages/openhands-agent-server/scripts/generate-server-scenario-report.ts \
+            packages/openhands-agent-server/scripts/generate-openapi-schema-report.ts
+          if git diff --cached --quiet; then
+            echo "Oracle acceptance is already explicit and zero-tolerance where required."
+            exit 0
+          fi
+          git commit -m "ci(agent-server): require explicit oracle re-baselining"
+          git pull --rebase origin main
+          git push

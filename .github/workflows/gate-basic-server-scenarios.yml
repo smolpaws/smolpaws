@@ -1,0 +1,92 @@
+name: Gate verified basic server scenarios
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/gate-basic-server-scenarios.yml
+      - packages/openhands-agent-server/transpile/server-scenarios/python-basic.json
+      - packages/openhands-agent-server/transpile/server-scenarios/typescript-basic.json
+      - packages/openhands-agent-server/transpile/server-scenarios/basic-report.json
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packages/openhands-agent-server/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefix packages/openhands-agent-server
+
+      - name: Verify generated runtime evidence
+        working-directory: packages/openhands-agent-server
+        run: |
+          test -f transpile/server-scenarios/python-basic.json
+          test -f transpile/server-scenarios/typescript-basic.json
+          test -f transpile/server-scenarios/basic-report.json
+          npx tsc -p tsconfig.scripts.json
+          npx tsx scripts/generate-server-scenario-report.ts --check
+
+      - name: Add package gate and documentation
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = 'packages/openhands-agent-server/package.json';
+          const document = JSON.parse(fs.readFileSync(path, 'utf8'));
+          document.scripts['test:server-scenarios'] = 'tsx scripts/generate-server-scenario-report.ts --check';
+          const gate = 'npm run test:server-scenarios';
+          if (!document.scripts.ci.includes(gate)) {
+            document.scripts.ci = document.scripts.ci.replace(
+              'npm run test:openapi-schema',
+              `npm run test:openapi-schema && ${gate}`,
+            );
+          }
+          fs.writeFileSync(path, JSON.stringify(document, null, 2) + '\n');
+          NODE
+
+          python - <<'PY'
+          from pathlib import Path
+          marker = '<!-- BASIC-SERVER-DIFFERENTIAL -->'
+          section = '''
+          <!-- BASIC-SERVER-DIFFERENTIAL -->
+          ## Deterministic runtime differential
+
+          Basic health, readiness, and server-information scenarios are recorded through the pinned Python FastAPI app and the real TypeScript Fastify app. Stable responses are compared exactly; process-specific server metadata is compared by recursive key/type shape. The generated recordings and report live under `transpile/server-scenarios/` and are checked by package CI.
+          '''
+          readme = Path('packages/openhands-agent-server/README.md')
+          text = readme.read_text()
+          if marker not in text:
+              anchor = '## Documentation\n'
+              if anchor not in text:
+                  raise SystemExit('README documentation anchor not found')
+              readme.write_text(text.replace(anchor, section + '\n' + anchor, 1))
+          PY
+
+      - name: Remove one-shot workflow and commit
+        run: |
+          rm .github/workflows/gate-basic-server-scenarios.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            .github/workflows/gate-basic-server-scenarios.yml \
+            packages/openhands-agent-server/package.json \
+            packages/openhands-agent-server/README.md
+          if git diff --cached --quiet; then
+            echo "Basic server scenario differential is already gated."
+            exit 0
+          fi
+          git commit -m "ci(agent-server): gate basic runtime differential"
+          git pull --rebase origin main
+          git push

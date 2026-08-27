@@ -218,14 +218,26 @@ Useful regression expectations:
   created by the server.
 - Tests should use temporary persistence directories, not the default workspace.
 
-## Next parity criteria
+## Parity hardening status
 
-The next slices should harden behavior rather than broaden scope blindly:
+The replacement-relevant hardening cases are covered without broadening the accepted route scope:
 
-1. Add real temp-repo tests for `/api/git/changes` and `/api/git/diff`.
-2. Add file route tests for path handling, multipart upload, and download behavior.
-3. Add bash timeout/process/event edge-case tests.
-4. Add WebSocket smoke coverage for conversation event replay modes and bash event fanout.
-5. Compare generated OpenAPI against pinned Python route shapes and document intentional gaps.
-6. Keep message-queue/exactly-once semantics out of this package until the separate
-   upstream-compatible queue layer is designed.
+- Real temporary repositories cover changes, diff, untracked files, deleted/renamed files,
+  explicit refs, unborn `HEAD`, non-repositories, and filesystem aliases.
+- File tests cover multipart and raw uploads, downloads, root authorization, escaping and
+  inside-pointing symlinks, special filenames, pagination, and validation failures.
+- Live WebSocket tests cover conversation `resend_mode=all`, `since` timestamp boundaries,
+  deprecated `resend_all` precedence, bash replay/fanout, auth, and reconnect accounting.
+- Bash tests cover process-group timeout cleanup and traps, retention cleanup, bounded
+  five-megabyte output coalescing, and stalled-subscriber isolation.
+- The generated OpenAPI gate accounts for all 104 operations in the pinned Python source:
+  73 implemented and 31 accepted deferrals, plus 6 intentional TypeScript extensions.
+
+Pinned mock-only logging assertions and platform-specific `psutil` RSS/FD budgets are not
+ported one-for-one. Deterministic behavioral tests cover the replacement-relevant invariants
+instead. Provider-backed workflows remain manual because they require credentials.
+
+The remaining work is operational confidence: keep supported provider profiles live-tested,
+write the cutover/rollback runbook, and advance the upstream pin deliberately. The separate
+upstream-compatible delivery queue replaces `/turns`; it is not package parity work and does
+not block this package.

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+export * from './defaults.js';
 export type JsonObject = Record<string, unknown>;
 export type ToolExecutor<TAction = unknown, TObservation = unknown> = (action: TAction, context?: unknown) => TObservation | Promise<TObservation>;
 export type ToolFactory = (params: Readonly<Record<string, unknown>>, context?: unknown) => readonly ToolDefinition[];

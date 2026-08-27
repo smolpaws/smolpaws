@@ -13,6 +13,7 @@
     "auth": "tsx src/whatsapp-auth.ts",
     "discord:start": "./scripts/run-local-smolpaws.sh npm --prefix apps/discord run start",
     "discord:dev": "./scripts/run-local-smolpaws.sh npm --prefix apps/discord run dev",
+    "slack:relay:local": "bash ./scripts/run-local-slack-relay.sh",
     "github:dev": "npm --prefix apps/github run dev",
     "github:deploy": "npm --prefix apps/github run deploy",
     "github:test": "npm --prefix apps/github run test",
@@ -21,6 +22,7 @@
     "email:deploy": "npm --prefix apps/email run deploy",
     "email:test": "npm --prefix apps/email run test",
     "agent-server:test": "npm --prefix apps/agent-server run test",
+    "coordinator:test": "tsx --test src/coordinator/*.test.ts",
     "runner:dev": "npm --prefix apps/agent-server run dev",
     "runner:start": "npm --prefix apps/agent-server run start",
     "runner:local": "./scripts/run-local-agent-server.sh",
@@ -45,6 +47,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@smolpaws/openhands-agent-server": "file:packages/openhands-agent-server",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.0",
     "@types/qrcode-terminal": "^0.12.2",

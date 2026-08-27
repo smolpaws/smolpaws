@@ -10,6 +10,7 @@ import {
   LocalConversation,
   LocalFileStore,
   conversationStateUpdateEventSchema,
+  DuplicateEventError,
   interruptEventSchema,
   llmProfileSchema,
   messageEventSchema,
@@ -100,9 +101,39 @@ export class EventService {
     return this.filteredEvents(kind, source, body, timestampGte, timestampLt).length;
   }
 
-  async sendMessage(message: Message, run = true): Promise<Event> {
-    const event = messageEventSchema.parse({ source: message.role === 'user' ? 'user' : 'agent', llm_message: message });
-    await this.appendAndPublish(event);
+  async sendMessage(message: Message, run = true, eventId?: string): Promise<{ event: Event; created: boolean }> {
+    // Idempotent append (additive reliability extension). When the caller supplies event_id and an event
+    // with that id already exists (durable across restart via syncFromDisk), do NOT append a second copy;
+    // return the existing event with created:false. A run is still (idempotently) requested below so a
+    // response lost after the original append does not leave execution unrequested.
+    const existing = eventId === undefined ? undefined : this.events().find((event) => event.id === eventId);
+    let event: Event;
+    let created: boolean;
+    if (existing !== undefined) {
+      event = existing;
+      created = false;
+    } else {
+      const candidate = messageEventSchema.parse({
+        ...(eventId === undefined ? {} : { id: eventId }),
+        source: message.role === 'user' ? 'user' : 'agent',
+        llm_message: message,
+      });
+      try {
+        await this.appendAndPublish(candidate);
+        event = candidate;
+        created = true;
+      } catch (error) {
+        // The `.find` above and this append are not one atomic step: two concurrent requests with the
+        // SAME new event_id can both miss the find and both try to append. `EventLog.append` serializes
+        // and throws `DuplicateEventError` for the loser — so treat that as an idempotent replay rather
+        // than a 500. Reload the now-durable event by id (`events()` calls `syncFromDisk`).
+        if (!(error instanceof DuplicateEventError)) throw error;
+        const durable = this.events().find((e) => e.id === candidate.id);
+        if (durable === undefined) throw error; // append reported a duplicate but none is readable
+        event = durable;
+        created = false;
+      }
+    }
     if (message.role === 'user' && this.state.executionStatus !== conversationExecutionStatus.RUNNING) {
       this.state.executionStatus = conversationExecutionStatus.IDLE;
     }
@@ -114,7 +145,7 @@ export class EventService {
         this.rerunRequested = true;
       }
     }
-    return event;
+    return { event, created };
   }
 
   async subscribeToEvents(subscriber: Subscriber<Event>): Promise<string> {
@@ -136,10 +167,11 @@ export class EventService {
     if (this.runPromise !== null) {
       throw new Error('conversation_already_running');
     }
-    this.runPromise = this.runAndPublish();
-    void this.runPromise
+    const runPromise = this.runAndPublish().catch((error: unknown) => this.handleRunError(error));
+    this.runPromise = runPromise;
+    void runPromise
       .catch((error: unknown) => {
-        console.error('conversation_run_error', error);
+        console.error('conversation_run_error_cleanup', error);
       })
       .finally(() => {
         this.runPromise = null;
@@ -271,6 +303,12 @@ export class EventService {
       }
       await this.pubSub.publish(this.createStateUpdateEvent());
     } while (this.rerunRequested);
+  }
+
+  private async handleRunError(error: unknown): Promise<void> {
+    console.error('conversation_run_error', error);
+    this.state.executionStatus = conversationExecutionStatus.ERROR;
+    await this.pubSub.publish(this.createStateUpdateEvent());
   }
 
   private async appendAndPublish(event: Event): Promise<void> {

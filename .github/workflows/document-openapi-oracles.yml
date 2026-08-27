@@ -1,0 +1,115 @@
+name: Document verified OpenAPI oracles
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/document-openapi-oracles.yml
+      - packages/openhands-agent-server/transpile/python-openapi.json
+      - packages/openhands-agent-server/transpile/python-openapi-schema.json
+      - packages/openhands-agent-server/transpile/openapi-transport-report.json
+      - packages/openhands-agent-server/transpile/openapi-schema-report.json
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  document:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packages/openhands-agent-server/package-lock.json
+
+      - name: Install package dependencies
+        run: npm ci --prefix packages/openhands-agent-server
+
+      - name: Verify all generated evidence before documenting it
+        working-directory: packages/openhands-agent-server
+        run: |
+          test -f transpile/python-openapi.json
+          test -f transpile/python-openapi-schema.json
+          test -f transpile/openapi-transport-report.json
+          test -f transpile/openapi-schema-report.json
+          npm run typecheck:scripts
+          npm run test:openapi-operations
+          npm run test:openapi-transport
+          npm run test:openapi-schema
+
+      - name: Add durable documentation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          marker = '<!-- GENERATED-OPENAPI-ORACLES -->'
+          section = '''
+          <!-- GENERATED-OPENAPI-ORACLES -->
+          ## Generated Python compatibility oracles
+
+          Agent-server parity is checked against OpenAPI generated from the exact Python commit named by the vendored SDK manifest.
+
+          The evidence is deliberately split into layers:
+
+          - `transpile/python-openapi.json` is the generated upstream operation and transport oracle;
+          - `transpile/python-openapi-schema.json` is the dereferenced semantic request/response schema oracle;
+          - `transpile/openapi-policy.json` is the small authored registry for deviations, exclusions, deferrals, and extensions;
+          - `transpile/openapi-transport-report.json` and `transpile/openapi-schema-report.json` are generated current-difference evidence.
+
+          Package CI rejects missing upstream operations without policy, stale exceptions, pin mismatches, and unreviewed changes to the generated transport or semantic-schema reports. The Python inventory itself is never copied by hand.
+          '''
+
+          readme = Path('packages/openhands-agent-server/README.md')
+          text = readme.read_text()
+          if marker not in text:
+              anchor = '## Documentation\n'
+              if anchor not in text:
+                  raise SystemExit('README documentation anchor not found')
+              text = text.replace(anchor, section + '\n' + anchor, 1)
+              readme.write_text(text)
+
+          architecture = Path('packages/openhands-agent-server/docs/ARCHITECTURE.md')
+          text = architecture.read_text()
+          if marker not in text:
+              text += '\n' + section.replace('## Generated', '## Compatibility evidence: generated') + '\n'
+              architecture.write_text(text)
+
+          rules = Path('packages/openhands-agent-server/TRANSPILE_RULES.md')
+          text = rules.read_text()
+          if marker not in text:
+              anchor = '## Pin-advance procedure\n'
+              if anchor not in text:
+                  raise SystemExit('TRANSPILE_RULES pin-advance anchor not found')
+              compact = '''<!-- GENERATED-OPENAPI-ORACLES -->
+          ### Executable oracle layers
+
+          The generated operation, transport, and semantic-schema artifacts under `transpile/` are executable evidence. `openapi-policy.json` is the only authored exception file. A pin advance must regenerate the Python oracles and both difference reports atomically before server parity can close.
+
+          '''
+              text = text.replace(anchor, compact + anchor, 1)
+              rules.write_text(text)
+          PY
+
+      - name: Remove one-shot workflow and commit
+        run: |
+          rm .github/workflows/document-openapi-oracles.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            .github/workflows/document-openapi-oracles.yml \
+            packages/openhands-agent-server/README.md \
+            packages/openhands-agent-server/TRANSPILE_RULES.md \
+            packages/openhands-agent-server/docs/ARCHITECTURE.md
+          if git diff --cached --quiet; then
+            echo "Verified OpenAPI oracle documentation is already current."
+            exit 0
+          fi
+          git commit -m "docs(agent-server): record generated OpenAPI oracles"
+          git pull --rebase origin main
+          git push

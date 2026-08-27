@@ -38,7 +38,10 @@ export function createProfileAgentFactory(options: ProfileAgentFactoryOptions): 
     if (settings.agent_kind !== 'openhands') throw new Error('acp_runtime_not_ported');
     const profile = await resolveProfileForConversation(context.stored.request, settings.llm_profile_ref, options.state);
     const workingDir = path.resolve(context.stored.workspace.working_dir);
-    const toolSpecs = settings.tools.length === 0 ? defaultToolNames : settings.tools;
+    // `tools` is nullable in the SDK schema: `null` (unset) and `[]` both mean "use the
+    // server default set", preserving the behavior of the previous non-nullable default.
+    const configuredTools = settings.tools ?? [];
+    const toolSpecs = configuredTools.length === 0 ? defaultToolNames : configuredTools;
     return new Agent({
       llm: await createLlmClient(profile, options.secretStore),
       tools: toolSpecs.flatMap((spec) => resolveProfileTool(spec, workingDir)),
@@ -48,11 +51,8 @@ export function createProfileAgentFactory(options: ProfileAgentFactoryOptions): 
 }
 
 export async function prepareProfileStartRequest(input: unknown, state: ServerStateService): Promise<StartConversationRequest> {
-  if (!isRecord(input)) {
-    return startConversationRequestSchema.parse(publicStartConversationRequestSchema.parse(input));
-  }
   const request = publicStartConversationRequestSchema.parse(input);
-  const hasRequestedMaxIterations = Object.hasOwn(input, 'max_iterations');
+  const hasRequestedMaxIterations = isRecord(input) && Object.hasOwn(input, 'max_iterations');
   const settings = await state.settings();
   const agentSettings = validateAgentSettings(request.agent ?? settings.agent_settings);
   if (agentSettings.agent_kind !== 'openhands') throw new Error('acp_runtime_not_ported');

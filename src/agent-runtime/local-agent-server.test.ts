@@ -648,6 +648,160 @@ test('runLocalAgentServerAgent starts fresh after max_iterations_exceeded on a r
   }
 });
 
+test('runLocalAgentServerAgent starts fresh after an interrupted reused turn', async () => {
+  initDatabase();
+  process.env.SMOLPAWS_RUNNER_URL = 'http://127.0.0.1:8788';
+
+  const submitBodies: Array<{ create_conversation: { conversation_id?: string } }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = buildFetchStub({
+    '/ready': () =>
+      new Response(JSON.stringify({ status: 'ready' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    '/api/conversations/reused-interrupted-conv/turns': (_url, init) => {
+      submitBodies.push(JSON.parse(String(init?.body)));
+      return new Response(
+        JSON.stringify({
+          conversation_id: 'reused-interrupted-conv',
+          turn_id: 'turn-interrupted',
+          message_event_id: 'msg-interrupted',
+          started_new_turn: false,
+          status: 'stuck',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+    '/api/conversations/main-': (_url, init) => {
+      submitBodies.push(JSON.parse(String(init?.body)));
+      return new Response(
+        JSON.stringify({
+          conversation_id: 'fresh-after-interruption',
+          turn_id: 'turn-retried',
+          message_event_id: 'msg-retried',
+          started_new_turn: true,
+          status: 'running',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+    '/turns/turn-interrupted?delivery_owner_id=': () =>
+      new Response(
+        JSON.stringify({
+          conversation_id: 'reused-interrupted-conv',
+          turn_id: 'turn-interrupted',
+          status: 'stuck',
+          started_at: '2026-08-10T20:02:27.243Z',
+          updated_at: '2026-08-10T20:02:43.000Z',
+          completed_at: '2026-08-10T20:02:43.000Z',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    '/turns/turn-interrupted/task_commands/claim': () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    '/turns/turn-interrupted/outbound_messages/claim': () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    '/turns/turn-interrupted/result': () =>
+      new Response(
+        JSON.stringify({
+          conversation_id: 'reused-interrupted-conv',
+          turn_id: 'turn-interrupted',
+          status: 'stuck',
+          error_code: 'interrupted_turn',
+          error_detail: 'Agent-server restarted before the active turn could finish.',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    '/turns/turn-retried?delivery_owner_id=': () =>
+      new Response(
+        JSON.stringify({
+          conversation_id: 'fresh-after-interruption',
+          turn_id: 'turn-retried',
+          status: 'completed',
+          started_at: '2026-08-10T20:02:44.000Z',
+          updated_at: '2026-08-10T20:02:45.000Z',
+          completed_at: '2026-08-10T20:02:45.000Z',
+          is_delivery_owner: true,
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    '/turns/turn-retried/task_commands/claim': () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    '/turns/turn-retried/outbound_messages/claim': () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    '/turns/turn-retried/result': () =>
+      new Response(
+        JSON.stringify({
+          conversation_id: 'fresh-after-interruption',
+          turn_id: 'turn-retried',
+          status: 'completed',
+          reply: 'replayed after interruption',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+  });
+
+  try {
+    const result = await runLocalAgentServerAgent(TEST_SCOPE, {
+      prompt: 'one more :)',
+      messageId: 'wa-interrupted-message',
+      conversationId: 'reused-interrupted-conv',
+      scopeId: TEST_SCOPE.scopeId,
+      chatJid: TEST_SCOPE.chatJid,
+      isControlScope: TEST_SCOPE.isControlScope,
+    });
+
+    assert.deepEqual(result, {
+      status: 'success',
+      result: 'replayed after interruption',
+      conversationId: 'fresh-after-interruption',
+    });
+    assert.equal(submitBodies.length, 2);
+    assert.equal(
+      submitBodies[0]?.create_conversation.conversation_id,
+      'reused-interrupted-conv',
+    );
+    assert.equal(submitBodies[1]?.create_conversation.conversation_id, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.SMOLPAWS_RUNNER_URL;
+  }
+});
+
 test('runLocalAgentServerAgent starts fresh after budget_exceeded on a reused conversation', async () => {
   initDatabase();
   process.env.SMOLPAWS_RUNNER_URL = 'http://127.0.0.1:8788';
