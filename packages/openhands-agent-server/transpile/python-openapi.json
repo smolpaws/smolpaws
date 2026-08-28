@@ -20899,7 +20899,7 @@
   "info": {
     "description": "OpenHands Agent Server - REST/WebSocket interface for OpenHands AI Agent",
     "title": "OpenHands Agent Server",
-    "version": "1.36.0"
+    "version": "1.39.0"
   },
   "openapi": "3.1.0",
   "paths": {
