@@ -108,5 +108,5 @@ export interface CloneResult {
     readonly failedRepos: readonly string[];
     readonly repoMappings: Readonly<Record<string, RepoMapping>>;
 }
-export declare function buildCloneUrl(url: string, provider: GitProvider, token?: string | null): string;
+export declare function buildCloneUrl(url: string, provider: GitProvider, token?: string | null, explicitProvider?: boolean): string;
 export declare function getReposContext(repoMappings: Readonly<Record<string, RepoMapping>>): string;

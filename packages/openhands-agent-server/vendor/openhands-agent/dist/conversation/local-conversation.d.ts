@@ -24,6 +24,11 @@ export declare class LocalConversation {
     pause(): void;
     resume(): void;
     run(): Promise<void>;
+    /**
+     * Nudge once on a repeating action-error streak, otherwise apply isStuck().
+     * Returns true when STUCK was set and the run loop should stop.
+     */
+    private checkStuckOrNudge;
     arun(): Promise<void>;
     private createUserMessageEvent;
     private resetIdleStatusAfterMessage;

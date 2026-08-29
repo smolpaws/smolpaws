@@ -4,18 +4,6 @@
       "_RemoteMCPServerSpec": {
         "description": "Legacy remote MCP server spec accepted by the public REST API.",
         "properties": {
-          "api_key": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Deprecated bearer token. Prefer auth.strategy='bearer'. If provided without auth, sent as 'Authorization: Bearer <token>'.",
-            "title": "Api Key"
-          },
           "auth": {
             "anyOf": [
               {
@@ -922,6 +910,7 @@
             "openhands__sdk__tool__builtins__switch_llm__SwitchLLMAction-Output__1": "#/components/schemas/SwitchLLMAction",
             "openhands__sdk__tool__builtins__think__ThinkAction-Output__1": "#/components/schemas/ThinkAction",
             "openhands__sdk__tool__builtins__vision_inspect__VisionInspectAction-Output__1": "#/components/schemas/VisionInspectAction",
+            "openhands__tools__ask_oracle__definition__AskOracleAction-Output__1": "#/components/schemas/AskOracleAction",
             "openhands__tools__browser_use__definition__BrowserAction-Output__1": "#/components/schemas/BrowserAction",
             "openhands__tools__browser_use__definition__BrowserClickAction-Output__1": "#/components/schemas/BrowserClickAction",
             "openhands__tools__browser_use__definition__BrowserCloseTabAction-Output__1": "#/components/schemas/BrowserCloseTabAction",
@@ -971,6 +960,9 @@
           },
           {
             "$ref": "#/components/schemas/VisionInspectAction"
+          },
+          {
+            "$ref": "#/components/schemas/AskOracleAction"
           },
           {
             "$ref": "#/components/schemas/BrowserAction"
@@ -2170,31 +2162,6 @@
             ],
             "title": "Mcp Config"
           },
-          "mcp_servers": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Deprecated compatibility alias for mcp_config. Use mcp_config for new clients.",
-            "examples": [
-              {
-                "fetch": {
-                  "args": [
-                    "--with",
-                    "mcp==1.29.0",
-                    "mcp-server-fetch==2026.7.10"
-                  ],
-                  "command": "uvx"
-                }
-              }
-            ],
-            "title": "Mcp Servers"
-          },
           "metadata": {
             "additionalProperties": true,
             "description": "Additional metadata from frontmatter",
@@ -2289,6 +2256,17 @@
         "additionalProperties": false,
         "description": "Error triggered by the agent.\n\nNote: This event should not contain model \"thought\" or \"reasoning_content\". It\nrepresents an error produced by the agent/scaffold, not model output.",
         "properties": {
+          "classification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorClassification"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Safe structured error semantics for API consumers."
+          },
           "error": {
             "description": "The error message from the scaffold",
             "title": "Error",
@@ -2558,14 +2536,6 @@
               "type": "string"
             },
             "title": "Resolved Mcp Config Keys",
-            "type": "array"
-          },
-          "resolved_mcp_servers": {
-            "description": "Deprecated alias for resolved_mcp_config_keys.",
-            "items": {
-              "type": "string"
-            },
-            "title": "Resolved Mcp Servers",
             "type": "array"
           },
           "resolved_settings": {
@@ -3170,6 +3140,141 @@
           "response"
         ],
         "title": "AskAgentResponse",
+        "type": "object"
+      },
+      "AskOracleAction": {
+        "additionalProperties": false,
+        "description": "Action for asking the Oracle for advice.",
+        "properties": {
+          "context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional extra context, such as approaches already tried, constraints, or the recommendation you are considering.",
+            "title": "Context"
+          },
+          "kind": {
+            "const": "AskOracleAction",
+            "title": "Kind",
+            "type": "string"
+          },
+          "question": {
+            "description": "The specific question or dilemma to ask the Oracle about. Use this when you are stuck, uncertain, or need a second opinion.",
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "kind"
+        ],
+        "title": "AskOracleAction",
+        "type": "object"
+      },
+      "AskOracleObservation": {
+        "additionalProperties": false,
+        "description": "Observation returned by the Oracle consultation.",
+        "properties": {
+          "content": {
+            "description": "Content returned from the tool as a list of TextContent/ImageContent objects. When there is an error, it should be written in this field.",
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TextContent"
+                },
+                {
+                  "$ref": "#/components/schemas/ImageContent"
+                }
+              ]
+            },
+            "title": "Content",
+            "type": "array"
+          },
+          "is_error": {
+            "default": false,
+            "description": "Whether the observation indicates an error",
+            "title": "Is Error",
+            "type": "boolean"
+          },
+          "kind": {
+            "const": "AskOracleObservation",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "AskOracleObservation",
+        "type": "object"
+      },
+      "AskOracleTool": {
+        "description": "Tool for consulting the Oracle (a saved LLM profile named \"oracle\").",
+        "properties": {
+          "action_type": {
+            "title": "Action Type",
+            "type": "string"
+          },
+          "annotations": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/openhands__sdk__tool__tool__ToolAnnotations"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "kind": {
+            "const": "AskOracleTool",
+            "title": "Kind",
+            "type": "string"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          },
+          "observation_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation Type"
+          },
+          "title": {
+            "readOnly": true,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "action_type",
+          "kind",
+          "title"
+        ],
+        "title": "AskOracleTool",
         "type": "object"
       },
       "BaseWorkspace": {
@@ -4810,6 +4915,97 @@
         "title": "BrowserTypeTool",
         "type": "object"
       },
+      "CanvasExtensionContributes": {
+        "description": "Contributions an extension makes to the Canvas UI.",
+        "properties": {
+          "pages": {
+            "description": "Pages contributed to Canvas navigation",
+            "items": {
+              "$ref": "#/components/schemas/CanvasExtensionPage"
+            },
+            "title": "Pages",
+            "type": "array"
+          }
+        },
+        "title": "CanvasExtensionContributes",
+        "type": "object"
+      },
+      "CanvasExtensionManifest": {
+        "description": "Canvas extension manifest (``canvas-extension.json``).",
+        "properties": {
+          "contributes": {
+            "$ref": "#/components/schemas/CanvasExtensionContributes",
+            "description": "Contributions this extension makes to the Canvas UI"
+          },
+          "description": {
+            "default": "",
+            "description": "Extension description",
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "description": "Human-readable extension name",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "entrypoint": {
+            "description": "Path, relative to the extension package root, to the bundle entry file",
+            "title": "Entrypoint",
+            "type": "string"
+          },
+          "name": {
+            "description": "Extension name (kebab-case)",
+            "title": "Name",
+            "type": "string"
+          },
+          "schema_version": {
+            "description": "Manifest schema version",
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "version": {
+            "description": "Extension version",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "name",
+          "display_name",
+          "version",
+          "entrypoint"
+        ],
+        "title": "CanvasExtensionManifest",
+        "type": "object"
+      },
+      "CanvasExtensionPage": {
+        "description": "A single page contributed to the Canvas UI by an extension.",
+        "properties": {
+          "id": {
+            "description": "Unique contribution id within the extension",
+            "title": "Id",
+            "type": "string"
+          },
+          "path": {
+            "description": "Route the page is mounted at, e.g. '/dashboard'",
+            "title": "Path",
+            "type": "string"
+          },
+          "title": {
+            "description": "Page title shown in Canvas navigation",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "path"
+        ],
+        "title": "CanvasExtensionPage",
+        "type": "object"
+      },
       "ClientTool": {
         "description": "A tool whose execution is deferred to the external client.\n\nCreated from a :class:`ClientToolSpec` at conversation start. The agent\nsees it as a normal tool and can call it; the ActionEvent is emitted\nover WebSocket for the client to handle.",
         "properties": {
@@ -5421,6 +5617,17 @@
         "additionalProperties": false,
         "description": "Conversation-level failure that is NOT sent back to the LLM.\n\nThis event is emitted by the conversation runtime when an unexpected\nexception bubbles up and prevents the run loop from continuing. It is\nintended for client applications (e.g., UIs) to present a top-level error\nstate, and for orchestration to react. It is not an observation and it is\nnot LLM-convertible.\n\nDifferences from AgentErrorEvent:\n- Not tied to any tool_name/tool_call_id (AgentErrorEvent is a tool\n  observation).\n- Typically source='environment' and the run loop moves to an ERROR state,\n  while AgentErrorEvent has source='agent' and the conversation can\n  continue.",
         "properties": {
+          "classification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorClassification"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Safe structured error semantics for API consumers."
+          },
           "code": {
             "description": "Code for the error - typically a type",
             "title": "Code",
@@ -6443,6 +6650,46 @@
         "title": "EnsembleSecurityAnalyzer",
         "type": "object"
       },
+      "ErrorClassification": {
+        "additionalProperties": false,
+        "description": "The only failure metadata that crosses the event/API boundary.\n\nIt is intentionally small. ``detail`` is inspected locally only to map\nbroad third-party errors to this closed vocabulary; it is never copied\nhere or sent to telemetry.",
+        "properties": {
+          "error_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Id"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/FailureKind"
+          },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          },
+          "user_action": {
+            "default": "none",
+            "enum": [
+              "none",
+              "retry",
+              "settings"
+            ],
+            "title": "User Action",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "retryable"
+        ],
+        "title": "ErrorClassification",
+        "type": "object"
+      },
       "Event": {
         "discriminator": {
           "mapping": {
@@ -6592,6 +6839,20 @@
         ],
         "title": "ExposedUrl",
         "type": "object"
+      },
+      "FailureKind": {
+        "enum": [
+          "auth",
+          "quota",
+          "rate_limit",
+          "config",
+          "transient",
+          "agent_action",
+          "internal",
+          "unknown"
+        ],
+        "title": "FailureKind",
+        "type": "string"
       },
       "FallbackStrategy": {
         "description": "Encapsulates fallback behavior for LLM calls.\n\nWhen the primary LLM fails with a transient error (after retries),\nthis strategy tries alternate LLMs loaded from LLMProfileStore profiles.\nFallback is per-call: each new request starts with the primary model.",
@@ -8337,6 +8598,19 @@
             "description": "Directory where bash events are persisted. Typically located inside the mounted user workspace.",
             "title": "Bash Events Dir"
           },
+          "conversation_worktree_root": {
+            "anyOf": [
+              {
+                "format": "path",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Root directory for conversation git worktrees. Override this to point at the mounted user workspace.",
+            "title": "Conversation Worktree Root"
+          },
           "conversations_path": {
             "anyOf": [
               {
@@ -8499,6 +8773,155 @@
           "description"
         ],
         "title": "InputMetadata",
+        "type": "object"
+      },
+      "InstallCanvasExtensionRequest": {
+        "description": "Request body for installing a canvas extension.",
+        "properties": {
+          "force": {
+            "default": false,
+            "description": "If true, overwrite existing installation",
+            "title": "Force",
+            "type": "boolean"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional branch, tag, or commit to install",
+            "title": "Ref"
+          },
+          "repo_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Subdirectory path within the repository (for monorepos)",
+            "title": "Repo Path"
+          },
+          "source": {
+            "description": "Canvas extension source - git URL, GitHub shorthand, or local path. Examples: 'github:owner/repo', '/path/to/extension'",
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "InstallCanvasExtensionRequest",
+        "type": "object"
+      },
+      "InstalledCanvasExtensionResponse": {
+        "description": "Response containing installed canvas extension information.",
+        "properties": {
+          "description": {
+            "default": "",
+            "description": "Canvas extension description",
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "default": false,
+            "description": "Whether the canvas extension is enabled",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "install_path": {
+            "description": "Path where the extension is installed",
+            "title": "Install Path",
+            "type": "string"
+          },
+          "installed_at": {
+            "description": "ISO 8601 timestamp of installation",
+            "title": "Installed At",
+            "type": "string"
+          },
+          "manifest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CanvasExtensionManifest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The extension's validated manifest (display_name, contributes.pages, ...). None if the installed manifest can no longer be read."
+          },
+          "name": {
+            "description": "Canvas extension name",
+            "title": "Name",
+            "type": "string"
+          },
+          "repo_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Subdirectory path within the repository",
+            "title": "Repo Path"
+          },
+          "resolved_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Resolved git commit SHA",
+            "title": "Resolved Ref"
+          },
+          "source": {
+            "description": "Original source (e.g., 'github:owner/repo')",
+            "title": "Source",
+            "type": "string"
+          },
+          "version": {
+            "default": "",
+            "description": "Canvas extension version",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "source",
+          "installed_at",
+          "install_path"
+        ],
+        "title": "InstalledCanvasExtensionResponse",
+        "type": "object"
+      },
+      "InstalledCanvasExtensionsListResponse": {
+        "description": "Response containing the list of installed canvas extensions.",
+        "properties": {
+          "canvas_extensions": {
+            "items": {
+              "$ref": "#/components/schemas/InstalledCanvasExtensionResponse"
+            },
+            "title": "Canvas Extensions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "canvas_extensions"
+        ],
+        "title": "InstalledCanvasExtensionsListResponse",
         "type": "object"
       },
       "InstalledPluginResponse": {
@@ -9730,7 +10153,8 @@
           },
           "modify_params": {
             "default": true,
-            "description": "Modify params allows litellm to do transformations like adding a default message, when a message is empty.",
+            "deprecated": true,
+            "description": "Compatibility field. LiteLLM parameter modification is enabled process-wide so concurrent LLM calls do not mutate shared global state.",
             "openhands_settings": {
               "depends_on": [],
               "prominence": "minor"
@@ -9824,6 +10248,22 @@
               "prominence": "minor"
             },
             "title": "Prompt Cache Retention"
+          },
+          "provider_connection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional provider connection whose shared API key and base URL are resolved and applied each time this LLM profile is loaded (read-at-use). When set, the profile stores no inline api_key or base_url of its own.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "major"
+            },
+            "title": "Provider Connection Id"
           },
           "reasoning_effort": {
             "anyOf": [
@@ -10542,7 +10982,8 @@
           },
           "modify_params": {
             "default": true,
-            "description": "Modify params allows litellm to do transformations like adding a default message, when a message is empty.",
+            "deprecated": true,
+            "description": "Compatibility field. LiteLLM parameter modification is enabled process-wide so concurrent LLM calls do not mutate shared global state.",
             "openhands_settings": {
               "depends_on": [],
               "prominence": "minor"
@@ -10636,6 +11077,22 @@
               "prominence": "minor"
             },
             "title": "Prompt Cache Retention"
+          },
+          "provider_connection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional provider connection whose shared API key and base URL are resolved and applied each time this LLM profile is loaded (read-at-use). When set, the profile stores no inline api_key or base_url of its own.",
+            "openhands_settings": {
+              "depends_on": [],
+              "prominence": "major"
+            },
+            "title": "Provider Connection Id"
           },
           "reasoning_effort": {
             "anyOf": [
@@ -12665,6 +13122,12 @@
             ],
             "title": "Description"
           },
+          "enabled": {
+            "default": true,
+            "description": "Whether this server is exposed to the agent. A disabled server stays fully configured -- including its secrets -- but is skipped when MCP tools are created and when servers are forwarded to an ACP subprocess.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
           "env": {
             "anyOf": [
               {
@@ -12877,6 +13340,12 @@
             ],
             "title": "Description"
           },
+          "enabled": {
+            "default": true,
+            "description": "Whether this server is exposed to the agent. A disabled server stays fully configured -- including its secrets -- but is skipped when MCP tools are created and when servers are forwarded to an ACP subprocess.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
           "env": {
             "anyOf": [
               {
@@ -13078,6 +13547,12 @@
               }
             ],
             "title": "Description"
+          },
+          "enabled": {
+            "default": true,
+            "description": "Whether this server is exposed to the agent. A disabled server stays fully configured -- including its secrets -- but is skipped when MCP tools are created and when servers are forwarded to an ACP subprocess.",
+            "title": "Enabled",
+            "type": "boolean"
           },
           "env": {
             "anyOf": [
@@ -13290,6 +13765,18 @@
               }
             ],
             "title": "Description"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Switch the server off (false) or back on (true) without touching the rest of its configuration. A null clears the override, which restores the canonical default (enabled).",
+            "title": "Enabled"
           },
           "env": {
             "anyOf": [
@@ -13555,6 +14042,7 @@
                 "type": "null"
               }
             ],
+            "deprecated": true,
             "description": "Deprecated compatibility field for older clients that expected resolved MCP server metadata in test responses.",
             "title": "Resolved Mcp Servers"
           },
@@ -14160,6 +14648,7 @@
             "openhands__sdk__tool__builtins__think__ThinkObservation-Output__1": "#/components/schemas/ThinkObservation",
             "openhands__sdk__tool__builtins__vision_inspect__VisionInspectObservation-Output__1": "#/components/schemas/VisionInspectObservation",
             "openhands__sdk__tool__client_tool__ClientToolObservation-Output__1": "#/components/schemas/ClientToolObservation",
+            "openhands__tools__ask_oracle__definition__AskOracleObservation-Output__1": "#/components/schemas/AskOracleObservation",
             "openhands__tools__browser_use__definition__BrowserObservation-Output__1": "#/components/schemas/BrowserObservation",
             "openhands__tools__delegate__definition__DelegateObservation-Output__1": "#/components/schemas/DelegateObservation",
             "openhands__tools__file_editor__definition__FileEditorObservation-Output__1": "#/components/schemas/FileEditorObservation",
@@ -14198,6 +14687,9 @@
           },
           {
             "$ref": "#/components/schemas/ClientToolObservation"
+          },
+          {
+            "$ref": "#/components/schemas/AskOracleObservation"
           },
           {
             "$ref": "#/components/schemas/BrowserObservation"
@@ -15341,6 +15833,22 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "provider_connection_broken": {
+            "default": false,
+            "title": "Provider Connection Broken",
+            "type": "boolean"
+          },
+          "provider_connection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Connection Id"
           }
         },
         "required": [
@@ -15392,6 +15900,156 @@
           "message"
         ],
         "title": "ProfileMutationResponse",
+        "type": "object"
+      },
+      "ProviderConnectionCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "api_key": {
+            "format": "password",
+            "minLength": 1,
+            "title": "Api Key",
+            "type": "string",
+            "writeOnly": true
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "display_name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "provider": {
+            "default": "custom",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name",
+          "api_key"
+        ],
+        "title": "ProviderConnectionCreateRequest",
+        "type": "object"
+      },
+      "ProviderConnectionResponse": {
+        "properties": {
+          "api_key_set": {
+            "default": false,
+            "title": "Api Key Set",
+            "type": "boolean"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "integer"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "display_name",
+          "provider",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ProviderConnectionResponse",
+        "type": "object"
+      },
+      "ProviderConnectionUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "api_key": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          }
+        },
+        "title": "ProviderConnectionUpdateRequest",
         "type": "object"
       },
       "ProvidersResponse": {
@@ -15697,18 +16355,6 @@
       "RemoteMCPServer": {
         "description": "Legacy remote MCP server spec accepted by the public REST API.",
         "properties": {
-          "api_key": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Deprecated bearer token. Prefer auth.strategy='bearer'. If provided without auth, sent as 'Authorization: Bearer <token>'.",
-            "title": "Api Key"
-          },
           "auth": {
             "anyOf": [
               {
@@ -17224,7 +17870,7 @@
         "type": "object"
       },
       "StartConversationRequest": {
-        "description": "Payload to create a new conversation.\n\nSupports any concrete :class:`AgentBase` implementation, including regular\nOpenHands agents and ACP agents. Clients may provide either a concrete\n``agent`` payload or an ``agent_settings`` payload; when ``agent_settings``\nis provided without ``agent``, the settings are validated with the\n``agent_kind`` discriminator and converted to the appropriate agent type.",
+        "description": "Payload to create a new conversation.\n\nExtends :class:`ConversationConfig` with the agent specification. Supports\nany concrete :class:`AgentBase` implementation, including regular OpenHands\nagents and ACP agents. Clients may provide either a concrete ``agent``\npayload or an ``agent_settings`` payload; when ``agent_settings`` is provided\nwithout ``agent``, the settings are validated with the ``agent_kind``\ndiscriminator and converted to the appropriate agent type.\n\nNote: the agent lives here on the *request*, deliberately not on\n``ConversationConfig``. The persisted record (``StoredConversation``) does\nnot carry the agent — its single source of truth is ``ConversationState`` /\n``base_state.json``.",
         "properties": {
           "agent": {
             "$ref": "#/components/schemas/AgentBase-Input"
@@ -17802,6 +18448,7 @@
                 "type": "null"
               }
             ],
+            "deprecated": true,
             "description": "Deprecated compatibility alias for mcp_config. Use mcp_config for new clients.",
             "title": "Mcp Servers"
           },
@@ -18817,8 +19464,18 @@
         "type": "object"
       },
       "TelemetrySpec": {
-        "description": "Deployment-supplied product-analytics transport settings.\n\nThis carries *transport* only. Whether telemetry may be delivered is\nresolved from consent (``misc_settings.telemetry.consent``, optionally\nseeded or overridden by ``OH_TELEMETRY_CONSENT``) — there is no deployment\n\"mode\" here, and nothing in the agent-server special-cases a hosted\ndeployment.",
+        "description": "Deployment-supplied product-analytics transport settings.\n\nThis carries transport plus the non-identifying deployment tag. Whether\ntelemetry may be delivered is resolved from consent\n(``misc_settings.telemetry.consent``, optionally seeded or overridden by\n``OH_TELEMETRY_CONSENT``).",
         "properties": {
+          "deployment_kind": {
+            "default": "local",
+            "description": "Deployment kind attached to diagnostic events. Use 'remote' for hosted OpenHands and 'local' for self-hosted or developer runs.",
+            "enum": [
+              "local",
+              "remote"
+            ],
+            "title": "Deployment Kind",
+            "type": "string"
+          },
           "event_buffer_size": {
             "default": 20,
             "description": "Maximum events per delivery batch.",
@@ -19522,6 +20179,7 @@
             "openhands__sdk__tool__builtins__think__ThinkTool-Output__1": "#/components/schemas/ThinkTool",
             "openhands__sdk__tool__builtins__vision_inspect__VisionInspectTool-Output__1": "#/components/schemas/VisionInspectTool",
             "openhands__sdk__tool__client_tool__ClientTool-Output__1": "#/components/schemas/ClientTool",
+            "openhands__tools__ask_oracle__definition__AskOracleTool-Output__1": "#/components/schemas/AskOracleTool",
             "openhands__tools__browser_use__definition__BrowserClickTool-Output__1": "#/components/schemas/BrowserClickTool",
             "openhands__tools__browser_use__definition__BrowserCloseTabTool-Output__1": "#/components/schemas/BrowserCloseTabTool",
             "openhands__tools__browser_use__definition__BrowserGetContentTool-Output__1": "#/components/schemas/BrowserGetContentTool",
@@ -19575,6 +20233,9 @@
           },
           {
             "$ref": "#/components/schemas/ClientTool"
+          },
+          {
+            "$ref": "#/components/schemas/AskOracleTool"
           },
           {
             "$ref": "#/components/schemas/BrowserClickTool"
@@ -19792,6 +20453,20 @@
           }
         ]
       },
+      "UninstallCanvasExtensionResponse": {
+        "description": "Response from a canvas extension uninstall.",
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "UninstallCanvasExtensionResponse",
+        "type": "object"
+      },
       "UninstallPluginResponse": {
         "description": "Response from a plugin uninstall.",
         "properties": {
@@ -19818,6 +20493,39 @@
           "message"
         ],
         "title": "UninstallSkillResponse",
+        "type": "object"
+      },
+      "UpdateCanvasExtensionStateRequest": {
+        "description": "Request body for updating canvas extension state (enable/disable).",
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "UpdateCanvasExtensionStateRequest",
+        "type": "object"
+      },
+      "UpdateCanvasExtensionStateResponse": {
+        "description": "Response from a canvas extension state update.",
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "enabled"
+        ],
+        "title": "UpdateCanvasExtensionStateResponse",
         "type": "object"
       },
       "UpdateConversationRequest": {
@@ -20057,6 +20765,62 @@
           "kind"
         ],
         "title": "UserRejectObservation",
+        "type": "object"
+      },
+      "ValidateProfileError": {
+        "description": "Structured error returned when validation fails.",
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "message"
+        ],
+        "title": "ValidateProfileError",
+        "type": "object"
+      },
+      "ValidateProfileRequest": {
+        "description": "Request body for LLM pre-flight validation.\n\nAccepts an LLM config (same shape as ``SaveProfileRequest.llm``) so the\nfrontend can validate a draft *before* persisting it.",
+        "properties": {
+          "llm": {
+            "$ref": "#/components/schemas/LLM-Input"
+          }
+        },
+        "required": [
+          "llm"
+        ],
+        "title": "ValidateProfileRequest",
+        "type": "object"
+      },
+      "ValidateProfileResponse": {
+        "description": "Result of an LLM pre-flight check.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ValidateProfileError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "valid": {
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "valid"
+        ],
+        "title": "ValidateProfileResponse",
         "type": "object"
       },
       "ValidationError": {
@@ -20372,9 +21136,23 @@
             "title": "Headers",
             "type": "object"
           },
+          "max_batch_bytes": {
+            "default": 5242880,
+            "description": "Upper bound on the serialized size of each webhook request. A single event larger than this limit is sent by itself.",
+            "minimum": 1,
+            "title": "Max Batch Bytes",
+            "type": "integer"
+          },
+          "max_queue_bytes": {
+            "default": 52428800,
+            "description": "Upper bound on the serialized size of events buffered for delivery. The oldest events are dropped when the queue exceeds this bound.",
+            "minimum": 1,
+            "title": "Max Queue Bytes",
+            "type": "integer"
+          },
           "max_queue_size": {
             "default": 1000,
-            "description": "Upper bound on the number of events buffered for delivery. When the downstream is failing and events are re-queued for retry, the oldest events are dropped past this bound to prevent unbounded memory growth.",
+            "description": "Upper bound on the number of events buffered for delivery. The oldest events are dropped past this bound to prevent unbounded memory growth.",
             "minimum": 1,
             "title": "Max Queue Size",
             "type": "integer"
@@ -20899,7 +21677,7 @@
   "info": {
     "description": "OpenHands Agent Server - REST/WebSocket interface for OpenHands AI Agent",
     "title": "OpenHands Agent Server",
-    "version": "1.39.0"
+    "version": "1.44.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -21697,6 +22475,307 @@
         ]
       }
     },
+    "/api/canvas-extensions/install": {
+      "post": {
+        "description": "Install a canvas extension from a git URL, GitHub shorthand, or local\npath.\n\nA fresh install always lands disabled, regardless of the request body --\nthere is no ``enabled`` field to smuggle a different state through.",
+        "operationId": "install_canvas_extension_endpoint_api_canvas_extensions_install_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallCanvasExtensionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstalledCanvasExtensionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Failed to fetch canvas extension source"
+          },
+          "409": {
+            "description": "Canvas extension already installed (use force=true)"
+          },
+          "422": {
+            "description": "Invalid canvas extension (bad manifest, etc.)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Install Canvas Extension Endpoint",
+        "tags": [
+          "Canvas Extensions"
+        ]
+      }
+    },
+    "/api/canvas-extensions/installed": {
+      "get": {
+        "description": "List all installed canvas extensions (enabled and disabled).",
+        "operationId": "list_installed_canvas_extensions_endpoint_api_canvas_extensions_installed_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstalledCanvasExtensionsListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Installed Canvas Extensions Endpoint",
+        "tags": [
+          "Canvas Extensions"
+        ]
+      }
+    },
+    "/api/canvas-extensions/installed/{extension_name}": {
+      "delete": {
+        "description": "Uninstall a canvas extension by name.",
+        "operationId": "uninstall_canvas_extension_endpoint_api_canvas_extensions_installed__extension_name__delete",
+        "parameters": [
+          {
+            "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+            "in": "path",
+            "name": "extension_name",
+            "required": true,
+            "schema": {
+              "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "title": "Extension Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UninstallCanvasExtensionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Canvas extension not installed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Uninstall Canvas Extension Endpoint",
+        "tags": [
+          "Canvas Extensions"
+        ]
+      },
+      "get": {
+        "description": "Get information about a specific installed canvas extension.",
+        "operationId": "get_installed_canvas_extension_endpoint_api_canvas_extensions_installed__extension_name__get",
+        "parameters": [
+          {
+            "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+            "in": "path",
+            "name": "extension_name",
+            "required": true,
+            "schema": {
+              "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "title": "Extension Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstalledCanvasExtensionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Canvas extension not installed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Installed Canvas Extension Endpoint",
+        "tags": [
+          "Canvas Extensions"
+        ]
+      },
+      "patch": {
+        "description": "Enable or disable an installed canvas extension.",
+        "operationId": "set_canvas_extension_enabled_endpoint_api_canvas_extensions_installed__extension_name__patch",
+        "parameters": [
+          {
+            "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+            "in": "path",
+            "name": "extension_name",
+            "required": true,
+            "schema": {
+              "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "title": "Extension Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCanvasExtensionStateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateCanvasExtensionStateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Canvas extension not installed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Set Canvas Extension Enabled Endpoint",
+        "tags": [
+          "Canvas Extensions"
+        ]
+      }
+    },
+    "/api/canvas-extensions/installed/{extension_name}/bundle": {
+      "get": {
+        "description": "Serve an installed canvas extension's entrypoint bundle file.\n\nEntrypoint containment is re-validated against the live install path on\nevery request, not just at install time -- see\n``get_canvas_extension_bundle_path``. ``Cache-Control: no-cache`` forces\nrevalidation on each request, so a client never keeps serving a bundle\nfrom before the extension's last refresh: the actual bytes are re-read\nfrom disk, and Starlette's file-stat-based ``ETag``/``Last-Modified``\nchange the moment the on-disk revision does.",
+        "operationId": "get_canvas_extension_bundle_endpoint_api_canvas_extensions_installed__extension_name__bundle_get",
+        "parameters": [
+          {
+            "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+            "in": "path",
+            "name": "extension_name",
+            "required": true,
+            "schema": {
+              "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "title": "Extension Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Canvas extension or bundle not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Canvas Extension Bundle Endpoint",
+        "tags": [
+          "Canvas Extensions"
+        ]
+      }
+    },
     "/api/conversations": {
       "get": {
         "description": "Get a batch of conversations given their ids, returning null for\nany missing item",
@@ -21804,16 +22883,20 @@
                       },
                       "tools": [
                         {
-                          "name": "terminal"
+                          "name": "terminal",
+                          "params": {}
                         },
                         {
-                          "name": "file_editor"
+                          "name": "file_editor",
+                          "params": {}
                         },
                         {
-                          "name": "task_tracker"
+                          "name": "task_tracker",
+                          "params": {}
                         },
                         {
-                          "name": "browser_tool_set"
+                          "name": "browser_tool_set",
+                          "params": {}
                         }
                       ]
                     },
@@ -24129,6 +25212,56 @@
         ]
       }
     },
+    "/api/file/create_directory": {
+      "post": {
+        "description": "Create a directory in the workspace, including any missing parents.\n\nIdempotent: an existing directory succeeds and its contents are left\nuntouched. Creating over an existing file, or under a path whose parent is\na file, is a client error (400) rather than a server fault.",
+        "operationId": "create_directory_api_file_create_directory_post",
+        "parameters": [
+          {
+            "description": "Absolute directory path to create",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "Absolute directory path to create",
+              "title": "Path",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Create Directory",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
     "/api/file/download": {
       "get": {
         "description": "Download a file from the workspace using query parameter (preferred method).",
@@ -24907,6 +26040,182 @@
         "summary": "List Verified Models",
         "tags": [
           "LLM"
+        ]
+      }
+    },
+    "/api/llm/provider-connections": {
+      "get": {
+        "operationId": "list_provider_connections_api_llm_provider_connections_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProviderConnectionResponse"
+                  },
+                  "title": "Response List Provider Connections Api Llm Provider Connections Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Provider Connections",
+        "tags": [
+          "LLM Provider Connections"
+        ]
+      },
+      "post": {
+        "operationId": "create_provider_connection_api_llm_provider_connections_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderConnectionCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderConnectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Create Provider Connection",
+        "tags": [
+          "LLM Provider Connections"
+        ]
+      }
+    },
+    "/api/llm/provider-connections/{connection_id}": {
+      "delete": {
+        "operationId": "delete_provider_connection_api_llm_provider_connections__connection_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "title": "Connection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderConnectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Delete Provider Connection",
+        "tags": [
+          "LLM Provider Connections"
+        ]
+      },
+      "patch": {
+        "operationId": "update_provider_connection_api_llm_provider_connections__connection_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "title": "Connection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderConnectionUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderConnectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Update Provider Connection",
+        "tags": [
+          "LLM Provider Connections"
         ]
       }
     },
@@ -25980,6 +27289,67 @@
         ]
       }
     },
+    "/api/profiles/{name}/validate": {
+      "post": {
+        "description": "Pre-flight check: fire a minimal LLM completion to catch misconfigurations.\n\nInstantiates the submitted LLM config and sends a 1-token completion to\nsurface errors like invalid model names, missing provider prefixes, bad\nbase URLs, and invalid API keys — *before* the profile is saved.\n\nTransient errors (rate limits, timeouts) are treated as non-blocking: the\nresponse is ``valid=True`` with no error, since those don't indicate a\nmisconfigured profile.",
+        "operationId": "validate_profile_api_profiles__name__validate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidateProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Validate Profile",
+        "tags": [
+          "Profiles"
+        ]
+      }
+    },
     "/api/settings": {
       "get": {
         "description": "Get current settings.\n\nReturns the persisted settings including agent configuration,\nconversation settings, and whether an LLM API key is configured.\n\nUse the ``X-Expose-Secrets`` header to control secret exposure:\n- ``encrypted``: Returns cipher-encrypted values (safe for frontend clients)\n- ``plaintext``: Returns raw secret values (backend clients only!)\n- (absent): Returns redacted values (\"**********\")\n\nSecurity:\n    When the server is configured with ``session_api_keys``, all endpoints\n    under ``/api`` (including this one) require the ``X-Session-API-Key``\n    header. When no session API keys are configured, endpoints are open.\n\n    **Trust model:** All authenticated clients are treated as equally\n    trusted. There is no role-based authorization for ``X-Expose-Secrets``\n    modes—any authenticated client can request ``plaintext`` or\n    ``encrypted`` exposure. This design assumes:\n\n    - All clients sharing session API keys operate in the same trust domain\n    - Network-level controls (firewalls, VPCs) restrict access to trusted\n      clients only\n    - Production deployments use session API keys to prevent anonymous access\n\n    The ``plaintext`` mode exists for backend-to-backend communication\n    (e.g., RemoteWorkspace). Frontend clients should prefer ``encrypted``\n    mode for round-tripping secrets, or omit the header to receive redacted\n    values.",
@@ -26007,7 +27377,7 @@
         ]
       },
       "patch": {
-        "description": "Update settings with partial changes.\n\nAccepts ``agent_settings_diff``, ``conversation_settings_diff``,\n``misc_settings_diff``, and/or ``active_profile`` for incremental updates.\nThe three ``*_settings_diff`` fields are deep-merged; nested objects merge\nrecursively, and a ``null`` value **inside a nested map deletes that entry**\n— the \"unset\" primitive that lets a client remove a single map key without\nround-tripping the whole map. To remove one MCP server's header::\n\n    PATCH /api/settings\n    {\"agent_settings_diff\":\n        {\"mcp_config\": {\"svc\": {\"headers\": {\"X-Old\": null}}}}}\n\nA ``null`` on a top-level *field* (e.g. ``{\"confirmation_mode\": null}``)\nis **not** an unset — it flows to model validation as before, so it still\nfails loudly rather than silently resetting the field to its default.\n\n``misc_settings_diff`` is deep-merged into the persisted ``misc_settings``\nblock. The agent-server treats ``misc_settings`` as opaque frontend-owned\ndata: nested dicts are merged recursively, lists are replaced wholesale,\nand the contents are never read or validated server-side.\n\nUses file locking to prevent concurrent updates from overwriting each other.\n\nRaises:\n    HTTPException: 400 if the update payload contains invalid values.",
+        "description": "Update settings with partial changes.\n\nAccepts ``agent_settings_diff``, ``conversation_settings_diff``,\n``misc_settings_diff``, and/or ``active_profile`` for incremental updates.\nSetting ``active_profile`` loads and applies that profile's LLM, same as\n``POST /api/profiles/{name}/activate``, unless ``agent_settings_diff.llm``\nis also given.\n\nThe three ``*_settings_diff`` fields are deep-merged; nested objects merge\nrecursively, and a ``null`` value **inside a nested map deletes that entry**\n— the \"unset\" primitive that lets a client remove a single map key without\nround-tripping the whole map. To remove one MCP server's header::\n\n    PATCH /api/settings\n    {\"agent_settings_diff\":\n        {\"mcp_config\": {\"svc\": {\"headers\": {\"X-Old\": null}}}}}\n\nA ``null`` on a top-level *field* (e.g. ``{\"confirmation_mode\": null}``)\nis **not** an unset — it flows to model validation as before, so it still\nfails loudly rather than silently resetting the field to its default.\n\n``misc_settings_diff`` is deep-merged into the persisted ``misc_settings``\nblock. The agent-server treats ``misc_settings`` as opaque frontend-owned\ndata: nested dicts are merged recursively, lists are replaced wholesale,\nand the contents are never read or validated server-side.\n\nUses file locking to prevent concurrent updates from overwriting each other.\n\nRaises:\n    HTTPException: 400 if the update payload contains invalid values.",
         "operationId": "update_settings_api_settings_patch",
         "requestBody": {
           "content": {

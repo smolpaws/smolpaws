@@ -22,7 +22,7 @@ export declare const streamingDeltaEventSchema: z.ZodObject<{
     content: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     reasoning_content: z.ZodDefault<z.ZodNullable<z.ZodString>>;
 }, z.core.$strict>;
-export declare const conversationErrorEventSchema: z.ZodObject<{
+export declare const conversationErrorEventSchema: z.ZodPipe<z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: z.ZodUnion<readonly [z.ZodLiteral<"agent">, z.ZodLiteral<"user">, z.ZodLiteral<"environment">, z.ZodLiteral<"hook">]>;
@@ -30,7 +30,41 @@ export declare const conversationErrorEventSchema: z.ZodObject<{
     kind: z.ZodDefault<z.ZodLiteral<"ConversationErrorEvent">>;
     code: z.ZodString;
     detail: z.ZodString;
-}, z.core.$strict>;
+    classification: z.ZodDefault<z.ZodNullable<z.ZodObject<{
+        kind: z.ZodUnion<readonly [z.ZodLiteral<"auth">, z.ZodLiteral<"quota">, z.ZodLiteral<"rate_limit">, z.ZodLiteral<"config">, z.ZodLiteral<"transient">, z.ZodLiteral<"agent_action">, z.ZodLiteral<"internal">, z.ZodLiteral<"unknown">]>;
+        retryable: z.ZodBoolean;
+        user_action: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"none">, z.ZodLiteral<"retry">, z.ZodLiteral<"settings">]>>;
+        error_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strict>>>;
+}, z.core.$strict>, z.ZodTransform<{
+    id: string;
+    timestamp: string;
+    source: "user" | "agent" | "environment" | "hook";
+    parent_id: string | null;
+    kind: "ConversationErrorEvent";
+    code: string;
+    detail: string;
+    classification: {
+        kind: "unknown" | "auth" | "quota" | "rate_limit" | "config" | "transient" | "agent_action" | "internal";
+        retryable: boolean;
+        user_action: "none" | "retry" | "settings";
+        error_id: string | null;
+    } | null;
+}, {
+    id: string;
+    timestamp: string;
+    source: "user" | "agent" | "environment" | "hook";
+    parent_id: string | null;
+    kind: "ConversationErrorEvent";
+    code: string;
+    detail: string;
+    classification: {
+        kind: "unknown" | "auth" | "quota" | "rate_limit" | "config" | "transient" | "agent_action" | "internal";
+        retryable: boolean;
+        user_action: "none" | "retry" | "settings";
+        error_id: string | null;
+    } | null;
+}>>;
 export declare const llmCompletionLogEventSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
@@ -497,7 +531,7 @@ export declare const userRejectObservationSchema: z.ZodObject<{
     rejection_source: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"user">, z.ZodLiteral<"hook">]>>;
     action_id: z.ZodString;
 }, z.core.$strict>;
-export declare const agentErrorEventSchema: z.ZodObject<{
+export declare const agentErrorEventSchema: z.ZodPipe<z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
@@ -506,7 +540,43 @@ export declare const agentErrorEventSchema: z.ZodObject<{
     tool_name: z.ZodString;
     tool_call_id: z.ZodString;
     error: z.ZodString;
-}, z.core.$strict>;
+    classification: z.ZodDefault<z.ZodNullable<z.ZodObject<{
+        kind: z.ZodUnion<readonly [z.ZodLiteral<"auth">, z.ZodLiteral<"quota">, z.ZodLiteral<"rate_limit">, z.ZodLiteral<"config">, z.ZodLiteral<"transient">, z.ZodLiteral<"agent_action">, z.ZodLiteral<"internal">, z.ZodLiteral<"unknown">]>;
+        retryable: z.ZodBoolean;
+        user_action: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"none">, z.ZodLiteral<"retry">, z.ZodLiteral<"settings">]>>;
+        error_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strict>>>;
+}, z.core.$strict>, z.ZodTransform<{
+    id: string;
+    timestamp: string;
+    parent_id: string | null;
+    kind: "AgentErrorEvent";
+    tool_name: string;
+    tool_call_id: string;
+    error: string;
+    classification: {
+        kind: "unknown" | "auth" | "quota" | "rate_limit" | "config" | "transient" | "agent_action" | "internal";
+        retryable: boolean;
+        user_action: "none" | "retry" | "settings";
+        error_id: string | null;
+    } | null;
+    source?: never;
+}, {
+    id: string;
+    timestamp: string;
+    parent_id: string | null;
+    kind: "AgentErrorEvent";
+    tool_name: string;
+    tool_call_id: string;
+    error: string;
+    classification: {
+        kind: "unknown" | "auth" | "quota" | "rate_limit" | "config" | "transient" | "agent_action" | "internal";
+        retryable: boolean;
+        user_action: "none" | "retry" | "settings";
+        error_id: string | null;
+    } | null;
+    source?: never;
+}>>;
 export declare const condensationSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
@@ -594,7 +664,7 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     kind: z.ZodDefault<z.ZodLiteral<"StreamingDeltaEvent">>;
     content: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     reasoning_content: z.ZodDefault<z.ZodNullable<z.ZodString>>;
-}, z.core.$strict>, z.ZodObject<{
+}, z.core.$strict>, z.ZodPipe<z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: z.ZodUnion<readonly [z.ZodLiteral<"agent">, z.ZodLiteral<"user">, z.ZodLiteral<"environment">, z.ZodLiteral<"hook">]>;
@@ -602,7 +672,41 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     kind: z.ZodDefault<z.ZodLiteral<"ConversationErrorEvent">>;
     code: z.ZodString;
     detail: z.ZodString;
-}, z.core.$strict>, z.ZodObject<{
+    classification: z.ZodDefault<z.ZodNullable<z.ZodObject<{
+        kind: z.ZodUnion<readonly [z.ZodLiteral<"auth">, z.ZodLiteral<"quota">, z.ZodLiteral<"rate_limit">, z.ZodLiteral<"config">, z.ZodLiteral<"transient">, z.ZodLiteral<"agent_action">, z.ZodLiteral<"internal">, z.ZodLiteral<"unknown">]>;
+        retryable: z.ZodBoolean;
+        user_action: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"none">, z.ZodLiteral<"retry">, z.ZodLiteral<"settings">]>>;
+        error_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strict>>>;
+}, z.core.$strict>, z.ZodTransform<{
+    id: string;
+    timestamp: string;
+    source: "user" | "agent" | "environment" | "hook";
+    parent_id: string | null;
+    kind: "ConversationErrorEvent";
+    code: string;
+    detail: string;
+    classification: {
+        kind: "unknown" | "auth" | "quota" | "rate_limit" | "config" | "transient" | "agent_action" | "internal";
+        retryable: boolean;
+        user_action: "none" | "retry" | "settings";
+        error_id: string | null;
+    } | null;
+}, {
+    id: string;
+    timestamp: string;
+    source: "user" | "agent" | "environment" | "hook";
+    parent_id: string | null;
+    kind: "ConversationErrorEvent";
+    code: string;
+    detail: string;
+    classification: {
+        kind: "unknown" | "auth" | "quota" | "rate_limit" | "config" | "transient" | "agent_action" | "internal";
+        retryable: boolean;
+        user_action: "none" | "retry" | "settings";
+        error_id: string | null;
+    } | null;
+}>>, z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
@@ -1059,7 +1163,7 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     rejection_reason: z.ZodDefault<z.ZodString>;
     rejection_source: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"user">, z.ZodLiteral<"hook">]>>;
     action_id: z.ZodString;
-}, z.core.$strict>, z.ZodObject<{
+}, z.core.$strict>, z.ZodPipe<z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
@@ -1068,7 +1172,43 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     tool_name: z.ZodString;
     tool_call_id: z.ZodString;
     error: z.ZodString;
-}, z.core.$strict>, z.ZodObject<{
+    classification: z.ZodDefault<z.ZodNullable<z.ZodObject<{
+        kind: z.ZodUnion<readonly [z.ZodLiteral<"auth">, z.ZodLiteral<"quota">, z.ZodLiteral<"rate_limit">, z.ZodLiteral<"config">, z.ZodLiteral<"transient">, z.ZodLiteral<"agent_action">, z.ZodLiteral<"internal">, z.ZodLiteral<"unknown">]>;
+        retryable: z.ZodBoolean;
+        user_action: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"none">, z.ZodLiteral<"retry">, z.ZodLiteral<"settings">]>>;
+        error_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strict>>>;
+}, z.core.$strict>, z.ZodTransform<{
+    id: string;
+    timestamp: string;
+    parent_id: string | null;
+    kind: "AgentErrorEvent";
+    tool_name: string;
+    tool_call_id: string;
+    error: string;
+    classification: {
+        kind: "unknown" | "auth" | "quota" | "rate_limit" | "config" | "transient" | "agent_action" | "internal";
+        retryable: boolean;
+        user_action: "none" | "retry" | "settings";
+        error_id: string | null;
+    } | null;
+    source?: never;
+}, {
+    id: string;
+    timestamp: string;
+    parent_id: string | null;
+    kind: "AgentErrorEvent";
+    tool_name: string;
+    tool_call_id: string;
+    error: string;
+    classification: {
+        kind: "unknown" | "auth" | "quota" | "rate_limit" | "config" | "transient" | "agent_action" | "internal";
+        retryable: boolean;
+        user_action: "none" | "retry" | "settings";
+        error_id: string | null;
+    } | null;
+    source?: never;
+}>>, z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
@@ -1560,7 +1700,7 @@ export declare const llmConvertibleEventSchema: z.ZodDiscriminatedUnion<[z.ZodOb
     rejection_reason: z.ZodDefault<z.ZodString>;
     rejection_source: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"user">, z.ZodLiteral<"hook">]>>;
     action_id: z.ZodString;
-}, z.core.$strict>, z.ZodObject<{
+}, z.core.$strict>, z.ZodPipe<z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
@@ -1569,7 +1709,43 @@ export declare const llmConvertibleEventSchema: z.ZodDiscriminatedUnion<[z.ZodOb
     tool_name: z.ZodString;
     tool_call_id: z.ZodString;
     error: z.ZodString;
-}, z.core.$strict>, z.ZodObject<{
+    classification: z.ZodDefault<z.ZodNullable<z.ZodObject<{
+        kind: z.ZodUnion<readonly [z.ZodLiteral<"auth">, z.ZodLiteral<"quota">, z.ZodLiteral<"rate_limit">, z.ZodLiteral<"config">, z.ZodLiteral<"transient">, z.ZodLiteral<"agent_action">, z.ZodLiteral<"internal">, z.ZodLiteral<"unknown">]>;
+        retryable: z.ZodBoolean;
+        user_action: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"none">, z.ZodLiteral<"retry">, z.ZodLiteral<"settings">]>>;
+        error_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strict>>>;
+}, z.core.$strict>, z.ZodTransform<{
+    id: string;
+    timestamp: string;
+    parent_id: string | null;
+    kind: "AgentErrorEvent";
+    tool_name: string;
+    tool_call_id: string;
+    error: string;
+    classification: {
+        kind: "unknown" | "auth" | "quota" | "rate_limit" | "config" | "transient" | "agent_action" | "internal";
+        retryable: boolean;
+        user_action: "none" | "retry" | "settings";
+        error_id: string | null;
+    } | null;
+    source?: never;
+}, {
+    id: string;
+    timestamp: string;
+    parent_id: string | null;
+    kind: "AgentErrorEvent";
+    tool_name: string;
+    tool_call_id: string;
+    error: string;
+    classification: {
+        kind: "unknown" | "auth" | "quota" | "rate_limit" | "config" | "transient" | "agent_action" | "internal";
+        retryable: boolean;
+        user_action: "none" | "retry" | "settings";
+        error_id: string | null;
+    } | null;
+    source?: never;
+}>>, z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
     source: never;
@@ -1600,6 +1776,8 @@ export type HookEventType = z.infer<typeof hookEventTypeSchema>;
 export type HookExecutionEvent = z.infer<typeof hookExecutionEventSchema>;
 export type ResumeTranscriptEvent = z.infer<typeof resumeTranscriptEventSchema>;
 export type LLMConvertibleEvent = z.infer<typeof llmConvertibleEventSchema>;
+export { AGENT_OUTCOME, classifyError, errorClassificationSchema, failureActionSchema, failureKindSchema, } from './error-classification.js';
+export type { ErrorClassification, FailureAction, FailureKind } from './error-classification.js';
 export declare function isMessageEvent(event: unknown): event is MessageEvent;
 export declare function isConversationStateUpdateEvent(event: unknown): event is ConversationStateUpdateEvent;
 export declare function isAcpPatchEdit(event: ACPToolCallEvent): boolean;

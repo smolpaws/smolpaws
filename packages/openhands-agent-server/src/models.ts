@@ -375,6 +375,15 @@ export type ProfileMutationResponse = z.infer<typeof profileMutationResponseSche
 export const activateProfileResponseSchema = z.object({ id: z.string(), message: z.string() }).strict();
 export type ActivateProfileResponse = z.infer<typeof activateProfileResponseSchema>;
 
+export const validateProfileRequestSchema = z.object({ llm: llmProfilePayloadSchema }).strict();
+export type ValidateProfileRequest = z.infer<typeof validateProfileRequestSchema>;
+
+export const validateProfileErrorSchema = z.object({ type: z.string(), message: z.string() }).strict();
+export const validateProfileResponseSchema = z
+  .object({ valid: z.boolean(), error: validateProfileErrorSchema.nullable().default(null) })
+  .strict();
+export type ValidateProfileResponse = z.infer<typeof validateProfileResponseSchema>;
+
 export const agentSettingsPayloadSchema = z.object({}).catchall(z.unknown());
 export const conversationSettingsPayloadSchema = z.object({}).catchall(z.unknown());
 export const settingsResponseSchema = z

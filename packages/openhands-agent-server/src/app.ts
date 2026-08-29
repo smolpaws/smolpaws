@@ -3,7 +3,7 @@ import websocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
-import { MacOSKeychainSecretStore, type SecretStore } from '@smolpaws/openhands-agent';
+import { MacOSKeychainSecretStore, createClientFromProfile, type SecretStore } from '@smolpaws/openhands-agent';
 
 import { registerAgentProfileRoutes } from './agentProfilesRouter.js';
 import { BashEventService } from './bashService.js';
@@ -95,7 +95,7 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
   registerGitRoutes(app);
   registerFileRoutes(app, config);
   registerSettingsRoutes(app, serverStateService);
-  registerProfileRoutes(app, serverStateService);
+  registerProfileRoutes(app, serverStateService, options.llmClientFactory ?? createClientFromProfile, secretStore);
   registerAgentProfileRoutes(app, serverStateService);
   registerSkillsRoutes(app, { stateDir: config.statePath, workspaceRoot: config.workspaceRoot });
   registerSocketRoutes(app, { config, conversationService, bashEventService });

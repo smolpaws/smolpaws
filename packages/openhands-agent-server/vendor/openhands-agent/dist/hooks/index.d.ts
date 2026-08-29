@@ -1,5 +1,6 @@
 import { type ChildProcess } from 'node:child_process';
 import { z } from 'zod';
+import type { LLMClient } from '../llm/client.js';
 export declare enum HookEventType {
     PreToolUse = "PreToolUse",
     PostToolUse = "PostToolUse",
@@ -126,11 +127,19 @@ export declare class AsyncProcessManager {
 export declare class HookExecutor {
     readonly workingDir: string;
     readonly asyncProcessManager: AsyncProcessManager;
+    private readonly llm;
+    private readonly llmGetter;
     constructor(options?: {
         readonly workingDir?: string | null;
         readonly asyncProcessManager?: AsyncProcessManager | null;
+        readonly llm?: LLMClient | null;
+        readonly llmGetter?: (() => LLMClient | null) | null;
     });
+    private resolveLlm;
     execute(hook: HookDefinition, event: HookEvent, env?: Record<string, string>): Promise<HookResult>;
+    executePromptHook(hook: HookDefinition, event: HookEvent): Promise<HookResult>;
+    private fallOpen;
+    private parseDecision;
     executeAll(hooks: readonly HookDefinition[], event: HookEvent, env?: Record<string, string>, stopOnBlock?: boolean): Promise<HookResult[]>;
     private executeAsyncCommand;
     private executeCommand;

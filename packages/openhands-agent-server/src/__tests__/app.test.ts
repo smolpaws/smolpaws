@@ -1379,4 +1379,66 @@ describe('createAgentServerApp', () => {
     }
   });
 
+  test('creates directories via POST /api/file/create_directory', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-mkdir-'));
+    const conversationsPath = path.join(root, 'conversations');
+    const { app } = await createAgentServerApp({ config: { conversationsPath, workspaceRoot: root } });
+    try {
+      const target = path.join(root, 'parent', 'child');
+      const created = await app.inject({ method: 'POST', url: `/api/file/create_directory?path=${encodeURIComponent(target)}` });
+      expect(created.statusCode).toBe(200);
+      expect(created.json()).toEqual({ success: true });
+      expect((await stat(target)).isDirectory()).toBe(true);
+
+      const again = await app.inject({ method: 'POST', url: `/api/file/create_directory?path=${encodeURIComponent(target)}` });
+      expect(again.statusCode).toBe(200);
+      expect(again.json()).toEqual({ success: true });
+
+      const relative = await app.inject({ method: 'POST', url: '/api/file/create_directory?path=relative%2Fdir' });
+      expect(relative.statusCode).toBe(400);
+      expect(relative.json().detail).toContain('must be absolute');
+
+      const asFile = path.join(root, 'a-file.txt');
+      await writeFile(asFile, 'do not clobber', 'utf8');
+      const overFile = await app.inject({ method: 'POST', url: `/api/file/create_directory?path=${encodeURIComponent(asFile)}` });
+      expect(overFile.statusCode).toBe(400);
+      expect(await readFile(asFile, 'utf8')).toBe('do not clobber');
+    } finally {
+      await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('validates LLM profiles via POST /api/profiles/{name}/validate', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-validate-'));
+    const conversationsPath = path.join(root, 'conversations');
+    const statePath = path.join(root, 'state');
+    const { app } = await createAgentServerApp({
+      config: { conversationsPath, statePath, workspaceRoot: root },
+      secretStore: new InMemorySecretStore(),
+      llmClientFactory: async (profile) => {
+        if (profile.model === 'bad-model') {
+          return { profile, complete: () => Promise.reject(new Error('unsupported model bad-model')) };
+        }
+        return TestLLM.fromMessages([{ role: 'assistant', content: [], tool_calls: [] }]);
+      },
+    });
+    try {
+      const good = llmProfilePayload('good', 'gpt-5-nano');
+      const ok = await app.inject({ method: 'POST', url: '/api/profiles/good/validate', payload: { llm: good } });
+      expect(ok.statusCode).toBe(200);
+      expect(ok.json()).toEqual({ valid: true, error: null });
+
+      const bad = llmProfilePayload('bad', 'bad-model');
+      const failed = await app.inject({ method: 'POST', url: '/api/profiles/bad/validate', payload: { llm: bad } });
+      expect(failed.statusCode).toBe(200);
+      expect(failed.json().valid).toBe(false);
+      expect(failed.json().error.type).toBe('Error');
+      expect(failed.json().error.message).toContain('bad-model');
+    } finally {
+      await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
 });

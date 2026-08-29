@@ -52,6 +52,8 @@ import {
   updateSkillResponseSchema,
   updateSkillStateRequestSchema,
   updateSkillStateResponseSchema,
+  validateProfileRequestSchema,
+  validateProfileResponseSchema,
 } from './models.js';
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
@@ -218,6 +220,7 @@ export const routeSpecs = [
   { method: 'delete', path: '/api/profiles/{name}', tags: ['Profiles'], summary: 'Delete LLM profile', responses: { 200: profileMutationResponseSchema } },
   { method: 'post', path: '/api/profiles/{name}/rename', tags: ['Profiles'], summary: 'Rename LLM profile', requestBody: renameProfileRequestSchema, responses: { 200: profileMutationResponseSchema, 404: null, 409: null } },
   { method: 'post', path: '/api/profiles/{name}/activate', tags: ['Profiles'], summary: 'Activate LLM profile', responses: { 200: activateProfileResponseSchema, 404: null } },
+  { method: 'post', path: '/api/profiles/{name}/validate', tags: ['Profiles'], summary: 'Validate LLM profile', requestBody: validateProfileRequestSchema, responses: { 200: validateProfileResponseSchema, 422: null } },
 
   { method: 'get', path: '/api/agent-profiles', tags: ['Agent Profiles'], summary: 'List agent profiles', responses: { 200: agentProfileListResponseSchema } },
   { method: 'get', path: '/api/agent-profiles/{name}', tags: ['Agent Profiles'], summary: 'Get agent profile', responses: { 200: agentProfilePayloadSchema, 404: null } },
@@ -252,6 +255,7 @@ export const routeSpecs = [
   { method: 'get', path: '/api/file/download/{path}', tags: ['File'], summary: 'Download file by path', responses: { 200: z.unknown(), 400: null, 403: null, 404: null } },
   { method: 'get', path: '/api/file/home', tags: ['File'], summary: 'Get home and favorite directories', query: includeHiddenQuery, responses: { 200: homeResponseSchema } },
   { method: 'get', path: '/api/file/search_subdirs', tags: ['File'], summary: 'Search subdirectories', query: fileSearchSubdirsQuery, responses: { 200: subdirectoryPageSchema, 400: null, 403: null, 404: null } },
+  { method: 'post', path: '/api/file/create_directory', tags: ['File'], summary: 'Create Directory', query: pathQuery, responses: { 200: successSchema, 422: null } },
 ] as const satisfies readonly RouteSpec[];
 
 export interface OpenAPISchema {

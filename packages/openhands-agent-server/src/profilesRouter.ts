@@ -1,10 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 
-import { llmProfilePayloadSchema, renameProfileRequestSchema } from './models.js';
+import { messageSchema, redactTextSecrets, textContent, type LLMClient, type LLMProfile, type SecretStore } from '@smolpaws/openhands-agent';
+
+import { llmProfilePayloadSchema, renameProfileRequestSchema, validateProfileRequestSchema } from './models.js';
 import { param, parseBody } from './routeUtils.js';
 import type { ServerStateService } from './serverState.js';
 
-export function registerProfileRoutes(app: FastifyInstance, state: ServerStateService): void {
+export type ValidateLlmClientFactory = (profile: LLMProfile, secretStore: SecretStore) => Promise<LLMClient>;
+
+export function registerProfileRoutes(app: FastifyInstance, state: ServerStateService, llmClientFactory: ValidateLlmClientFactory, secretStore: SecretStore): void {
   app.get('/api/profiles', async () => state.listProfiles());
   app.get('/api/profiles/:name', async (request, reply) => {
     const profile = await state.getProfile(param(request, 'name'));
@@ -51,6 +55,21 @@ export function registerProfileRoutes(app: FastifyInstance, state: ServerStateSe
     }
     return { id: name, message: `Profile '${name}' activated` };
   });
+  app.post('/api/profiles/:name/validate', async (request) => {
+    const { llm } = parseBody(validateProfileRequestSchema, request.body);
+    try {
+      const client = await llmClientFactory(llmProfilePayloadSchema.parse(llm), secretStore);
+      await client.complete([messageSchema.parse({ role: 'user', content: [textContent('ping')] })]);
+      return { valid: true, error: null };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { valid: false, error: { type: errorName(error), message: redactTextSecrets(message) } };
+    }
+  });
+}
+
+function errorName(error: unknown): string {
+  return error instanceof Error ? error.constructor.name : 'Error';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
