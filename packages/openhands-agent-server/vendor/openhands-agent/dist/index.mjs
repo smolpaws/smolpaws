@@ -204,6 +204,10 @@ var rawMessageSchema = z.object({
   vision_enabled: z.boolean().optional(),
   function_calling_enabled: z.boolean().optional(),
   force_string_serializer: z.boolean().optional(),
+  // Accepted-and-dropped backward-compat shim: older serialized messages may carry
+  // a `send_reasoning_content` flag. We no longer use it — whether to echo reasoning
+  // is now decided by the model itself via `isReasoningModel` (see provider-quirks.ts).
+  // Kept here only so historical payloads still parse; the transform below drops it.
   send_reasoning_content: z.boolean().optional(),
   reasoning_content: z.string().nullable().default(null),
   thinking_blocks: z.array(z.union([thinkingBlockSchema, redactedThinkingBlockSchema])).default([]),
@@ -4905,6 +4909,24 @@ function resolveOpenAIPromptCacheKey(profile) {
 function hasExtendedThinking(profile) {
   return profile.reasoningEffort !== null;
 }
+var REASONING_MODELS = [
+  "deepseek-reasoner",
+  "deepseek-r1",
+  "deepseek-v4-pro",
+  "deepseek-v4-flash",
+  "kimi-k2-thinking",
+  "kimi-k2.5",
+  "kimi-k2.6",
+  "kimi-k3",
+  "minimax-m2",
+  "glm-4.6",
+  "qwen3",
+  "qwq"
+];
+function isReasoningModel(profile) {
+  const model = profile.model.trim().toLowerCase();
+  return REASONING_MODELS.some((candidate) => model.includes(candidate));
+}
 function isAnthropicModel(profile) {
   if (profile.providerId === "anthropic") {
     return true;
@@ -5558,9 +5580,10 @@ function applyOpenAIPromptCacheOptions(body, profile) {
 }
 function buildChatCompletionsBody(profile, messages, tools = []) {
   const normalizedProfile = normalizeGenerationParamsForModel(profile);
+  const sendReasoningContent = isReasoningModel(normalizedProfile);
   const body = {
     model: normalizedProfile.model,
-    messages: messages.map((message) => toOpenAIChatMessage(messageSchema.parse(message)))
+    messages: messages.map((message) => toOpenAIChatMessage(messageSchema.parse(message), sendReasoningContent))
   };
   if (tools.length > 0) {
     body.tools = tools.map(toOpenAIChatTool);
@@ -5684,7 +5707,7 @@ function toOpenAIChatTool(tool) {
     }
   };
 }
-function toOpenAIChatMessage(message) {
+function toOpenAIChatMessage(message, sendReasoningContent = false) {
   const out = {
     role: message.role,
     content: serializeContent(message.content)
@@ -5700,6 +5723,14 @@ function toOpenAIChatMessage(message) {
   }
   if (message.name !== null) {
     out.name = message.name;
+  }
+  if (sendReasoningContent && message.role === "assistant") {
+    if (message.reasoning_content !== null) {
+      out.reasoning_content = message.reasoning_content;
+    }
+    if (message.thinking_blocks.length > 0) {
+      out.thinking_blocks = message.thinking_blocks;
+    }
   }
   return out;
 }
@@ -5748,7 +5779,10 @@ function parseChatCompletionsResponse(raw) {
   const message = messageSchema.parse({
     role: firstChoice.message.role,
     content: firstChoice.message.content,
-    tool_calls: firstChoice.message.tool_calls?.map(fromOpenAIChatToolCall) ?? null
+    tool_calls: firstChoice.message.tool_calls?.map(fromOpenAIChatToolCall) ?? null,
+    // Preserve the model's reasoning so it can be threaded back on the next turn
+    // for reasoning models that require it (see isReasoningModel / toOpenAIChatMessage).
+    reasoning_content: firstChoice.message.reasoning_content
   });
   return llmCompletionResponseSchema.parse({
     message,
@@ -5853,7 +5887,8 @@ var openAIChatCompletionResponseSchema = z.object({
       message: z.object({
         role: z.union([z.literal("assistant"), z.literal("tool"), z.literal("user"), z.literal("system")]),
         content: z.string().nullable().default(null),
-        tool_calls: z.array(openAIChatToolCallSchema).optional()
+        tool_calls: z.array(openAIChatToolCallSchema).optional(),
+        reasoning_content: z.string().nullable().default(null)
       }).passthrough()
     }).passthrough()
   ),
