@@ -74,6 +74,48 @@ export const finalResponseExtractor: DeliverableExtractor = (event: AgentEvent) 
   return { payload: { kind: 'current_thread_message', text } };
 };
 
+/**
+ * Extract the plain text of an assistant {@link AgentEvent} MessageEvent that carries no tool calls,
+ * i.e. the model answered directly instead of invoking a tool. Returns null for anything else.
+ */
+function assistantTextMessage(event: AgentEvent): string | null {
+  if (event.kind !== 'MessageEvent') return null;
+  const message = (event.llm_message ?? {}) as Record<string, unknown>;
+  if (message.role !== 'assistant') return null;
+  // A message that also drives a tool call is an intermediate step, not a terminal reply.
+  const toolCalls = message.tool_calls;
+  if (Array.isArray(toolCalls) && toolCalls.length > 0) return null;
+  const content = message.content;
+  if (!Array.isArray(content)) return null;
+  const text = content
+    .filter((item): item is { text: string } =>
+      typeof item === 'object' && item !== null && (item as { type?: unknown }).type === 'text' && typeof (item as { text?: unknown }).text === 'string',
+    )
+    .map((item) => item.text)
+    .join('\n')
+    .trim();
+  return text.length > 0 ? text : null;
+}
+
+/**
+ * Terminal-response extractor that also delivers plain chat replies.
+ *
+ * Delivers one message from either (a) a successful `finish` observation, or (b) an assistant
+ * `MessageEvent` with no tool calls — the end-of-turn text a conversational model produces when it
+ * answers directly instead of calling `finish`. Every delivery is still keyed to a single durable
+ * agent event id, so idempotency and replay-safety are unchanged.
+ *
+ * This mirrors the agent-server's own `agent_final_response` logic (finish message OR last assistant
+ * text) while keeping the outbox event-sourced rather than fetching a derived string.
+ */
+export const terminalResponseExtractor: DeliverableExtractor = (event: AgentEvent) => {
+  const finish = finalResponseExtractor(event);
+  if (finish !== null) return finish;
+  const text = assistantTextMessage(event);
+  if (text === null) return null;
+  return { payload: { kind: 'current_thread_message', text } };
+};
+
 export class MessageRelay {
   private readonly store: MessageWorkStore;
   private readonly agent: AgentServerClient;
