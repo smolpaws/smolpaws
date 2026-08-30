@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import Database from 'better-sqlite3';
 import type { Logger } from 'pino';
 
-import { MessageRelay, finalResponseExtractor } from '../../../src/coordinator/messageRelay.js';
+import { MessageRelay, terminalResponseExtractor } from '../../../src/coordinator/messageRelay.js';
 import { DeliveryDispatcher, DeliveryTargetRegistry } from '../../../src/coordinator/deliveryDispatcher.js';
 import { HttpAgentServerClient } from '../../../src/coordinator/httpAgentServerClient.js';
 import { deterministicConversationId } from '../../../src/coordinator/ids.js';
@@ -74,10 +74,12 @@ export class SlackRelayRuntime {
         ? {}
         : { createDefaults: options.createConversationDefaults }),
     });
-    // Slack's first authoritative canary delivers the normal terminal response. The default agent
-    // profile already includes FinishTool, so ordinary chat does not need a Slack-specific send tool.
+    // Deliver the agent's terminal response to Slack. The default agent profile includes FinishTool,
+    // but conversational models often answer with a plain assistant message instead of calling finish;
+    // terminalResponseExtractor delivers either form (finish observation OR end-of-turn assistant text)
+    // so ordinary chat replies reach Slack without a Slack-specific send tool.
     this.messageRelay = new MessageRelay(this.store, agent, {
-      extractor: finalResponseExtractor,
+      extractor: terminalResponseExtractor,
       deriveConversationId: (descriptor) => slackRelayConversationId(descriptor.laneKey),
     });
 

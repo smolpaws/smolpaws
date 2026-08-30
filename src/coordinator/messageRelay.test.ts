@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { MessageRelay } from './messageRelay.js';
+import { MessageRelay, terminalResponseExtractor } from './messageRelay.js';
 import { deterministicEventId } from './ids.js';
 import { MessageWorkStore } from './store.js';
 import type { AgentEvent, AgentServerClient, LaneDescriptor, RetryPolicy } from './types.js';
@@ -69,9 +69,9 @@ class FakeAgentServer implements AgentServerClient {
   }
 }
 
-function makeCoordinator(now: () => number, agent = new FakeAgentServer()) {
+function makeCoordinator(now: () => number, agent = new FakeAgentServer(), extractor?: typeof terminalResponseExtractor) {
   const store = new MessageWorkStore(new Database(tempDbPath()), POLICY);
-  const coord = new MessageRelay(store, agent, { now, outboxSyncPageSize: 2 });
+  const coord = new MessageRelay(store, agent, { now, outboxSyncPageSize: 2, ...(extractor ? { extractor } : {}) });
   return { store, coord, agent };
 }
 
@@ -158,6 +158,69 @@ const sendAction = (id: string, text: string): AgentEvent => ({
   kind: 'ActionEvent',
   tool_name: 'send_message',
   action: { text },
+});
+
+const assistantMessage = (id: string, text: string, extra: Record<string, unknown> = {}): AgentEvent => ({
+  id,
+  kind: 'MessageEvent',
+  source: 'agent',
+  llm_message: { role: 'assistant', content: [{ type: 'text', text }], ...extra },
+});
+
+const finishObservation = (id: string, text: string): AgentEvent => ({
+  id,
+  kind: 'ObservationEvent',
+  tool_name: 'finish',
+  observation: { message: text },
+});
+
+test('terminalResponseExtractor delivers a plain assistant text message (no finish tool)', async () => {
+  const c = clock();
+  const { store, coord, agent } = makeCoordinator(c.now, new FakeAgentServer(), terminalResponseExtractor);
+  const binding = await coord.resolveLane(lane());
+  agent.events = [
+    { id: 'u0', kind: 'MessageEvent', source: 'user', llm_message: { role: 'user', content: [{ type: 'text', text: 'hi' }] } },
+    assistantMessage('a1', 'here is my answer'),
+  ];
+
+  const created = await coord.syncDeliveryOutbox(binding.conversationId);
+  assert.equal(created, 1);
+  const deliveries = store.listLaneWork(binding.laneKey, 'delivery');
+  assert.equal(deliveries.length, 1);
+  assert.equal((deliveries[0]!.payload as { text: string }).text, 'here is my answer');
+});
+
+test('terminalResponseExtractor still delivers a finish observation', async () => {
+  const c = clock();
+  const { store, coord, agent } = makeCoordinator(c.now, new FakeAgentServer(), terminalResponseExtractor);
+  const binding = await coord.resolveLane(lane());
+  agent.events = [finishObservation('f1', 'done via finish')];
+
+  assert.equal(await coord.syncDeliveryOutbox(binding.conversationId), 1);
+  assert.equal((store.listLaneWork(binding.laneKey, 'delivery')[0]!.payload as { text: string }).text, 'done via finish');
+});
+
+test('terminalResponseExtractor does not deliver assistant messages that carry tool calls', async () => {
+  const c = clock();
+  const { store, coord, agent } = makeCoordinator(c.now, new FakeAgentServer(), terminalResponseExtractor);
+  const binding = await coord.resolveLane(lane());
+  agent.events = [
+    assistantMessage('a1', 'let me run a tool', { tool_calls: [{ id: 't1', name: 'terminal', arguments: '{}' }] }),
+  ];
+
+  assert.equal(await coord.syncDeliveryOutbox(binding.conversationId), 0);
+  assert.equal(store.listLaneWork(binding.laneKey, 'delivery').length, 0);
+});
+
+test('terminalResponseExtractor ignores user messages', async () => {
+  const c = clock();
+  const { store, coord, agent } = makeCoordinator(c.now, new FakeAgentServer(), terminalResponseExtractor);
+  const binding = await coord.resolveLane(lane());
+  agent.events = [
+    { id: 'u0', kind: 'MessageEvent', source: 'user', llm_message: { role: 'user', content: [{ type: 'text', text: 'hi' }] } },
+  ];
+
+  assert.equal(await coord.syncDeliveryOutbox(binding.conversationId), 0);
 });
 
 test('syncDeliveryOutbox creates one delivery per send_message action and is idempotent on replay', async () => {
