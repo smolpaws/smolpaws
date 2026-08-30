@@ -8,6 +8,14 @@ export declare function supportsOpenAIPromptCacheRetention(profile: LLMProfile):
 export declare function resolveOpenAIPromptCacheRetention(profile: LLMProfile): PromptCacheRetention | undefined;
 export declare function resolveOpenAIPromptCacheKey(profile: LLMProfile): string | undefined;
 export declare function hasExtendedThinking(profile: LLMProfile): boolean;
+/**
+ * Whether the profile's model produces reasoning/thinking content that must be
+ * threaded back to the provider on subsequent turns.
+ *
+ * Substring match, so an optional provider-qualified id (`deepseek/deepseek-v4-flash`)
+ * resolves the same as the bare model name (`deepseek-v4-flash`).
+ */
+export declare function isReasoningModel(profile: LLMProfile): boolean;
 export declare function isAnthropicModel(profile: LLMProfile): boolean;
 export declare function supportsThinkingBlocks(profile: LLMProfile): boolean;
 export declare function supportsPromptCaching(profile: LLMProfile): boolean;
