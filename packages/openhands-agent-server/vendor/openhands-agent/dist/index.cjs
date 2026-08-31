@@ -3418,7 +3418,8 @@ function classifyResponse(message) {
 async function dispatchLlmResponse(response, state, runner, options = {}) {
   const emitted = [];
   const message = messageSchema.parse(response.message);
-  if (classifyResponse(message) === llmResponseType.TOOL_CALLS) {
+  const responseType = classifyResponse(message);
+  if (responseType === llmResponseType.TOOL_CALLS) {
     const actions = actionEventsFromMessage(message, options.llmResponseId ?? null);
     for (const event of await state.appendEventsAsync(actions)) {
       emitted.push(event);
@@ -3432,16 +3433,17 @@ async function dispatchLlmResponse(response, state, runner, options = {}) {
     }
     return emitted;
   }
-  if (classifyResponse(message) === llmResponseType.CONTENT || classifyResponse(message) === llmResponseType.REASONING_ONLY) {
-    emitted.push(
-      await state.appendEventAsync(
-        messageEventSchema.parse({
-          source: "agent",
-          llm_message: message,
-          llm_response_id: options.llmResponseId ?? null
-        })
-      )
-    );
+  emitted.push(
+    await state.appendEventAsync(
+      messageEventSchema.parse({
+        source: "agent",
+        llm_message: message,
+        llm_response_id: options.llmResponseId ?? null
+      })
+    )
+  );
+  if (responseType === llmResponseType.CONTENT) {
+    state.executionStatus = conversationExecutionStatus.FINISHED;
     return emitted;
   }
   emitted.push(
