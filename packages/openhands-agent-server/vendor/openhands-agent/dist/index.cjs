@@ -7130,6 +7130,181 @@ var BUILT_IN_TOOL_FACTORIES = {
   FinishTool: () => FinishTool.create(),
   ThinkTool: () => ThinkTool.create()
 };
+var SEND_MESSAGE_TOOL_NAME = "send_message";
+var sendMessageActionSchema = zod.z.object({
+  text: zod.z.string().min(1).describe("The message text to send to the current thread.")
+}).strict();
+var sendMessageObservationSchema = zod.z.object({
+  text: zod.z.string(),
+  is_error: zod.z.boolean().default(false)
+}).strict();
+var SEND_MESSAGE_DESCRIPTION = `Send a message to the current ingress thread.
+
+Use this to say something to the user mid-task without ending your turn \u2014 for example a
+short progress update, or an intermediate answer while you keep working. You can call it
+more than once in a turn. To end the turn, use \`finish\` or reply with a plain message.
+
+The message is queued for delivery to whatever channel started this conversation.`;
+var SendMessageTool = class {
+  static className = "SendMessageTool";
+  static create() {
+    return new ToolDefinition({
+      name: SEND_MESSAGE_TOOL_NAME,
+      description: SEND_MESSAGE_DESCRIPTION,
+      inputSchema: sendMessageActionSchema,
+      outputSchema: sendMessageObservationSchema,
+      annotations: toolAnnotationsSchema.parse({
+        title: "send_message",
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true
+      }),
+      // Record intent only. The ActionEvent on the EventLog is the durable outbound signal;
+      // the SmolPaws coordinator's extractor turns it into one delivery. No I/O happens here.
+      // The observation is a fixed confirmation — it does not echo the message text back
+      // (the model already has it, and echoing just burns tokens).
+      executor: () => ({
+        text: "Message queued for delivery to the current thread.",
+        is_error: false
+      })
+    });
+  }
+};
+var SCHEDULE_TASK_TOOL_NAME = "schedule_task";
+var LIST_TASKS_TOOL_NAME = "list_tasks";
+var CANCEL_TASK_TOOL_NAME = "cancel_task";
+var PAUSE_TASK_TOOL_NAME = "pause_task";
+var RESUME_TASK_TOOL_NAME = "resume_task";
+var taskObservationSchema = zod.z.object({
+  text: zod.z.string(),
+  is_error: zod.z.boolean().default(false)
+}).strict();
+var mutatingAnnotations = toolAnnotationsSchema.parse({
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false
+});
+var scheduleTaskActionSchema = zod.z.object({
+  prompt: zod.z.string().min(1).describe("What the agent should do when the task runs."),
+  schedule_type: zod.z.enum(["cron", "interval", "once"]),
+  schedule_value: zod.z.string().min(1).describe("The cron expression, interval milliseconds, or once timestamp."),
+  context_mode: zod.z.enum(["group", "isolated"]).optional().describe('"group" keeps the current conversation context; "isolated" starts fresh.'),
+  target_group: zod.z.string().optional().describe("Optional target scope id for control scopes.")
+}).strict();
+var SCHEDULE_TASK_DESCRIPTION = `Schedule a recurring or one-time task.
+
+CONTEXT MODE:
+- "group" keeps the current conversation context and memory
+- "isolated" starts from a fresh session
+
+SCHEDULE VALUE FORMAT:
+- cron: "0 9 * * *"
+- interval: milliseconds like "300000"
+- once: local timestamp like "2026-02-01T15:30:00" (without Z)`;
+function checkScheduleValue(action) {
+  if (action.schedule_type === "interval") {
+    const ms = Number.parseInt(action.schedule_value, 10);
+    if (!Number.isFinite(ms) || ms <= 0) {
+      return `Invalid interval: "${action.schedule_value}". Must be positive milliseconds (e.g., "300000" for 5 min).`;
+    }
+    return null;
+  }
+  if (action.schedule_type === "once") {
+    const when = new Date(action.schedule_value);
+    if (Number.isNaN(when.getTime())) {
+      return `Invalid timestamp: "${action.schedule_value}". Use ISO 8601 like "2026-02-01T15:30:00".`;
+    }
+    return null;
+  }
+  const fields = action.schedule_value.trim().split(/\s+/u);
+  if (fields.length < 5 || fields.length > 6) {
+    return `Invalid cron: "${action.schedule_value}". Use 5 fields like "0 9 * * *" (daily 9am).`;
+  }
+  return null;
+}
+var ScheduleTaskTool = class {
+  static className = "ScheduleTaskTool";
+  static create() {
+    return new ToolDefinition({
+      name: SCHEDULE_TASK_TOOL_NAME,
+      description: SCHEDULE_TASK_DESCRIPTION,
+      inputSchema: scheduleTaskActionSchema,
+      outputSchema: taskObservationSchema,
+      annotations: toolAnnotationsSchema.parse({ ...mutatingAnnotations, title: "schedule_task" }),
+      executor: (action) => {
+        const problem = checkScheduleValue(action);
+        if (problem !== null) {
+          return { text: problem, is_error: true };
+        }
+        return {
+          text: `Task scheduled: ${action.schedule_type} - ${action.schedule_value}`,
+          is_error: false
+        };
+      }
+    });
+  }
+};
+var listTasksActionSchema = zod.z.object({}).strict();
+var ListTasksTool = class {
+  static className = "ListTasksTool";
+  static create() {
+    return new ToolDefinition({
+      name: LIST_TASKS_TOOL_NAME,
+      description: "List scheduled tasks visible to the current scope. Control scopes can see all tasks; other scopes see only their own tasks.",
+      inputSchema: listTasksActionSchema,
+      outputSchema: taskObservationSchema,
+      annotations: toolAnnotationsSchema.parse({
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+        title: "list_tasks"
+      }),
+      // The action is the request; the downstream scheduler answers with the actual task list.
+      executor: () => ({ text: "Listing scheduled tasks.", is_error: false })
+    });
+  }
+};
+var taskMutationActionSchema = zod.z.object({
+  task_id: zod.z.string().min(1).describe("The task id.")
+}).strict();
+function createTaskMutationTool(name, description, acknowledgement) {
+  return new ToolDefinition({
+    name,
+    description,
+    inputSchema: taskMutationActionSchema,
+    outputSchema: taskObservationSchema,
+    annotations: toolAnnotationsSchema.parse({ ...mutatingAnnotations, title: name }),
+    executor: (action) => ({ text: `Task ${action.task_id} ${acknowledgement}.`, is_error: false })
+  });
+}
+var PauseTaskTool = class {
+  static className = "PauseTaskTool";
+  static create() {
+    return createTaskMutationTool(PAUSE_TASK_TOOL_NAME, "Pause a scheduled task. It will not run until resumed.", "pause requested");
+  }
+};
+var ResumeTaskTool = class {
+  static className = "ResumeTaskTool";
+  static create() {
+    return createTaskMutationTool(RESUME_TASK_TOOL_NAME, "Resume a paused task.", "resume requested");
+  }
+};
+var CancelTaskTool = class {
+  static className = "CancelTaskTool";
+  static create() {
+    return createTaskMutationTool(CANCEL_TASK_TOOL_NAME, "Cancel and delete a scheduled task.", "cancellation requested");
+  }
+};
+var TASK_SCHEDULER_TOOL_FACTORIES = {
+  ScheduleTaskTool: () => ScheduleTaskTool.create(),
+  ListTasksTool: () => ListTasksTool.create(),
+  PauseTaskTool: () => PauseTaskTool.create(),
+  ResumeTaskTool: () => ResumeTaskTool.create(),
+  CancelTaskTool: () => CancelTaskTool.create()
+};
 var execAsync = util.promisify(child_process.exec);
 var baseToolObservationSchema = zod.z.object({ text: zod.z.string(), is_error: zod.z.boolean().default(false) }).strict();
 var terminalActionSchema = zod.z.object({ command: zod.z.string(), is_input: zod.z.boolean().default(false), timeout: zod.z.number().nonnegative().nullable().default(null), reset: zod.z.boolean().default(false) }).strict();
@@ -7763,9 +7938,11 @@ exports.BROWSER_TOOL_NAME = BROWSER_TOOL_NAME;
 exports.BUILT_IN_TOOLS = BUILT_IN_TOOLS;
 exports.BUILT_IN_TOOL_FACTORIES = BUILT_IN_TOOL_FACTORIES;
 exports.BrowserTool = BrowserTool;
+exports.CANCEL_TASK_TOOL_NAME = CANCEL_TASK_TOOL_NAME;
 exports.CONTENT_POLICY_NUDGE = CONTENT_POLICY_NUDGE;
 exports.CONVERSATION_SETTINGS_SCHEMA_VERSION = CONVERSATION_SETTINGS_SCHEMA_VERSION;
 exports.CORRECTIVE_NUDGE = CORRECTIVE_NUDGE;
+exports.CancelTaskTool = CancelTaskTool;
 exports.ConversationState = ConversationState;
 exports.CriticBase = CriticBase;
 exports.CriticResult = CriticResult;
@@ -7807,10 +7984,12 @@ exports.InMemoryFileStore = InMemoryFileStore;
 exports.InMemorySecretStore = InMemorySecretStore;
 exports.InstallationInfo = InstallationInfo;
 exports.InstallationMetadata = InstallationMetadata;
+exports.LIST_TASKS_TOOL_NAME = LIST_TASKS_TOOL_NAME;
 exports.LLMContentPolicyViolationError = LLMContentPolicyViolationError;
 exports.LLM_PROFILE_ID_PATTERN = LLM_PROFILE_ID_PATTERN;
 exports.LOCK_FILE_NAME = LOCK_FILE_NAME;
 exports.LOCK_TIMEOUT_SECONDS = LOCK_TIMEOUT_SECONDS;
+exports.ListTasksTool = ListTasksTool;
 exports.LocalConversation = LocalConversation;
 exports.LocalFileStore = LocalFileStore;
 exports.LocalWorkspace = LocalWorkspace;
@@ -7830,22 +8009,31 @@ exports.NoOpCondenser = NoOpCondenser;
 exports.OPENHANDS_KEYRING_SERVICE = OPENHANDS_KEYRING_SERVICE;
 exports.OpenAIChatClient = OpenAIChatClient;
 exports.OpenAIResponsesClient = OpenAIResponsesClient;
+exports.PAUSE_TASK_TOOL_NAME = PAUSE_TASK_TOOL_NAME;
 exports.ParallelToolExecutor = ParallelToolExecutor;
 exports.PassCritic = PassCritic;
+exports.PauseTaskTool = PauseTaskTool;
 exports.PendingActionsQueue = PendingActionsQueue;
 exports.PipelineCondenser = PipelineCondenser;
 exports.RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED = RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED;
+exports.RESUME_TASK_TOOL_NAME = RESUME_TASK_TOOL_NAME;
 exports.ROOT_PARENT_ID = ROOT_PARENT_ID;
 exports.RemoteConversation = RemoteConversation;
 exports.RemoteWorkspace = RemoteWorkspace;
 exports.RepoSource = RepoSource;
+exports.ResumeTaskTool = ResumeTaskTool;
 exports.RollingCondenser = RollingCondenser;
 exports.RootSpan = RootSpan;
+exports.SCHEDULE_TASK_TOOL_NAME = SCHEDULE_TASK_TOOL_NAME;
 exports.SECRET_KEY_PATTERNS = SECRET_KEY_PATTERNS;
+exports.SEND_MESSAGE_TOOL_NAME = SEND_MESSAGE_TOOL_NAME;
 exports.SENSITIVE_URL_PARAMS = SENSITIVE_URL_PARAMS;
 exports.SUB_AGENT_TOOL_NAME = SUB_AGENT_TOOL_NAME;
+exports.ScheduleTaskTool = ScheduleTaskTool;
+exports.SendMessageTool = SendMessageTool;
 exports.Skill = Skill;
 exports.StuckDetector = StuckDetector;
+exports.TASK_SCHEDULER_TOOL_FACTORIES = TASK_SCHEDULER_TOOL_FACTORIES;
 exports.TaskTrackerExecutor = TaskTrackerExecutor;
 exports.TaskTrackerTool = TaskTrackerTool;
 exports.TerminalExecutor = TerminalExecutor;
@@ -7877,6 +8065,7 @@ exports.buildCloneUrl = buildCloneUrl;
 exports.buildGeminiInteractionsBody = buildGeminiInteractionsBody;
 exports.buildOpenAIResponsesBody = buildOpenAIResponsesBody;
 exports.cancellationToken = cancellationToken;
+exports.checkScheduleValue = checkScheduleValue;
 exports.classifyError = classifyError;
 exports.classifyResponse = classifyResponse;
 exports.clearRawLlmFieldsWhenProfileSelected = clearRawLlmFieldsWhenProfileSelected;
@@ -7962,6 +8151,7 @@ exports.isMessageEvent = isMessageEvent;
 exports.isSecretKey = isSecretKey;
 exports.keywordTriggerSchema = keywordTriggerSchema;
 exports.listRegisteredTools = listRegisteredTools;
+exports.listTasksActionSchema = listTasksActionSchema;
 exports.listUsableTools = listUsableTools;
 exports.llmCompletionLogEventSchema = llmCompletionLogEventSchema;
 exports.llmCompletionResponseSchema = llmCompletionResponseSchema;
@@ -8026,7 +8216,10 @@ exports.resumeTranscriptEventSchema = resumeTranscriptEventSchema;
 exports.runGitCommand = runGitCommand;
 exports.sanitizeOpenHandsMentions = sanitizeOpenHandsMentions;
 exports.sanitizedEnv = sanitizedEnv;
+exports.scheduleTaskActionSchema = scheduleTaskActionSchema;
 exports.secretRefSchema = secretRefSchema;
+exports.sendMessageActionSchema = sendMessageActionSchema;
+exports.sendMessageObservationSchema = sendMessageObservationSchema;
 exports.setupLogging = setupLogging;
 exports.shouldEnableObservability = shouldEnableObservability;
 exports.skillResourcesSchema = skillResourcesSchema;
@@ -8038,6 +8231,7 @@ exports.startRootSpan = startRootSpan;
 exports.streamingDeltaEventSchema = streamingDeltaEventSchema;
 exports.systemPromptEventSchema = systemPromptEventSchema;
 exports.taskItemSchema = taskItemSchema;
+exports.taskMutationActionSchema = taskMutationActionSchema;
 exports.taskTrackerActionSchema = taskTrackerActionSchema;
 exports.taskTrackerObservationSchema = taskTrackerObservationSchema;
 exports.taskTriggerSchema = taskTriggerSchema;
