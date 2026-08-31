@@ -13,27 +13,40 @@ import {
   resolveHeartbeatRunnerBaseUrl,
 } from './heartbeat.js';
 
-test('buildHeartbeatConversationId creates one conversation per local day', () => {
-  assert.equal(
-    buildHeartbeatConversationId(new Date('2026-03-24T15:16:00')),
-    'heartbeat-smolpaws-2026-03-24',
-  );
+test('buildHeartbeatConversationId is a stable per-day UUID (daily reuse on the new server)', () => {
+  const id = buildHeartbeatConversationId(new Date('2026-03-24T15:16:00'));
+  // Valid UUID, and identical for any time on the same local day.
+  assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.equal(id, buildHeartbeatConversationId(new Date('2026-03-24T23:59:00')));
+  // A different local day yields a different id.
+  assert.notEqual(id, buildHeartbeatConversationId(new Date('2026-03-25T00:01:00')));
   assert.equal(DEFAULT_HEARTBEAT_CRON, '0 * * * *');
 });
 
-test('buildHeartbeatRequest uses the canonical conversation path without outbound messaging', () => {
+test('buildHeartbeatRequest targets the new profile-first server without outbound messaging', () => {
   process.env.SMOLPAWS_DEFAULT_WORKING_DIR = 'smolpaws';
+  delete process.env.SMOLPAWS_HEARTBEAT_PROFILE;
   const request = buildHeartbeatRequest(new Date('2026-03-24T15:16:00'));
-  const initialText = request.initial_message?.content?.[0];
 
-  assert.equal(request.conversation_id, 'heartbeat-smolpaws-2026-03-24');
-  assert.equal(request.workspace?.working_dir, 'smolpaws');
+  assert.equal(request.conversation_id, buildHeartbeatConversationId(new Date('2026-03-24T15:16:00')));
+  assert.equal(request.agent.agent_kind, 'openhands');
+  assert.equal(request.agent.llm_profile_ref, 'deepseek-v4-pro');
+  assert.equal(request.workspace.kind, 'LocalWorkspace');
+  assert.equal(request.workspace.working_dir, 'smolpaws');
   assert.equal(request.max_iterations, 500);
-  assert.equal(request.smolpaws?.ingress, 'heartbeat');
-  assert.equal(request.smolpaws?.enable_send_message, false);
-  assert.equal(request.smolpaws?.enable_task_tools, false);
-  assert.equal(initialText?.type, 'text');
-  assert.match((initialText as { text: string }).text, /Carry out the heartbeat checklist quietly\./);
+  assert.equal(request.initial_message.role, 'user');
+  assert.match(request.initial_message.content, /Carry out the heartbeat checklist quietly\./);
+  assert.match(request.initial_message.content, /Do not send outbound messages\./);
+});
+
+test('buildHeartbeatRequest honors SMOLPAWS_HEARTBEAT_PROFILE override', () => {
+  process.env.SMOLPAWS_HEARTBEAT_PROFILE = 'some-other-profile';
+  try {
+    const request = buildHeartbeatRequest(new Date('2026-03-24T15:16:00'));
+    assert.equal(request.agent.llm_profile_ref, 'some-other-profile');
+  } finally {
+    delete process.env.SMOLPAWS_HEARTBEAT_PROFILE;
+  }
 });
 
 test('buildHeartbeatPrompt points the agent at the canonical docs and state files', () => {

@@ -18,10 +18,15 @@ if [[ -f "${SMOLPAWS_ENV_FILE}" ]]; then
   set -u
 fi
 
-export PORT="${PORT:-8788}"
+# The heartbeat runs against the new transpiled agent-server (packages/openhands-agent-server)
+# on 8790 by default, not the legacy runner on 8788.
+export PORT="${PORT:-8790}"
 export RUNNER_HOST="${RUNNER_HOST:-127.0.0.1}"
 export SMOLPAWS_WORKSPACE_ROOT="${SMOLPAWS_WORKSPACE_ROOT:-$HOME/repos}"
 export SMOLPAWS_DEFAULT_WORKING_DIR="${SMOLPAWS_DEFAULT_WORKING_DIR:-smolpaws}"
+# Pin the new server's conversation persistence to a stable absolute directory (see
+# run-local-slack-relay.sh) so a restart does not strand prior conversations.
+export PERSISTENCE_DIR="${PERSISTENCE_DIR:-$SMOLPAWS_HOME_DIR/conversations}"
 LOG_DIR="${SMOLPAWS_HOME_DIR}/logs"
 
 mkdir -p "${LOG_DIR}" "${SMOLPAWS_HOME_DIR}/memory"
@@ -60,18 +65,21 @@ start_local_runner_if_needed() {
     return 1
   fi
 
+  # Start the new transpiled agent-server (packages/openhands-agent-server) on 8790.
   python3 - "${ROOT_DIR}" "${LOG_DIR}" <<'PY'
 from pathlib import Path
+import os
 import subprocess
 import sys
 
 root_dir, log_dir = sys.argv[1:]
-stdout_path = Path(log_dir) / 'agent-server.launchagent.log'
-stderr_path = Path(log_dir) / 'agent-server.launchagent.error.log'
+stdout_path = Path(log_dir) / 'coord-server-8790.log'
+stderr_path = Path(log_dir) / 'coord-server-8790.log'
 with stdout_path.open('a') as stdout, stderr_path.open('a') as stderr:
     subprocess.Popen(
-        [str(Path(root_dir) / 'scripts' / 'run-local-agent-server.sh')],
+        ['npm', '--prefix', 'packages/openhands-agent-server', 'run', 'dev:server'],
         cwd=root_dir,
+        env={**os.environ},
         stdin=subprocess.DEVNULL,
         stdout=stdout,
         stderr=stderr,
