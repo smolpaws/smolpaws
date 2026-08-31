@@ -7124,6 +7124,181 @@ var BUILT_IN_TOOL_FACTORIES = {
   FinishTool: () => FinishTool.create(),
   ThinkTool: () => ThinkTool.create()
 };
+var SEND_MESSAGE_TOOL_NAME = "send_message";
+var sendMessageActionSchema = z.object({
+  text: z.string().min(1).describe("The message text to send to the current thread.")
+}).strict();
+var sendMessageObservationSchema = z.object({
+  text: z.string(),
+  is_error: z.boolean().default(false)
+}).strict();
+var SEND_MESSAGE_DESCRIPTION = `Send a message to the current ingress thread.
+
+Use this to say something to the user mid-task without ending your turn \u2014 for example a
+short progress update, or an intermediate answer while you keep working. You can call it
+more than once in a turn. To end the turn, use \`finish\` or reply with a plain message.
+
+The message is queued for delivery to whatever channel started this conversation.`;
+var SendMessageTool = class {
+  static className = "SendMessageTool";
+  static create() {
+    return new ToolDefinition({
+      name: SEND_MESSAGE_TOOL_NAME,
+      description: SEND_MESSAGE_DESCRIPTION,
+      inputSchema: sendMessageActionSchema,
+      outputSchema: sendMessageObservationSchema,
+      annotations: toolAnnotationsSchema.parse({
+        title: "send_message",
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true
+      }),
+      // Record intent only. The ActionEvent on the EventLog is the durable outbound signal;
+      // the SmolPaws coordinator's extractor turns it into one delivery. No I/O happens here.
+      // The observation is a fixed confirmation — it does not echo the message text back
+      // (the model already has it, and echoing just burns tokens).
+      executor: () => ({
+        text: "Message queued for delivery to the current thread.",
+        is_error: false
+      })
+    });
+  }
+};
+var SCHEDULE_TASK_TOOL_NAME = "schedule_task";
+var LIST_TASKS_TOOL_NAME = "list_tasks";
+var CANCEL_TASK_TOOL_NAME = "cancel_task";
+var PAUSE_TASK_TOOL_NAME = "pause_task";
+var RESUME_TASK_TOOL_NAME = "resume_task";
+var taskObservationSchema = z.object({
+  text: z.string(),
+  is_error: z.boolean().default(false)
+}).strict();
+var mutatingAnnotations = toolAnnotationsSchema.parse({
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false
+});
+var scheduleTaskActionSchema = z.object({
+  prompt: z.string().min(1).describe("What the agent should do when the task runs."),
+  schedule_type: z.enum(["cron", "interval", "once"]),
+  schedule_value: z.string().min(1).describe("The cron expression, interval milliseconds, or once timestamp."),
+  context_mode: z.enum(["group", "isolated"]).optional().describe('"group" keeps the current conversation context; "isolated" starts fresh.'),
+  target_group: z.string().optional().describe("Optional target scope id for control scopes.")
+}).strict();
+var SCHEDULE_TASK_DESCRIPTION = `Schedule a recurring or one-time task.
+
+CONTEXT MODE:
+- "group" keeps the current conversation context and memory
+- "isolated" starts from a fresh session
+
+SCHEDULE VALUE FORMAT:
+- cron: "0 9 * * *"
+- interval: milliseconds like "300000"
+- once: local timestamp like "2026-02-01T15:30:00" (without Z)`;
+function checkScheduleValue(action) {
+  if (action.schedule_type === "interval") {
+    const ms = Number.parseInt(action.schedule_value, 10);
+    if (!Number.isFinite(ms) || ms <= 0) {
+      return `Invalid interval: "${action.schedule_value}". Must be positive milliseconds (e.g., "300000" for 5 min).`;
+    }
+    return null;
+  }
+  if (action.schedule_type === "once") {
+    const when = new Date(action.schedule_value);
+    if (Number.isNaN(when.getTime())) {
+      return `Invalid timestamp: "${action.schedule_value}". Use ISO 8601 like "2026-02-01T15:30:00".`;
+    }
+    return null;
+  }
+  const fields = action.schedule_value.trim().split(/\s+/u);
+  if (fields.length < 5 || fields.length > 6) {
+    return `Invalid cron: "${action.schedule_value}". Use 5 fields like "0 9 * * *" (daily 9am).`;
+  }
+  return null;
+}
+var ScheduleTaskTool = class {
+  static className = "ScheduleTaskTool";
+  static create() {
+    return new ToolDefinition({
+      name: SCHEDULE_TASK_TOOL_NAME,
+      description: SCHEDULE_TASK_DESCRIPTION,
+      inputSchema: scheduleTaskActionSchema,
+      outputSchema: taskObservationSchema,
+      annotations: toolAnnotationsSchema.parse({ ...mutatingAnnotations, title: "schedule_task" }),
+      executor: (action) => {
+        const problem = checkScheduleValue(action);
+        if (problem !== null) {
+          return { text: problem, is_error: true };
+        }
+        return {
+          text: `Task scheduled: ${action.schedule_type} - ${action.schedule_value}`,
+          is_error: false
+        };
+      }
+    });
+  }
+};
+var listTasksActionSchema = z.object({}).strict();
+var ListTasksTool = class {
+  static className = "ListTasksTool";
+  static create() {
+    return new ToolDefinition({
+      name: LIST_TASKS_TOOL_NAME,
+      description: "List scheduled tasks visible to the current scope. Control scopes can see all tasks; other scopes see only their own tasks.",
+      inputSchema: listTasksActionSchema,
+      outputSchema: taskObservationSchema,
+      annotations: toolAnnotationsSchema.parse({
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+        title: "list_tasks"
+      }),
+      // The action is the request; the downstream scheduler answers with the actual task list.
+      executor: () => ({ text: "Listing scheduled tasks.", is_error: false })
+    });
+  }
+};
+var taskMutationActionSchema = z.object({
+  task_id: z.string().min(1).describe("The task id.")
+}).strict();
+function createTaskMutationTool(name, description, acknowledgement) {
+  return new ToolDefinition({
+    name,
+    description,
+    inputSchema: taskMutationActionSchema,
+    outputSchema: taskObservationSchema,
+    annotations: toolAnnotationsSchema.parse({ ...mutatingAnnotations, title: name }),
+    executor: (action) => ({ text: `Task ${action.task_id} ${acknowledgement}.`, is_error: false })
+  });
+}
+var PauseTaskTool = class {
+  static className = "PauseTaskTool";
+  static create() {
+    return createTaskMutationTool(PAUSE_TASK_TOOL_NAME, "Pause a scheduled task. It will not run until resumed.", "pause requested");
+  }
+};
+var ResumeTaskTool = class {
+  static className = "ResumeTaskTool";
+  static create() {
+    return createTaskMutationTool(RESUME_TASK_TOOL_NAME, "Resume a paused task.", "resume requested");
+  }
+};
+var CancelTaskTool = class {
+  static className = "CancelTaskTool";
+  static create() {
+    return createTaskMutationTool(CANCEL_TASK_TOOL_NAME, "Cancel and delete a scheduled task.", "cancellation requested");
+  }
+};
+var TASK_SCHEDULER_TOOL_FACTORIES = {
+  ScheduleTaskTool: () => ScheduleTaskTool.create(),
+  ListTasksTool: () => ListTasksTool.create(),
+  PauseTaskTool: () => PauseTaskTool.create(),
+  ResumeTaskTool: () => ResumeTaskTool.create(),
+  CancelTaskTool: () => CancelTaskTool.create()
+};
 var execAsync = promisify(exec);
 var baseToolObservationSchema = z.object({ text: z.string(), is_error: z.boolean().default(false) }).strict();
 var terminalActionSchema = z.object({ command: z.string(), is_input: z.boolean().default(false), timeout: z.number().nonnegative().nullable().default(null), reset: z.boolean().default(false) }).strict();
@@ -7743,6 +7918,6 @@ function isExecError3(error) {
 // src/index.ts
 var VERSION = "0.2.0";
 
-export { AGENT_OUTCOME, AGENT_PROFILE_SCHEMA_VERSION, AGENT_SETTINGS_SCHEMA_VERSION, Agent, AgentContext, AgentDefinition, AgentFinishedCritic, AnthropicMessagesClient, AsyncCallbackWrapper, AsyncProcessManager, BROWSER_TOOL_NAME, BUILT_IN_TOOLS, BUILT_IN_TOOL_FACTORIES, BrowserTool, CONTENT_POLICY_NUDGE, CONVERSATION_SETTINGS_SCHEMA_VERSION, CORRECTIVE_NUDGE, ConversationState, CriticBase, CriticResult, DEFAULT_EXEC_TOOL_NAMES, DEFAULT_TEXT_CONTENT_LIMIT, DEFAULT_TRUNCATE_NOTICE, DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST, DuplicateEventError, EVENTS_DIR, EVENT_FILE_PATTERN, EmptyPatchCritic, EventLog, ExtensionFetchError, FULL_STATE_KEY, FileEditorExecutor, FileEditorTool, FinishTool, GIT_EMPTY_TREE_HASH, GeminiClient, GitChangeStatus, GitCommandError, GitError, GitPathError, GitRepositoryError, GlobExecutor, GlobTool, GrepExecutor, GrepTool, HookConfig, HookDecision, HookDefinition, HookExecutor, HookManager, HookMatcher, HookResult, HookEventType as HookTriggerEventType, HookType, InMemoryFileStore, InMemorySecretStore, InstallationInfo, InstallationMetadata, LLMContentPolicyViolationError, LLM_PROFILE_ID_PATTERN, LOCK_FILE_NAME, LOCK_TIMEOUT_SECONDS, LocalConversation, LocalFileStore, LocalWorkspace, LogLevel, MAX_FILE_SIZE_FOR_GIT_DIFF, MCPError, MCPTimeoutError, MCPToolAction, MCPToolDefinition, MCPToolExecutor, MCPToolObservation, MacOSKeychainSecretStore, MemoryLRUCache, N_CHAR_PREVIEW, NoCondensationAvailableError, NoOpCondenser, OPENHANDS_KEYRING_SERVICE, OpenAIChatClient, OpenAIResponsesClient, ParallelToolExecutor, PassCritic, PendingActionsQueue, PipelineCondenser, RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED, ROOT_PARENT_ID, RemoteConversation, RemoteWorkspace, RepoSource, RollingCondenser, RootSpan, SECRET_KEY_PATTERNS, SENSITIVE_URL_PARAMS, SUB_AGENT_TOOL_NAME, Skill, StuckDetector, TaskTrackerExecutor, TaskTrackerTool, TerminalExecutor, TerminalTool, TestLLM, TestLLMExhaustedError, ThinkTool, ToolDefinition, ToolRegistry, VERSION, ValueError, View, acpAgentProfileSchema, acpAgentSettingsSchema, acpServerKindSchema, acpToolCallEventSchema, actionEventSchema, actionEventsFromMessage, agentErrorEventSchema, agentProfileSchema, agentSettingsSchema, baseObservationSchema, baseToolObservationSchema, browserActionSchema, browserObservationSchema, buildAnthropicMessagesBody, buildChatCompletionsBody, buildCloneUrl, buildGeminiInteractionsBody, buildOpenAIResponsesBody, cancellationToken, classifyError, classifyResponse, clearRawLlmFieldsWhenProfileSelected, condensationRequestSchema, condensationRequirement, condensationSchema, condensationSummaryEventSchema, contentSchema, contentToString, conversationErrorEventSchema, conversationExecutionStatus, conversationSettingsSchema, conversationStateUpdateEventSchema, createAnthropicClientFromProfile, createClientFromProfile, createGeminiClientFromProfile, createMcpTools, createOpenAIChatClientFromProfile, createOpenAIResponsesClientFromProfile, criticModeSchema, defaultAgentSettings, defaultToolSpecs, detectProviderFromBaseUrl, disableLogger, discoverAgents, dispatchLlmResponse, displayJson, dumps, endRootSpan, errorClassificationSchema, eventSchema, eventsToMessages, executeCommand, extractActionName, extractRepoName, failureActionSchema, failureKindSchema, fetchExtension, fetchWithResolution, fileEditorActionSchema, fileEditorObservationSchema, finishActionSchema, getAgentFactory, getCachePath, getChangesInRepo, getClosestGitRepo, getCommitChanges, getCommitFileDiff, getDisplayBaseRef, getEnv, getFactoryInfo, getGitCommits, getGitDiff, getGitRepositoryMetadata, getLlmApiKey, getLogger, getRegisteredAgentDefinitions, getReposContext, getValidRef, globActionSchema, globObservationSchema, globalToolRegistry, grepActionSchema, grepMatchSchema, grepObservationSchema, handleDeprecatedModelFields, hookEventSchema, hookEventTypeSchema, hookExecutionEventSchema, imageContent, imageContentSchema, inputMetadataSchema, interruptEventSchema, isAbsolutePathSource, isAcpPatchEdit, isContentPolicyViolation, isConversationStateUpdateEvent, isEnabledFor, isGitUrl, isHostAbsolutePath, isLocalPathSource, isMessageEvent, isSecretKey, keywordTriggerSchema, listRegisteredTools, listUsableTools, llmCompletionLogEventSchema, llmCompletionResponseSchema, llmConvertibleEventSchema, llmProfileIdSchema, llmProfileSchema, llmProfileSecretRef, llmProviderIdSchema, llmProviderSecretRef, llmResponseType, llmUsageSchema, loadAgentsFromDir, loadAgentsFromDirs, loadProjectAgents, loadSkillsFromDir, loadUserAgents, loads, maybeInitLaminar, maybeTruncate, mergeSkillsByName, messageEventSchema, messageSchema, messageToolCallSchema, normalizeGitUrl, observabilityEnvKeys, observabilityMetadataSchema, observabilitySpanNameSchema, observabilityTagsSchema, observationEventSchema, observe, openAiApiModeSchema, openHandsAgentProfileSchema, openHandsAgentSettingsSchema, pageIterator, parseExtensionSource, pathMatchesGlob, pathTriggerSchema, pauseEventSchema, posixPathName, profileVerificationSettingsSchema, promptCacheRetentionSchema, reasoningEffortSchema, reasoningItemSchema, reasoningSummarySchema, redactTextSecrets, redactUrlCredentials, redactUrlCredentialsInText, redactUrlParams, redactedThinkingBlockSchema, reduceTextContent, registerAgent, registerAgentIfAbsent, registerTool, registerToolFactory, resetAgentRegistryForTests, resolveLlmApiKeyRef, resolveLlmProfileApiKeyRef, resolveProviderFromProfile, resolveTool, restoreConversationState, resumeTranscriptEventSchema, runGitCommand, sanitizeOpenHandsMentions, sanitizedEnv, secretRefSchema, setupLogging, shouldEnableObservability, skillResourcesSchema, skillSchema, skillsToPrompt, sourceTypeSchema, startChildSpan, startRootSpan, streamingDeltaEventSchema, systemPromptEventSchema, taskItemSchema, taskTrackerActionSchema, taskTrackerObservationSchema, taskTriggerSchema, terminalActionSchema, terminalObservationSchema, textContent, textContentSchema, thinkActionSchema, thinkingBlockSchema, toCamelCase, toLLMMessage, toPosixPath, tokenEventSchema, toolAnnotationsSchema, toolSpecSchema, triggerSchema, userRejectObservationSchema, utcNow, validateAgentProfile, validateAgentSettings, validateConversationSettings, validateExtensionName, validateGitRepository, workspace };
+export { AGENT_OUTCOME, AGENT_PROFILE_SCHEMA_VERSION, AGENT_SETTINGS_SCHEMA_VERSION, Agent, AgentContext, AgentDefinition, AgentFinishedCritic, AnthropicMessagesClient, AsyncCallbackWrapper, AsyncProcessManager, BROWSER_TOOL_NAME, BUILT_IN_TOOLS, BUILT_IN_TOOL_FACTORIES, BrowserTool, CANCEL_TASK_TOOL_NAME, CONTENT_POLICY_NUDGE, CONVERSATION_SETTINGS_SCHEMA_VERSION, CORRECTIVE_NUDGE, CancelTaskTool, ConversationState, CriticBase, CriticResult, DEFAULT_EXEC_TOOL_NAMES, DEFAULT_TEXT_CONTENT_LIMIT, DEFAULT_TRUNCATE_NOTICE, DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST, DuplicateEventError, EVENTS_DIR, EVENT_FILE_PATTERN, EmptyPatchCritic, EventLog, ExtensionFetchError, FULL_STATE_KEY, FileEditorExecutor, FileEditorTool, FinishTool, GIT_EMPTY_TREE_HASH, GeminiClient, GitChangeStatus, GitCommandError, GitError, GitPathError, GitRepositoryError, GlobExecutor, GlobTool, GrepExecutor, GrepTool, HookConfig, HookDecision, HookDefinition, HookExecutor, HookManager, HookMatcher, HookResult, HookEventType as HookTriggerEventType, HookType, InMemoryFileStore, InMemorySecretStore, InstallationInfo, InstallationMetadata, LIST_TASKS_TOOL_NAME, LLMContentPolicyViolationError, LLM_PROFILE_ID_PATTERN, LOCK_FILE_NAME, LOCK_TIMEOUT_SECONDS, ListTasksTool, LocalConversation, LocalFileStore, LocalWorkspace, LogLevel, MAX_FILE_SIZE_FOR_GIT_DIFF, MCPError, MCPTimeoutError, MCPToolAction, MCPToolDefinition, MCPToolExecutor, MCPToolObservation, MacOSKeychainSecretStore, MemoryLRUCache, N_CHAR_PREVIEW, NoCondensationAvailableError, NoOpCondenser, OPENHANDS_KEYRING_SERVICE, OpenAIChatClient, OpenAIResponsesClient, PAUSE_TASK_TOOL_NAME, ParallelToolExecutor, PassCritic, PauseTaskTool, PendingActionsQueue, PipelineCondenser, RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED, RESUME_TASK_TOOL_NAME, ROOT_PARENT_ID, RemoteConversation, RemoteWorkspace, RepoSource, ResumeTaskTool, RollingCondenser, RootSpan, SCHEDULE_TASK_TOOL_NAME, SECRET_KEY_PATTERNS, SEND_MESSAGE_TOOL_NAME, SENSITIVE_URL_PARAMS, SUB_AGENT_TOOL_NAME, ScheduleTaskTool, SendMessageTool, Skill, StuckDetector, TASK_SCHEDULER_TOOL_FACTORIES, TaskTrackerExecutor, TaskTrackerTool, TerminalExecutor, TerminalTool, TestLLM, TestLLMExhaustedError, ThinkTool, ToolDefinition, ToolRegistry, VERSION, ValueError, View, acpAgentProfileSchema, acpAgentSettingsSchema, acpServerKindSchema, acpToolCallEventSchema, actionEventSchema, actionEventsFromMessage, agentErrorEventSchema, agentProfileSchema, agentSettingsSchema, baseObservationSchema, baseToolObservationSchema, browserActionSchema, browserObservationSchema, buildAnthropicMessagesBody, buildChatCompletionsBody, buildCloneUrl, buildGeminiInteractionsBody, buildOpenAIResponsesBody, cancellationToken, checkScheduleValue, classifyError, classifyResponse, clearRawLlmFieldsWhenProfileSelected, condensationRequestSchema, condensationRequirement, condensationSchema, condensationSummaryEventSchema, contentSchema, contentToString, conversationErrorEventSchema, conversationExecutionStatus, conversationSettingsSchema, conversationStateUpdateEventSchema, createAnthropicClientFromProfile, createClientFromProfile, createGeminiClientFromProfile, createMcpTools, createOpenAIChatClientFromProfile, createOpenAIResponsesClientFromProfile, criticModeSchema, defaultAgentSettings, defaultToolSpecs, detectProviderFromBaseUrl, disableLogger, discoverAgents, dispatchLlmResponse, displayJson, dumps, endRootSpan, errorClassificationSchema, eventSchema, eventsToMessages, executeCommand, extractActionName, extractRepoName, failureActionSchema, failureKindSchema, fetchExtension, fetchWithResolution, fileEditorActionSchema, fileEditorObservationSchema, finishActionSchema, getAgentFactory, getCachePath, getChangesInRepo, getClosestGitRepo, getCommitChanges, getCommitFileDiff, getDisplayBaseRef, getEnv, getFactoryInfo, getGitCommits, getGitDiff, getGitRepositoryMetadata, getLlmApiKey, getLogger, getRegisteredAgentDefinitions, getReposContext, getValidRef, globActionSchema, globObservationSchema, globalToolRegistry, grepActionSchema, grepMatchSchema, grepObservationSchema, handleDeprecatedModelFields, hookEventSchema, hookEventTypeSchema, hookExecutionEventSchema, imageContent, imageContentSchema, inputMetadataSchema, interruptEventSchema, isAbsolutePathSource, isAcpPatchEdit, isContentPolicyViolation, isConversationStateUpdateEvent, isEnabledFor, isGitUrl, isHostAbsolutePath, isLocalPathSource, isMessageEvent, isSecretKey, keywordTriggerSchema, listRegisteredTools, listTasksActionSchema, listUsableTools, llmCompletionLogEventSchema, llmCompletionResponseSchema, llmConvertibleEventSchema, llmProfileIdSchema, llmProfileSchema, llmProfileSecretRef, llmProviderIdSchema, llmProviderSecretRef, llmResponseType, llmUsageSchema, loadAgentsFromDir, loadAgentsFromDirs, loadProjectAgents, loadSkillsFromDir, loadUserAgents, loads, maybeInitLaminar, maybeTruncate, mergeSkillsByName, messageEventSchema, messageSchema, messageToolCallSchema, normalizeGitUrl, observabilityEnvKeys, observabilityMetadataSchema, observabilitySpanNameSchema, observabilityTagsSchema, observationEventSchema, observe, openAiApiModeSchema, openHandsAgentProfileSchema, openHandsAgentSettingsSchema, pageIterator, parseExtensionSource, pathMatchesGlob, pathTriggerSchema, pauseEventSchema, posixPathName, profileVerificationSettingsSchema, promptCacheRetentionSchema, reasoningEffortSchema, reasoningItemSchema, reasoningSummarySchema, redactTextSecrets, redactUrlCredentials, redactUrlCredentialsInText, redactUrlParams, redactedThinkingBlockSchema, reduceTextContent, registerAgent, registerAgentIfAbsent, registerTool, registerToolFactory, resetAgentRegistryForTests, resolveLlmApiKeyRef, resolveLlmProfileApiKeyRef, resolveProviderFromProfile, resolveTool, restoreConversationState, resumeTranscriptEventSchema, runGitCommand, sanitizeOpenHandsMentions, sanitizedEnv, scheduleTaskActionSchema, secretRefSchema, sendMessageActionSchema, sendMessageObservationSchema, setupLogging, shouldEnableObservability, skillResourcesSchema, skillSchema, skillsToPrompt, sourceTypeSchema, startChildSpan, startRootSpan, streamingDeltaEventSchema, systemPromptEventSchema, taskItemSchema, taskMutationActionSchema, taskTrackerActionSchema, taskTrackerObservationSchema, taskTriggerSchema, terminalActionSchema, terminalObservationSchema, textContent, textContentSchema, thinkActionSchema, thinkingBlockSchema, toCamelCase, toLLMMessage, toPosixPath, tokenEventSchema, toolAnnotationsSchema, toolSpecSchema, triggerSchema, userRejectObservationSchema, utcNow, validateAgentProfile, validateAgentSettings, validateConversationSettings, validateExtensionName, validateGitRepository, workspace };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

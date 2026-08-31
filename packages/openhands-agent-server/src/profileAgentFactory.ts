@@ -2,10 +2,16 @@ import path from 'node:path';
 
 import {
   Agent,
+  CancelTaskTool,
   FileEditorTool,
   FinishTool,
   GlobTool,
   GrepTool,
+  ListTasksTool,
+  PauseTaskTool,
+  ResumeTaskTool,
+  ScheduleTaskTool,
+  SendMessageTool,
   TerminalTool,
   ThinkTool,
   createClientFromProfile,
@@ -85,7 +91,7 @@ function snapshotProfile(profile: LLMProfile): LLMProfile {
 }
 
 
-function resolveProfileTool(spec: unknown, workingDir: string): readonly ToolDefinition[] {
+export function resolveProfileTool(spec: unknown, workingDir: string): readonly ToolDefinition[] {
   const name = toolName(spec);
   switch (name) {
     case 'terminal': return [TerminalTool.create({ workingDir })];
@@ -94,6 +100,14 @@ function resolveProfileTool(spec: unknown, workingDir: string): readonly ToolDef
     case 'grep': return [GrepTool.create({ workingDir })];
     case 'finish': return [FinishTool.create()];
     case 'think': return [ThinkTool.create()];
+    // SmolPaws additive tools (EXT-SDK-001/002). Pure ActionEvent emitters; delivery and
+    // scheduling are owned downstream by the coordinator/scheduler, not the server.
+    case 'send_message': return [SendMessageTool.create()];
+    case 'schedule_task': return [ScheduleTaskTool.create()];
+    case 'list_tasks': return [ListTasksTool.create()];
+    case 'pause_task': return [PauseTaskTool.create()];
+    case 'resume_task': return [ResumeTaskTool.create()];
+    case 'cancel_task': return [CancelTaskTool.create()];
     default: throw new Error(`unsupported_profile_tool:${name}`);
   }
 }
