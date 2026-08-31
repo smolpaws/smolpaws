@@ -61,7 +61,7 @@ agent-server EventLog
 
 Delivery rows are inserted before the catch-up cursor advances. If the process crashes between those operations, replay is safe because the unique work identity makes re-insertion a no-op.
 
-The extraction policy is explicit. The reusable Message Relay supports explicit outbound-intent events, while the first Slack canary uses the successful terminal `finish` observation as its chat reply. A plain assistant `MessageEvent` is not terminal in this SDK: the conversation continues until `finish`, cancellation, error, or another terminal state.
+The extraction policy is explicit. The reusable Message Relay supports explicit outbound-intent events; the Slack path uses `terminalResponseExtractor`, which delivers either a successful `finish` observation or an end-of-turn assistant text message. A plain assistant `MessageEvent` with no tool calls is terminal in this SDK: it sets the conversation to `FINISHED` and ends the turn. The run loop also stops on `finish`, cancellation, error, or another terminal state.
 
 ### Delivery Dispatcher
 
