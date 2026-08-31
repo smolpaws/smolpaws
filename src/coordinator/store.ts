@@ -541,6 +541,38 @@ export class MessageWorkStore {
       .run({ id: conversationId, page: nextPageId, now: iso(now) });
   }
 
+  /** True when this conversation's cursor is parked (agent-server no longer has the conversation). */
+  isProjectionCursorParked(conversationId: string): boolean {
+    const row = this.db
+      .prepare(`SELECT parked_at FROM projection_cursors WHERE conversation_id = ?`)
+      .get(conversationId) as { parked_at: string | null } | undefined;
+    return row?.parked_at != null;
+  }
+
+  /**
+   * Park a conversation's projection cursor. The projector skips parked cursors, so a permanently
+   * absent conversation (404 on events/search) stops spinning the outbound tick. The cursor keeps
+   * its `next_page_id` so a later reconciliation can un-park and resume where it left off.
+   */
+  parkProjectionCursor(conversationId: string, now: Date | number): void {
+    this.db
+      .prepare(
+        `INSERT INTO projection_cursors (conversation_id, next_page_id, updated_at, parked_at)
+         VALUES (@id, NULL, @now, @now)
+         ON CONFLICT(conversation_id) DO UPDATE SET parked_at = @now, updated_at = @now`,
+      )
+      .run({ id: conversationId, now: iso(now) });
+  }
+
+  /** Clear a parked cursor so the projector resumes syncing this conversation. */
+  unparkProjectionCursor(conversationId: string, now: Date | number): void {
+    this.db
+      .prepare(
+        `UPDATE projection_cursors SET parked_at = NULL, updated_at = @now WHERE conversation_id = @id`,
+      )
+      .run({ id: conversationId, now: iso(now) });
+  }
+
   listLaneWork(laneKey: string, kind?: WorkKind): WorkRow[] {
     const rows = kind
       ? (this.db

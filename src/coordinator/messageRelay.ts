@@ -59,6 +59,15 @@ export const sendMessageExtractor: DeliverableExtractor = (event: AgentEvent) =>
   return { payload: { kind: 'current_thread_message', text } };
 };
 
+/**
+ * True when an agent-server error means the conversation no longer exists (HTTP 404). Such an error is
+ * permanent for this conversation, so the projector parks its cursor instead of retrying every tick.
+ * Recognizes both the coordinator's `HttpAgentServerError` (a `status` field) and a plain `.status`.
+ */
+function isConversationAbsentError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { status?: unknown }).status === 404;
+}
+
 /** Terminal-response extractor: one delivery from a successful `finish` observation. */
 export const finalResponseExtractor: DeliverableExtractor = (event: AgentEvent) => {
   if (event.kind !== 'ObservationEvent') return null;
@@ -205,16 +214,33 @@ export class MessageRelay {
     const lane = this.store.getLaneByConversationId(conversationId);
     if (!lane) return 0;
 
+    // A parked cursor means the agent-server no longer has this conversation. Skip it so a
+    // permanently-absent conversation cannot spin the outbound tick on 404s forever. It stays
+    // parked until a reconciliation explicitly un-parks it.
+    if (this.store.isProjectionCursorParked(conversationId)) return 0;
+
     let offset = Number.parseInt(this.store.getProjectionCursor(conversationId) ?? '0', 10);
     if (Number.isNaN(offset)) offset = 0;
     let created = 0;
 
     for (;;) {
-      const page = await this.agent.searchEvents(
-        conversationId,
-        String(offset),
-        this.outboxSyncPageSize,
-      );
+      let page: { items: AgentEvent[]; nextPageId: string | null };
+      try {
+        page = await this.agent.searchEvents(
+          conversationId,
+          String(offset),
+          this.outboxSyncPageSize,
+        );
+      } catch (error) {
+        // The conversation is gone from the agent-server (404): park the cursor and stop, rather
+        // than re-throwing every tick. Any other error (transient 5xx / network) propagates so the
+        // outbound tick records it as a retryable sync failure.
+        if (isConversationAbsentError(error)) {
+          this.store.parkProjectionCursor(conversationId, this.now());
+          return created;
+        }
+        throw error;
+      }
       for (const event of page.items) {
         const intent = this.extractor(event);
         if (!intent) continue;

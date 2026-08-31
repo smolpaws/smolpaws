@@ -54,10 +54,14 @@ CREATE INDEX IF NOT EXISTS ix_work_lane ON work (lane_key, kind, sequence);
 -- Durable projector cursor per conversation: how far the delivery projector has consumed the EventLog.
 -- Deliveries are inserted before the cursor advances, so a crash replays and the unique (kind, source_key)
 -- index makes re-insertion a no-op (ADR crash matrix: projector dies before/after insert).
+-- parked_at marks a cursor whose conversation the agent-server no longer has (a 404 on
+-- events/search). A parked cursor is skipped by the projector so a permanently-absent
+-- conversation cannot spin the outbound tick on 404s forever; it stays parked until reconciled.
 CREATE TABLE IF NOT EXISTS projection_cursors (
   conversation_id TEXT PRIMARY KEY,
   next_page_id    TEXT,
-  updated_at      TEXT NOT NULL
+  updated_at      TEXT NOT NULL,
+  parked_at       TEXT
 );
 `;
 
@@ -66,4 +70,13 @@ export function applySchema(db: Database.Database): void {
   db.pragma('busy_timeout = 5000');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
+  migrateProjectionCursorsParkedAt(db);
+}
+
+/** Idempotently add projection_cursors.parked_at to databases created before it existed. */
+function migrateProjectionCursorsParkedAt(db: Database.Database): void {
+  const columns = db.prepare(`PRAGMA table_info(projection_cursors)`).all() as { name: string }[];
+  if (!columns.some((column) => column.name === 'parked_at')) {
+    db.exec(`ALTER TABLE projection_cursors ADD COLUMN parked_at TEXT`);
+  }
 }
