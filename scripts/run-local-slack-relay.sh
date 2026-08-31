@@ -23,6 +23,12 @@ HEALTH_URL="$SERVER_URL/health"
 BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || printf 'unknown')"
 export SMOLPAWS_BUILD_SHA="$BUILD_SHA"
 
+# Pin conversation persistence to a stable absolute directory. The agent-server's default
+# (workspace/conversations) is relative to the process cwd, so a restart from a different cwd would
+# strand every prior conversation and 404-spin the relay. An absolute home keeps them across restarts.
+export PERSISTENCE_DIR="${PERSISTENCE_DIR:-$SMOLPAWS_HOME_DIR/conversations}"
+mkdir -p "$PERSISTENCE_DIR"
+
 server_pid=""
 slack_pid=""
 

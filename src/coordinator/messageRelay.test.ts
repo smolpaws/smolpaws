@@ -57,11 +57,22 @@ class FakeAgentServer implements AgentServerClient {
     return { eventId: event.eventId, created: true };
   }
 
+  /** When true, searchEvents throws a 404 as if the conversation is gone from the agent-server. */
+  conversationAbsent = false;
+  searchCalls = 0;
+
   async searchEvents(
     _conversationId: string,
     pageId: string | null,
     limit: number,
   ): Promise<{ items: AgentEvent[]; nextPageId: string | null }> {
+    this.searchCalls += 1;
+    if (this.conversationAbsent) {
+      const err = new Error('searchEvents failed: 404') as Error & { status?: number; nonRetryable?: boolean };
+      err.status = 404;
+      err.nonRetryable = true;
+      throw err;
+    }
     const start = pageId === null ? 0 : Math.max(0, Number.parseInt(pageId, 10) || 0);
     const items = this.events.slice(start, start + limit);
     const nextPageId = start + limit < this.events.length ? String(start + limit) : null;
@@ -273,4 +284,56 @@ test('projected delivery work respects lane order and joins back to the agent ev
   store.settle(first!, { kind: 'done', externalMessageId: 'slack-1' }, c.now());
   const second = store.claimReady('deliverer', c.now(), 'delivery');
   assert.equal(second?.row.agentEventId, 'e2');
+});
+
+test('syncDeliveryOutbox parks the cursor on a 404 and stops re-polling the absent conversation', async () => {
+  const c = clock();
+  const { store, coord, agent } = makeCoordinator(c.now);
+  const binding = await coord.resolveLane(lane());
+  agent.conversationAbsent = true;
+
+  // First sync hits the 404, parks the cursor, and returns 0 without throwing.
+  assert.equal(await coord.syncDeliveryOutbox(binding.conversationId), 0);
+  assert.equal(store.isProjectionCursorParked(binding.conversationId), true);
+  assert.equal(agent.searchCalls, 1);
+
+  // Subsequent ticks skip the parked conversation entirely — no more searchEvents calls, no spin.
+  assert.equal(await coord.syncDeliveryOutbox(binding.conversationId), 0);
+  assert.equal(await coord.syncDeliveryOutbox(binding.conversationId), 0);
+  assert.equal(agent.searchCalls, 1);
+});
+
+test('un-parking a cursor resumes delivery sync from where it left off', async () => {
+  const c = clock();
+  const { store, coord, agent } = makeCoordinator(c.now);
+  const binding = await coord.resolveLane(lane());
+
+  agent.conversationAbsent = true;
+  await coord.syncDeliveryOutbox(binding.conversationId);
+  assert.equal(store.isProjectionCursorParked(binding.conversationId), true);
+
+  // The conversation comes back; a reconciliation un-parks it and sync resumes.
+  agent.conversationAbsent = false;
+  agent.events = [sendAction('e1', 'back online')];
+  store.unparkProjectionCursor(binding.conversationId, c.now());
+
+  assert.equal(await coord.syncDeliveryOutbox(binding.conversationId), 1);
+  assert.equal((store.listLaneWork(binding.laneKey, 'delivery')[0]!.payload as { text: string }).text, 'back online');
+});
+
+test('a non-404 sync error still propagates (retryable transient failure)', async () => {
+  const c = clock();
+  const { coord, agent } = makeCoordinator(c.now);
+  const binding = await coord.resolveLane(lane());
+  const original = agent.searchEvents.bind(agent);
+  agent.searchEvents = async () => {
+    const err = new Error('searchEvents failed: 503') as Error & { status?: number };
+    err.status = 503;
+    throw err;
+  };
+
+  await assert.rejects(() => coord.syncDeliveryOutbox(binding.conversationId), /503/);
+  // Not parked — a transient error must remain retryable.
+  agent.searchEvents = original;
+  assert.equal(coord.workStore.isProjectionCursorParked(binding.conversationId), false);
 });
