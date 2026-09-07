@@ -50,6 +50,15 @@ and continue.
 - If something looks urgent enough that Engel should know now, note it in today's daily memory file and — only for genuinely time-sensitive items — send a short WhatsApp message to Engel with the issue ID and why it's urgent.
 - If nothing is urgent, skip quietly.
 
+### Check Daytona spend (keep the ledger)
+
+Keep a light watch on Daytona cost so nothing burns silently. Ledger file: `${SMOLPAWS_HOME_DIR:-~/.smolpaws}/ledger/daytona-ledger.md` (read its header for cost model + org id `7cece7ad-98c4-4ca9-9dcc-d88b13a6442a`).
+
+- **Try the real balance first.** If a billing/org-scoped Daytona token is available (see the open bead for provisioning one), read the wallet/usage and record the actual figure. If only `DAYTONA_API_KEY` (sandbox scope) is available, the balance is NOT readable via API — fall back to the estimate below and note "api: unreadable".
+- **List sandboxes** via `GET https://app.daytona.io/api/sandbox` with `Authorization: Bearer $DAYTONA_API_KEY`. For each, note `state` (`started` = full compute billed; `paused` = storage only; `archived` = cold) and class (cpu/mem/disk).
+- **Flag surprises to Engel** (short WhatsApp here, or Slack DM) when: a sandbox is unexpectedly `started`/active for a long stretch, the cost rule drifted (large cabin `7f550a5b…` must stay `autoStop=0 autoPause=30`), OR any single new spend signal or estimate exceeds **~$100**. Below that, just append a datapoint to the ledger quietly.
+- Append one dated datapoint per meaningful check to the ledger (newest first), using its documented format. Don't spam it — one line per heartbeat that found something worth noting.
+
 ### Check AgentMail (`smolpaws@agentmail.to`)
 
 AgentMail is an email API built for agents. My inbox is `smolpaws@agentmail.to`; the `inbox_id` **is** that email address. Docs start at `https://docs.agentmail.to/llms.txt` (append `.md` to any doc page for clean Markdown, or read `llms-full.txt` for the full API). API base `https://api.agentmail.to/v0`.
