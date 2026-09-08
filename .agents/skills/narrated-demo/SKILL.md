@@ -126,33 +126,52 @@ requests with a misleading `SESSION_TOKEN_INVALID` (gRPC 16). **Generate TTS
 sequentially**, chained with `&&`. Text limit ~2,000 chars/request — split
 longer narration. Same validation rule (files ≤3 bytes = error).
 
-## Delivery options (agent-friendly, no browser hands needed)
+## Delivery options
 
 Verified 2026-09-08 (`gh` 2.83): `gh pr create` has **no** attach/upload flag —
 only `--body-file` (text). GitHub's drag-and-drop video attach in a PR box is a
 **web-UI-only** feature (uploads to `user-images.githubusercontent.com` via an
-internal, unstable endpoint); there is no public API for it.
+internal, unstable endpoint); there is no public API for it. So the first three
+routes below are fully API/CLI-driven; the fourth needs the browser.
 
 So, in order of preference:
 
-1. **Cloudflare R2** (object storage; S3-compatible) → public URL, link it in the
-   PR/comment body. We already have Cloudflare + `wrangler`. One-time: create a
-   bucket with public access. Then:
+1. **Commit into a `.pr/` directory** (OpenHands repo convention — prefer this in
+   OH repos). `.pr/` at the repo root is for *PR-only artifacts*: it is announced
+   to reviewers by the `pr-artifacts` workflow and **auto-removed after approval**
+   (same-repo PRs cleaned on approval; fork PRs cleaned from base right after
+   merge), so it never lands in `main`. Commit the clip there and link it from the
+   PR body:
+   ```bash
+   mkdir -p .pr && cp tmp/video/demo.mp4 .pr/demo.mp4
+   git add .pr/demo.mp4 && git commit -m "pr: add narrated demo (temp, auto-removed on approval)"
+   ```
+   Caveat: a raw `.mp4` in the repo won't render inline in the PR body the way a
+   native upload does — link it (or, for HTML/GIF artifacts, the repos even
+   document an `htmlpreview.github.io` trick). Also mind repo size for big files.
+   See the target repo's `AGENTS.md` / `CONTRIBUTING.md` `.pr/` section.
+2. **Cloudflare R2** (object storage; S3-compatible) → public URL, link it in the
+   PR/comment body. Best when there's no PR yet, the file is large, or you want a
+   durable shareable link. We already have Cloudflare + `wrangler`. One-time:
+   create a bucket with public access. Then:
    ```bash
    npx wrangler r2 object put "<bucket>/<name>.mp4" --file tmp/video/demo.mp4 \
      --content-type "video/mp4" --remote
    # public URL form: https://pub-<hash>.r2.dev/<name>.mp4
    ```
-2. **`gh release upload`** — attach the MP4 as a release asset (stable
+3. **`gh release upload`** — attach the MP4 as a release asset (stable
    `releases/download/...` URL). Good when the demo is release-tied.
-3. **Browser drag-drop via my Chrome** — I drive Chrome already, so I *can*
-   drop the file into a GitHub PR/comment box to get the native inline
-   `user-images` attachment. Prettiest result, but needs the browser, not pure
-   API. ⚠️ Unverified end-to-end — prove it before relying on it.
-4. **Local only** — just `open tmp/video/demo.mp4` and hand back the path.
+4. **Browser drag-drop via my Chrome** — I drive Chrome already, so I *can* drop
+   the file into a GitHub PR/comment box to get the native inline `user-images`
+   attachment (this is the only route that renders the video *inline* in the
+   description). Prettiest result, but needs the browser, not pure API.
+   ⚠️ Unverified end-to-end — prove it before relying on it.
+5. **Local only** — just `open tmp/video/demo.mp4` and hand back the path.
 
-R2 is storage, to be clear — it hosts the file so it has a shareable link; it is
-not a GitHub feature.
+Two clarifications: **R2 is storage** — it hosts the file so it has a shareable
+link; it is not a GitHub feature. And the `.pr/` convention **may not persist** —
+it's an OpenHands-repo policy, so don't assume it exists in arbitrary repos; check
+`AGENTS.md`/`CONTRIBUTING.md` first.
 
 ## Notes / taste
 
