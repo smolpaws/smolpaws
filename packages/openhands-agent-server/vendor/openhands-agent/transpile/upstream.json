@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "OpenHands/software-agent-sdk",
-  "commit": "322dec7d777497e376f81e093ed1eb0196bbbb39",
+  "commit": "49ea74587c376b90700f6eff128c3d9b57585d27",
   "targets": {
     "sdk": {
       "sourcePrefixes": [
@@ -177,6 +177,20 @@
         "openhands-sdk/openhands/sdk/marketplace/",
         "tests/sdk/marketplace/"
       ],
+      "paths": []
+    },
+    {
+      "id": "EXT-SDK-001",
+      "kind": "EXTENSION",
+      "target": "sdk",
+      "prefixes": [],
+      "paths": []
+    },
+    {
+      "id": "EXT-SDK-002",
+      "kind": "EXTENSION",
+      "target": "sdk",
+      "prefixes": [],
       "paths": []
     },
     {

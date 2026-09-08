@@ -13,6 +13,7 @@ export interface DispatchLlmResponseOptions {
     readonly llmResponseId?: string | null;
     readonly maxConcurrency?: number;
     readonly executor?: ParallelToolExecutor;
+    readonly maskSecretsInOutput?: ((text: string) => string) | null;
 }
 export declare const CORRECTIVE_NUDGE = "Your last response did not include a function call or a message. Please use a tool to proceed with the task.";
 export declare function classifyResponse(message: Message): LLMResponseType;

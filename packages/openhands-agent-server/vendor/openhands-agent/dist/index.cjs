@@ -1568,6 +1568,7 @@ var EVENTS_DIR = "events";
 var EVENT_FILE_PATTERN = "event-{idx}-{event_id}.json";
 var LOCK_FILE_NAME = ".eventlog.lock";
 var LOCK_TIMEOUT_SECONDS = 30;
+var LENGTH_MARKER_PATTERN = ".eventlog-len-{length}.marker";
 var eventNamePattern = /^event-(?<idx>\d{5,})-(?<event_id>[0-9a-fA-F-]{8,})\.json$/u;
 var DuplicateEventError = class extends Error {
   constructor(eventId, index) {
@@ -1706,9 +1707,11 @@ var EventLog = class {
     this.lengthValue = contiguousIndexLength(this.indexToId);
   }
   writeEventsUnderLock(events) {
-    const diskLength = this.countEventsOnDisk();
-    if (diskLength > this.lengthValue) {
-      this.syncFromDisk(diskLength);
+    if (!this.markerMatchesLength()) {
+      const diskLength = this.countEventsOnDisk();
+      if (diskLength > this.lengthValue) {
+        this.syncFromDisk(diskLength);
+      }
     }
     const batchIds = /* @__PURE__ */ new Map();
     for (const event of events) {
@@ -1732,6 +1735,24 @@ var EventLog = class {
       this.idToIndex.set(event.id, index);
       this.eventCache.set(index, event);
       this.lengthValue += 1;
+      this.advanceLengthMarker(index);
+    }
+  }
+  markerPath(length) {
+    return joinStorePath(this.dir, LENGTH_MARKER_PATTERN.replace("{length}", String(length)));
+  }
+  markerMatchesLength() {
+    try {
+      return this.fs.exists(this.markerPath(this.lengthValue));
+    } catch {
+      return false;
+    }
+  }
+  advanceLengthMarker(previousLength) {
+    try {
+      this.fs.delete(this.markerPath(previousLength));
+      this.fs.write(this.markerPath(this.lengthValue), "");
+    } catch {
     }
   }
   scanAndBuildIndex() {
@@ -2027,6 +2048,15 @@ var llmCompletionResponseSchema = zod.z.object({
   usage: llmUsageSchema.nullable().default(null),
   raw: zod.z.unknown().optional()
 }).strict();
+var INITIAL_CWD = process.cwd();
+function getUserPersistenceDir(defaultDir) {
+  const envDir = process.env.OH_PERSISTENCE_DIR?.trim();
+  if (envDir !== void 0 && envDir !== "") {
+    const expanded = envDir.startsWith("~/") ? path2__default.default.join(os.homedir(), envDir.slice(2)) : envDir;
+    return path2__default.default.isAbsolute(expanded) ? expanded : path2__default.default.resolve(INITIAL_CWD, expanded);
+  }
+  return defaultDir ?? path2__default.default.join(os.homedir(), ".openhands");
+}
 var AsyncCallbackWrapper = class {
   callback;
   asyncCallback;
@@ -2172,7 +2202,8 @@ async function* pageIterator(searchFunc, params) {
     }
   }
 }
-var SENSITIVE_ENV_VARS = /* @__PURE__ */ new Set(["SESSION_API_KEY"]);
+var SENSITIVE_ENV_VARS = /* @__PURE__ */ new Set(["SESSION_API_KEY", "OH_SECRET_KEY"]);
+var SENSITIVE_ENV_PREFIXES = ["OH_SESSION_API_KEYS_"];
 function sanitizedEnv(env = process.env) {
   const result = {};
   for (const [key, value] of Object.entries(env)) {
@@ -2182,6 +2213,11 @@ function sanitizedEnv(env = process.env) {
   }
   for (const key of SENSITIVE_ENV_VARS) {
     delete result[key];
+  }
+  for (const key of Object.keys(result)) {
+    if (SENSITIVE_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      delete result[key];
+    }
   }
   if (Object.hasOwn(result, "LD_LIBRARY_PATH_ORIG")) {
     const original = result.LD_LIBRARY_PATH_ORIG;
@@ -3437,7 +3473,7 @@ async function dispatchLlmResponse(response, state, runner, options = {}) {
     await state.appendEventAsync(
       messageEventSchema.parse({
         source: "agent",
-        llm_message: message,
+        llm_message: maskMessageSecrets(message, options.maskSecretsInOutput ?? null),
         llm_response_id: options.llmResponseId ?? null
       })
     )
@@ -3459,6 +3495,19 @@ async function dispatchLlmResponse(response, state, runner, options = {}) {
     )
   );
   return emitted;
+}
+function maskMessageSecrets(message, mask) {
+  if (mask === null) {
+    return message;
+  }
+  return {
+    ...message,
+    content: message.content.map((part) => isTextContent(part) ? { ...part, text: mask(part.text) } : part),
+    reasoning_content: message.reasoning_content === null ? null : mask(message.reasoning_content)
+  };
+}
+function isTextContent(part) {
+  return part.type === "text";
 }
 
 // src/agent/agent.ts
@@ -4439,7 +4488,7 @@ var HookConfig = class _HookConfig {
     let path3 = options.path ?? null;
     if (path3 === null) {
       const base = options.workingDir ?? process.cwd();
-      for (const candidate of [path2.join(base, ".openhands", "hooks.json"), path2.join(os.homedir(), ".openhands", "hooks.json")]) {
+      for (const candidate of [path2.join(base, ".openhands", "hooks.json"), path2.join(getUserPersistenceDir(), "hooks.json")]) {
         if (await existsFile2(candidate)) {
           path3 = candidate;
           break;
@@ -4882,7 +4931,8 @@ var PROMPT_CACHE_MODELS = [
   "claude-sonnet-4-6",
   "claude-opus-4-5",
   "claude-opus-4-6",
-  "claude-opus-4-7"
+  "claude-opus-4-7",
+  "claude-sonnet-5"
 ];
 function isGpt5Model(model) {
   return model?.trim().toLowerCase().includes("gpt-5") === true;
@@ -6637,7 +6687,14 @@ async function loadProjectAgents(projectDir) {
   return loadAgentsFromDirs(agentDirectories.map((dir) => path2.join(projectDir, dir)));
 }
 async function loadUserAgents() {
-  return loadAgentsFromDirs(agentDirectories.map((dir) => path2.join(os.homedir(), dir)));
+  return loadAgentsFromDirs(agentDirectories.map((dir) => userAgentsDir(dir)));
+}
+function userAgentsDir(relative2) {
+  const [base, ...rest] = relative2.split("/");
+  if (base === ".openhands") {
+    return path2.join(getUserPersistenceDir(), rest.join("/"));
+  }
+  return path2.join(os.homedir(), relative2);
 }
 async function discoverAgents(options = {}) {
   const includeProject = options.includeProject ?? true;
@@ -7018,6 +7075,10 @@ var ToolRegistry = class {
     const parsedSpec = toolSpecSchema.parse(spec);
     const registration = this.registrations.get(parsedSpec.name);
     if (registration === void 0) {
+      const builtin = builtinToolResolvers.get(parsedSpec.name);
+      if (builtin !== void 0) {
+        return builtin(parsedSpec.params, context);
+      }
       throw new Error(`Unknown tool: ${parsedSpec.name}`);
     }
     if (registration instanceof ToolDefinition) {
@@ -7060,6 +7121,10 @@ function schemaToJsonObject(schema) {
 }
 function isJsonObject2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+var builtinToolResolvers = /* @__PURE__ */ new Map();
+function registerBuiltinResolver(name, resolver) {
+  builtinToolResolvers.set(name, resolver);
 }
 var baseObservationSchema = zod.z.object({
   text: zod.z.string(),
@@ -7130,6 +7195,8 @@ var BUILT_IN_TOOL_FACTORIES = {
   FinishTool: () => FinishTool.create(),
   ThinkTool: () => ThinkTool.create()
 };
+registerBuiltinResolver("finish", () => [FinishTool.create()]);
+registerBuiltinResolver("think", () => [ThinkTool.create()]);
 var SEND_MESSAGE_TOOL_NAME = "send_message";
 var sendMessageActionSchema = zod.z.object({
   text: zod.z.string().min(1).describe("The message text to send to the current thread.")
@@ -8124,6 +8191,7 @@ exports.getLlmApiKey = getLlmApiKey;
 exports.getLogger = getLogger;
 exports.getRegisteredAgentDefinitions = getRegisteredAgentDefinitions;
 exports.getReposContext = getReposContext;
+exports.getUserPersistenceDir = getUserPersistenceDir;
 exports.getValidRef = getValidRef;
 exports.globActionSchema = globActionSchema;
 exports.globObservationSchema = globObservationSchema;
@@ -8204,6 +8272,7 @@ exports.redactedThinkingBlockSchema = redactedThinkingBlockSchema;
 exports.reduceTextContent = reduceTextContent;
 exports.registerAgent = registerAgent;
 exports.registerAgentIfAbsent = registerAgentIfAbsent;
+exports.registerBuiltinResolver = registerBuiltinResolver;
 exports.registerTool = registerTool;
 exports.registerToolFactory = registerToolFactory;
 exports.resetAgentRegistryForTests = resetAgentRegistryForTests;

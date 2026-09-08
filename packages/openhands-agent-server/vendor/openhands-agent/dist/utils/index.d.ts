@@ -1,5 +1,6 @@
 import type { Event } from '../event/index.js';
 export type AsyncConversationCallback<TEvent = Event> = (event: TEvent) => Promise<void>;
+export declare function getUserPersistenceDir(defaultDir?: string | null): string;
 export declare class AsyncCallbackWrapper<TEvent = Event> {
     readonly callback: (event: TEvent) => void;
     private readonly asyncCallback;

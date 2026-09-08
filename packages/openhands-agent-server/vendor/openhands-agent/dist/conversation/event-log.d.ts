@@ -34,6 +34,9 @@ export declare class EventLog {
     private countEventsOnDisk;
     private syncFromDisk;
     private writeEventsUnderLock;
+    private markerPath;
+    private markerMatchesLength;
+    private advanceLengthMarker;
     private scanAndBuildIndex;
     private pathForIndex;
     private path;
