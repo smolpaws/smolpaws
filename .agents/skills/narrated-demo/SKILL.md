@@ -128,50 +128,53 @@ longer narration. Same validation rule (files ≤3 bytes = error).
 
 ## Delivery options
 
-Verified 2026-09-08 (`gh` 2.83): `gh pr create` has **no** attach/upload flag —
-only `--body-file` (text). GitHub's drag-and-drop video attach in a PR box is a
-**web-UI-only** feature (uploads to `user-images.githubusercontent.com` via an
-internal, unstable endpoint); there is no public API for it. So the first three
-routes below are fully API/CLI-driven; the fourth needs the browser.
+**`gh` ≥ 2.99 has a native `--attach` flag** (added 2026-09; we run 2.100). It
+uploads a local image *or video* to GitHub's `user-images` store and inserts it
+**inline** in the issue/PR/comment body — the pretty result, no browser needed.
+If the body already references the local path (`![alt](./demo.mp4)`), `gh`
+replaces it with the uploaded URL; otherwise it appends. Up to 50 files/command.
 
-So, in order of preference:
+```bash
+gh pr create --attach './tmp/video/demo.mp4#Narrated demo' --title "..." --body-file body.md
+gh pr edit  <n> --attach ./tmp/video/demo.mp4
+gh pr comment <n> --attach './tmp/video/demo.mp4#Walkthrough'
+```
 
-1. **Commit into a `.pr/` directory** (OpenHands repo convention — prefer this in
-   OH repos). `.pr/` at the repo root is for *PR-only artifacts*: it is announced
-   to reviewers by the `pr-artifacts` workflow and **auto-removed after approval**
-   (same-repo PRs cleaned on approval; fork PRs cleaned from base right after
-   merge), so it never lands in `main`. Commit the clip there and link it from the
-   PR body:
+(If `gh` is older than 2.99, `--attach` won't exist — `brew upgrade gh`. Before
+2.99 the only inline route was manual web-UI drag-drop.)
+
+In order of preference:
+
+1. **`gh --attach`** (default, best) — native inline video in the PR/comment, pure
+   CLI. Use this unless a reason below applies.
+2. **Commit into a `.pr/` directory** (OpenHands repo convention). `.pr/` at the
+   repo root is for *PR-only artifacts*: announced to reviewers by the
+   `pr-artifacts` workflow and **auto-removed after approval** (same-repo on
+   approval; fork PRs from base after merge), so it never lands in `main`. Good
+   for artifacts you want *in the branch* (e.g. an HTML report + the clip
+   together), or when you prefer not to use GitHub's asset store.
    ```bash
    mkdir -p .pr && cp tmp/video/demo.mp4 .pr/demo.mp4
    git add .pr/demo.mp4 && git commit -m "pr: add narrated demo (temp, auto-removed on approval)"
    ```
-   Caveat: a raw `.mp4` in the repo won't render inline in the PR body the way a
-   native upload does — link it (or, for HTML/GIF artifacts, the repos even
-   document an `htmlpreview.github.io` trick). Also mind repo size for big files.
-   See the target repo's `AGENTS.md` / `CONTRIBUTING.md` `.pr/` section.
-2. **Cloudflare R2** (object storage; S3-compatible) → public URL, link it in the
-   PR/comment body. Best when there's no PR yet, the file is large, or you want a
-   durable shareable link. We already have Cloudflare + `wrangler`. One-time:
-   create a bucket with public access. Then:
+   Note: a committed raw `.mp4` won't render inline the way `--attach` does — link
+   it (HTML/GIF artifacts can use the repos' `htmlpreview.github.io` trick). Mind
+   repo size. `.pr/` is OH-specific — check the target repo's `AGENTS.md` /
+   `CONTRIBUTING.md`, and note it **may not persist** as a policy.
+3. **Cloudflare R2** (object storage; S3-compatible) → public URL. Best when
+   there's *no PR yet*, the file is large, or you want a durable link outside
+   GitHub. We have Cloudflare + `wrangler`:
    ```bash
    npx wrangler r2 object put "<bucket>/<name>.mp4" --file tmp/video/demo.mp4 \
      --content-type "video/mp4" --remote
    # public URL form: https://pub-<hash>.r2.dev/<name>.mp4
    ```
-3. **`gh release upload`** — attach the MP4 as a release asset (stable
+4. **`gh release upload`** — attach as a release asset (stable
    `releases/download/...` URL). Good when the demo is release-tied.
-4. **Browser drag-drop via my Chrome** — I drive Chrome already, so I *can* drop
-   the file into a GitHub PR/comment box to get the native inline `user-images`
-   attachment (this is the only route that renders the video *inline* in the
-   description). Prettiest result, but needs the browser, not pure API.
-   ⚠️ Unverified end-to-end — prove it before relying on it.
-5. **Local only** — just `open tmp/video/demo.mp4` and hand back the path.
+5. **Local only** — `open tmp/video/demo.mp4` and hand back the path.
 
-Two clarifications: **R2 is storage** — it hosts the file so it has a shareable
-link; it is not a GitHub feature. And the `.pr/` convention **may not persist** —
-it's an OpenHands-repo policy, so don't assume it exists in arbitrary repos; check
-`AGENTS.md`/`CONTRIBUTING.md` first.
+**R2 is storage** — it hosts the file to give a shareable link; it is not a GitHub
+feature.
 
 ## Notes / taste
 
