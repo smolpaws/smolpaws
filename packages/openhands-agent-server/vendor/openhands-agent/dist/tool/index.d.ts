@@ -69,3 +69,13 @@ export declare function registerToolFactory(name: string, factory: ToolFactory):
 export declare function resolveTool(spec: ToolSpec, context?: unknown): readonly ToolDefinition[];
 export declare function listRegisteredTools(): readonly string[];
 export declare function listUsableTools(): readonly string[];
+/**
+ * Built-in tools the global registry can resolve by name even when they were
+ * never explicitly registered. Upstream ``resolve_tool`` falls back to
+ * ``BUILT_IN_TOOL_CLASSES`` so a structured builtin spec (e.g. ``finish`` with
+ * a ``response_schema``) resolves remotely without a prior ``register_tool``
+ * call. The classes live in ``tool/builtins.ts``; this module imports them
+ * lazily so the registry stays independent of the concrete tool surface.
+ */
+type BuiltInResolver = (params: Readonly<Record<string, unknown>>, context?: unknown) => readonly ToolDefinition[];
+export declare function registerBuiltinResolver(name: string, resolver: BuiltInResolver): void;

@@ -5,7 +5,7 @@ import { promisify, format } from 'util';
 import { readFile, stat, readdir, mkdir, open, unlink, access, writeFile, copyFile } from 'fs/promises';
 import path2, { basename, dirname, extname, relative, join, resolve, sep, posix, isAbsolute } from 'path';
 import { mkdirSync, existsSync, writeFileSync, readFileSync, statSync, openSync, rmSync, closeSync, readdirSync, unlinkSync } from 'fs';
-import { tmpdir, homedir } from 'os';
+import { homedir, tmpdir } from 'os';
 
 // src/event/index.ts
 var OPENHANDS_KEYRING_SERVICE = "openhands";
@@ -1562,6 +1562,7 @@ var EVENTS_DIR = "events";
 var EVENT_FILE_PATTERN = "event-{idx}-{event_id}.json";
 var LOCK_FILE_NAME = ".eventlog.lock";
 var LOCK_TIMEOUT_SECONDS = 30;
+var LENGTH_MARKER_PATTERN = ".eventlog-len-{length}.marker";
 var eventNamePattern = /^event-(?<idx>\d{5,})-(?<event_id>[0-9a-fA-F-]{8,})\.json$/u;
 var DuplicateEventError = class extends Error {
   constructor(eventId, index) {
@@ -1700,9 +1701,11 @@ var EventLog = class {
     this.lengthValue = contiguousIndexLength(this.indexToId);
   }
   writeEventsUnderLock(events) {
-    const diskLength = this.countEventsOnDisk();
-    if (diskLength > this.lengthValue) {
-      this.syncFromDisk(diskLength);
+    if (!this.markerMatchesLength()) {
+      const diskLength = this.countEventsOnDisk();
+      if (diskLength > this.lengthValue) {
+        this.syncFromDisk(diskLength);
+      }
     }
     const batchIds = /* @__PURE__ */ new Map();
     for (const event of events) {
@@ -1726,6 +1729,24 @@ var EventLog = class {
       this.idToIndex.set(event.id, index);
       this.eventCache.set(index, event);
       this.lengthValue += 1;
+      this.advanceLengthMarker(index);
+    }
+  }
+  markerPath(length) {
+    return joinStorePath(this.dir, LENGTH_MARKER_PATTERN.replace("{length}", String(length)));
+  }
+  markerMatchesLength() {
+    try {
+      return this.fs.exists(this.markerPath(this.lengthValue));
+    } catch {
+      return false;
+    }
+  }
+  advanceLengthMarker(previousLength) {
+    try {
+      this.fs.delete(this.markerPath(previousLength));
+      this.fs.write(this.markerPath(this.lengthValue), "");
+    } catch {
     }
   }
   scanAndBuildIndex() {
@@ -2021,6 +2042,15 @@ var llmCompletionResponseSchema = z.object({
   usage: llmUsageSchema.nullable().default(null),
   raw: z.unknown().optional()
 }).strict();
+var INITIAL_CWD = process.cwd();
+function getUserPersistenceDir(defaultDir) {
+  const envDir = process.env.OH_PERSISTENCE_DIR?.trim();
+  if (envDir !== void 0 && envDir !== "") {
+    const expanded = envDir.startsWith("~/") ? path2.join(homedir(), envDir.slice(2)) : envDir;
+    return path2.isAbsolute(expanded) ? expanded : path2.resolve(INITIAL_CWD, expanded);
+  }
+  return defaultDir ?? path2.join(homedir(), ".openhands");
+}
 var AsyncCallbackWrapper = class {
   callback;
   asyncCallback;
@@ -2166,7 +2196,8 @@ async function* pageIterator(searchFunc, params) {
     }
   }
 }
-var SENSITIVE_ENV_VARS = /* @__PURE__ */ new Set(["SESSION_API_KEY"]);
+var SENSITIVE_ENV_VARS = /* @__PURE__ */ new Set(["SESSION_API_KEY", "OH_SECRET_KEY"]);
+var SENSITIVE_ENV_PREFIXES = ["OH_SESSION_API_KEYS_"];
 function sanitizedEnv(env = process.env) {
   const result = {};
   for (const [key, value] of Object.entries(env)) {
@@ -2176,6 +2207,11 @@ function sanitizedEnv(env = process.env) {
   }
   for (const key of SENSITIVE_ENV_VARS) {
     delete result[key];
+  }
+  for (const key of Object.keys(result)) {
+    if (SENSITIVE_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      delete result[key];
+    }
   }
   if (Object.hasOwn(result, "LD_LIBRARY_PATH_ORIG")) {
     const original = result.LD_LIBRARY_PATH_ORIG;
@@ -3431,7 +3467,7 @@ async function dispatchLlmResponse(response, state, runner, options = {}) {
     await state.appendEventAsync(
       messageEventSchema.parse({
         source: "agent",
-        llm_message: message,
+        llm_message: maskMessageSecrets(message, options.maskSecretsInOutput ?? null),
         llm_response_id: options.llmResponseId ?? null
       })
     )
@@ -3453,6 +3489,19 @@ async function dispatchLlmResponse(response, state, runner, options = {}) {
     )
   );
   return emitted;
+}
+function maskMessageSecrets(message, mask) {
+  if (mask === null) {
+    return message;
+  }
+  return {
+    ...message,
+    content: message.content.map((part) => isTextContent(part) ? { ...part, text: mask(part.text) } : part),
+    reasoning_content: message.reasoning_content === null ? null : mask(message.reasoning_content)
+  };
+}
+function isTextContent(part) {
+  return part.type === "text";
 }
 
 // src/agent/agent.ts
@@ -4433,7 +4482,7 @@ var HookConfig = class _HookConfig {
     let path3 = options.path ?? null;
     if (path3 === null) {
       const base = options.workingDir ?? process.cwd();
-      for (const candidate of [join(base, ".openhands", "hooks.json"), join(homedir(), ".openhands", "hooks.json")]) {
+      for (const candidate of [join(base, ".openhands", "hooks.json"), join(getUserPersistenceDir(), "hooks.json")]) {
         if (await existsFile2(candidate)) {
           path3 = candidate;
           break;
@@ -4876,7 +4925,8 @@ var PROMPT_CACHE_MODELS = [
   "claude-sonnet-4-6",
   "claude-opus-4-5",
   "claude-opus-4-6",
-  "claude-opus-4-7"
+  "claude-opus-4-7",
+  "claude-sonnet-5"
 ];
 function isGpt5Model(model) {
   return model?.trim().toLowerCase().includes("gpt-5") === true;
@@ -6631,7 +6681,14 @@ async function loadProjectAgents(projectDir) {
   return loadAgentsFromDirs(agentDirectories.map((dir) => join(projectDir, dir)));
 }
 async function loadUserAgents() {
-  return loadAgentsFromDirs(agentDirectories.map((dir) => join(homedir(), dir)));
+  return loadAgentsFromDirs(agentDirectories.map((dir) => userAgentsDir(dir)));
+}
+function userAgentsDir(relative2) {
+  const [base, ...rest] = relative2.split("/");
+  if (base === ".openhands") {
+    return join(getUserPersistenceDir(), rest.join("/"));
+  }
+  return join(homedir(), relative2);
 }
 async function discoverAgents(options = {}) {
   const includeProject = options.includeProject ?? true;
@@ -7012,6 +7069,10 @@ var ToolRegistry = class {
     const parsedSpec = toolSpecSchema.parse(spec);
     const registration = this.registrations.get(parsedSpec.name);
     if (registration === void 0) {
+      const builtin = builtinToolResolvers.get(parsedSpec.name);
+      if (builtin !== void 0) {
+        return builtin(parsedSpec.params, context);
+      }
       throw new Error(`Unknown tool: ${parsedSpec.name}`);
     }
     if (registration instanceof ToolDefinition) {
@@ -7054,6 +7115,10 @@ function schemaToJsonObject(schema) {
 }
 function isJsonObject2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+var builtinToolResolvers = /* @__PURE__ */ new Map();
+function registerBuiltinResolver(name, resolver) {
+  builtinToolResolvers.set(name, resolver);
 }
 var baseObservationSchema = z.object({
   text: z.string(),
@@ -7124,6 +7189,8 @@ var BUILT_IN_TOOL_FACTORIES = {
   FinishTool: () => FinishTool.create(),
   ThinkTool: () => ThinkTool.create()
 };
+registerBuiltinResolver("finish", () => [FinishTool.create()]);
+registerBuiltinResolver("think", () => [ThinkTool.create()]);
 var SEND_MESSAGE_TOOL_NAME = "send_message";
 var sendMessageActionSchema = z.object({
   text: z.string().min(1).describe("The message text to send to the current thread.")
@@ -7918,6 +7985,6 @@ function isExecError3(error) {
 // src/index.ts
 var VERSION = "0.2.0";
 
-export { AGENT_OUTCOME, AGENT_PROFILE_SCHEMA_VERSION, AGENT_SETTINGS_SCHEMA_VERSION, Agent, AgentContext, AgentDefinition, AgentFinishedCritic, AnthropicMessagesClient, AsyncCallbackWrapper, AsyncProcessManager, BROWSER_TOOL_NAME, BUILT_IN_TOOLS, BUILT_IN_TOOL_FACTORIES, BrowserTool, CANCEL_TASK_TOOL_NAME, CONTENT_POLICY_NUDGE, CONVERSATION_SETTINGS_SCHEMA_VERSION, CORRECTIVE_NUDGE, CancelTaskTool, ConversationState, CriticBase, CriticResult, DEFAULT_EXEC_TOOL_NAMES, DEFAULT_TEXT_CONTENT_LIMIT, DEFAULT_TRUNCATE_NOTICE, DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST, DuplicateEventError, EVENTS_DIR, EVENT_FILE_PATTERN, EmptyPatchCritic, EventLog, ExtensionFetchError, FULL_STATE_KEY, FileEditorExecutor, FileEditorTool, FinishTool, GIT_EMPTY_TREE_HASH, GeminiClient, GitChangeStatus, GitCommandError, GitError, GitPathError, GitRepositoryError, GlobExecutor, GlobTool, GrepExecutor, GrepTool, HookConfig, HookDecision, HookDefinition, HookExecutor, HookManager, HookMatcher, HookResult, HookEventType as HookTriggerEventType, HookType, InMemoryFileStore, InMemorySecretStore, InstallationInfo, InstallationMetadata, LIST_TASKS_TOOL_NAME, LLMContentPolicyViolationError, LLM_PROFILE_ID_PATTERN, LOCK_FILE_NAME, LOCK_TIMEOUT_SECONDS, ListTasksTool, LocalConversation, LocalFileStore, LocalWorkspace, LogLevel, MAX_FILE_SIZE_FOR_GIT_DIFF, MCPError, MCPTimeoutError, MCPToolAction, MCPToolDefinition, MCPToolExecutor, MCPToolObservation, MacOSKeychainSecretStore, MemoryLRUCache, N_CHAR_PREVIEW, NoCondensationAvailableError, NoOpCondenser, OPENHANDS_KEYRING_SERVICE, OpenAIChatClient, OpenAIResponsesClient, PAUSE_TASK_TOOL_NAME, ParallelToolExecutor, PassCritic, PauseTaskTool, PendingActionsQueue, PipelineCondenser, RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED, RESUME_TASK_TOOL_NAME, ROOT_PARENT_ID, RemoteConversation, RemoteWorkspace, RepoSource, ResumeTaskTool, RollingCondenser, RootSpan, SCHEDULE_TASK_TOOL_NAME, SECRET_KEY_PATTERNS, SEND_MESSAGE_TOOL_NAME, SENSITIVE_URL_PARAMS, SUB_AGENT_TOOL_NAME, ScheduleTaskTool, SendMessageTool, Skill, StuckDetector, TASK_SCHEDULER_TOOL_FACTORIES, TaskTrackerExecutor, TaskTrackerTool, TerminalExecutor, TerminalTool, TestLLM, TestLLMExhaustedError, ThinkTool, ToolDefinition, ToolRegistry, VERSION, ValueError, View, acpAgentProfileSchema, acpAgentSettingsSchema, acpServerKindSchema, acpToolCallEventSchema, actionEventSchema, actionEventsFromMessage, agentErrorEventSchema, agentProfileSchema, agentSettingsSchema, baseObservationSchema, baseToolObservationSchema, browserActionSchema, browserObservationSchema, buildAnthropicMessagesBody, buildChatCompletionsBody, buildCloneUrl, buildGeminiInteractionsBody, buildOpenAIResponsesBody, cancellationToken, checkScheduleValue, classifyError, classifyResponse, clearRawLlmFieldsWhenProfileSelected, condensationRequestSchema, condensationRequirement, condensationSchema, condensationSummaryEventSchema, contentSchema, contentToString, conversationErrorEventSchema, conversationExecutionStatus, conversationSettingsSchema, conversationStateUpdateEventSchema, createAnthropicClientFromProfile, createClientFromProfile, createGeminiClientFromProfile, createMcpTools, createOpenAIChatClientFromProfile, createOpenAIResponsesClientFromProfile, criticModeSchema, defaultAgentSettings, defaultToolSpecs, detectProviderFromBaseUrl, disableLogger, discoverAgents, dispatchLlmResponse, displayJson, dumps, endRootSpan, errorClassificationSchema, eventSchema, eventsToMessages, executeCommand, extractActionName, extractRepoName, failureActionSchema, failureKindSchema, fetchExtension, fetchWithResolution, fileEditorActionSchema, fileEditorObservationSchema, finishActionSchema, getAgentFactory, getCachePath, getChangesInRepo, getClosestGitRepo, getCommitChanges, getCommitFileDiff, getDisplayBaseRef, getEnv, getFactoryInfo, getGitCommits, getGitDiff, getGitRepositoryMetadata, getLlmApiKey, getLogger, getRegisteredAgentDefinitions, getReposContext, getValidRef, globActionSchema, globObservationSchema, globalToolRegistry, grepActionSchema, grepMatchSchema, grepObservationSchema, handleDeprecatedModelFields, hookEventSchema, hookEventTypeSchema, hookExecutionEventSchema, imageContent, imageContentSchema, inputMetadataSchema, interruptEventSchema, isAbsolutePathSource, isAcpPatchEdit, isContentPolicyViolation, isConversationStateUpdateEvent, isEnabledFor, isGitUrl, isHostAbsolutePath, isLocalPathSource, isMessageEvent, isSecretKey, keywordTriggerSchema, listRegisteredTools, listTasksActionSchema, listUsableTools, llmCompletionLogEventSchema, llmCompletionResponseSchema, llmConvertibleEventSchema, llmProfileIdSchema, llmProfileSchema, llmProfileSecretRef, llmProviderIdSchema, llmProviderSecretRef, llmResponseType, llmUsageSchema, loadAgentsFromDir, loadAgentsFromDirs, loadProjectAgents, loadSkillsFromDir, loadUserAgents, loads, maybeInitLaminar, maybeTruncate, mergeSkillsByName, messageEventSchema, messageSchema, messageToolCallSchema, normalizeGitUrl, observabilityEnvKeys, observabilityMetadataSchema, observabilitySpanNameSchema, observabilityTagsSchema, observationEventSchema, observe, openAiApiModeSchema, openHandsAgentProfileSchema, openHandsAgentSettingsSchema, pageIterator, parseExtensionSource, pathMatchesGlob, pathTriggerSchema, pauseEventSchema, posixPathName, profileVerificationSettingsSchema, promptCacheRetentionSchema, reasoningEffortSchema, reasoningItemSchema, reasoningSummarySchema, redactTextSecrets, redactUrlCredentials, redactUrlCredentialsInText, redactUrlParams, redactedThinkingBlockSchema, reduceTextContent, registerAgent, registerAgentIfAbsent, registerTool, registerToolFactory, resetAgentRegistryForTests, resolveLlmApiKeyRef, resolveLlmProfileApiKeyRef, resolveProviderFromProfile, resolveTool, restoreConversationState, resumeTranscriptEventSchema, runGitCommand, sanitizeOpenHandsMentions, sanitizedEnv, scheduleTaskActionSchema, secretRefSchema, sendMessageActionSchema, sendMessageObservationSchema, setupLogging, shouldEnableObservability, skillResourcesSchema, skillSchema, skillsToPrompt, sourceTypeSchema, startChildSpan, startRootSpan, streamingDeltaEventSchema, systemPromptEventSchema, taskItemSchema, taskMutationActionSchema, taskTrackerActionSchema, taskTrackerObservationSchema, taskTriggerSchema, terminalActionSchema, terminalObservationSchema, textContent, textContentSchema, thinkActionSchema, thinkingBlockSchema, toCamelCase, toLLMMessage, toPosixPath, tokenEventSchema, toolAnnotationsSchema, toolSpecSchema, triggerSchema, userRejectObservationSchema, utcNow, validateAgentProfile, validateAgentSettings, validateConversationSettings, validateExtensionName, validateGitRepository, workspace };
+export { AGENT_OUTCOME, AGENT_PROFILE_SCHEMA_VERSION, AGENT_SETTINGS_SCHEMA_VERSION, Agent, AgentContext, AgentDefinition, AgentFinishedCritic, AnthropicMessagesClient, AsyncCallbackWrapper, AsyncProcessManager, BROWSER_TOOL_NAME, BUILT_IN_TOOLS, BUILT_IN_TOOL_FACTORIES, BrowserTool, CANCEL_TASK_TOOL_NAME, CONTENT_POLICY_NUDGE, CONVERSATION_SETTINGS_SCHEMA_VERSION, CORRECTIVE_NUDGE, CancelTaskTool, ConversationState, CriticBase, CriticResult, DEFAULT_EXEC_TOOL_NAMES, DEFAULT_TEXT_CONTENT_LIMIT, DEFAULT_TRUNCATE_NOTICE, DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST, DuplicateEventError, EVENTS_DIR, EVENT_FILE_PATTERN, EmptyPatchCritic, EventLog, ExtensionFetchError, FULL_STATE_KEY, FileEditorExecutor, FileEditorTool, FinishTool, GIT_EMPTY_TREE_HASH, GeminiClient, GitChangeStatus, GitCommandError, GitError, GitPathError, GitRepositoryError, GlobExecutor, GlobTool, GrepExecutor, GrepTool, HookConfig, HookDecision, HookDefinition, HookExecutor, HookManager, HookMatcher, HookResult, HookEventType as HookTriggerEventType, HookType, InMemoryFileStore, InMemorySecretStore, InstallationInfo, InstallationMetadata, LIST_TASKS_TOOL_NAME, LLMContentPolicyViolationError, LLM_PROFILE_ID_PATTERN, LOCK_FILE_NAME, LOCK_TIMEOUT_SECONDS, ListTasksTool, LocalConversation, LocalFileStore, LocalWorkspace, LogLevel, MAX_FILE_SIZE_FOR_GIT_DIFF, MCPError, MCPTimeoutError, MCPToolAction, MCPToolDefinition, MCPToolExecutor, MCPToolObservation, MacOSKeychainSecretStore, MemoryLRUCache, N_CHAR_PREVIEW, NoCondensationAvailableError, NoOpCondenser, OPENHANDS_KEYRING_SERVICE, OpenAIChatClient, OpenAIResponsesClient, PAUSE_TASK_TOOL_NAME, ParallelToolExecutor, PassCritic, PauseTaskTool, PendingActionsQueue, PipelineCondenser, RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED, RESUME_TASK_TOOL_NAME, ROOT_PARENT_ID, RemoteConversation, RemoteWorkspace, RepoSource, ResumeTaskTool, RollingCondenser, RootSpan, SCHEDULE_TASK_TOOL_NAME, SECRET_KEY_PATTERNS, SEND_MESSAGE_TOOL_NAME, SENSITIVE_URL_PARAMS, SUB_AGENT_TOOL_NAME, ScheduleTaskTool, SendMessageTool, Skill, StuckDetector, TASK_SCHEDULER_TOOL_FACTORIES, TaskTrackerExecutor, TaskTrackerTool, TerminalExecutor, TerminalTool, TestLLM, TestLLMExhaustedError, ThinkTool, ToolDefinition, ToolRegistry, VERSION, ValueError, View, acpAgentProfileSchema, acpAgentSettingsSchema, acpServerKindSchema, acpToolCallEventSchema, actionEventSchema, actionEventsFromMessage, agentErrorEventSchema, agentProfileSchema, agentSettingsSchema, baseObservationSchema, baseToolObservationSchema, browserActionSchema, browserObservationSchema, buildAnthropicMessagesBody, buildChatCompletionsBody, buildCloneUrl, buildGeminiInteractionsBody, buildOpenAIResponsesBody, cancellationToken, checkScheduleValue, classifyError, classifyResponse, clearRawLlmFieldsWhenProfileSelected, condensationRequestSchema, condensationRequirement, condensationSchema, condensationSummaryEventSchema, contentSchema, contentToString, conversationErrorEventSchema, conversationExecutionStatus, conversationSettingsSchema, conversationStateUpdateEventSchema, createAnthropicClientFromProfile, createClientFromProfile, createGeminiClientFromProfile, createMcpTools, createOpenAIChatClientFromProfile, createOpenAIResponsesClientFromProfile, criticModeSchema, defaultAgentSettings, defaultToolSpecs, detectProviderFromBaseUrl, disableLogger, discoverAgents, dispatchLlmResponse, displayJson, dumps, endRootSpan, errorClassificationSchema, eventSchema, eventsToMessages, executeCommand, extractActionName, extractRepoName, failureActionSchema, failureKindSchema, fetchExtension, fetchWithResolution, fileEditorActionSchema, fileEditorObservationSchema, finishActionSchema, getAgentFactory, getCachePath, getChangesInRepo, getClosestGitRepo, getCommitChanges, getCommitFileDiff, getDisplayBaseRef, getEnv, getFactoryInfo, getGitCommits, getGitDiff, getGitRepositoryMetadata, getLlmApiKey, getLogger, getRegisteredAgentDefinitions, getReposContext, getUserPersistenceDir, getValidRef, globActionSchema, globObservationSchema, globalToolRegistry, grepActionSchema, grepMatchSchema, grepObservationSchema, handleDeprecatedModelFields, hookEventSchema, hookEventTypeSchema, hookExecutionEventSchema, imageContent, imageContentSchema, inputMetadataSchema, interruptEventSchema, isAbsolutePathSource, isAcpPatchEdit, isContentPolicyViolation, isConversationStateUpdateEvent, isEnabledFor, isGitUrl, isHostAbsolutePath, isLocalPathSource, isMessageEvent, isSecretKey, keywordTriggerSchema, listRegisteredTools, listTasksActionSchema, listUsableTools, llmCompletionLogEventSchema, llmCompletionResponseSchema, llmConvertibleEventSchema, llmProfileIdSchema, llmProfileSchema, llmProfileSecretRef, llmProviderIdSchema, llmProviderSecretRef, llmResponseType, llmUsageSchema, loadAgentsFromDir, loadAgentsFromDirs, loadProjectAgents, loadSkillsFromDir, loadUserAgents, loads, maybeInitLaminar, maybeTruncate, mergeSkillsByName, messageEventSchema, messageSchema, messageToolCallSchema, normalizeGitUrl, observabilityEnvKeys, observabilityMetadataSchema, observabilitySpanNameSchema, observabilityTagsSchema, observationEventSchema, observe, openAiApiModeSchema, openHandsAgentProfileSchema, openHandsAgentSettingsSchema, pageIterator, parseExtensionSource, pathMatchesGlob, pathTriggerSchema, pauseEventSchema, posixPathName, profileVerificationSettingsSchema, promptCacheRetentionSchema, reasoningEffortSchema, reasoningItemSchema, reasoningSummarySchema, redactTextSecrets, redactUrlCredentials, redactUrlCredentialsInText, redactUrlParams, redactedThinkingBlockSchema, reduceTextContent, registerAgent, registerAgentIfAbsent, registerBuiltinResolver, registerTool, registerToolFactory, resetAgentRegistryForTests, resolveLlmApiKeyRef, resolveLlmProfileApiKeyRef, resolveProviderFromProfile, resolveTool, restoreConversationState, resumeTranscriptEventSchema, runGitCommand, sanitizeOpenHandsMentions, sanitizedEnv, scheduleTaskActionSchema, secretRefSchema, sendMessageActionSchema, sendMessageObservationSchema, setupLogging, shouldEnableObservability, skillResourcesSchema, skillSchema, skillsToPrompt, sourceTypeSchema, startChildSpan, startRootSpan, streamingDeltaEventSchema, systemPromptEventSchema, taskItemSchema, taskMutationActionSchema, taskTrackerActionSchema, taskTrackerObservationSchema, taskTriggerSchema, terminalActionSchema, terminalObservationSchema, textContent, textContentSchema, thinkActionSchema, thinkingBlockSchema, toCamelCase, toLLMMessage, toPosixPath, tokenEventSchema, toolAnnotationsSchema, toolSpecSchema, triggerSchema, userRejectObservationSchema, utcNow, validateAgentProfile, validateAgentSettings, validateConversationSettings, validateExtensionName, validateGitRepository, workspace };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map
