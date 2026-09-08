@@ -8074,15 +8074,6 @@
                         "type": "null"
                       }
                     ]
-                  },
-                  "org_config": {
-                    "default": null,
-                    "anyOf": [
-                      {},
-                      {
-                        "type": "null"
-                      }
-                    ]
                   }
                 },
                 "additionalProperties": {}
