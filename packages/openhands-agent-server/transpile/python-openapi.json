@@ -227,7 +227,7 @@
                 "type": "null"
               }
             ],
-            "description": "Provider registry key identifying which ACP CLI this agent runs ('claude-code', 'codex', 'gemini-cli', or 'custom'); None when the agent is built directly rather than via ACPAgentSettings. Set by ACPAgentSettings.create_agent() from ACPAgentSettings.acp_server so the authoritative key survives onto the agent — and thus onto ConversationInfo.agent — because the launch command in acp_command does not reliably reverse-map to a provider. Informational only: consumers use it to resolve a provider brand label / model list; the subprocess is still launched from acp_command.",
+            "description": "Provider registry key identifying which ACP CLI this agent runs (any ACP_PROVIDERS key, or 'custom'); None when the agent is built directly rather than via ACPAgentSettings. Set by ACPAgentSettings.create_agent() from ACPAgentSettings.acp_server so the authoritative key survives onto the agent — and thus onto ConversationInfo.agent — because the launch command in acp_command does not reliably reverse-map to a provider. Informational only: consumers use it to resolve a provider brand label / model list; the subprocess is still launched from acp_command.",
             "title": "Acp Server"
           },
           "acp_session_mode": {
@@ -239,7 +239,7 @@
                 "type": "null"
               }
             ],
-            "description": "Session mode ID to set after creating a session. If None (default), auto-detected from the ACP server type: 'bypassPermissions' for claude-agent-acp, 'agent-full-access' for codex-acp.",
+            "description": "Session mode ID to set after creating a session. If None (default), auto-detected from the ACP server type: 'bypassPermissions' for claude-agent-acp, 'agent-full-access' for codex-acp; a provider with no such mode (pi-acp) skips the call.",
             "title": "Acp Session Mode"
           },
           "acp_startup_timeout": {
@@ -497,7 +497,7 @@
                 "type": "null"
               }
             ],
-            "description": "Provider registry key identifying which ACP CLI this agent runs ('claude-code', 'codex', 'gemini-cli', or 'custom'); None when the agent is built directly rather than via ACPAgentSettings. Set by ACPAgentSettings.create_agent() from ACPAgentSettings.acp_server so the authoritative key survives onto the agent — and thus onto ConversationInfo.agent — because the launch command in acp_command does not reliably reverse-map to a provider. Informational only: consumers use it to resolve a provider brand label / model list; the subprocess is still launched from acp_command.",
+            "description": "Provider registry key identifying which ACP CLI this agent runs (any ACP_PROVIDERS key, or 'custom'); None when the agent is built directly rather than via ACPAgentSettings. Set by ACPAgentSettings.create_agent() from ACPAgentSettings.acp_server so the authoritative key survives onto the agent — and thus onto ConversationInfo.agent — because the launch command in acp_command does not reliably reverse-map to a provider. Informational only: consumers use it to resolve a provider brand label / model list; the subprocess is still launched from acp_command.",
             "title": "Acp Server"
           },
           "acp_session_mode": {
@@ -509,7 +509,7 @@
                 "type": "null"
               }
             ],
-            "description": "Session mode ID to set after creating a session. If None (default), auto-detected from the ACP server type: 'bypassPermissions' for claude-agent-acp, 'agent-full-access' for codex-acp.",
+            "description": "Session mode ID to set after creating a session. If None (default), auto-detected from the ACP server type: 'bypassPermissions' for claude-agent-acp, 'agent-full-access' for codex-acp; a provider with no such mode (pi-acp) skips the call.",
             "title": "Acp Session Mode"
           },
           "acp_startup_timeout": {
@@ -17782,18 +17782,6 @@
             "description": "Relative marketplace JSON path for public skills. Set to null to load all public skills.",
             "title": "Marketplace Path"
           },
-          "org_config": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/OrgConfig"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "deprecated": true,
-            "description": "Deprecated since v1.28.0 and scheduled for removal in v1.33.0. Single organization skills configuration; prefer org_configs."
-          },
           "org_configs": {
             "anyOf": [
               {
@@ -21677,7 +21665,7 @@
   "info": {
     "description": "OpenHands Agent Server - REST/WebSocket interface for OpenHands AI Agent",
     "title": "OpenHands Agent Server",
-    "version": "1.44.0"
+    "version": "1.45.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -25050,7 +25038,8 @@
     },
     "/api/desktop/url": {
       "get": {
-        "description": "Get the noVNC URL for desktop access.\n\nArgs:\n    base_url: Base URL for the noVNC server (default: http://localhost:8002)\n\nReturns:\n    noVNC URL if available, None otherwise",
+        "deprecated": true,
+        "description": "Deprecated since v1.44.1 and scheduled for removal in v1.49.0.\n\nThe VNC/desktop stack has been removed; this always returns 503, the\nsame response every deployment has always gotten since VNC defaults off.",
         "operationId": "get_desktop_url_api_desktop_url_get",
         "parameters": [
           {
