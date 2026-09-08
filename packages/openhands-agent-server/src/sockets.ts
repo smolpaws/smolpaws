@@ -6,6 +6,7 @@ import type { BashEventService } from './bashService.js';
 import type { AgentServerConfig } from './config.js';
 import type { ConversationService } from './conversationService.js';
 import { bashErrorSchema, executeBashRequestSchema, messageFromSendRequest, sendMessageRequestSchema, type BashEvent, type Event } from './models.js';
+import type { Subscriber } from './pubSub.js';
 
 const OPEN_SOCKET_STATE = 1;
 
@@ -40,10 +41,16 @@ async function handleEventsSocket(socket: SocketLike, request: FastifyRequest, d
     return;
   }
 
+  // The live socket is what token streaming is for (upstream sockets.py sets
+  // `receives_streaming_deltas = True` on its WebSocket subscriber). The stored
+  // function carries the opt-in field so EventService's PubSub keeps fanning
+  // `StreamingDeltaEvent`s out to this (and only this) subscriber.
   const sendEvent = (event: Event): void => {
     if (socket.readyState === OPEN_SOCKET_STATE) socket.send(JSON.stringify(event));
   };
-  const subscriberId = await eventService.subscribeToEvents(sendEvent);
+  const subscriber: Subscriber<Event> = sendEvent;
+  subscriber.receivesStreamingDeltas = true;
+  const subscriberId = await eventService.subscribeToEvents(subscriber);
   const query = request.query as Record<string, unknown>;
   const resendMode = typeof query.resend_mode === 'string' ? query.resend_mode : null;
   const resendAll = query.resend_all === 'true' || query.resend_all === true;
@@ -102,7 +109,7 @@ async function handleBashEventsSocket(socket: SocketLike, request: FastifyReques
   socket.on('error', () => void deps.bashEventService.unsubscribeFromEvents(subscriberId));
 }
 
-async function authenticateSocket(socket: SocketLike, request: FastifyRequest, config: AgentServerConfig): Promise<boolean> {
+export async function authenticateSocket(socket: SocketLike, request: FastifyRequest, config: AgentServerConfig): Promise<boolean> {
   const expected = config.sessionApiKey;
   if (expected === undefined || expected === null || expected === '') return true;
 
@@ -140,6 +147,13 @@ function parseAuthMessage(message: unknown): { readonly session_api_key: string 
   }
 }
 
+export function isAuthControlMessage(data: unknown): boolean {
+  // Match redundant auth frames left unread after legacy (query/header) auth.
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return false;
+  const record = data as Record<string, unknown>;
+  return record.type === 'auth' && Object.keys(record).every((key) => key === 'type' || key === 'session_api_key');
+}
+
 function readFirstSocketMessage(socket: SocketLike, timeoutMs: number): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -166,7 +180,7 @@ function readFirstSocketMessage(socket: SocketLike, timeoutMs: number): Promise<
   });
 }
 
-function bufferToString(data: unknown): string {
+export function bufferToString(data: unknown): string {
   if (typeof data === 'string') return data;
   if (Buffer.isBuffer(data)) return data.toString('utf8');
   if (data instanceof ArrayBuffer) return Buffer.from(data).toString('utf8');
@@ -174,7 +188,25 @@ function bufferToString(data: unknown): string {
   return String(data);
 }
 
-interface SocketLike {
+export function isSocketConnected(socket: SocketLike): boolean {
+  return socket.readyState === OPEN_SOCKET_STATE;
+}
+
+export function safeCloseSocket(socket: SocketLike, code = 1000, reason = 'Connection closed'): void {
+  try {
+    socket.close(code, reason);
+  } catch {
+    // WebSocket may already be closed or in an inconsistent state.
+  }
+}
+
+export function getConversationService(deps: SocketRouteDeps): ConversationService {
+  // The conversation service is carried in the route deps rather than a module
+  // singleton; session_socket and sockets share the same instance.
+  return deps.conversationService;
+}
+
+export interface SocketLike {
   readonly readyState: number;
   send(data: string): void;
   close(code?: number, reason?: string): void;

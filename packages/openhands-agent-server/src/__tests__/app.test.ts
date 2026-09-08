@@ -12,7 +12,7 @@ import { createAgentServerApp } from '../app.js';
 import { BashEventService } from '../bashService.js';
 import { getDefaultConfig } from '../config.js';
 import { leaseFileName } from '../conversationLease.js';
-import { PubSub } from '../pubSub.js';
+import { PubSub, type Subscriber } from '../pubSub.js';
 import { conversationSecretRef } from '../conversationSecrets.js';
 import { generateOpenApiSchema } from '../openapi.js';
 import { ServerStateService } from '../serverState.js';
@@ -740,6 +740,42 @@ describe('createAgentServerApp', () => {
     }
   });
 
+  test('serves the envelope-based session socket with sync/durable replay', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-session-'));
+    const { app, conversationService } = await createAgentServerApp({ config: { conversationsPath: path.join(root, 'conversations') }, secretStore: new InMemorySecretStore() });
+    try {
+      const start = await app.inject({ method: 'POST', url: '/api/conversations', payload: {} });
+      const id = start.json<{ id: string }>().id;
+      await app.inject({ method: 'POST', url: `/api/conversations/${id}/events`, payload: { role: 'user', content: [textContent('hello session')], run: false } });
+      const eventService = await conversationService.getEventService(id);
+      const first = eventService?.state.events.at(-1);
+      if (first === undefined) throw new Error('Expected persisted event');
+
+      await app.listen({ host: '127.0.0.1', port: 0 });
+      const address = app.server.address();
+      if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
+      const socket = new WebSocket(`ws://127.0.0.1:${address.port}/sockets/session/${id}?after_seq=-1`);
+      try {
+        const syncFrame = waitForWebSocketJson<{ type?: string; from_seq?: number | null; through_seq?: number | null }>(socket, (frame) => frame.type === 'sync');
+        const durableFrame = waitForWebSocketJson<{ type?: string; seq?: number; event?: { id?: string } }>(socket, (frame) => frame.type === 'durable' && frame.event?.id === first.id);
+        await waitForWebSocketOpen(socket);
+
+        const sync = await syncFrame;
+        expect(sync.type).toBe('sync');
+        expect(sync.from_seq).toBe(-1);
+
+        const durable = await durableFrame;
+        expect(durable.event?.id).toBe(first.id);
+        expect(durable.seq).toBe(0);
+      } finally {
+        socket.close();
+      }
+    } finally {
+      await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('canonicalizes git paths reached through a filesystem alias', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
     const repo = path.join(root, 'repo');
@@ -1013,6 +1049,23 @@ describe('createAgentServerApp', () => {
       const id = pubSub.subscribe(() => undefined);
       expect(pubSub.unsubscribe(id)).toBe(true);
     }
+    await pubSub.close();
+  });
+
+  test('fans streaming deltas only to opt-in subscribers', async () => {
+    const pubSub = new PubSub<{ kind: string; text?: string }>(50, { isStreamingDelta: (event) => event.kind === 'StreamingDeltaEvent' });
+    const defaultCalls: string[] = [];
+    const optedInCalls: string[] = [];
+    pubSub.subscribe((event) => { defaultCalls.push(event.kind); });
+    const optedIn: Subscriber<{ kind: string; text?: string }> = (event) => { optedInCalls.push(event.kind); };
+    optedIn.receivesStreamingDeltas = true;
+    pubSub.subscribe(optedIn);
+
+    await pubSub.publish({ kind: 'MessageEvent' });
+    await pubSub.publish({ kind: 'StreamingDeltaEvent', text: 'hel' });
+
+    expect(defaultCalls).toEqual(['MessageEvent']);
+    expect(optedInCalls).toEqual(['MessageEvent', 'StreamingDeltaEvent']);
     await pubSub.close();
   });
 

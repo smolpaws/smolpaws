@@ -21,6 +21,7 @@ import { registerBashRoutes } from './bashRouter.js';
 import { McpServerNotFoundError, ServerStateService } from './serverState.js';
 import { registerSettingsRoutes } from './settingsRouter.js';
 import { registerSkillsRoutes } from './skillsRouter.js';
+import { registerSessionSocket } from './sessionSocket.js';
 import { registerSocketRoutes } from './sockets.js';
 
 const startedAt = Date.now();
@@ -99,6 +100,7 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
   registerAgentProfileRoutes(app, serverStateService);
   registerSkillsRoutes(app, { stateDir: config.statePath, workspaceRoot: config.workspaceRoot });
   registerSocketRoutes(app, { config, conversationService, bashEventService });
+  registerSessionSocket(app, { config, conversationService });
   app.addHook('onClose', async () => {
     retentionController?.abort();
     await Promise.all([conversationService.close(), bashEventService.close(), retentionTask]);

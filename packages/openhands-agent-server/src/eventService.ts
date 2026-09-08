@@ -18,6 +18,7 @@ import {
   type Event,
   type LLMClient,
   type Message,
+  type StreamingDeltaEvent,
 } from '@smolpaws/openhands-agent';
 
 import { resolvePersistenceRoot } from './conversationMetadata.js';
@@ -45,7 +46,7 @@ export class EventService {
   readonly stored: StoredConversation;
   readonly eventLog: EventLog;
   readonly state: ConversationState;
-  private readonly pubSub = new PubSub<Event>(50);
+  private readonly pubSub = new PubSub<Event>(50, { isStreamingDelta: isStreamingDeltaEvent });
   private readonly saveConversation: (stored: StoredConversation) => Promise<void>;
   private readonly secretStore: SecretStore | undefined;
   private readonly agentFactory: AgentFactory | undefined;
@@ -391,6 +392,10 @@ function conversationEventDir(conversationId: string): string {
     throw new Error(`Invalid conversationId: ${conversationId}`);
   }
   return `${safeConversationId}/${EVENTS_DIR}`;
+}
+
+function isStreamingDeltaEvent(event: Event): event is StreamingDeltaEvent {
+  return event.kind === 'StreamingDeltaEvent';
 }
 
 function isEventLogDeadlock(error: unknown): boolean {
