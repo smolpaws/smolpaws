@@ -448,7 +448,6 @@ export const skillsRequestSchema = z
     marketplace_path: z.string().nullable().default(null),
     sandbox_config: z.unknown().nullable().default(null),
     org_configs: z.array(z.unknown()).nullable().default(null),
-    org_config: z.unknown().nullable().default(null),
   })
   .passthrough();
 export type SkillsRequest = z.infer<typeof skillsRequestSchema>;
