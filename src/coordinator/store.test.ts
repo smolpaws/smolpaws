@@ -72,6 +72,41 @@ test('two first messages resolving one new lane converge on one conversation_id'
   assert.equal([a.created, b.created].filter(Boolean).length, 1); // exactly one insert won
 });
 
+test('one conversation cannot be bound to two lanes', () => {
+  const { store } = newStore();
+  store.resolveLane(lane({ laneKey: 'lane-a' }), 'shared-conversation', at(0));
+  assert.throws(
+    () => store.resolveLane(lane({ laneKey: 'lane-b', chatId: 'chat-b' }), 'shared-conversation', at(1)),
+    /UNIQUE constraint failed: lanes\.conversation_id/u,
+  );
+});
+
+test('work must be inserted through a known lane and derives its conversation binding', () => {
+  const { store } = newStore();
+  assert.throws(
+    () => store.acceptIntake('missing-lane', { sourceKey: 'orphan', agentEventId: 'event', payload: {} }, at(0)),
+    /unknown lane/u,
+  );
+  const binding = bind(store, at(1));
+  const work = store.insertDelivery({
+    sourceKey: 'event:destination',
+    laneKey: binding.laneKey,
+    agentEventId: 'event',
+    payload: {},
+  }, at(2));
+  assert.equal(work.conversationId, binding.conversationId);
+});
+
+test('work schema enforces the lane foreign key after restart', () => {
+  const dbPath = tempDbPath();
+  const first = newStore(dbPath);
+  bind(first.store, at(0));
+  first.db.close();
+  const second = newStore(dbPath);
+  const keys = second.db.prepare('PRAGMA foreign_key_list(work)').all() as Array<{ table: string; from: string }>;
+  assert.ok(keys.some((key) => key.table === 'lanes' && key.from === 'lane_key'));
+});
+
 test('markLaneConversationReady flips the durable flag', () => {
   const { store } = newStore();
   bind(store, at(0));
@@ -85,21 +120,21 @@ test('markLaneConversationReady flips the durable flag', () => {
 test('acceptIntake is idempotent on source_key and assigns monotonic per-lane sequence', () => {
   const { store } = newStore();
   const binding = bind(store, at(0));
-  const a1 = store.acceptIntake(binding, { sourceKey: 'wa:msg-A', agentEventId: 'ev-A', payload: { t: 'A' } }, at(1));
-  const a2 = store.acceptIntake(binding, { sourceKey: 'wa:msg-A', agentEventId: 'ev-A', payload: { t: 'A' } }, at(2));
+  const a1 = store.acceptIntake(binding.laneKey, { sourceKey: 'wa:msg-A', agentEventId: 'ev-A', payload: { t: 'A' } }, at(1));
+  const a2 = store.acceptIntake(binding.laneKey, { sourceKey: 'wa:msg-A', agentEventId: 'ev-A', payload: { t: 'A' } }, at(2));
   assert.equal(a1.id, a2.id); // duplicate accept returns the existing row
   assert.equal(a1.sequence, 1);
 
-  const b = store.acceptIntake(binding, { sourceKey: 'wa:msg-B', agentEventId: 'ev-B', payload: { t: 'B' } }, at(3));
+  const b = store.acceptIntake(binding.laneKey, { sourceKey: 'wa:msg-B', agentEventId: 'ev-B', payload: { t: 'B' } }, at(3));
   assert.equal(b.sequence, 2);
 });
 
 test('intake and delivery keep independent sequences within a lane', () => {
   const { store } = newStore();
   const binding = bind(store, at(0));
-  const i1 = store.acceptIntake(binding, { sourceKey: 'i1', agentEventId: 'e1', payload: {} }, at(1));
+  const i1 = store.acceptIntake(binding.laneKey, { sourceKey: 'i1', agentEventId: 'e1', payload: {} }, at(1));
   const d1 = store.insertDelivery(
-    { sourceKey: 'e1:dest', laneKey: binding.laneKey, conversationId: binding.conversationId, agentEventId: 'e1', payload: {} },
+    { sourceKey: 'e1:dest', laneKey: binding.laneKey, agentEventId: 'e1', payload: {} },
     at(2),
   );
   assert.equal(i1.sequence, 1);
@@ -111,8 +146,8 @@ test('intake and delivery keep independent sequences within a lane', () => {
 test('only the unresolved lane head is claimable; later work waits behind it', () => {
   const { store } = newStore();
   const binding = bind(store, at(0));
-  const a = store.acceptIntake(binding, { sourceKey: 'A', agentEventId: 'eA', payload: {} }, at(1));
-  store.acceptIntake(binding, { sourceKey: 'B', agentEventId: 'eB', payload: {} }, at(2));
+  const a = store.acceptIntake(binding.laneKey, { sourceKey: 'A', agentEventId: 'eA', payload: {} }, at(1));
+  store.acceptIntake(binding.laneKey, { sourceKey: 'B', agentEventId: 'eB', payload: {} }, at(2));
 
   const claim = store.claimReady('w1', at(3), 'intake');
   assert.equal(claim?.row.id, a.id); // head first
@@ -131,7 +166,7 @@ test('only the unresolved lane head is claimable; later work waits behind it', (
 test('a row cannot be double-claimed and a stale generation cannot settle', () => {
   const { store } = newStore();
   const binding = bind(store, at(0));
-  store.acceptIntake(binding, { sourceKey: 'A', agentEventId: 'eA', payload: {} }, at(1));
+  store.acceptIntake(binding.laneKey, { sourceKey: 'A', agentEventId: 'eA', payload: {} }, at(1));
 
   const claim = store.claimReady('w1', at(2), 'intake');
   assert.ok(claim);
@@ -151,7 +186,7 @@ test('claimReady across two connections on the same file yields one winner', () 
   const a = newStore(dbPath);
   const b = newStore(dbPath);
   const binding = bind(a.store, at(0));
-  a.store.acceptIntake(binding, { sourceKey: 'A', agentEventId: 'eA', payload: {} }, at(1));
+  a.store.acceptIntake(binding.laneKey, { sourceKey: 'A', agentEventId: 'eA', payload: {} }, at(1));
 
   const claimA = a.store.claimReady('A', at(2), 'intake');
   const claimB = b.store.claimReady('B', at(2), 'intake');
@@ -163,7 +198,7 @@ test('claimReady across two connections on the same file yields one winner', () 
 test('an expired intake claim reconciles back to ready and is reclaimable', () => {
   const { store } = newStore();
   const binding = bind(store, at(0));
-  store.acceptIntake(binding, { sourceKey: 'A', agentEventId: 'eA', payload: {} }, at(1));
+  store.acceptIntake(binding.laneKey, { sourceKey: 'A', agentEventId: 'eA', payload: {} }, at(1));
   const claim = store.claimReady('w1', at(2), 'intake');
   assert.ok(claim);
 
@@ -186,7 +221,7 @@ test('delivery claim that attempted a send reconciles to delivery_unknown, not r
   const { store } = newStore();
   const binding = bind(store, at(0));
   const d = store.insertDelivery(
-    { sourceKey: 'e1:dest', laneKey: binding.laneKey, conversationId: binding.conversationId, agentEventId: 'e1', payload: {} },
+    { sourceKey: 'e1:dest', laneKey: binding.laneKey, agentEventId: 'e1', payload: {} },
     at(1),
   );
   const claim = store.claimReady('w1', at(2), 'delivery');
@@ -206,7 +241,7 @@ test('delivery claim that crashed before sending reconciles to ready', () => {
   const { store } = newStore();
   const binding = bind(store, at(0));
   store.insertDelivery(
-    { sourceKey: 'e1:dest', laneKey: binding.laneKey, conversationId: binding.conversationId, agentEventId: 'e1', payload: {} },
+    { sourceKey: 'e1:dest', laneKey: binding.laneKey, agentEventId: 'e1', payload: {} },
     at(1),
   );
   const claim = store.claimReady('w1', at(2), 'delivery');
@@ -222,7 +257,7 @@ test('delivery claim that crashed before sending reconciles to ready', () => {
 test('settle(retry) schedules exponential backoff and exhausts to failed', () => {
   const { store } = newStore();
   const binding = bind(store, at(0));
-  const work = store.acceptIntake(binding, { sourceKey: 'A', agentEventId: 'eA', payload: {} }, at(0));
+  const work = store.acceptIntake(binding.laneKey, { sourceKey: 'A', agentEventId: 'eA', payload: {} }, at(0));
 
   // attempt 1
   let claim = store.claimReady('w', at(0), 'intake');
@@ -256,7 +291,7 @@ test('settle(done) records the external message id', () => {
   const { store } = newStore();
   const binding = bind(store, at(0));
   store.insertDelivery(
-    { sourceKey: 'e1:dest', laneKey: binding.laneKey, conversationId: binding.conversationId, agentEventId: 'e1', payload: {} },
+    { sourceKey: 'e1:dest', laneKey: binding.laneKey, agentEventId: 'e1', payload: {} },
     at(1),
   );
   const claim = store.claimReady('w', at(2), 'delivery');
@@ -268,8 +303,8 @@ test('settle(done) records the external message id', () => {
 test('a failed head blocks the lane until an operator skips it', () => {
   const { store } = newStore();
   const binding = bind(store, at(0));
-  const a = store.acceptIntake(binding, { sourceKey: 'A', agentEventId: 'eA', payload: {} }, at(0));
-  store.acceptIntake(binding, { sourceKey: 'B', agentEventId: 'eB', payload: {} }, at(0));
+  const a = store.acceptIntake(binding.laneKey, { sourceKey: 'A', agentEventId: 'eA', payload: {} }, at(0));
+  store.acceptIntake(binding.laneKey, { sourceKey: 'B', agentEventId: 'eB', payload: {} }, at(0));
 
   const claim = store.claimReady('w', at(0), 'intake');
   store.settle(claim!, { kind: 'fail', error: 'poison' }, at(0)); // A → failed
@@ -286,7 +321,7 @@ test('confirmDelivered and requeue resolve a delivery_unknown item', () => {
   const { store } = newStore();
   const binding = bind(store, at(0));
   const d = store.insertDelivery(
-    { sourceKey: 'e1:dest', laneKey: binding.laneKey, conversationId: binding.conversationId, agentEventId: 'e1', payload: {} },
+    { sourceKey: 'e1:dest', laneKey: binding.laneKey, agentEventId: 'e1', payload: {} },
     at(1),
   );
   const claim = store.claimReady('w', at(2), 'delivery');
@@ -305,9 +340,9 @@ test('confirmDelivered and requeue resolve a delivery_unknown item', () => {
 test('claimReady kind filter isolates intake from delivery', () => {
   const { store } = newStore();
   const binding = bind(store, at(0));
-  store.acceptIntake(binding, { sourceKey: 'A', agentEventId: 'eA', payload: {} }, at(0));
+  store.acceptIntake(binding.laneKey, { sourceKey: 'A', agentEventId: 'eA', payload: {} }, at(0));
   store.insertDelivery(
-    { sourceKey: 'eA:dest', laneKey: binding.laneKey, conversationId: binding.conversationId, agentEventId: 'eA', payload: {} },
+    { sourceKey: 'eA:dest', laneKey: binding.laneKey, agentEventId: 'eA', payload: {} },
     at(0),
   );
   assert.equal(store.claimReady('w', at(1), 'delivery')?.row.kind, 'delivery');

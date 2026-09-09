@@ -113,7 +113,6 @@ export interface DeliveryInput {
   /** Unique `{agentEventId}:{destinationLaneKey}` key (ADR §8 projection rule). */
   sourceKey: string;
   laneKey: string;
-  conversationId: string;
   /** The originating agent event this delivery is derived from. */
   agentEventId: string;
   payload: unknown;

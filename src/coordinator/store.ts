@@ -195,11 +195,10 @@ export class MessageWorkStore {
   // ---- Accept work -------------------------------------------------------------------------------
 
   /** Accept intake work; idempotent on (kind='intake', source_key). Returns existing-or-new row. */
-  acceptIntake(binding: LaneBinding, input: IntakeInput, now: Date | number): WorkRow {
+  acceptIntake(laneKey: string, input: IntakeInput, now: Date | number): WorkRow {
     return this.insertWork('intake', {
       sourceKey: input.sourceKey,
-      laneKey: binding.laneKey,
-      conversationId: binding.conversationId,
+      laneKey,
       agentEventId: input.agentEventId,
       payload: input.payload,
     }, now);
@@ -210,7 +209,6 @@ export class MessageWorkStore {
     return this.insertWork('delivery', {
       sourceKey: input.sourceKey,
       laneKey: input.laneKey,
-      conversationId: input.conversationId,
       agentEventId: input.agentEventId,
       payload: input.payload,
     }, now);
@@ -221,7 +219,6 @@ export class MessageWorkStore {
     fields: {
       sourceKey: string;
       laneKey: string;
-      conversationId: string | null;
       agentEventId: string | null;
       payload: unknown;
     },
@@ -229,6 +226,10 @@ export class MessageWorkStore {
   ): WorkRow {
     const ts = iso(now);
     const tx = this.db.transaction((): WorkRow => {
+      const lane = this.db
+        .prepare(`SELECT conversation_id FROM lanes WHERE lane_key = ?`)
+        .get(fields.laneKey) as { conversation_id: string } | undefined;
+      if (!lane) throw new Error(`unknown lane: ${fields.laneKey}`);
       const existing = this.db
         .prepare(`SELECT * FROM work WHERE kind = ? AND source_key = ?`)
         .get(kind, fields.sourceKey) as RawWorkRow | undefined;
@@ -254,7 +255,7 @@ export class MessageWorkStore {
           source_key: fields.sourceKey,
           lane_key: fields.laneKey,
           sequence: seqRow.next,
-          conversation_id: fields.conversationId,
+          conversation_id: lane.conversation_id,
           agent_event_id: fields.agentEventId,
           available_at: ts,
           payload_json: JSON.stringify(fields.payload ?? null),

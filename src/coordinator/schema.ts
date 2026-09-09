@@ -40,16 +40,9 @@ CREATE TABLE IF NOT EXISTS work (
   external_message_id TEXT,
   payload_json        TEXT NOT NULL,
   created_at          TEXT NOT NULL,
-  updated_at          TEXT NOT NULL
+  updated_at          TEXT NOT NULL,
+  FOREIGN KEY (lane_key) REFERENCES lanes(lane_key)
 );
-
--- Idempotent accept: a duplicate platform input / projected delivery returns the existing row.
-CREATE UNIQUE INDEX IF NOT EXISTS ux_work_kind_source ON work (kind, source_key);
--- Monotonic ordering per lane/kind.
-CREATE UNIQUE INDEX IF NOT EXISTS ux_work_lane_seq ON work (lane_key, kind, sequence);
--- Claim scans and lane-head selection.
-CREATE INDEX IF NOT EXISTS ix_work_claim ON work (state, available_at);
-CREATE INDEX IF NOT EXISTS ix_work_lane ON work (lane_key, kind, sequence);
 
 -- Durable projector cursor per conversation: how far the delivery projector has consumed the EventLog.
 -- Deliveries are inserted before the cursor advances, so a crash replays and the unique (kind, source_key)
@@ -65,12 +58,59 @@ CREATE TABLE IF NOT EXISTS projection_cursors (
 );
 `;
 
+const INDEX_SQL = `
+CREATE UNIQUE INDEX IF NOT EXISTS ux_lanes_conversation ON lanes (conversation_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_work_kind_source ON work (kind, source_key);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_work_lane_seq ON work (lane_key, kind, sequence);
+CREATE INDEX IF NOT EXISTS ix_work_claim ON work (state, available_at);
+CREATE INDEX IF NOT EXISTS ix_work_lane ON work (lane_key, kind, sequence);
+`;
+
 export function applySchema(db: Database.Database): void {
   db.pragma('journal_mode = WAL');
   db.pragma('busy_timeout = 5000');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
+  validateLaneOwnership(db);
+  migrateWorkLaneForeignKey(db);
+  db.exec(INDEX_SQL);
   migrateProjectionCursorsParkedAt(db);
+}
+
+function validateLaneOwnership(db: Database.Database): void {
+  const duplicate = db.prepare(
+    `SELECT conversation_id, COUNT(*) AS count FROM lanes GROUP BY conversation_id HAVING COUNT(*) > 1 LIMIT 1`,
+  ).get() as { conversation_id: string; count: number } | undefined;
+  if (duplicate) throw new Error(`coordinator migration blocked: conversation '${duplicate.conversation_id}' is bound to ${duplicate.count} lanes`);
+  const orphan = db.prepare(
+    `SELECT w.id, w.lane_key FROM work w LEFT JOIN lanes l ON l.lane_key = w.lane_key WHERE l.lane_key IS NULL LIMIT 1`,
+  ).get() as { id: string; lane_key: string } | undefined;
+  if (orphan) throw new Error(`coordinator migration blocked: work '${orphan.id}' references unknown lane '${orphan.lane_key}'`);
+  const mismatch = db.prepare(
+    `SELECT w.id FROM work w JOIN lanes l ON l.lane_key = w.lane_key WHERE w.conversation_id IS NOT NULL AND w.conversation_id <> l.conversation_id LIMIT 1`,
+  ).get() as { id: string } | undefined;
+  if (mismatch) throw new Error(`coordinator migration blocked: work '${mismatch.id}' disagrees with its lane conversation binding`);
+}
+
+function migrateWorkLaneForeignKey(db: Database.Database): void {
+  const foreignKeys = db.prepare(`PRAGMA foreign_key_list(work)`).all() as Array<{ table: string; from: string; to: string }>;
+  if (foreignKeys.some((key) => key.table === 'lanes' && key.from === 'lane_key' && key.to === 'lane_key')) return;
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE work_with_lane_owner (
+        id TEXT PRIMARY KEY, kind TEXT NOT NULL, source_key TEXT NOT NULL, lane_key TEXT NOT NULL,
+        sequence INTEGER NOT NULL, conversation_id TEXT, agent_event_id TEXT, state TEXT NOT NULL,
+        available_at TEXT NOT NULL, claim_owner TEXT, claim_until TEXT,
+        generation INTEGER NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0,
+        send_attempted INTEGER NOT NULL DEFAULT 0, last_error TEXT, external_message_id TEXT,
+        payload_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        FOREIGN KEY (lane_key) REFERENCES lanes(lane_key)
+      );
+      INSERT INTO work_with_lane_owner SELECT * FROM work;
+      DROP TABLE work;
+      ALTER TABLE work_with_lane_owner RENAME TO work;
+    `);
+  }).immediate();
 }
 
 /** Idempotently add projection_cursors.parked_at to databases created before it existed. */

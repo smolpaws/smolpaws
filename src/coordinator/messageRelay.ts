@@ -172,7 +172,7 @@ export class MessageRelay {
     const sourceKey = this.buildIntakeSourceKey(descriptor, message.sourceMessageId);
     const agentEventId = this.deriveEventId(descriptor.platform, message.sourceMessageId);
     return this.store.acceptIntake(
-      binding,
+      binding.laneKey,
       { sourceKey, agentEventId, payload: message.content },
       this.now(),
     );
@@ -184,7 +184,9 @@ export class MessageRelay {
     if (!claim) return { kind: 'idle' };
     const { row } = claim;
     try {
-      const result = await this.agent.appendEvent(row.conversationId ?? '', {
+      const lane = this.store.getLane(row.laneKey);
+      if (!lane) throw new Error(`work references unknown lane: ${row.laneKey}`);
+      const result = await this.agent.appendEvent(lane.conversationId, {
         eventId: row.agentEventId ?? '',
         role: 'user',
         content: row.payload,
@@ -250,7 +252,6 @@ export class MessageRelay {
           {
             sourceKey,
             laneKey: lane.laneKey,
-            conversationId,
             agentEventId: event.id,
             payload: intent.payload,
           },
