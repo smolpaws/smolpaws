@@ -223,11 +223,12 @@ console.table(db.prepare(`
 
 console.log('work');
 console.table(db.prepare(`
-  SELECT kind, source_key, state, conversation_id, agent_event_id,
-         send_attempted, external_message_id, last_error, updated_at
-  FROM work
-  WHERE lane_key LIKE 'channel:slack:%'
-  ORDER BY updated_at DESC
+  SELECT w.kind, w.source_key, w.state, l.conversation_id, w.agent_event_id,
+         w.send_attempted, w.external_message_id, w.last_error, w.updated_at
+  FROM work w
+  JOIN lanes l ON l.lane_key = w.lane_key
+  WHERE w.lane_key LIKE 'channel:slack:%'
+  ORDER BY w.updated_at DESC
   LIMIT 20
 `).all());
 NODE

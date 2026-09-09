@@ -52,7 +52,6 @@ export interface WorkRow {
   sourceKey: string;
   laneKey: string;
   sequence: number;
-  conversationId: string | null;
   agentEventId: string | null;
   state: WorkState;
   availableAt: string;

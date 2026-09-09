@@ -138,7 +138,9 @@ test('append-response-loss: a retried integration reuses the same event id and i
   assert.equal(first.kind, 'retry');
 
   // Simulate the lost-write reality: mark that the server actually persisted it.
-  agent.appended.set(`${work.conversationId}:${work.agentEventId}`, {
+  const boundLane = store.getLane(work.laneKey);
+  assert.ok(boundLane);
+  agent.appended.set(`${boundLane.conversationId}:${work.agentEventId}`, {
     eventId: work.agentEventId!,
     content: 'hello',
   });

@@ -7,6 +7,37 @@
  */
 import type Database from 'better-sqlite3';
 
+const WORK_COLUMNS = [
+  ['id', 'TEXT PRIMARY KEY'],
+  ['kind', 'TEXT NOT NULL'],
+  ['source_key', 'TEXT NOT NULL'],
+  ['lane_key', 'TEXT NOT NULL'],
+  ['sequence', 'INTEGER NOT NULL'],
+  ['agent_event_id', 'TEXT'],
+  ['state', 'TEXT NOT NULL'],
+  ['available_at', 'TEXT NOT NULL'],
+  ['claim_owner', 'TEXT'],
+  ['claim_until', 'TEXT'],
+  ['generation', 'INTEGER NOT NULL DEFAULT 0'],
+  ['attempts', 'INTEGER NOT NULL DEFAULT 0'],
+  ['send_attempted', 'INTEGER NOT NULL DEFAULT 0'],
+  ['last_error', 'TEXT'],
+  ['external_message_id', 'TEXT'],
+  ['payload_json', 'TEXT NOT NULL'],
+  ['created_at', 'TEXT NOT NULL'],
+  ['updated_at', 'TEXT NOT NULL'],
+] as const;
+
+const WORK_COLUMN_LIST = WORK_COLUMNS.map(([name]) => name).join(', ');
+
+function createWorkTableSql(
+  tableName: 'work' | 'work_with_lane_owner',
+  ifNotExists: boolean,
+): string {
+  const columns = WORK_COLUMNS.map(([name, definition]) => `  ${name} ${definition}`).join(',\n');
+  return `CREATE TABLE ${ifNotExists ? 'IF NOT EXISTS ' : ''}${tableName} (\n${columns},\n  FOREIGN KEY (lane_key) REFERENCES lanes(lane_key)\n);`;
+}
+
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS lanes (
   lane_key           TEXT PRIMARY KEY,
@@ -21,28 +52,7 @@ CREATE TABLE IF NOT EXISTS lanes (
   last_seen_at       TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS work (
-  id                  TEXT PRIMARY KEY,
-  kind                TEXT NOT NULL,
-  source_key          TEXT NOT NULL,
-  lane_key            TEXT NOT NULL,
-  sequence            INTEGER NOT NULL,
-  conversation_id     TEXT,
-  agent_event_id      TEXT,
-  state               TEXT NOT NULL,
-  available_at        TEXT NOT NULL,
-  claim_owner         TEXT,
-  claim_until         TEXT,
-  generation          INTEGER NOT NULL DEFAULT 0,
-  attempts            INTEGER NOT NULL DEFAULT 0,
-  send_attempted      INTEGER NOT NULL DEFAULT 0,
-  last_error          TEXT,
-  external_message_id TEXT,
-  payload_json        TEXT NOT NULL,
-  created_at          TEXT NOT NULL,
-  updated_at          TEXT NOT NULL,
-  FOREIGN KEY (lane_key) REFERENCES lanes(lane_key)
-);
+${createWorkTableSql('work', true)}
 
 -- Durable projector cursor per conversation: how far the delivery projector has consumed the EventLog.
 -- Deliveries are inserted before the cursor advances, so a crash replays and the unique (kind, source_key)
@@ -71,10 +81,16 @@ export function applySchema(db: Database.Database): void {
   db.pragma('busy_timeout = 5000');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
-  validateLaneOwnership(db);
-  migrateWorkLaneForeignKey(db);
-  db.exec(INDEX_SQL);
+  enforceLaneOwnership(db);
   migrateProjectionCursorsParkedAt(db);
+}
+
+function enforceLaneOwnership(db: Database.Database): void {
+  db.transaction(() => {
+    validateLaneOwnership(db);
+    migrateWorkToLaneOwnership(db);
+    db.exec(INDEX_SQL);
+  }).immediate();
 }
 
 function validateLaneOwnership(db: Database.Database): void {
@@ -86,31 +102,33 @@ function validateLaneOwnership(db: Database.Database): void {
     `SELECT w.id, w.lane_key FROM work w LEFT JOIN lanes l ON l.lane_key = w.lane_key WHERE l.lane_key IS NULL LIMIT 1`,
   ).get() as { id: string; lane_key: string } | undefined;
   if (orphan) throw new Error(`coordinator migration blocked: work '${orphan.id}' references unknown lane '${orphan.lane_key}'`);
-  const mismatch = db.prepare(
-    `SELECT w.id FROM work w JOIN lanes l ON l.lane_key = w.lane_key WHERE w.conversation_id IS NOT NULL AND w.conversation_id <> l.conversation_id LIMIT 1`,
-  ).get() as { id: string } | undefined;
-  if (mismatch) throw new Error(`coordinator migration blocked: work '${mismatch.id}' disagrees with its lane conversation binding`);
+  if (workColumns(db).has('conversation_id')) {
+    const mismatch = db.prepare(
+      `SELECT w.id FROM work w JOIN lanes l ON l.lane_key = w.lane_key WHERE w.conversation_id IS NOT l.conversation_id LIMIT 1`,
+    ).get() as { id: string } | undefined;
+    if (mismatch) throw new Error(`coordinator migration blocked: work '${mismatch.id}' disagrees with its lane conversation binding`);
+  }
 }
 
-function migrateWorkLaneForeignKey(db: Database.Database): void {
+function workColumns(db: Database.Database): Set<string> {
+  const columns = db.prepare(`PRAGMA table_info(work)`).all() as Array<{ name: string }>;
+  return new Set(columns.map((column) => column.name));
+}
+
+function migrateWorkToLaneOwnership(db: Database.Database): void {
+  const hasLegacyConversation = workColumns(db).has('conversation_id');
   const foreignKeys = db.prepare(`PRAGMA foreign_key_list(work)`).all() as Array<{ table: string; from: string; to: string }>;
-  if (foreignKeys.some((key) => key.table === 'lanes' && key.from === 'lane_key' && key.to === 'lane_key')) return;
-  db.transaction(() => {
-    db.exec(`
-      CREATE TABLE work_with_lane_owner (
-        id TEXT PRIMARY KEY, kind TEXT NOT NULL, source_key TEXT NOT NULL, lane_key TEXT NOT NULL,
-        sequence INTEGER NOT NULL, conversation_id TEXT, agent_event_id TEXT, state TEXT NOT NULL,
-        available_at TEXT NOT NULL, claim_owner TEXT, claim_until TEXT,
-        generation INTEGER NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0,
-        send_attempted INTEGER NOT NULL DEFAULT 0, last_error TEXT, external_message_id TEXT,
-        payload_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-        FOREIGN KEY (lane_key) REFERENCES lanes(lane_key)
-      );
-      INSERT INTO work_with_lane_owner SELECT * FROM work;
-      DROP TABLE work;
-      ALTER TABLE work_with_lane_owner RENAME TO work;
-    `);
-  }).immediate();
+  const hasLaneForeignKey = foreignKeys.some(
+    (key) => key.table === 'lanes' && key.from === 'lane_key' && key.to === 'lane_key',
+  );
+  if (!hasLegacyConversation && hasLaneForeignKey) return;
+  db.exec(createWorkTableSql('work_with_lane_owner', false));
+  db.exec(`
+    INSERT INTO work_with_lane_owner (${WORK_COLUMN_LIST})
+    SELECT ${WORK_COLUMN_LIST} FROM work;
+    DROP TABLE work;
+    ALTER TABLE work_with_lane_owner RENAME TO work;
+  `);
 }
 
 /** Idempotently add projection_cursors.parked_at to databases created before it existed. */

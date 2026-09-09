@@ -51,6 +51,77 @@ function bind(store: MessageWorkStore, now: number, descriptor = lane()) {
   return store.resolveLane(descriptor, `conv-${descriptor.laneKey}`, now);
 }
 
+interface LegacyLaneSeed {
+  laneKey: string;
+  conversationId: string;
+}
+
+interface LegacyWorkSeed {
+  id: string;
+  laneKey: string;
+  conversationId: string | null;
+}
+
+/** Exact work/lanes shape from before lane ownership was enforced at the SQLite boundary. */
+function seedLegacyDatabase(
+  dbPath: string,
+  seed: { lanes?: LegacyLaneSeed[]; work?: LegacyWorkSeed[] },
+): void {
+  const db = new Database(dbPath);
+  db.exec(`
+    CREATE TABLE lanes (
+      lane_key TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, platform TEXT NOT NULL,
+      account_id TEXT, chat_id TEXT NOT NULL, thread_id TEXT, display_name TEXT,
+      conversation_ready INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL
+    );
+    CREATE TABLE work (
+      id TEXT PRIMARY KEY, kind TEXT NOT NULL, source_key TEXT NOT NULL, lane_key TEXT NOT NULL,
+      sequence INTEGER NOT NULL, conversation_id TEXT, agent_event_id TEXT, state TEXT NOT NULL,
+      available_at TEXT NOT NULL, claim_owner TEXT, claim_until TEXT,
+      generation INTEGER NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0,
+      send_attempted INTEGER NOT NULL DEFAULT 0, last_error TEXT, external_message_id TEXT,
+      payload_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX ux_work_kind_source ON work (kind, source_key);
+    CREATE UNIQUE INDEX ux_work_lane_seq ON work (lane_key, kind, sequence);
+    CREATE INDEX ix_work_claim ON work (state, available_at);
+    CREATE INDEX ix_work_lane ON work (lane_key, kind, sequence);
+    CREATE TABLE projection_cursors (
+      conversation_id TEXT PRIMARY KEY, next_page_id TEXT, updated_at TEXT NOT NULL, parked_at TEXT
+    );
+  `);
+  const timestamp = new Date(T0).toISOString();
+  const insertLane = db.prepare(`
+    INSERT INTO lanes (
+      lane_key, conversation_id, platform, account_id, chat_id, thread_id, display_name,
+      conversation_ready, created_at, last_seen_at
+    ) VALUES (?, ?, 'slack', 'acct', ?, NULL, NULL, 1, ?, ?)
+  `);
+  for (const item of seed.lanes ?? []) {
+    insertLane.run(item.laneKey, item.conversationId, item.laneKey, timestamp, timestamp);
+  }
+  const insertWork = db.prepare(`
+    INSERT INTO work (
+      id, kind, source_key, lane_key, sequence, conversation_id, agent_event_id, state,
+      available_at, payload_json, created_at, updated_at
+    ) VALUES (?, 'intake', ?, ?, 1, ?, 'legacy-event', 'ready', ?, ?, ?, ?)
+  `);
+  for (const item of seed.work ?? []) {
+    insertWork.run(
+      item.id,
+      `source:${item.id}`,
+      item.laneKey,
+      item.conversationId,
+      timestamp,
+      JSON.stringify({ text: 'legacy payload' }),
+      timestamp,
+      timestamp,
+    );
+  }
+  db.close();
+}
+
 // ---- Lane directory --------------------------------------------------------------------------------
 
 test('resolveLane creates a binding then returns the same conversation on repeat', () => {
@@ -81,7 +152,7 @@ test('one conversation cannot be bound to two lanes', () => {
   );
 });
 
-test('work must be inserted through a known lane and derives its conversation binding', () => {
+test('work must be inserted through a known lane', () => {
   const { store } = newStore();
   assert.throws(
     () => store.acceptIntake('missing-lane', { sourceKey: 'orphan', agentEventId: 'event', payload: {} }, at(0)),
@@ -94,7 +165,7 @@ test('work must be inserted through a known lane and derives its conversation bi
     agentEventId: 'event',
     payload: {},
   }, at(2));
-  assert.equal(work.conversationId, binding.conversationId);
+  assert.equal(work.laneKey, binding.laneKey);
 });
 
 test('work schema enforces the lane foreign key after restart', () => {
@@ -105,6 +176,101 @@ test('work schema enforces the lane foreign key after restart', () => {
   const second = newStore(dbPath);
   const keys = second.db.prepare('PRAGMA foreign_key_list(work)').all() as Array<{ table: string; from: string }>;
   assert.ok(keys.some((key) => key.table === 'lanes' && key.from === 'lane_key'));
+});
+
+test('opening a pre-change database migrates existing work to a single lane-owned conversation binding', () => {
+  const dbPath = tempDbPath();
+  seedLegacyDatabase(dbPath, {
+    lanes: [{ laneKey: 'legacy-lane', conversationId: 'legacy-conversation' }],
+    work: [{ id: 'legacy-work', laneKey: 'legacy-lane', conversationId: 'legacy-conversation' }],
+  });
+
+  const { store, db } = newStore(dbPath);
+  assert.deepEqual(store.getWork('legacy-work')?.payload, { text: 'legacy payload' });
+  assert.equal(store.getWork('legacy-work')?.laneKey, 'legacy-lane');
+  const columns = db.prepare('PRAGMA table_info(work)').all() as Array<{ name: string }>;
+  assert.equal(columns.some((column) => column.name === 'conversation_id'), false);
+  const keys = db.prepare('PRAGMA foreign_key_list(work)').all() as Array<{ table: string; from: string }>;
+  assert.ok(keys.some((key) => key.table === 'lanes' && key.from === 'lane_key'));
+  db.close();
+});
+
+test('legacy migration rejects a conversation bound to duplicate lanes', () => {
+  const dbPath = tempDbPath();
+  seedLegacyDatabase(dbPath, {
+    lanes: [
+      { laneKey: 'lane-a', conversationId: 'shared-conversation' },
+      { laneKey: 'lane-b', conversationId: 'shared-conversation' },
+    ],
+  });
+  const db = new Database(dbPath);
+  assert.throws(
+    () => new MessageWorkStore(db, POLICY),
+    /conversation 'shared-conversation' is bound to 2 lanes/u,
+  );
+  db.close();
+});
+
+test('legacy migration rejects work whose lane is missing', () => {
+  const dbPath = tempDbPath();
+  seedLegacyDatabase(dbPath, {
+    work: [{ id: 'orphan-work', laneKey: 'missing-lane', conversationId: 'legacy-conversation' }],
+  });
+  const db = new Database(dbPath);
+  assert.throws(
+    () => new MessageWorkStore(db, POLICY),
+    /work 'orphan-work' references unknown lane 'missing-lane'/u,
+  );
+  db.close();
+});
+
+test('legacy migration rejects work whose conversation disagrees with its lane', () => {
+  const dbPath = tempDbPath();
+  seedLegacyDatabase(dbPath, {
+    lanes: [{ laneKey: 'lane-a', conversationId: 'conversation-a' }],
+    work: [{ id: 'mismatched-work', laneKey: 'lane-a', conversationId: 'conversation-b' }],
+  });
+  const db = new Database(dbPath);
+  assert.throws(
+    () => new MessageWorkStore(db, POLICY),
+    /work 'mismatched-work' disagrees with its lane conversation binding/u,
+  );
+  db.close();
+});
+
+test('direct SQLite writes cannot add a conflicting work conversation binding', () => {
+  const { store, db } = newStore();
+  const binding = bind(store, at(0));
+  assert.throws(
+    () => db.prepare(`
+      INSERT INTO work (
+        id, kind, source_key, lane_key, sequence, conversation_id, agent_event_id, state,
+        available_at, payload_json, created_at, updated_at
+      ) VALUES (
+        'mismatch', 'intake', 'mismatch', '${binding.laneKey}', 1, 'wrong-conversation',
+        'event', 'ready', '2026-01-01T00:00:00.000Z', '{}',
+        '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+      )
+    `).run(),
+    /no column named conversation_id/u,
+  );
+});
+
+test('direct SQLite writes cannot insert work for an unknown lane', () => {
+  const { db } = newStore();
+  assert.throws(
+    () => db.prepare(`
+      INSERT INTO work (
+        id, kind, source_key, lane_key, sequence, agent_event_id, state,
+        available_at, payload_json, created_at, updated_at
+      ) VALUES (
+        'orphan', 'intake', 'orphan', 'missing-lane', 1, 'event', 'ready',
+        '2026-01-01T00:00:00.000Z', '{}',
+        '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+      )
+    `).run(),
+    /FOREIGN KEY constraint failed/u,
+  );
 });
 
 test('markLaneConversationReady flips the durable flag', () => {
