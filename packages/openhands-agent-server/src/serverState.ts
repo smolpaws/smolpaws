@@ -56,6 +56,8 @@ export class ServerStateService {
     this.stateFile = path.join(options.stateDir, 'state.json');
     this.secretStore = options.secretStore;
     this.readyPromise = this.loadInitial();
+    // Preserve fail-closed reads without risking an unhandled rejection before the first caller awaits load().
+    void this.readyPromise.catch(() => undefined);
   }
 
   async settings(): Promise<SettingsResponse> {
@@ -336,8 +338,12 @@ export class ServerStateService {
     try {
       await this.commit(next);
     } catch (error) {
-      if (previous === null) await this.secretStore.delete(ref);
-      else await this.secretStore.set(ref, previous);
+      try {
+        if (previous === null) await this.secretStore.delete(ref);
+        else await this.secretStore.set(ref, previous);
+      } catch {
+        // The persistence failure is the operation's primary cause; do not mask it with rollback failure.
+      }
       throw error;
     }
   }
