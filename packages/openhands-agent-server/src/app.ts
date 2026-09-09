@@ -7,7 +7,7 @@ import { MacOSKeychainSecretStore, createClientFromProfile, type SecretStore } f
 
 import { registerAgentProfileRoutes } from './agentProfilesRouter.js';
 import { BashEventService } from './bashService.js';
-import { ConversationLeaseHeldError, ConversationOwnershipLostError } from './conversationLease.js';
+import { ConversationLeaseHeldError, ConversationLeaseInvalidError, ConversationOwnershipLostError } from './conversationLease.js';
 import { type AgentServerConfig, getDefaultConfig } from './config.js';
 import { registerConversationRoutes } from './conversationRouter.js';
 import { ConversationService, type ConversationServiceOptions } from './conversationService.js';
@@ -42,8 +42,20 @@ export interface AgentServerApp {
 }
 
 export async function createAgentServerApp(options: AgentServerAppOptions = {}): Promise<AgentServerApp> {
+  if (options.conversationService !== undefined && (
+    options.agentFactory !== undefined
+    || options.persistenceDir !== undefined
+    || options.ownerInstanceId !== undefined
+    || options.leaseTtlMs !== undefined
+    || options.config?.conversationsPath !== undefined
+  )) {
+    throw new Error('conversationService cannot be combined with managed conversation-service options');
+  }
   const defaultConfig = getDefaultConfig();
-  const conversationsPath = options.config?.conversationsPath ?? defaultConfig.conversationsPath;
+  if (options.persistenceDir !== undefined && options.config?.conversationsPath !== undefined && options.persistenceDir !== options.config.conversationsPath) {
+    throw new Error('persistenceDir and config.conversationsPath must match when both are provided');
+  }
+  const conversationsPath = options.persistenceDir ?? options.config?.conversationsPath ?? defaultConfig.conversationsPath;
   const workspaceRoot = options.config?.workspaceRoot ?? defaultConfig.workspaceRoot;
   const allowedFileRoots = options.config?.allowedFileRoots ?? (options.config?.workspaceRoot === undefined ? defaultConfig.allowedFileRoots : [workspaceRoot]);
   const config: AgentServerConfig = {
@@ -67,6 +79,8 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
     persistenceDir: config.conversationsPath,
     secretStore,
     agentFactory,
+    ...(options.ownerInstanceId === undefined ? {} : { ownerInstanceId: options.ownerInstanceId }),
+    ...(options.leaseTtlMs === undefined ? {} : { leaseTtlMs: options.leaseTtlMs }),
   };
   const conversationService = options.conversationService ?? new ConversationService(serviceOptions);
   const bashEventService = new BashEventService({ bashEventsDir: config.bashEventsPath });
@@ -137,7 +151,7 @@ function registerErrorHandler(app: FastifyInstance): void {
       reply.status(422).send({ detail: error.issues.map((issue) => ({ path: issue.path, message: issue.message })) });
       return;
     }
-    if (error instanceof ConversationLeaseHeldError || error instanceof ConversationOwnershipLostError) {
+    if (error instanceof ConversationLeaseHeldError || error instanceof ConversationLeaseInvalidError || error instanceof ConversationOwnershipLostError) {
       reply.status(409).send({ detail: error.message });
       return;
     }
