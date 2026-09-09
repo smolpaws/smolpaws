@@ -49,7 +49,13 @@ export function isDiscordMessageAllowed(
   context: DiscordAuthorizationContext,
   filters: DiscordAuthorizationFilters,
 ): boolean {
-  if (filters.allowedUserIds.size > 0 && !filters.allowedUserIds.has(context.userId)) return false;
+  // Fail closed: user authorization is the security-critical gate. An empty
+  // allowlist authorizes nobody (never everybody), so a missing or misnamed
+  // `DISCORD_ALLOWED_USER_IDS` denies access instead of opening the bot up.
+  // Guild/channel filters below keep their "empty = all scopes" semantics —
+  // they only narrow *where* an already-authorized user may trigger the bot.
+  if (filters.allowedUserIds.size === 0) return false;
+  if (!filters.allowedUserIds.has(context.userId)) return false;
   if (context.isDirectMessage) return true;
   if (filters.allowedGuilds.size > 0 && (context.guildId === null || !filters.allowedGuilds.has(context.guildId))) return false;
   if (filters.allowedChannels.size > 0 && !filters.allowedChannels.has(context.channelId)) return false;
@@ -302,12 +308,44 @@ bridgeRegistry.register('discord', (config) => {
   if (!botToken) {
     throw new Error('DISCORD_BOT_TOKEN is required');
   }
+
+  // Reject an ambiguous config that sets both the removed variable and its
+  // replacement — refuse to guess which one is authoritative.
+  if (process.env.DISCORD_ALLOWED_USERS && process.env.DISCORD_ALLOWED_USER_IDS) {
+    throw new Error(
+      'DISCORD_ALLOWED_USERS was removed; set only DISCORD_ALLOWED_USER_IDS (immutable account IDs).',
+    );
+  }
+
+  const allowedUserIds = parseSet(process.env.DISCORD_ALLOWED_USER_IDS);
+
+  // The deprecated variable used renameable usernames and is no longer read.
+  // If it is still present, warn — it no longer grants anyone access, and
+  // authorization now fails closed (see below).
+  if (process.env.DISCORD_ALLOWED_USERS) {
+    config.logger.warn(
+      { adapter: config.name },
+      'DISCORD_ALLOWED_USERS is removed and ignored; migrate to DISCORD_ALLOWED_USER_IDS (immutable account IDs).',
+    );
+  }
+
+  // Fail closed: no configured allowlist means no user can trigger the bot.
+  // Warn loudly so a missing/misnamed variable is visible rather than
+  // silently locking everyone out (and, before this change, silently
+  // opening the bot to everyone).
+  if (allowedUserIds.size === 0) {
+    config.logger.warn(
+      { adapter: config.name },
+      'DISCORD_ALLOWED_USER_IDS is empty; no users are authorized to trigger the bot (fail closed). Set immutable account IDs to grant access.',
+    );
+  }
+
   return new DiscordAdapter({
     ...config,
     botToken,
     trigger: process.env.DISCORD_TRIGGER || '@smolpaws',
     allowedGuilds: parseSet(process.env.DISCORD_ALLOWED_GUILDS),
     allowedChannels: parseSet(process.env.DISCORD_ALLOWED_CHANNELS),
-    allowedUserIds: parseSet(process.env.DISCORD_ALLOWED_USER_IDS),
+    allowedUserIds,
   });
 });

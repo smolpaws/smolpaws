@@ -17,6 +17,17 @@ describe('Discord authorization', () => {
     ), true);
   });
 
+  it('fails closed when the user allowlist is empty (denies everyone, incl. DMs)', () => {
+    assert.equal(isDiscordMessageAllowed(
+      { userId: '123', guildId: 'guild', channelId: 'channel', isDirectMessage: false },
+      openGuildFilters,
+    ), false);
+    assert.equal(isDiscordMessageAllowed(
+      { userId: '123', guildId: null, channelId: 'dm', isDirectMessage: true },
+      openGuildFilters,
+    ), false);
+  });
+
   it('denies a different account ID regardless of display identity', () => {
     assert.equal(isDiscordMessageAllowed(
       { userId: '456', guildId: 'guild', channelId: 'channel', isDirectMessage: false },
