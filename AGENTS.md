@@ -42,6 +42,7 @@ SmolPaws is an OpenHands agent in TypeScript, with inspiration from NanoClaw, Op
 | `/show-me` | Turn a repo, change, or tricky mechanism into one skimmable self-contained HTML page — big picture, before/after or trace, every claim grounded to code |
 | `/teach-me` | Teach a code change deeply as an interactive HTML page — Background → Intuition → Code → an interactive quiz that verifies the reader understood. For learning, where `/show-me` is for deciding |
 | `/printing-press` | Install a ready-made, token-efficient CLI (+ skill/MCP) for an external service from the Printing Press catalog instead of re-reading API docs. Discovery-first; installs third-party code, so approval + verification required |
+| `/fieldtheory` | Search or analyze a user's locally synced Field Theory X/Twitter bookmarks through the `ft` CLI; read-only by default |
 
 Reference skills for GitHub/Cloudflare/Fastify/Daytona work also live under `.agents/skills/`.
 
