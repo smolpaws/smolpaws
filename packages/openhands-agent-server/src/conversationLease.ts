@@ -180,13 +180,18 @@ function isLeasePayload(value: unknown): value is LeasePayload {
   if (!isRecord(value)) return false;
   const generation = value.generation;
   const expiresAt = value.expires_at;
+  const hasValidOwnerHost = !('owner_host' in value) || typeof value.owner_host === 'string';
+  const hasValidOwnerPid = !('owner_pid' in value)
+    || (typeof value.owner_pid === 'number' && Number.isSafeInteger(value.owner_pid) && value.owner_pid > 0);
   return typeof value.owner_instance_id === 'string'
     && value.owner_instance_id.length > 0
     && typeof generation === 'number'
     && Number.isSafeInteger(generation)
     && generation > 0
     && typeof expiresAt === 'number'
-    && Number.isFinite(expiresAt);
+    && Number.isFinite(expiresAt)
+    && hasValidOwnerHost
+    && hasValidOwnerPid;
 }
 
 function isErrno(error: unknown, code: string): error is { readonly code: string } {
