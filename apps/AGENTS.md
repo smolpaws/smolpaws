@@ -30,26 +30,31 @@ platform into these six concepts and stops there.
 
 ## Where the essentials live in this repo
 
-The shared bridge core is in `src/shared/bridgeAdapter.ts` (not under `apps/`), and each app
-subclasses it:
+The shared in-process adapter core is in `src/shared/bridgeAdapter.ts` (not under `apps/`).
+Adapter bridges subclass it; standalone relays and webhook Workers keep the same channel concepts
+but own a different transport and lifecycle:
 
 | Essential   | Where |
 |-------------|-------|
 | Users       | Adapter access checks / allowlists (e.g. `apps/slack/src/config.ts`, `apps/email` sender allowlist); carried in `IncomingMessage.platformContext` |
 | Channels    | `IncomingMessage.conversationId` (e.g. `discord-dm-12345`) → one agent-server conversation |
-| Messages    | `IncomingMessage.prompt` (in) / `ReplyContext` + `sendReply` (out) |
-| Events      | `BaseBridgeAdapter` lifecycle (`start`/`stop`/`connect`/`disconnect`), `sendTyping`, delivery-owner monitoring |
-| Sending     | `sendReply()` / `sendTyping()` — abstract, implemented per platform |
-| Receiving   | `connect()` platform handler → `dispatch()` (shared: submit to agent-server, monitor turn, deliver) |
+| Messages    | Adapter `IncomingMessage.prompt` / `ReplyContext`, or standalone Relay intake / delivery records |
+| Events      | Adapter lifecycle (`start`/`stop`/`connect`/`disconnect`) or standalone Relay worker lifecycle |
+| Sending     | Adapter `sendReply()` / `sendTyping()`, or a standalone `DeliveryTarget` |
+| Receiving   | Adapter `connect()` → `dispatch()`, or a standalone platform handler → `MessageRelay.accept()` |
 
 Registration and discovery: adapters self-register with `bridgeRegistry`
 (`src/shared/bridgeAdapter.ts`) and are found by the loader (`src/shared/bridgeLoader.ts`) via
-each app's `plugin.json` (`kind: "bridge"`).
+each adapter app's `plugin.json` (`kind: "bridge"`). Standalone apps use `kind: "standalone"` and
+are not started by that loader.
 
-## Two shapes of bridge
+## Three shapes of bridge
 
-- **Socket/adapter bridges** (`apps/discord`, `apps/slack`) extend `BaseBridgeAdapter` and run
-  in-process with the agent-server. This is the canonical shape — start here for a new channel.
+- **Socket/adapter bridges** (`apps/discord`) extend `BaseBridgeAdapter` and run in-process with the
+  agent-server. This is the simplest shape — start here for a new persistent-socket channel.
+- **Standalone durable relay bridges** (`apps/slack`) run as their own process and use Message Relay
+  intake/outbox durability plus the agent-server event API. Slack is `kind: "standalone"` and is
+  intentionally excluded from `bridgeLoader`.
 - **Webhook Workers** (`apps/github`, `apps/email`) are Cloudflare Workers that receive
   platform webhooks and call the agent-server over HTTP. Same six essentials, different
   transport; they don't extend `BaseBridgeAdapter` because they aren't long-lived listeners.
@@ -59,9 +64,11 @@ each app's `plugin.json` (`kind: "bridge"`).
 ## Adding a bridge
 
 1. Model the platform in terms of the six essentials above — nothing more.
-2. Prefer extending `BaseBridgeAdapter`; only reach for a Worker when the platform is
-   webhook-delivered and there's no persistent socket.
-3. Add a `plugin.json` with `kind: "bridge"` and `requiredEnv` so the loader can discover it.
+2. Prefer extending `BaseBridgeAdapter` for a simple persistent socket. Use a standalone process
+   when the channel needs Relay intake/outbox durability, or a Worker for webhook delivery.
+3. For an in-process adapter, add a `plugin.json` with `kind: "bridge"` and `requiredEnv` so the
+   loader can discover it. A separately supervised process must use `kind: "standalone"`.
 4. Keep authorization to a channel allowlist / access check; real policy lives in the ingress
    handler, not scattered through the adapter.
-5. See `apps/slack/AGENTS.md` for a worked example of the adapter pattern.
+5. See `apps/discord/src/adapter.ts` for the adapter pattern. See `apps/slack/AGENTS.md` only when a
+   channel needs the standalone durable Message Relay shape.

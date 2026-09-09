@@ -4,6 +4,8 @@ Slack is the first greenfield bridge for SmolPaws' durable Message Relay.
 
 It intentionally does **not** preserve the unused legacy Slack implementation, inherit the shared bridge adapter, or route messages through the old `/turns` runner. Slack runs as its own Socket Mode process beside the upstream-shaped TypeScript agent-server.
 
+This Socket Mode process is the authoritative ingress for Slack DMs, app mentions, and follow-ups in threads where paws was mentioned. The heartbeat's browser sweep remains a separate proactive community check for broader unread activity; it is not the fallback transport for those event-driven messages.
+
 ## Current flow
 
 ```text
@@ -98,7 +100,7 @@ Both identities are separate from earlier shadow experiments, preventing first c
 
 ## Outbound policy
 
-The first Slack canary delivers the normal terminal `finish` observation. Ordinary chat does not require the agent to call a Slack-specific `send_message` tool.
+Slack delivers either a terminal `finish` observation or a normal end-of-turn assistant reply. Ordinary chat does not require the agent to call a Slack-specific `send_message` tool.
 
 The extractor remains replaceable. Explicit outbound-intent events can later support richer multi-message behavior without changing the durable dispatcher.
 
@@ -118,20 +120,33 @@ SLACK_ALLOWED_CHANNEL_IDS=C12345,D12345
 SLACK_ALLOWED_USER_IDS=U12345
 ```
 
-The old `SMOLPAWS_COORD_SERVER_*` names remain temporary fallbacks. Raw provider credentials do not belong in Relay SQLite or delivery rows; the agent-server resolves its active profile credential through its own state/keychain.
+The old `SMOLPAWS_COORD_SERVER_*` names remain temporary fallbacks. When the service launcher owns the
+default local server, an explicit `OPENHANDS_SESSION_API_KEY` or `SESSION_API_KEY` takes precedence;
+otherwise the Relay client key is mapped into the server and the same effective value is used by Slack.
+For a separately managed server, its configured server key and Slack's Relay client key must match. Raw
+provider credentials do not belong in Relay SQLite or delivery rows; the agent-server resolves its active
+profile credential through its own state/keychain.
 
-## Running the canary
+## Running Slack
 
 ```bash
 npm ci
 npm ci --prefix packages/openhands-agent-server
 npm ci --prefix apps/slack
 
-./scripts/run-local-smolpaws.sh npm --prefix packages/openhands-agent-server run dev:server
-./scripts/run-local-smolpaws.sh npm --prefix apps/slack run start
+npm run slack:relay:local
 ```
 
-The new server listens on `127.0.0.1:8790` by default. Do not rely on the old `apps/agent-server` process to host Slack.
+The foreground launcher reuses a healthy configured server or starts the default server on `127.0.0.1:8790`. When it starts the server, it supervises both direct child processes: if either the server or Slack exits, it stops the sibling and returns so the complete unit can restart. Do not rely on the old `apps/agent-server` process to host Slack.
+
+After the foreground live test succeeds, install the same launcher as a persistent macOS LaunchAgent:
+
+```bash
+npm run slack:launchagent:install
+launchctl print "gui/$(id -u)/com.smolpaws.slack"
+```
+
+It starts at login, stays alive, and writes logs beneath `~/.smolpaws/logs/`. Remove it with `npm run slack:launchagent:remove`. See [instructions.md](instructions.md) for the cutover, verification, and rollback procedure.
 
 ## Verification
 

@@ -7,6 +7,9 @@ on:
       - 'apps/slack/**'
       - 'src/coordinator/**'
       - 'src/shared/**'
+      - 'launchd/com.smolpaws.slack.plist'
+      - 'scripts/*slack*.sh'
+      - 'package.json'
       - '.github/workflows/slack-relay.yml'
   workflow_dispatch:
 
@@ -34,3 +37,5 @@ jobs:
         run: npm --prefix apps/slack run typecheck
       - name: Test Slack app
         run: npm --prefix apps/slack test
+      - name: Test Slack service tooling
+        run: npm run slack:service:test
