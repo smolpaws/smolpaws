@@ -36,7 +36,6 @@ interface RawWorkRow {
   source_key: string;
   lane_key: string;
   sequence: number;
-  conversation_id: string | null;
   agent_event_id: string | null;
   state: string;
   available_at: string;
@@ -76,7 +75,6 @@ function mapWork(raw: RawWorkRow): WorkRow {
     sourceKey: raw.source_key,
     laneKey: raw.lane_key,
     sequence: raw.sequence,
-    conversationId: raw.conversation_id,
     agentEventId: raw.agent_event_id,
     state: raw.state as WorkState,
     availableAt: raw.available_at,
@@ -195,11 +193,10 @@ export class MessageWorkStore {
   // ---- Accept work -------------------------------------------------------------------------------
 
   /** Accept intake work; idempotent on (kind='intake', source_key). Returns existing-or-new row. */
-  acceptIntake(binding: LaneBinding, input: IntakeInput, now: Date | number): WorkRow {
+  acceptIntake(laneKey: string, input: IntakeInput, now: Date | number): WorkRow {
     return this.insertWork('intake', {
       sourceKey: input.sourceKey,
-      laneKey: binding.laneKey,
-      conversationId: binding.conversationId,
+      laneKey,
       agentEventId: input.agentEventId,
       payload: input.payload,
     }, now);
@@ -210,7 +207,6 @@ export class MessageWorkStore {
     return this.insertWork('delivery', {
       sourceKey: input.sourceKey,
       laneKey: input.laneKey,
-      conversationId: input.conversationId,
       agentEventId: input.agentEventId,
       payload: input.payload,
     }, now);
@@ -221,7 +217,6 @@ export class MessageWorkStore {
     fields: {
       sourceKey: string;
       laneKey: string;
-      conversationId: string | null;
       agentEventId: string | null;
       payload: unknown;
     },
@@ -229,6 +224,10 @@ export class MessageWorkStore {
   ): WorkRow {
     const ts = iso(now);
     const tx = this.db.transaction((): WorkRow => {
+      const lane = this.db
+        .prepare(`SELECT 1 AS present FROM lanes WHERE lane_key = ?`)
+        .get(fields.laneKey) as { present: number } | undefined;
+      if (!lane) throw new Error(`unknown lane: ${fields.laneKey}`);
       const existing = this.db
         .prepare(`SELECT * FROM work WHERE kind = ? AND source_key = ?`)
         .get(kind, fields.sourceKey) as RawWorkRow | undefined;
@@ -243,9 +242,9 @@ export class MessageWorkStore {
       const id = randomUUID();
       this.db
         .prepare(
-          `INSERT INTO work (id, kind, source_key, lane_key, sequence, conversation_id, agent_event_id,
+          `INSERT INTO work (id, kind, source_key, lane_key, sequence, agent_event_id,
              state, available_at, generation, attempts, send_attempted, payload_json, created_at, updated_at)
-           VALUES (@id, @kind, @source_key, @lane_key, @sequence, @conversation_id, @agent_event_id,
+           VALUES (@id, @kind, @source_key, @lane_key, @sequence, @agent_event_id,
              'ready', @available_at, 0, 0, 0, @payload_json, @created_at, @updated_at)`,
         )
         .run({
@@ -254,7 +253,6 @@ export class MessageWorkStore {
           source_key: fields.sourceKey,
           lane_key: fields.laneKey,
           sequence: seqRow.next,
-          conversation_id: fields.conversationId,
           agent_event_id: fields.agentEventId,
           available_at: ts,
           payload_json: JSON.stringify(fields.payload ?? null),

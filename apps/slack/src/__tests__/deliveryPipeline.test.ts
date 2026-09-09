@@ -85,7 +85,6 @@ test('DeliveryDispatcher settles a successful external send as done', async () =
     {
       sourceKey: 'event-1:lane',
       laneKey: lane.laneKey,
-      conversationId: lane.conversationId,
       agentEventId: 'event-1',
       payload: { kind: 'current_thread_message', text: 'hello' },
     },
@@ -117,7 +116,6 @@ test('DeliveryDispatcher turns an exception after markSending into delivery_unkn
     {
       sourceKey: 'event-2:lane',
       laneKey: lane.laneKey,
-      conversationId: lane.conversationId,
       agentEventId: 'event-2',
       payload: { kind: 'current_thread_message', text: 'maybe' },
     },
