@@ -46,7 +46,8 @@ describe('ServerStateService persistence', () => {
   });
 
   test.each(['{', JSON.stringify({ llmProfiles: {} })])('fails closed for corrupt persisted state', async (contents) => {
-    const { root } = await fixture();
+    const root = await mkdtemp(path.join(os.tmpdir(), 'server-state-'));
+    roots.push(root);
     await writeFile(path.join(root, 'state.json'), contents, 'utf8');
     const state = new ServerStateService({ stateDir: root, secretStore: new InMemorySecretStore() });
     await expect(state.settings()).rejects.toThrow();
