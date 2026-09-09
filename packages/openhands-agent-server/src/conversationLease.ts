@@ -36,6 +36,14 @@ export class ConversationOwnershipLostError extends Error {
   }
 }
 
+export class ConversationLeaseInvalidError extends Error {
+  override readonly name = 'ConversationLeaseInvalidError';
+
+  constructor(readonly conversationDir: string, message: string, options?: ErrorOptions) {
+    super(`conversation lease is invalid: ${message}`, options);
+  }
+}
+
 export class ConversationLease {
   private readonly leasePath: string;
   private readonly lockPath: string;
@@ -99,7 +107,9 @@ export class ConversationLease {
   private async readPayload(): Promise<LeasePayload | null> {
     try {
       const raw = JSON.parse(await fs.readFile(this.leasePath, 'utf8')) as unknown;
-      if (!isRecord(raw) || typeof raw.owner_instance_id !== 'string' || typeof raw.generation !== 'number' || typeof raw.expires_at !== 'number') return null;
+      if (!isLeasePayload(raw)) {
+        throw new ConversationLeaseInvalidError(this.conversationDir, 'payload does not match the lease schema');
+      }
       return {
         owner_instance_id: raw.owner_instance_id,
         generation: raw.generation,
@@ -107,9 +117,11 @@ export class ConversationLease {
         ...(typeof raw.owner_host === 'string' ? { owner_host: raw.owner_host } : {}),
         ...(typeof raw.owner_pid === 'number' ? { owner_pid: raw.owner_pid } : {}),
       };
-    } catch (error) {
+    } catch (error: unknown) {
       if (isErrno(error, 'ENOENT')) return null;
-      return null;
+      if (error instanceof ConversationLeaseInvalidError) throw error;
+      const message = error instanceof SyntaxError ? 'payload is not valid JSON' : 'lease file could not be read';
+      throw new ConversationLeaseInvalidError(this.conversationDir, message, { cause: error });
     }
   }
 
@@ -162,6 +174,24 @@ function sleep(ms: number): Promise<void> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isLeasePayload(value: unknown): value is LeasePayload {
+  if (!isRecord(value)) return false;
+  const generation = value.generation;
+  const expiresAt = value.expires_at;
+  const hasValidOwnerHost = !('owner_host' in value) || typeof value.owner_host === 'string';
+  const hasValidOwnerPid = !('owner_pid' in value)
+    || (typeof value.owner_pid === 'number' && Number.isSafeInteger(value.owner_pid) && value.owner_pid > 0);
+  return typeof value.owner_instance_id === 'string'
+    && value.owner_instance_id.length > 0
+    && typeof generation === 'number'
+    && Number.isSafeInteger(generation)
+    && generation > 0
+    && typeof expiresAt === 'number'
+    && Number.isFinite(expiresAt)
+    && hasValidOwnerHost
+    && hasValidOwnerPid;
 }
 
 function isErrno(error: unknown, code: string): error is { readonly code: string } {
