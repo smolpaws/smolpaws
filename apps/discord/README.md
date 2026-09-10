@@ -23,10 +23,13 @@ Add to `~/.smolpaws/.env`:
 ```bash
 DISCORD_BOT_TOKEN=your-bot-token-here
 
-# Optional: restrict to specific servers/channels (comma-separated IDs)
+# Required to authorize anyone: comma-separated immutable account IDs.
+# Authorization fails closed — if this is empty, NO user can trigger the bot.
+DISCORD_ALLOWED_USER_IDS=123456789012345678,234567890123456789
+
+# Optional: further restrict to specific servers/channels (comma-separated IDs)
 # DISCORD_ALLOWED_GUILDS=123456789012345678
 # DISCORD_ALLOWED_CHANNELS=123456789012345678
-# DISCORD_ALLOWED_USERS=enyst_13,mamoodi_32973,pierrunoyt,inthiseconomy,gneubig
 
 # Agent server (defaults to local)
 # SMOLPAWS_RUNNER_URL=http://127.0.0.1:8788
@@ -66,9 +69,9 @@ npm run discord:start  # Production
 |----------|----------|---------|-------------|
 | `DISCORD_BOT_TOKEN` | ✅ | — | Bot token from Discord Developer Portal |
 | `DISCORD_TRIGGER` | — | `@smolpaws` | Text trigger pattern |
-| `DISCORD_ALLOWED_GUILDS` | — | (all) | Comma-separated guild IDs to respond in |
-| `DISCORD_ALLOWED_CHANNELS` | — | (all) | Comma-separated channel IDs to respond in |
-| `DISCORD_ALLOWED_USERS` | — | (all) | Comma-separated Discord usernames or tags allowed to trigger the bot |
+| `DISCORD_ALLOWED_USER_IDS` | ✅ | (none → deny all) | Comma-separated immutable Discord account IDs allowed to trigger the bot. **Fails closed:** empty authorizes nobody |
+| `DISCORD_ALLOWED_GUILDS` | — | (all) | Comma-separated guild IDs to respond in (narrows *where* an authorized user is served) |
+| `DISCORD_ALLOWED_CHANNELS` | — | (all) | Comma-separated channel IDs to respond in (narrows *where* an authorized user is served) |
 | `SMOLPAWS_RUNNER_URL` | — | `http://127.0.0.1:8788` | Agent server URL |
 | `SMOLPAWS_RUNNER_TOKEN` | — | — | Agent server auth token |
 | `LOG_LEVEL` | — | `info` | Log level (debug, info, warn, error) |

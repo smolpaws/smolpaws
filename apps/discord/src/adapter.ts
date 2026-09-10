@@ -29,8 +29,38 @@ export type DiscordAdapterConfig = BridgeAdapterConfig & {
   trigger?: string;
   allowedGuilds?: Set<string>;
   allowedChannels?: Set<string>;
-  allowedUsers?: Set<string>;
+  allowedUserIds?: Set<string>;
 };
+
+export interface DiscordAuthorizationContext {
+  readonly userId: string;
+  readonly guildId: string | null;
+  readonly channelId: string;
+  readonly isDirectMessage: boolean;
+}
+
+export interface DiscordAuthorizationFilters {
+  readonly allowedUserIds: ReadonlySet<string>;
+  readonly allowedGuilds: ReadonlySet<string>;
+  readonly allowedChannels: ReadonlySet<string>;
+}
+
+export function isDiscordMessageAllowed(
+  context: DiscordAuthorizationContext,
+  filters: DiscordAuthorizationFilters,
+): boolean {
+  // Fail closed: user authorization is the security-critical gate. An empty
+  // allowlist authorizes nobody (never everybody), so a missing or misnamed
+  // `DISCORD_ALLOWED_USER_IDS` denies access instead of opening the bot up.
+  // Guild/channel filters below keep their "empty = all scopes" semantics —
+  // they only narrow *where* an already-authorized user may trigger the bot.
+  if (filters.allowedUserIds.size === 0) return false;
+  if (!filters.allowedUserIds.has(context.userId)) return false;
+  if (context.isDirectMessage) return true;
+  if (filters.allowedGuilds.size > 0 && (context.guildId === null || !filters.allowedGuilds.has(context.guildId))) return false;
+  if (filters.allowedChannels.size > 0 && !filters.allowedChannels.has(context.channelId)) return false;
+  return true;
+}
 
 export class DiscordAdapter extends BaseBridgeAdapter {
   private client?: Client;
@@ -38,7 +68,7 @@ export class DiscordAdapter extends BaseBridgeAdapter {
   private readonly triggerPattern: RegExp;
   private readonly allowedGuilds: Set<string>;
   private readonly allowedChannels: Set<string>;
-  private readonly allowedUsers: Set<string>;
+  private readonly allowedUserIds: Set<string>;
   private botUserId = '';
 
   constructor(config: DiscordAdapterConfig) {
@@ -51,7 +81,7 @@ export class DiscordAdapter extends BaseBridgeAdapter {
     );
     this.allowedGuilds = config.allowedGuilds ?? new Set();
     this.allowedChannels = config.allowedChannels ?? new Set();
-    this.allowedUsers = config.allowedUsers ?? new Set();
+    this.allowedUserIds = config.allowedUserIds ?? new Set();
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────
@@ -205,21 +235,19 @@ export class DiscordAdapter extends BaseBridgeAdapter {
   }
 
   private isAllowed(message: Message): boolean {
-    if (this.allowedUsers.size > 0) {
-      const username = message.author.username.trim().toLowerCase();
-      const tag = message.author.tag.trim().toLowerCase();
-      if (!this.allowedUsers.has(username) && !this.allowedUsers.has(tag)) {
-        return false;
-      }
-    }
-    if (message.channel.type === ChannelType.DM) return true;
-    if (this.allowedGuilds.size > 0 && message.guildId && !this.allowedGuilds.has(message.guildId)) {
-      return false;
-    }
-    if (this.allowedChannels.size > 0 && !this.allowedChannels.has(message.channelId)) {
-      return false;
-    }
-    return true;
+    return isDiscordMessageAllowed(
+      {
+        userId: message.author.id,
+        guildId: message.guildId,
+        channelId: message.channelId,
+        isDirectMessage: message.channel.type === ChannelType.DM,
+      },
+      {
+        allowedUserIds: this.allowedUserIds,
+        allowedGuilds: this.allowedGuilds,
+        allowedChannels: this.allowedChannels,
+      },
+    );
   }
 
   private extractPrompt(content: string): string {
@@ -273,12 +301,6 @@ function parseSet(envValue: string | undefined): Set<string> {
   );
 }
 
-function parseLowercaseSet(envValue: string | undefined): Set<string> {
-  return new Set(
-    (envValue || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
-  );
-}
-
 // ── Register with the bridge registry ─────────────────────────────
 
 bridgeRegistry.register('discord', (config) => {
@@ -286,12 +308,44 @@ bridgeRegistry.register('discord', (config) => {
   if (!botToken) {
     throw new Error('DISCORD_BOT_TOKEN is required');
   }
+
+  // Reject an ambiguous config that sets both the removed variable and its
+  // replacement — refuse to guess which one is authoritative.
+  if (process.env.DISCORD_ALLOWED_USERS && process.env.DISCORD_ALLOWED_USER_IDS) {
+    throw new Error(
+      'DISCORD_ALLOWED_USERS was removed; set only DISCORD_ALLOWED_USER_IDS (immutable account IDs).',
+    );
+  }
+
+  const allowedUserIds = parseSet(process.env.DISCORD_ALLOWED_USER_IDS);
+
+  // The deprecated variable used renameable usernames and is no longer read.
+  // If it is still present, warn — it no longer grants anyone access, and
+  // authorization now fails closed (see below).
+  if (process.env.DISCORD_ALLOWED_USERS) {
+    config.logger.warn(
+      { adapter: config.name },
+      'DISCORD_ALLOWED_USERS is removed and ignored; migrate to DISCORD_ALLOWED_USER_IDS (immutable account IDs).',
+    );
+  }
+
+  // Fail closed: no configured allowlist means no user can trigger the bot.
+  // Warn loudly so a missing/misnamed variable is visible rather than
+  // silently locking everyone out (and, before this change, silently
+  // opening the bot to everyone).
+  if (allowedUserIds.size === 0) {
+    config.logger.warn(
+      { adapter: config.name },
+      'DISCORD_ALLOWED_USER_IDS is empty; no users are authorized to trigger the bot (fail closed). Set immutable account IDs to grant access.',
+    );
+  }
+
   return new DiscordAdapter({
     ...config,
     botToken,
     trigger: process.env.DISCORD_TRIGGER || '@smolpaws',
     allowedGuilds: parseSet(process.env.DISCORD_ALLOWED_GUILDS),
     allowedChannels: parseSet(process.env.DISCORD_ALLOWED_CHANNELS),
-    allowedUsers: parseLowercaseSet(process.env.DISCORD_ALLOWED_USERS),
+    allowedUserIds,
   });
 });
