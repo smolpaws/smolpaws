@@ -1,8 +1,8 @@
 {
-  "commit": "49ea74587c376b90700f6eff128c3d9b57585d27",
+  "commit": "50080b58d35b4824fda25fca2345d80bcd08aeff",
   "compatibilityShim": "openai._models.BaseModel=pydantic.BaseModel (schema-generation import only)",
   "generator": "openhands-agent-server/openhands/agent_server/openapi.py",
   "repository": "OpenHands/software-agent-sdk",
   "schemaVersion": 1,
-  "sha256": "19c95f5bca650a3c1a85c37d67c8cb281d12a1975a5f3eee2df550ef51924a8e"
+  "sha256": "fe7671fabc783e258471a442870b500fab1a082d2ea5d1ee9bdb8c2f50b8db4e"
 }
