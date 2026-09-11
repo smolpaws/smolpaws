@@ -36,7 +36,7 @@ const REPLAY_PAGE_SIZE = 100;
  * task awaits the socket.
  *
  * `ItemStarted` / `Delta` / `ItemAborted` are carried but never produced yet —
- * that needs `StreamContext` (#4682). Until then this is a durable-only channel
+ * that needs `StreamContext` (#4822). Until then this is a durable-only channel
  * and `StreamingDeltaEvent` is dropped rather than forwarded, since putting it
  * back on the wire would restore the coupling this endpoint removes.
  */
