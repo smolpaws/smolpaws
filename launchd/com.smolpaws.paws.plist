@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.smolpaws.paws</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{PROJECT_ROOT}}/scripts/run-local-slack-relay.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>{{PROJECT_ROOT}}</string>
+    <!--
+      No RunAtLoad: paws does not start on its own. It is installed disabled and
+      only runs when explicitly turned on (npm run paws:on). KeepAlive means that
+      once on, launchd restarts it if it crashes, until it is turned off.
+    -->
+    <key>KeepAlive</key>
+    <true/>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>{{PATH}}</string>
+        <key>HOME</key>
+        <string>{{HOME}}</string>
+        <key>SMOLPAWS_HOME_DIR</key>
+        <string>{{SMOLPAWS_HOME_DIR}}</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>{{LOG_DIR}}/paws.launchagent.log</string>
+    <key>StandardErrorPath</key>
+    <string>{{LOG_DIR}}/paws.launchagent.error.log</string>
+</dict>
+</plist>

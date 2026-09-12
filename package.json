@@ -31,6 +31,10 @@
     "heartbeat:local": "./scripts/run-local-heartbeat.sh",
     "heartbeat:launchagent:install": "./scripts/install-local-heartbeat-launchagent.sh",
     "heartbeat:launchagent:remove": "./scripts/remove-local-heartbeat-launchagent.sh",
+    "paws:launchagent:install": "./scripts/install-local-paws-launchagent.sh",
+    "paws:launchagent:remove": "./scripts/remove-local-paws-launchagent.sh",
+    "paws:on": "./scripts/paws-on.sh",
+    "paws:off": "./scripts/paws-off.sh",
     "runner:image:build": "container build -t smolpaws-runner:latest apps/agent-server",
     "openapi:generate": "./scripts/generate-openapi.sh",
     "typecheck": "tsc --noEmit"
