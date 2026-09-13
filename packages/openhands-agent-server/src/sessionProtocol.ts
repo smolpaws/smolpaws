@@ -19,9 +19,16 @@ import type { Event } from '@smolpaws/openhands-agent';
  *
  * The `item_started` / `delta` / `item_aborted` families are defined for wire
  * compatibility but never produced yet: upstream gates their emission on a
- * `StreamContext` this server does not implement (#4682). Until then the socket
+ * `StreamContext` this server does not implement (#4822). Until then the socket
  * is a durable-only channel and streaming deltas are dropped rather than
  * forwarded.
+ *
+ * DEFERRED (interval 49ea7458..50080b58): upstream #4822 also threads a
+ * stream-progress fan-out through the server (subscribe_to_stream_progress,
+ * DeltaFrame.chunk_id/choice_index, StreamProgress -> frame mapping). That
+ * server wiring is deferred for the same reason the SDK leg deferred
+ * StreamContext: the TypeScript SDK has no token-streaming/stream-progress
+ * surface to subscribe to.
  */
 
 // PROVISIONAL. The cap is meant to be derived from a measured frame-size

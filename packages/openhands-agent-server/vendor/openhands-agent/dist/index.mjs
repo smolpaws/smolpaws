@@ -3963,8 +3963,8 @@ async function getGitDiff(filePath, ref) {
   }
   const validRepo = await validateGitRepository(repo);
   const base = await getValidRef(validRepo, ref, "display");
-  const relative2 = toPosixPath2(path3.slice(validRepo.length + 1));
-  const original = await runGitCommand(["git", "show", `${base}:${relative2}`], { cwd: validRepo }).catch(() => "");
+  const relative3 = toPosixPath2(path3.slice(validRepo.length + 1));
+  const original = await runGitCommand(["git", "show", `${base}:${relative3}`], { cwd: validRepo }).catch(() => "");
   const modified = (await readFile(path3, "utf8")).split(/\r?\n/u).join("\n").replace(/\n$/u, "");
   return { modified, original };
 }
@@ -4167,10 +4167,8 @@ function getCachePath(source, cacheDir) {
 async function fetchWithResolution(source, cacheDir, options = {}) {
   const parsed = parseExtensionSource(source);
   if (parsed.type === "local") {
-    if (options.repoPath !== void 0 && options.repoPath !== null) {
-      throw new ExtensionFetchError("repoPath is not supported for local extension sources. Specify the full path directly.");
-    }
-    return { path: await resolveLocalSource(parsed.url), resolvedRef: null };
+    const basePath = await resolveLocalSource(parsed.url);
+    return { path: await applySubpath(basePath, options.repoPath ?? null, `local source '${source}'`), resolvedRef: null };
   }
   if (options.gitFetcher === void 0) {
     throw new ExtensionFetchError("Git extension fetching requires an explicit gitFetcher in the TypeScript package");
@@ -4178,7 +4176,7 @@ async function fetchWithResolution(source, cacheDir, options = {}) {
   await mkdir(cacheDir, { recursive: true });
   const cachePath = getCachePath(source, cacheDir);
   const resolvedRef = await options.gitFetcher(parsed.url, cachePath, { ref: options.ref ?? null, update: options.update ?? true });
-  return { path: await applySubpath(cachePath, options.repoPath ?? null), resolvedRef };
+  return { path: await applySubpath(cachePath, options.repoPath ?? null, "extension repository"), resolvedRef };
 }
 async function fetchExtension(source, cacheDir, options = {}) {
   return (await fetchWithResolution(source, cacheDir, options)).path;
@@ -4312,13 +4310,18 @@ async function resolveLocalSource(source) {
   }
   return path3;
 }
-async function applySubpath(basePath, subpath) {
+async function applySubpath(basePath, subpath, context) {
   if (subpath === null || subpath.length === 0) {
     return basePath;
   }
   const finalPath = resolve(basePath, subpath.replace(/^\/+|\/+$/gu, ""));
+  const resolvedBase = resolve(basePath);
+  const rel = relative(resolvedBase, finalPath);
+  if (rel === ".." || rel.startsWith(`..${sep}`)) {
+    throw new ExtensionFetchError(`Subdirectory '${subpath}' escapes ${context}`);
+  }
   if (!await exists2(finalPath)) {
-    throw new ExtensionFetchError(`Subdirectory '${subpath}' not found in extension repository`);
+    throw new ExtensionFetchError(`Subdirectory '${subpath}' not found in ${context}`);
   }
   return finalPath;
 }
@@ -6683,12 +6686,12 @@ async function loadProjectAgents(projectDir) {
 async function loadUserAgents() {
   return loadAgentsFromDirs(agentDirectories.map((dir) => userAgentsDir(dir)));
 }
-function userAgentsDir(relative2) {
-  const [base, ...rest] = relative2.split("/");
+function userAgentsDir(relative3) {
+  const [base, ...rest] = relative3.split("/");
   if (base === ".openhands") {
     return join(getUserPersistenceDir(), rest.join("/"));
   }
-  return join(homedir(), relative2);
+  return join(homedir(), relative3);
 }
 async function discoverAgents(options = {}) {
   const includeProject = options.includeProject ?? true;
