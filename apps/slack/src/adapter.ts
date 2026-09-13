@@ -87,7 +87,20 @@ export class SlackBridge {
 
       const isDm = message.channel_type === 'im';
       if (!isDm) {
-        if (!message.thread_ts || !this.mentionedThreads.isTracked(message.thread_ts)) return;
+        // Only follow up on unmentioned messages inside a thread paws is part of.
+        if (!message.thread_ts) return;
+        // Fast path: this process already answered a mention in the thread.
+        // Fallback: ask Slack whether the bot is a participant. This makes thread
+        // follow-ups survive restarts (the in-memory tracker is only a cache) and
+        // self-prune, since Slack — not our memory — is the source of truth.
+        if (!this.mentionedThreads.isTracked(message.thread_ts)) {
+          const participates = await this.botIsThreadParticipant(
+            message.channel,
+            message.thread_ts,
+          ).catch(() => false);
+          if (!participates) return;
+          this.mentionedThreads.track(message.thread_ts);
+        }
       }
 
       await this.processEvent(message, context.teamId, isDm, deps);
@@ -233,6 +246,19 @@ export class SlackBridge {
     const app = this.app;
     if (app === undefined) throw new Error('Slack app is not connected');
     await app.client.reactions.add({ channel, timestamp, name });
+  }
+
+  /**
+   * Ask Slack whether the bot has already posted in this thread. Used as the
+   * restart-durable source of truth for whether to answer an unmentioned reply,
+   * so continuity does not depend on the in-memory tracker surviving.
+   */
+  private async botIsThreadParticipant(channel: string, threadTs: string): Promise<boolean> {
+    const app = this.app;
+    if (app === undefined || !this.botUserId) return false;
+    const result = await app.client.conversations.replies({ channel, ts: threadTs, limit: 50 });
+    const messages = (result.messages ?? []) as ReadonlyArray<SlackThreadReply>;
+    return messages.some((m) => m.user === this.botUserId);
   }
 
   private async fetchThreadMessages(
