@@ -52,10 +52,10 @@ SLACK_BOT_TOKEN=xoxb-...
 SLACK_APP_TOKEN=xapp-...
 
 # New upstream-shaped TypeScript server
-SMOLPAWS_COORD_SERVER_URL=http://127.0.0.1:8790
+SMOLPAWS_RELAY_SERVER_URL=http://127.0.0.1:8790
 
 # Set only when the server requires session auth
-SMOLPAWS_COORD_SERVER_API_KEY=...
+SMOLPAWS_RELAY_SERVER_API_KEY=...
 
 # Optional allowlists
 SLACK_ALLOWED_TEAM_IDS=T12345
@@ -64,6 +64,14 @@ SLACK_ALLOWED_USER_IDS=U12345
 ```
 
 Never commit token values. Coordinator SQLite contains message/work metadata only, never provider or Slack credentials.
+
+The old `SMOLPAWS_COORD_SERVER_URL` and `SMOLPAWS_COORD_SERVER_API_KEY` names remain compatibility fallbacks.
+
+When the launcher starts the default local server, it configures one key for both processes. An explicit
+`OPENHANDS_SESSION_API_KEY` (or legacy `SESSION_API_KEY`) wins; otherwise the launcher maps
+`SMOLPAWS_RELAY_SERVER_API_KEY` (or its `SMOLPAWS_COORD_SERVER_API_KEY` fallback) into the server's
+expected variable and gives Slack that same value. For a separately managed server, configure its
+server-side key there and set the matching Relay client key for Slack.
 
 The first authoritative Slack Relay generation uses:
 
@@ -95,12 +103,48 @@ The launcher:
 
 - loads `~/.smolpaws/.env`;
 - exports the current git SHA as `SMOLPAWS_BUILD_SHA`, which appears in the Slack startup log;
-- reuses an already-healthy server at `SMOLPAWS_COORD_SERVER_URL`;
+- uses `SMOLPAWS_RELAY_SERVER_URL`, with `SMOLPAWS_COORD_SERVER_URL` only as a compatibility fallback;
+- reuses an already-healthy server at that URL;
 - otherwise starts the default TypeScript server on `127.0.0.1:8790`;
+- gives a locally-started server and Slack the same effective session API key without overriding an explicit server key;
 - starts standalone paws;
-- stops only the server process that it started itself.
+- supervises both direct child processes when it owns the local server, stopping the sibling if either exits;
+- never stops an already-running server that it did not start.
 
 For a non-default server URL, start that server separately before invoking the launcher.
+
+## Persistent LaunchAgent
+
+Socket Mode is the authoritative ingress for DMs, app mentions, and tracked-thread follow-ups. The heartbeat's Chrome/browser sweep remains separate: it proactively reviews broader community unread activity and should not be treated as the delivery path for those event-driven messages.
+
+After the foreground production procedure below succeeds, stop that foreground process and install the persistent service:
+
+```bash
+npm run slack:launchagent:install
+```
+
+The installer renders `launchd/com.smolpaws.slack.plist` into `~/Library/LaunchAgents/`, loads it as `com.smolpaws.slack`, and starts it immediately. `RunAtLoad` and `KeepAlive` make the complete Slack/server unit return after login or an unexpected child exit. The launcher only owns a server it started itself; a healthy server already listening at the configured URL remains independently managed.
+
+Inspect the service and logs:
+
+```bash
+launchctl print "gui/$(id -u)/com.smolpaws.slack"
+tail -f ~/.smolpaws/logs/slack-relay.launchagent.log
+tail -f ~/.smolpaws/logs/slack-relay.launchagent.error.log
+```
+
+To restart after a checkout or configuration change:
+
+```bash
+launchctl kickstart -k "gui/$(id -u)/com.smolpaws.slack"
+```
+
+To roll back to foreground operation, unload the service first so Slack does not distribute Socket Mode events between two connections:
+
+```bash
+npm run slack:launchagent:remove
+npm run slack:relay:local
+```
 
 ## Isolated architecture-proof canary
 
@@ -175,7 +219,7 @@ The startup log must say the bot is ready on the coordinator path and show the i
 npm run coordinator:test
 npm run typecheck --prefix apps/slack
 npm run test --prefix apps/slack
-bash -n scripts/run-local-slack-relay.sh
+npm run slack:service:test
 bash -n scripts/bootstrap-slack-relay-canary.sh
 ```
 
@@ -191,7 +235,9 @@ Use a non-critical channel in the Liberty Labs workspace.
 4. Mention `paws` with a unique response request using the configured real LLM profile.
 5. Confirm paws replies in the correct Slack thread exactly once.
 6. Confirm coordinator intake and delivery evidence exists.
-7. Confirm the new server EventLog contains the deterministic user event and successful terminal `finish` output.
+7. Confirm the new server EventLog contains the deterministic user event and a successful terminal `finish` or assistant reply event.
+8. Stop the foreground launcher, install the LaunchAgent, and repeat one unique DM or mention.
+9. Confirm `launchctl print "gui/$(id -u)/com.smolpaws.slack"` reports the service running and the second delivery also settles exactly once.
 
 The source key for a Slack event is:
 
@@ -254,7 +300,7 @@ Coordinator state survives process restarts. On startup, the runtime:
 - resumes event-to-outbox catch-up from durable cursors;
 - dispatches already-durable delivery rows in lane order.
 
-On shutdown, Socket Mode ingress stops first, but the Slack Web API client remains available while the active Relay tick drains. This lets an already-claimed delivery complete rather than manufacturing an ambiguous-send state during an orderly stop.
+On application shutdown, Socket Mode ingress stops first, but the Slack Web API client remains available while the active Relay tick drains. This lets an already-claimed delivery complete rather than manufacturing an ambiguous-send state during an orderly stop. If either direct child process exits, the service launcher stops its sibling and exits; the LaunchAgent then restarts the complete unit.
 
 The in-memory mentioned-thread tracker does not survive restart. After a restart, mention paws once in an existing channel thread before relying on mention-free follow-ups there.
 
@@ -272,7 +318,7 @@ proves that an older process is still using `BaseBridgeAdapter` and `/turns`. It
 
 ### Paws replies twice or probes alternate between implementations
 
-Multiple Socket Mode processes are connected for the same app. During the isolated proof this is expected and Slack may distribute different probes to different connections. During production cutover, stop the standalone process, restart the normal host from current code, then start only `npm run slack:relay:local` for Slack.
+Multiple Socket Mode processes are connected for the same app. During the isolated proof this is expected and Slack may distribute different probes to different connections. During production cutover, stop foreground paws, restart the normal host from current code, then run only the `com.smolpaws.slack` LaunchAgent. Use `npm run slack:launchagent:remove` before returning to foreground operation.
 
 ### Port 8790 is unavailable
 
@@ -280,7 +326,7 @@ Start `packages/openhands-agent-server` with `dev:server` and inspect its logs. 
 
 ### Intake is present but no delivery appears
 
-Check the agent-server EventLog and confirm the run produced a successful terminal `finish` observation. A plain assistant `MessageEvent` is not terminal in this SDK and is deliberately not delivered by the Slack canary extractor.
+Check the agent-server EventLog and confirm the run produced a successful terminal `finish` observation or end-of-turn assistant reply. Reasoning-only or empty responses are not terminal and are not delivered by the Slack extractor.
 
 ### Delivery is `delivery_unknown`
 

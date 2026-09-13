@@ -52,7 +52,7 @@ Do not point it at the old shadow database or earlier unversioned conversation I
 
 Once a delivery row is durably marked `send_attempted`, an exception is `delivery_unknown`; never blindly repeat an external effect that may already have landed.
 
-## Local canary
+## Local operation
 
 Install dependencies:
 
@@ -83,14 +83,29 @@ Preferred environment variables in `~/.smolpaws/.env`:
 - optional Slack team/channel/user allowlists
 
 `SMOLPAWS_COORD_SERVER_URL` and `SMOLPAWS_COORD_SERVER_API_KEY` remain temporary compatibility fallbacks.
+For a locally-owned server, the service launcher uses an explicit `OPENHANDS_SESSION_API_KEY` or
+`SESSION_API_KEY` first; otherwise it maps the preferred/legacy Relay client key into the server and gives
+Slack that same effective key. Do not configure the two processes with different values.
 
 The server must have a usable active LLM profile and credential in its state/keychain.
+
+The foreground command `npm run slack:relay:local` and the persistent `com.smolpaws.slack` LaunchAgent use the same service launcher. Install or remove the persistent service with:
+
+```bash
+npm run slack:launchagent:install
+npm run slack:launchagent:remove
+```
+
+The launcher supervises Slack and a local server that it starts itself. An unexpected child exit brings down the sibling so launchd can restart the complete unit. It leaves a server that was already healthy untouched.
+
+Socket Mode owns event-driven DMs, app mentions, and tracked-thread follow-ups. The heartbeat browser sweep is a separate proactive community check, not an alternate ingress implementation.
 
 ## Tests
 
 ```bash
 npm run typecheck --prefix apps/slack
 npm run test --prefix apps/slack
+npm run slack:service:test
 ```
 
 The focused suite proves retryable durable acceptance, duplicate suppression, real SQLite behavior, real TypeScript agent-server execution with a deterministic fake LLM, outbox synchronization, Delivery Dispatcher settlement, and Slack thread routing.

@@ -17,9 +17,10 @@ if [[ -f "$SMOLPAWS_ENV_FILE" ]]; then
   set -u
 fi
 
-SERVER_URL="${SMOLPAWS_COORD_SERVER_URL:-http://127.0.0.1:8790}"
+SERVER_URL="${SMOLPAWS_RELAY_SERVER_URL:-${SMOLPAWS_COORD_SERVER_URL:-http://127.0.0.1:8790}}"
 SERVER_URL="${SERVER_URL%/}"
 HEALTH_URL="$SERVER_URL/health"
+export SMOLPAWS_RELAY_SERVER_URL="$SERVER_URL"
 BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || printf 'unknown')"
 export SMOLPAWS_BUILD_SHA="$BUILD_SHA"
 
@@ -31,6 +32,36 @@ mkdir -p "$PERSISTENCE_DIR"
 
 server_pid=""
 slack_pid=""
+
+configure_local_server_auth() {
+  local server_key="${OPENHANDS_SESSION_API_KEY:-${SESSION_API_KEY:-}}"
+  local client_key="${SMOLPAWS_RELAY_SERVER_API_KEY:-${SMOLPAWS_COORD_SERVER_API_KEY:-}}"
+  local effective_key="${server_key:-$client_key}"
+
+  if [[ -n "$effective_key" ]]; then
+    # A locally-owned server and its Slack client must agree. Explicit server configuration wins;
+    # otherwise map the preferred/legacy Relay client key into the server's canonical variable.
+    export OPENHANDS_SESSION_API_KEY="$effective_key"
+    export SMOLPAWS_RELAY_SERVER_API_KEY="$effective_key"
+  fi
+}
+
+start_local_server() {
+  configure_local_server_auth
+  (
+    cd "$ROOT_DIR/packages/openhands-agent-server"
+    exec node --import tsx/esm src/cli.ts
+  ) &
+  server_pid=$!
+}
+
+start_slack_bridge() {
+  (
+    cd "$ROOT_DIR/apps/slack"
+    exec node --import tsx/esm src/index.ts
+  ) &
+  slack_pid=$!
+}
 
 cleanup() {
   local status=$?
@@ -52,7 +83,7 @@ cleanup() {
 trap cleanup EXIT INT TERM HUP
 
 cat >&2 <<EOF
-Slack Relay canary
+Slack Relay service
   checkout:     $BUILD_SHA
   agent-server: $SERVER_URL
 
@@ -65,8 +96,7 @@ if ! curl -fsS --max-time 2 "$HEALTH_URL" >/dev/null 2>&1; then
   case "$SERVER_URL" in
     http://127.0.0.1:8790|http://localhost:8790)
       echo "Starting the TypeScript OpenHands agent-server on 127.0.0.1:8790…" >&2
-      npm --prefix packages/openhands-agent-server run dev:server &
-      server_pid=$!
+      start_local_server
       ;;
     *)
       echo "Agent-server is not healthy at $HEALTH_URL." >&2
@@ -96,10 +126,30 @@ else
   echo "Using the already-running healthy agent-server at $SERVER_URL." >&2
 fi
 
-echo "Starting standalone paws Socket Mode bridge from $BUILD_SHA…" >&2
-npm --prefix apps/slack run start &
-slack_pid=$!
-wait "$slack_pid"
-status=$?
-slack_pid=""
-exit "$status"
+echo "Starting standalone paws Socket Mode bridge from ${BUILD_SHA}…" >&2
+start_slack_bridge
+
+# macOS ships Bash 3.2, which has no `wait -n`. Poll the two direct Node children so either one's exit
+# tears down its sibling and lets launchd restart the complete service. A pre-existing remote/local server
+# is not our child and remains independently owned.
+while true; do
+  if [[ -n "$server_pid" ]] && ! kill -0 "$server_pid" 2>/dev/null; then
+    status=0
+    wait "$server_pid" || status=$?
+    server_pid=""
+    if [[ "$status" -eq 0 ]]; then
+      status=1
+    fi
+    echo "The locally-managed TypeScript agent-server exited unexpectedly (status $status)." >&2
+    exit "$status"
+  fi
+
+  if ! kill -0 "$slack_pid" 2>/dev/null; then
+    status=0
+    wait "$slack_pid" || status=$?
+    slack_pid=""
+    exit "$status"
+  fi
+
+  sleep 1
+done
