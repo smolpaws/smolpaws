@@ -70,7 +70,7 @@ npm run whatsapp:handoff -- legacy
 ```
 
 The command takes the same device lock, verifies no unsettled relay work or unprojected events,
-checks conversations are idle/finished, refuses outstanding scheduled occurrences, exports task
+checks conversations are idle/finished, refuses outstanding scheduled occurrences or partially imported voice batches, exports task
 changes to the legacy table, and marks the ledger ready for the **updated** legacy host. It sends
 nothing. Only then start that host. The shared server can keep serving other bridges.
 

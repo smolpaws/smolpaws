@@ -9,6 +9,7 @@ import { WhatsAppDeliveryTarget } from '../../whatsapp/src/deliveryTarget.js';
 import { SlackDeliveryTarget } from '../../slack/src/deliveryTarget.js';
 import { DiscordDeliveryTarget } from '../../discord/src/deliveryTarget.js';
 import type { MediaSender, OutboundMedia } from '../../../src/coordinator/outboundMedia.js';
+import { verifyVoiceOutboxDrained } from '../../whatsapp/src/handoff.js';
 import { importVoiceOutbox } from '../../whatsapp/src/voiceOutbox.js';
 
 test('all three delivery targets pass media to the native sender; legacy voice batches retry idempotently', async () => {
@@ -25,7 +26,9 @@ test('all three delivery targets pass media to the native sender; legacy voice b
     const outbox = path.join(root, 'voice-outbox.jsonl'); const body = JSON.stringify({ jid: 'chat', oggPath: file }) + '\n'; writeFileSync(outbox, body + JSON.stringify({ jid: 'later', oggPath: file }) + '\n');
     const registration = { conversationId: 'whatsapp', scopeId: 'main', workingDir: root, relayDbPath: path.join(root, 'relay.db'), defaults: {}, lane: { laneKey: 'whatsapp', platform: 'whatsapp', chatId: 'chat', accountId: null, threadId: null } };
     assert.throws(() => importVoiceOutbox(outbox, jid => jid === 'chat' ? registration : undefined), /registered/);
+    assert.throws(() => verifyVoiceOutboxDrained(root), /pending voice/);
     assert.equal(importVoiceOutbox(outbox, () => registration), 2);
+    verifyVoiceOutboxDrained(root);
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM work WHERE kind='delivery'").get() as { n: number }).n, 2);
     writeFileSync(outbox, body); assert.equal(importVoiceOutbox(outbox, () => registration), 1);
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM work WHERE kind='delivery'").get() as { n: number }).n, 3);

@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { TaskScheduler } from '../../../src/coordinator/taskScheduler.js';
 /** Offline ownership handoff: no platform sends. Stop the bridge after its run/outbox drain first. */
@@ -7,6 +7,12 @@ import { acquireWhatsAppOwner } from '../../../src/whatsapp-owner.js';
 import { setWhatsAppOwnerMode } from '../../../src/whatsapp-progress.js';
 import { loadConfig } from './config.js';
 import { WhatsAppLedger } from './ledger.js';
+
+export function verifyVoiceOutboxDrained(directory: string): void {
+  if (existsSync(directory) && readdirSync(directory).some(name => name.startsWith('voice-outbox.jsonl.processing'))) {
+    throw new Error('Finish or repair the pending voice outbox batch before rollback');
+  }
+}
 
 export async function verifyRelayDrained(db: Database.Database, serverUrl: string, apiKey?: string): Promise<void> {
   const pending = (db.prepare("SELECT COUNT(*) AS n FROM work WHERE state NOT IN ('done', 'skipped')").get() as { n: number }).n;
@@ -35,6 +41,7 @@ async function main(): Promise<void> {
   let relay: Database.Database | undefined;
   try {
     ledger.initializeProgress(config.routerStatePath);
+    verifyVoiceOutboxDrained(config.whatsappDir);
     try { if (existsSync(config.relayDbPath!)) relay = new Database(config.relayDbPath!, { readonly: true, fileMustExist: true }); }
     catch (error) { if ((error as { code?: string }).code !== 'SQLITE_CANTOPEN') throw error; }
     if (relay) await verifyRelayDrained(relay, process.env.SMOLPAWS_RELAY_SERVER_URL || 'http://127.0.0.1:8790', process.env.SMOLPAWS_RELAY_SERVER_API_KEY);
