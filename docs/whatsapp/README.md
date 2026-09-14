@@ -8,12 +8,19 @@ OpenHands agent-server on `:8790`, no `/turns`.
 The legacy root process (`src/index.ts`, `npm start`) still exists as the documented rollback until
 this bridge has soaked. Run one or the other for a given WhatsApp account, never both.
 
+## Deployment status
+
+Before starting on an existing WhatsApp account, follow [Readiness and cutover gates](READINESS.md).
+The bridge does not import `data/router_state.json`; an existing ledger can replay old messages.
+A fresh relay database alone does not isolate reused server conversations. The setup below describes
+configuration, not a complete production migration or rollback procedure.
+
 ## Flow
 
 ```text
 WhatsApp (Baileys socket)
   -> ledger: ~/.smolpaws/whatsapp/messages.db (chats, messages, media, cursors)
-     cursors are the ledger's own ingestion sequence (rowid), never WhatsApp's one-second timestamps,
+     cursors are the ledger's own ingestion sequence (`messages.seq`), never WhatsApp's one-second timestamps,
      so two messages in the same second or a late offline-sync message are never skipped
   -> poll every 2s, one batch per registered chat, debounced
   -> WhatsAppBridge.pollChat: scope + trigger policy, <messages> transcript
@@ -40,11 +47,11 @@ ledger recognizes the cat's own messages by that prefix.
 |---|---|
 | `index.ts` connect/reconnect/QR exit | `adapter.ts` `WhatsAppBridge.connect()` |
 | `index.ts` `messages.upsert` + media download | `adapter.ts` `ingest()` |
-| `startMessageLoop` + `message-loop.ts` | `adapter.ts` `pollOnce()` / `pollChat()` (per-chat cursors, one chat can no longer block the others) |
+| `startMessageLoop` + `message-loop.ts` | `adapter.ts` `pollOnce()` / `pollChat()` (per-chat cursors; stalled HTTP calls still need bounded deadlines) |
 | `processMessage` transcript + images/docs | `handler.ts` `buildPrompt()` |
 | `control-scope.ts` / `config.ts` trigger | `handler.ts` `shouldRespond()` + `config.ts` |
 | `db.ts` chats/messages | `ledger.ts` (same schema, plus `relay_state` cursors) |
-| `data/router_state.json` | `relay_state` rows in `messages.db` |
+| `data/router_state.json` | New cursor storage is `relay_state` in `messages.db`; **no automatic JSON import** |
 | `data/registered_groups.json` | `~/.smolpaws/whatsapp/registered_groups.json` (legacy path still read) |
 | `sendMessage` + `whatsapp-jid.ts` rewrite | `deliveryTarget.ts` + `adapter.ts` `sendText()` |
 | `whatsapp-auth.ts` | `auth.ts` (QR or pairing code) |
@@ -179,11 +186,15 @@ scheduler consumer will read from the EventLog.
 
 ## Rollback
 
-Stop the bridge LaunchAgent, reinstall the legacy one:
+A service swap alone is not a safe rollback. First stop/drain the bridge and reconcile handled and
+pending messages into the legacy cursor state, using the tested procedure required by
+[the readiness plan](READINESS.md). Otherwise the legacy process may replay canary-handled messages.
+Only after that handoff, change the service owner:
 
 ```bash
 npm run bridge:launchagent:remove -- whatsapp
 npm run smolpaws:launchagent:install
 ```
 
-Both share the ledger and the auth directory; neither touches the other's relay/conversation state.
+Default paths share the ledger and auth directory. The two processes use different cursor storage;
+sharing files does not make their progress state interchangeable.
