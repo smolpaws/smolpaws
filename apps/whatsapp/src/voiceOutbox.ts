@@ -1,15 +1,22 @@
 /** Consume the established local voice-outbox producer into the durable relay outbox. */
-import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, renameSync, unlinkSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import path from 'node:path';
+import { existsSync, readdirSync, readFileSync, renameSync, unlinkSync } from 'node:fs';
 import { queueMedia } from '../../../src/coordinator/outboundMedia.js';
 import type { ScheduledLane } from '../../../src/coordinator/taskScheduler.js';
 export function importVoiceOutbox(file: string, resolveLane: (jid: string) => ScheduledLane | undefined): number {
-  const processing = `${file}.processing`;
-  if (!existsSync(processing)) {
-    try { renameSync(file, processing); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0; throw error; }
+  const directory = path.dirname(file);
+  const prefix = `${path.basename(file)}.processing.`;
+  if (!existsSync(directory)) return 0;
+  let processing = readdirSync(directory).filter(name => name.startsWith(prefix)).sort().map(name => path.join(directory, name))[0];
+  if (!processing) {
+    // The batch identity lives in its filename, so identical later requests remain distinct.
+    processing = `${file}.processing.${randomUUID()}`;
+    const source = existsSync(`${file}.processing`) ? `${file}.processing` : file;
+    try { renameSync(source, processing); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0; throw error; }
   }
   const contents = readFileSync(processing, 'utf8');
-  const batch = createHash('sha256').update(contents).digest('hex');
+  const batch = path.basename(processing);
   let count = 0;
   for (const [index, line] of contents.split('\n').entries()) {
     if (!line.trim()) continue;

@@ -93,7 +93,7 @@ export class TaskScheduler {
       if (!this.visible(source.scopeId, scope)) throw new Error('Cannot schedule work for another scope');
       let target = source;
       if (scope !== source.scopeId) {
-        const row = this.db.prepare("SELECT value_json FROM scheduler_lanes WHERE scope_id = ? AND value_json NOT LIKE '%:scheduled:%' ORDER BY conversation_id LIMIT 1").get(scope) as { value_json: string } | undefined;
+        const row = this.db.prepare("SELECT value_json FROM scheduler_lanes WHERE scope_id = ? AND json_extract(value_json, '$.lane.laneKey') NOT LIKE '%:scheduled:%' ORDER BY conversation_id LIMIT 1").get(scope) as { value_json: string } | undefined;
         if (!row) throw new Error('Target scope is not registered');
         target = JSON.parse(row.value_json) as ScheduledLane;
       }

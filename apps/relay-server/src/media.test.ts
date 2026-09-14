@@ -22,10 +22,12 @@ test('all three delivery targets pass media to the native sender; legacy voice b
       const row = store.getLane(lane.laneKey)!; target.validate(row, media); assert.equal((await target.deliver(row, media)).externalMessageId, 'id');
     }
     assert.equal(sent.length, 3);
-    const outbox = path.join(root, 'voice-outbox.jsonl'); const body = JSON.stringify({ jid: 'chat', oggPath: file }) + '\n'; writeFileSync(outbox, body);
+    const outbox = path.join(root, 'voice-outbox.jsonl'); const body = JSON.stringify({ jid: 'chat', oggPath: file }) + '\n'; writeFileSync(outbox, body + JSON.stringify({ jid: 'later', oggPath: file }) + '\n');
     const registration = { conversationId: 'whatsapp', scopeId: 'main', workingDir: root, relayDbPath: path.join(root, 'relay.db'), defaults: {}, lane: { laneKey: 'whatsapp', platform: 'whatsapp', chatId: 'chat', accountId: null, threadId: null } };
-    assert.equal(importVoiceOutbox(outbox, () => registration), 1);
-    writeFileSync(`${outbox}.processing`, body); assert.equal(importVoiceOutbox(outbox, () => registration), 1);
-    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM work WHERE kind='delivery'").get() as { n: number }).n, 1);
+    assert.throws(() => importVoiceOutbox(outbox, jid => jid === 'chat' ? registration : undefined), /registered/);
+    assert.equal(importVoiceOutbox(outbox, () => registration), 2);
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM work WHERE kind='delivery'").get() as { n: number }).n, 2);
+    writeFileSync(outbox, body); assert.equal(importVoiceOutbox(outbox, () => registration), 1);
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM work WHERE kind='delivery'").get() as { n: number }).n, 3);
   } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
 });
