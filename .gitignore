@@ -3,6 +3,8 @@ node_modules/
 
 # Build output
 dist/
+# The vendored SDK is the packed dependency, including new declaration files.
+!packages/openhands-agent-server/vendor/openhands-agent/dist/
 
 # Local data & auth
 store/
