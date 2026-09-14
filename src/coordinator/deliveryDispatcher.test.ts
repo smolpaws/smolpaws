@@ -76,3 +76,14 @@ test('release only applies to the live claim', () => {
   assert.equal(store.release(again, 6), 'ready');
   db.close();
 });
+
+test('a stalled send becomes delivery_unknown once and never automatically retries', async () => {
+  const db = new Database(':memory:'); const store = new MessageWorkStore(db); const targets = new DeliveryTargetRegistry();
+  let sends = 0; targets.register('whatsapp', { validate() {}, deliver() { sends++; return new Promise(() => {}); } });
+  store.resolveLane(lane, 'conversation', Date.now());
+  const row = store.insertDelivery({ sourceKey: 'timeout', laneKey: lane.laneKey, agentEventId: 'timeout', payload: {} }, Date.now());
+  const dispatcher = new DeliveryDispatcher(store, targets, { sendTimeoutMs: 10 });
+  assert.equal((await dispatcher.dispatchNext('worker')).kind, 'delivery_unknown');
+  assert.equal(store.getWork(row.id)?.state, 'delivery_unknown');
+  assert.equal((await dispatcher.dispatchNext('worker')).kind, 'idle'); assert.equal(sends, 1); db.close();
+});

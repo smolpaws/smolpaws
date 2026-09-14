@@ -1,3 +1,4 @@
+import { isMedia, validateMedia, type MediaSender } from '../../../src/coordinator/outboundMedia.js';
 import type { LaneRow } from '../../../src/coordinator/types.js';
 import type {
   DeliverySendResult,
@@ -16,16 +17,21 @@ interface SlackDeliveryPayload {
 
 /** Slack implementation of the coordinator DeliveryTarget boundary. */
 export class SlackDeliveryTarget implements DeliveryTarget {
-  constructor(private readonly sendChunk: SlackChunkSender) {}
+  constructor(private readonly sendChunk: SlackChunkSender, private readonly sendMedia?: MediaSender) {}
 
   validate(lane: LaneRow, payload: unknown): void {
     if (lane.platform !== 'slack') {
       throw new Error(`SlackDeliveryTarget cannot deliver platform ${lane.platform}`);
     }
+    if (isMedia(payload)) {
+      if (!this.sendMedia) throw new Error('Media sender is unavailable');
+      validateMedia(payload); return;
+    }
     parsePayload(payload);
   }
 
   async deliver(lane: LaneRow, payload: unknown): Promise<DeliverySendResult> {
+    if (isMedia(payload)) return { externalMessageId: await this.sendMedia!(lane.chatId, payload, lane.threadId ?? undefined) };
     const parsed = parsePayload(payload);
     let externalMessageId: string | null = null;
     for (const chunk of splitMessage(parsed.text)) {

@@ -1,3 +1,4 @@
+import { acquireWhatsAppOwner } from './whatsapp-owner.js';
 import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
@@ -22,7 +23,7 @@ import {
   MAIN_GROUP_FOLDER,
 } from './config.js';
 import { RegisteredGroup, Session, NewMessage } from './types.js';
-import { initDatabase, storeMessage, storeChatMetadata, getNewMessages, getMessagesSince, updateChatName, getLastGroupSync, setLastGroupSync } from './db.js';
+import { markMessages, initDatabase, storeMessage, storeChatMetadata, getNewMessages, getMessagesSince, updateChatName, getLastGroupSync, setLastGroupSync } from './db.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { runAgentRuntime } from './agent-runtime/index.js';
 import {
@@ -36,7 +37,7 @@ import { ConnectionGuards } from './connection-guards.js';
 import { shouldSendFinalReplyAfterOutbound } from './outbound-reply-policy.js';
 import { resolveOutboundChatJid } from './whatsapp-jid.js';
 import { isReadableDocumentMedia, readDocumentText } from './document-text.js';
-import { isTransientNetworkError } from './network-errors.js';
+import { isTransientNetworkError, installNetworkErrorGuard } from './network-errors.js';
 import { resolveWhatsAppVersion } from './whatsapp-version.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -297,7 +298,9 @@ async function processMessage(msg: NewMessage): Promise<void> {
   );
   await setTyping(msg.chat_jid, false);
 
+  if (output.status !== 'success') throw new Error(output.error || 'Agent run failed');
   if (output.status === 'success') {
+    markMessages(missedMessages, 'seen');
     lastAgentTimestamp[msg.chat_jid] = msg.timestamp;
     if (shouldSendFinalReplyAfterOutbound(output.result, output.outboundMessages)) {
       await sendMessage(msg.chat_jid, `${ASSISTANT_NAME}: ${output.result}`);
@@ -587,6 +590,7 @@ async function startMessageLoop(): Promise<void> {
         try {
           await processMessage(msg);
           // Only advance timestamp after successful processing for at-least-once delivery
+          markMessages(messages.filter(message => message.chat_jid === msg.chat_jid), 'dispatched');
           lastTimestamp = msg.timestamp;
           saveState();
         } catch (err) {
@@ -618,33 +622,10 @@ async function startMessageLoop(): Promise<void> {
  * the process. We swallow *only* known-transient network errors here and log
  * them; anything else is a real bug and is left to crash, so we never mask it.
  */
-function installNetworkErrorGuard(): void {
-  // Exit only after giving pino a tick to flush its transport, so the fatal
-  // log line isn't dropped by an immediate process.exit().
-  const fatalExit = (err: unknown, label: string): void => {
-    logger.fatal({ err }, label);
-    setTimeout(() => process.exit(1), 100);
-  };
-
-  process.on('uncaughtException', (err) => {
-    if (isTransientNetworkError(err)) {
-      logger.warn({ err }, 'Swallowed transient network error (would have crashed the bridge)');
-      return;
-    }
-    fatalExit(err, 'Uncaught exception — exiting');
-  });
-
-  process.on('unhandledRejection', (reason) => {
-    if (isTransientNetworkError(reason)) {
-      logger.warn({ err: reason }, 'Swallowed transient network rejection');
-      return;
-    }
-    fatalExit(reason, 'Unhandled rejection — exiting');
-  });
-}
-
 async function main(): Promise<void> {
-  installNetworkErrorGuard();
+  const releaseOwner = acquireWhatsAppOwner(path.join(WHATSAPP_DIR, 'auth'));
+  process.once('exit', releaseOwner);
+  installNetworkErrorGuard(logger);
   initDatabase();
   logger.info('Database initialized');
   logger.info({ agentSdkVersion: AGENT_SDK_VERSION }, 'Loaded @smolpaws/agent-sdk');

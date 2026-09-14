@@ -42,7 +42,7 @@ for arg in "${@:2}"; do
   esac
 done
 
-if [[ -z "$SDK_DIR" || ! -d "$SDK_DIR/.git" ]]; then
+if [[ -z "$SDK_DIR" ]] || ! git -C "$SDK_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "usage: $0 /path/to/openhands-agent [--skip-sdk-checks]" >&2
   exit 2
 fi

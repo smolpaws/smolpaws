@@ -1,0 +1,1 @@
+{"extends":"../../apps/whatsapp/tsconfig.json","compilerOptions":{"module":"ESNext","moduleResolution":"bundler","rootDir":"../..","noEmit":true},"include":["src"]}

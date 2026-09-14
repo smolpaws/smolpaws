@@ -18,6 +18,8 @@ import type { AgentEvent, AgentServerClient, LaneDescriptor } from './types.js';
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 export interface HttpAgentServerClientOptions {
+  conversationOwner?: string;
+  requestTimeoutMs?: number;
   baseUrl: string;
   sessionApiKey?: string;
   /** Injectable for tests; defaults to global fetch. */
@@ -44,6 +46,8 @@ export class HttpAgentServerError extends Error {
 }
 
 export class HttpAgentServerClient implements AgentServerClient {
+  private readonly conversationOwner: string | undefined;
+  private readonly requestTimeoutMs: number;
   private readonly baseUrl: string;
   private readonly sessionApiKey?: string;
   private readonly doFetch: FetchLike;
@@ -52,12 +56,24 @@ export class HttpAgentServerClient implements AgentServerClient {
   private readonly searchKind?: string;
 
   constructor(options: HttpAgentServerClientOptions) {
+    this.conversationOwner = options.conversationOwner;
+    this.requestTimeoutMs = options.requestTimeoutMs ?? 15_000;
     this.baseUrl = options.baseUrl.replace(/\/+$/, '');
     this.sessionApiKey = options.sessionApiKey;
     this.doFetch = options.fetch ?? ((url, init) => fetch(url, init));
     this.createDefaults = options.createDefaults ?? {};
     this.createDefaultsFor = options.createDefaultsFor;
     this.searchKind = options.searchKind;
+  }
+
+  private async request(url: string, init?: RequestInit): Promise<Response> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(new Error('Agent-server request timed out')), this.requestTimeoutMs);
+    try {
+      const response = await this.doFetch(url, { ...init, signal: controller.signal });
+      const body = await response.arrayBuffer();
+      return new Response(body.byteLength ? body : null, { status: response.status, statusText: response.statusText, headers: response.headers });
+    } finally { clearTimeout(timeout); }
   }
 
   private headers(json: boolean): Record<string, string> {
@@ -69,21 +85,38 @@ export class HttpAgentServerClient implements AgentServerClient {
 
   async ensureConversation(conversationId: string, lane?: LaneDescriptor): Promise<void> {
     const perLane = lane !== undefined && this.createDefaultsFor !== undefined ? this.createDefaultsFor(lane) : {};
-    const res = await this.doFetch(`${this.baseUrl}/api/conversations`, {
+    const res = await this.request(`${this.baseUrl}/api/conversations`, {
       method: 'POST',
       headers: this.headers(true),
-      body: JSON.stringify({ id: conversationId, ...this.createDefaults, ...perLane }),
+      body: JSON.stringify({ ...this.createDefaults, ...perLane, id: conversationId, ...(this.conversationOwner ? { tags: { ...((this.createDefaults.tags ?? {}) as object), ...((perLane.tags ?? {}) as object), smolpaws_relay_owner: this.conversationOwner } } : {}) }),
     });
     // 200/201 = created or returned; 409 = already exists — both mean the conversation now exists.
+    if (res.status === 409 && this.conversationOwner) {
+      const existing = await this.request(`${this.baseUrl}/api/conversations/${encodeURIComponent(conversationId)}`, { headers: this.headers(false) });
+      if (!existing.ok) await this.raise('ensureConversation', existing);
+      const info = await this.json(existing) as { tags?: Record<string, string> };
+      if (info?.tags?.smolpaws_relay_owner !== this.conversationOwner) throw new HttpAgentServerError('Conversation belongs to another relay store; use isolated server persistence or reconcile the original store', 409, '', true);
+      return;
+    }
     if (res.status === 409 || res.ok) return;
     await this.raise('ensureConversation', res);
+  }
+
+  async executionStatus(conversationId: string): Promise<string> {
+    const response = await this.request(`${this.baseUrl}/api/conversations/${encodeURIComponent(conversationId)}`, { headers: this.headers(false) });
+    if (!response.ok) await this.raise('executionStatus', response);
+    return String(((await this.json(response)) as { execution_status: string }).execution_status).toLowerCase();
+  }
+  async resume(conversationId: string): Promise<void> {
+    const response = await this.request(`${this.baseUrl}/api/conversations/${encodeURIComponent(conversationId)}/run`, { method: 'POST', headers: this.headers(true), body: '{}' });
+    if (!response.ok) await this.raise('resume', response);
   }
 
   async appendEvent(
     conversationId: string,
     event: { eventId: string; role: string; content: unknown; run: boolean },
   ): Promise<{ eventId: string; created: boolean }> {
-    const res = await this.doFetch(
+    const res = await this.request(
       `${this.baseUrl}/api/conversations/${encodeURIComponent(conversationId)}/events`,
       {
         method: 'POST',
@@ -113,7 +146,7 @@ export class HttpAgentServerClient implements AgentServerClient {
     if (pageId !== null) params.set('page_id', pageId);
     params.set('limit', String(limit));
     if (this.searchKind) params.set('kind', this.searchKind);
-    const res = await this.doFetch(
+    const res = await this.request(
       `${this.baseUrl}/api/conversations/${encodeURIComponent(conversationId)}/events/search?${params}`,
       { method: 'GET', headers: this.headers(false) },
     );
@@ -127,7 +160,7 @@ export class HttpAgentServerClient implements AgentServerClient {
 
   /** Optional convenience: request a run (idempotent; 409 "already running" is not an error here). */
   async run(conversationId: string): Promise<void> {
-    const res = await this.doFetch(
+    const res = await this.request(
       `${this.baseUrl}/api/conversations/${encodeURIComponent(conversationId)}/run`,
       { method: 'POST', headers: this.headers(true), body: '{}' },
     );

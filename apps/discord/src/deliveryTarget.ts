@@ -1,3 +1,4 @@
+import { isMedia, validateMedia, type MediaSender } from '../../../src/coordinator/outboundMedia.js';
 import type { DeliverySendResult, DeliveryTarget } from '../../../src/coordinator/deliveryDispatcher.js';
 import type { LaneRow } from '../../../src/coordinator/types.js';
 import { splitDiscordMessage } from './handler.js';
@@ -16,6 +17,7 @@ export class DiscordDeliveryTarget implements DeliveryTarget {
   constructor(
     private readonly sendChunk: DiscordChunkSender,
     private readonly connected: () => boolean = () => true,
+    private readonly sendMedia?: MediaSender,
   ) {}
 
   isReady(): boolean {
@@ -26,10 +28,15 @@ export class DiscordDeliveryTarget implements DeliveryTarget {
     if (lane.platform !== 'discord') {
       throw new Error(`DiscordDeliveryTarget cannot deliver platform ${lane.platform}`);
     }
+    if (isMedia(payload)) {
+      if (!this.sendMedia) throw new Error('Media sender is unavailable');
+      validateMedia(payload); return;
+    }
     parsePayload(payload);
   }
 
   async deliver(lane: LaneRow, payload: unknown): Promise<DeliverySendResult> {
+    if (isMedia(payload)) return { externalMessageId: await this.sendMedia!(lane.chatId, payload, lane.threadId ?? undefined) };
     const parsed = parsePayload(payload);
     let externalMessageId: string | null = null;
     for (const chunk of splitDiscordMessage(parsed.text)) {

@@ -74,7 +74,7 @@ class FakeClient implements DiscordClientLike {
   autoReady = true;
   channels = {
     fetch: async (channelId: string) => ({
-      send: async ({ content }: { content: string }) => {
+      send: async ({ content = '' }: { content?: string }) => {
         this.sent.push({ channelId, content });
         return { id: `D-${this.sent.length}` };
       },

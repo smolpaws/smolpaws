@@ -36,6 +36,7 @@ export interface MessageRelayOptions {
   isRetryable?: (error: unknown) => boolean;
   /** Page size when syncing agent events into the delivery outbox. */
   outboxSyncPageSize?: number;
+  onEvent?: (conversationId: string, event: AgentEvent) => void;
 }
 
 /**
@@ -135,6 +136,7 @@ export class MessageRelay {
   private readonly extractor: DeliverableExtractor;
   private readonly isRetryable: (error: unknown) => boolean;
   private readonly outboxSyncPageSize: number;
+  private readonly onEvent: MessageRelayOptions['onEvent'];
 
   constructor(store: MessageWorkStore, agent: AgentServerClient, options: MessageRelayOptions = {}) {
     this.store = store;
@@ -150,6 +152,7 @@ export class MessageRelay {
     this.isRetryable =
       options.isRetryable ??
       ((error) => !(error as { nonRetryable?: boolean } | null)?.nonRetryable);
+    this.onEvent = options.onEvent;
     this.outboxSyncPageSize = options.outboxSyncPageSize ?? 100;
   }
 
@@ -168,7 +171,7 @@ export class MessageRelay {
 
   /** Durably accept one normalized external message as intake work. */
   async acceptInbound(descriptor: LaneDescriptor, message: InboundMessage): Promise<WorkRow> {
-    const binding = await this.resolveLane(descriptor);
+    const binding = this.store.resolveLane(descriptor, this.deriveConversationId(descriptor), this.now());
     const sourceKey = this.buildIntakeSourceKey(descriptor, message.sourceMessageId);
     const agentEventId = this.deriveEventId(descriptor.platform, message.sourceMessageId);
     return this.store.acceptIntake(
@@ -186,6 +189,10 @@ export class MessageRelay {
     try {
       const lane = this.store.getLane(row.laneKey);
       if (!lane) throw new Error(`work references unknown lane: ${row.laneKey}`);
+      if (!lane.conversationReady) {
+        await this.agent.ensureConversation(lane.conversationId, lane);
+        this.store.markLaneConversationReady(lane.laneKey, this.now());
+      }
       const result = await this.agent.appendEvent(lane.conversationId, {
         eventId: row.agentEventId ?? '',
         role: 'user',
@@ -244,6 +251,7 @@ export class MessageRelay {
         throw error;
       }
       for (const event of page.items) {
+        this.onEvent?.(conversationId, event);
         const intent = this.extractor(event);
         if (!intent) continue;
         const sourceKey = `${event.id}:${lane.laneKey}`;

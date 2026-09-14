@@ -1,3 +1,4 @@
+import { RunRecovery } from './runRecovery.js';
 /**
  * Platform-agnostic Message Relay runtime for standalone bridges.
  *
@@ -10,6 +11,8 @@
  * Bridge-specific knowledge is injected: the platform name, the delivery target (with its transport
  * readiness), lane derivation, and optional conversation-creation defaults.
  */
+import { TaskScheduler, type ScheduledLane } from './taskScheduler.js';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -20,7 +23,7 @@ import type { Logger } from 'pino';
 import { DeliveryDispatcher, DeliveryTargetRegistry, type DeliveryTarget } from './deliveryDispatcher.js';
 import { HttpAgentServerClient } from './httpAgentServerClient.js';
 import { deterministicConversationId } from './ids.js';
-import { MessageRelay, terminalResponseExtractor } from './messageRelay.js';
+import { MessageRelay, sendMessageExtractor, terminalResponseExtractor } from './messageRelay.js';
 import { OutboundRelay } from './outboundRelay.js';
 import { MessageWorkStore } from './store.js';
 import type { DeliverableExtractor, InboundMessage, LaneDescriptor } from './types.js';
@@ -47,6 +50,7 @@ export interface RelayRuntimeOptions {
   /** What counts as deliverable. Defaults to finish observation OR end-of-turn assistant text. */
   extractor?: DeliverableExtractor;
   maxDispatchPerTick?: number;
+  schedulerDbPath?: string;
 }
 
 export interface RelayIntake {
@@ -55,12 +59,17 @@ export interface RelayIntake {
 }
 
 export function defaultRelayDbPath(platform: string): string {
-  return join(homedir(), '.smolpaws', 'coordinator', `${platform}-relay-v1.db`);
+  return process.env.SMOLPAWS_RELAY_DB_PATH?.trim() || join(process.env.SMOLPAWS_HOME_DIR?.trim() || join(homedir(), '.smolpaws'), 'coordinator', `${platform}-relay-v1.db`);
 }
 
 export class RelayRuntime {
   readonly platform: string;
+  readonly scheduler: TaskScheduler;
+  private readonly options: RelayRuntimeOptions;
+  private readonly dbPath: string;
   private readonly db: Database.Database;
+  private readonly recovery: RunRecovery;
+  private readonly agent: HttpAgentServerClient;
   private readonly store: MessageWorkStore;
   private readonly messageRelay: MessageRelay;
   private readonly outboundRelay: OutboundRelay;
@@ -73,6 +82,7 @@ export class RelayRuntime {
   private closed = false;
 
   constructor(options: RelayRuntimeOptions) {
+    this.options = options;
     this.platform = options.platform;
     this.logger = options.logger.child({ component: `${options.platform}-relay-runtime` });
     this.tickMs = options.tickMs ?? 500;
@@ -80,22 +90,31 @@ export class RelayRuntime {
     this.deliveryWorker = `${options.platform}-delivery:${process.pid}`;
 
     const dbPath = options.dbPath ?? defaultRelayDbPath(options.platform);
+    this.dbPath = dbPath;
+    this.scheduler = new TaskScheduler(options.schedulerDbPath ?? process.env.SMOLPAWS_SCHEDULER_DB_PATH ?? join(dirname(dbPath), 'scheduler.db'));
     mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new Database(dbPath);
     this.store = new MessageWorkStore(this.db);
+    this.recovery = new RunRecovery(this.db);
 
+    this.db.exec('CREATE TABLE IF NOT EXISTS relay_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    this.db.prepare("INSERT OR IGNORE INTO relay_meta VALUES ('owner', ?)").run(randomUUID());
+    const owner = (this.db.prepare("SELECT value FROM relay_meta WHERE key = 'owner'").get() as { value: string }).value;
     const agent = new HttpAgentServerClient({
+      conversationOwner: owner,
       baseUrl: options.serverUrl,
       sessionApiKey: options.sessionApiKey,
       ...(options.createConversationDefaults === undefined
         ? {}
         : { createDefaults: options.createConversationDefaults }),
       ...(options.createConversationDefaultsFor === undefined
-        ? {}
-        : { createDefaultsFor: options.createConversationDefaultsFor }),
+        ? { createDefaultsFor: (lane: LaneDescriptor) => this.scheduler.lane(this.store.getLane(lane.laneKey)?.conversationId ?? '')?.defaults ?? {} }
+        : { createDefaultsFor: (lane) => this.scheduler.lane(this.store.getLane(lane.laneKey)?.conversationId ?? '')?.defaults ?? options.createConversationDefaultsFor!(lane) }),
     });
+    this.agent = agent;
     this.messageRelay = new MessageRelay(this.store, agent, {
-      extractor: options.extractor ?? terminalResponseExtractor,
+      onEvent: (conversationId, event) => { this.scheduler.observe(conversationId, event); this.recovery.observe(conversationId, event); },
+      extractor: options.extractor ?? ((event) => sendMessageExtractor(event) ?? terminalResponseExtractor(event)),
       deriveConversationId: options.deriveConversationId ?? ((descriptor) => deterministicConversationId(descriptor.laneKey)),
     });
 
@@ -121,6 +140,7 @@ export class RelayRuntime {
     if (this.closed) throw new Error(`${this.platform} RelayRuntime is closed`);
     if (this.timer !== null) return;
     await this.runOnce();
+    if (this.closed) return;
     this.timer = setInterval(() => {
       void this.runOnce().catch((error: unknown) => {
         this.logger.error({ err: errorMessage(error) }, 'Message Relay tick failed');
@@ -130,14 +150,15 @@ export class RelayRuntime {
   }
 
   async stop(): Promise<void> {
+    this.closed = true;
     if (this.timer !== null) {
       clearInterval(this.timer);
       this.timer = null;
     }
     await this.activeTick?.catch(() => undefined);
-    if (!this.closed) {
-      this.closed = true;
+    if (this.db.open) {
       this.db.close();
+      this.scheduler.close();
     }
   }
 
@@ -150,10 +171,24 @@ export class RelayRuntime {
     if (intake.message.sourceMessageId.length === 0) {
       throw new Error('Message Relay intake requires a stable sourceMessageId');
     }
+    this.registerLane(intake.lane);
     await this.messageRelay.acceptInbound(intake.lane, intake.message);
     void this.runOnce().catch((error: unknown) => {
       this.logger.error({ err: errorMessage(error) }, 'Message Relay wake-up failed');
     });
+  }
+
+  registerLane(lane: LaneDescriptor, explicit?: ScheduledLane): ScheduledLane {
+    const defaults = { ...this.options.createConversationDefaults, ...this.options.createConversationDefaultsFor?.(lane) };
+    const conversationId = explicit?.conversationId ?? this.store.getLane(lane.laneKey)?.conversationId ?? this.options.deriveConversationId?.(lane) ?? deterministicConversationId(lane.laneKey);
+    this.store.resolveLane(lane, conversationId, Date.now());
+    const workspace = defaults.workspace as { working_dir?: string } | undefined;
+    const tags = defaults.tags as { scope?: string } | undefined;
+    const registration: ScheduledLane = explicit ?? { conversationId, lane,
+      scopeId: tags?.scope ?? `${lane.platform}:${lane.accountId ?? ''}:${lane.chatId}`,
+      workingDir: workspace?.working_dir ?? process.cwd(), relayDbPath: this.dbPath, defaults };
+    this.scheduler.register(registration);
+    return registration;
   }
 
   /** Exposed for deterministic tests and operational one-shot drains. Concurrent calls coalesce. */
@@ -169,6 +204,19 @@ export class RelayRuntime {
 
   private async tick(): Promise<void> {
     const reconcile = this.store.reconcile(Date.now());
+    for (const run of this.scheduler.due(this.platform)) {
+      const registration = JSON.parse(run.lane_json) as ScheduledLane;
+      // Only the process owning this relay store may submit its scheduled occurrences.
+      if (registration.relayDbPath !== this.dbPath) continue;
+      this.registerLane(registration.lane, registration);
+      // Native group tasks append to an already-created API conversation. Isolated runs are new lanes.
+      if (this.platform === 'agent-server' && registration.lane.laneKey === `agent-server:${registration.conversationId}`) {
+        this.store.markLaneConversationReady(registration.lane.laneKey, Date.now());
+      }
+      await this.messageRelay.acceptInbound(registration.lane, { sourceMessageId: run.source_id,
+        content: `[SCHEDULED TASK - automatic run]\n\n${run.prompt}` });
+      this.scheduler.enqueued(run.id);
+    }
     let intakeActivity = 0;
 
     for (let i = 0; i < 32; i += 1) {
@@ -193,6 +241,18 @@ export class RelayRuntime {
       }
     }
 
+    for (const pending of this.recovery.pending()) {
+      if (outbound.syncFailures.some(failure => failure.conversationId === pending.conversationId)) continue;
+      try {
+        const status = await this.agent.executionStatus(pending.conversationId);
+        if (status === 'error' || status === 'idle' && pending.actions.length > 0) {
+          const issue = status === 'error' ? 'Agent run failed; inspect before retrying' : 'Interrupted tool has no observation; reconcile its outcome before continuing';
+          this.recovery.park(pending.conversationId, issue);
+          this.scheduler.observe(pending.conversationId, { id: 'recovery', kind: 'ConversationErrorEvent', error: issue, reconcile_required: pending.actions.length > 0 });
+          this.logger.error({ conversationId: pending.conversationId }, issue);
+        } else if (status === 'idle') await this.agent.resume(pending.conversationId);
+      } catch (error) { this.logger.warn({ err: errorMessage(error), conversationId: pending.conversationId }, 'Run recovery will retry'); }
+    }
     const reconcileActivity =
       reconcile.expiredToReady + reconcile.expiredToDeliveryUnknown + reconcile.retryWaitToReady;
     if (

@@ -12,6 +12,7 @@ import { MessageWorkStore } from '../../../../src/coordinator/store.js';
 import { createAgentServerApp } from '../../../../packages/openhands-agent-server/src/app.js';
 import { WhatsAppBridge, type ConnectionUpdate, type WhatsAppSocketLike } from '../adapter.js';
 import { loadConfig } from '../config.js';
+import { verifyRelayDrained } from '../handoff.js';
 import { whatsappExtractor } from '../relayRuntime.js';
 
 type OpenHandsAgentModule = typeof import(
@@ -88,8 +89,9 @@ class FakeSocket implements WhatsAppSocketLike {
     return Promise.all((this.handlers[event] ?? []).map((handler) => handler(payload as never)));
   }
 
-  async sendMessage(jid: string, content: { text: string }) {
-    this.sent.push({ jid, text: content.text });
+  async sendMessage(jid: string, content: Parameters<WhatsAppSocketLike['sendMessage']>[1], options?: { messageId: string }) {
+    if (content.audio) return { key: { id: options?.messageId ?? 'MEDIA' } };
+    this.sent.push({ jid, text: content.text ?? '' });
     return { key: { id: `WA-${this.sent.length}` } };
   }
 
@@ -141,6 +143,7 @@ test('WhatsApp ingress reaches the real TypeScript agent-server and returns thro
     startupPing: false,
     createConversationDefaults: { tags: { ingress: 'whatsapp' } },
     socketFactory: async () => ({ socket, saveCreds: () => undefined }),
+    downloadMedia: async () => Buffer.from('fake media'),
   });
 
   try {
@@ -179,11 +182,25 @@ test('WhatsApp ingress reaches the real TypeScript agent-server and returns thro
     ].map((entry) => ({ ...entry, jid: '123@g.us' })));
     assert.deepEqual(socket.presence, ['composing', 'paused']);
 
+    // A voice note has no text prefix. Its preallocated ID must suppress its own account echo.
+    const voiceId = await bridge['sendMedia']('123@g.us', { kind: 'current_thread_media', path: '/tmp/fake.ogg', mediaType: 'audio', mimeType: 'audio/ogg; codecs=opus', fileName: 'fake.ogg', voiceNote: true });
+    await socket.emit('messages.upsert', { messages: [{ key: { remoteJid: '123@g.us', id: voiceId, fromMe: true },
+      message: { audioMessage: { mimetype: 'audio/ogg' } }, messageTimestamp: 1_700_000_003 }] });
+    await bridge.pollOnce();
+    assert.equal(bridge['runtime']?.workStore.getWorkBySourceKey('intake', `whatsapp:4915551234:${voiceId}`), null);
+
     // Replaying the same upsert is idempotent at the durable boundary.
     await socket.emit('messages.upsert', upsert('M2', '@smolpaws say the words', 1_700_000_002));
     await bridge.pollOnce();
     await bridge['runtime']!.runOnce();
     assert.equal(socket.sent.length, 2);
+    const handoffDb = new Database(relayDbPath);
+    try {
+      await verifyRelayDrained(handoffDb, baseUrl, SESSION_KEY);
+      handoffDb.prepare("UPDATE work SET state='failed' WHERE kind='intake'").run();
+      await assert.rejects(verifyRelayDrained(handoffDb, baseUrl, SESSION_KEY), /unsettled/);
+      handoffDb.prepare("UPDATE work SET state='done' WHERE kind='intake'").run();
+    } finally { handoffDb.close(); }
   } finally {
     await bridge.stop();
     await app.close();
@@ -245,6 +262,7 @@ test('queued deliveries wait as ready until the WhatsApp socket is open, then go
     tickMs: 60_000,
     startupPing: false,
     socketFactory: async () => ({ socket, saveCreds: () => undefined }),
+    downloadMedia: async () => Buffer.from('fake media'),
   });
   const upsert = (id: string, text: string, seconds: number) => ({
     messages: [{

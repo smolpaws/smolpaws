@@ -19,6 +19,7 @@ Slack is greenfield. It does not use the legacy SmolPaws `/turns` server on port
 
 - `app_mentions:read`
 - `chat:write`
+- `files:write` for outbound attachments/audio (reauthorize the installed app when adding it)
 - `im:history`
 - `reactions:write`
 - `channels:history` when channel-thread follow-ups/context are enabled

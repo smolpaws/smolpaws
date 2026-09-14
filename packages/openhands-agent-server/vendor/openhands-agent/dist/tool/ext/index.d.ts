@@ -7,3 +7,4 @@
  */
 export * from './send-message.js';
 export * from './task-scheduler.js';
+export * from './send-media.js';

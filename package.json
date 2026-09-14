@@ -47,7 +47,11 @@
     "paws:off": "./scripts/paws-off.sh",
     "runner:image:build": "container build -t smolpaws-runner:latest apps/agent-server",
     "openapi:generate": "./scripts/generate-openapi.sh",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "whatsapp:handoff": "./scripts/run-local-smolpaws.sh node --import tsx/esm apps/whatsapp/src/handoff.ts",
+    "relay-server:start": "./scripts/run-local-smolpaws.sh node --import tsx/esm apps/relay-server/src/index.ts",
+    "relay-server:typecheck": "tsc -p apps/relay-server/tsconfig.json",
+    "relay-server:test": "tsx --test apps/relay-server/src/*.test.ts"
   },
   "dependencies": {
     "@smolpaws/agent-sdk": "^0.10.0",

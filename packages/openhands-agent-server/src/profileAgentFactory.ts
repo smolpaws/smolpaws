@@ -13,6 +13,8 @@ import {
   ResumeTaskTool,
   ScheduleTaskTool,
   SendMessageTool,
+  SendMediaTool,
+  UpdateTaskTool,
   TerminalTool,
   ThinkTool,
   createClientFromProfile,
@@ -24,13 +26,16 @@ import {
   type ToolDefinition,
 } from '@smolpaws/openhands-agent';
 
-import type { AgentFactory } from './eventService.js';
+import type { AgentFactory, AgentFactoryContext } from './eventService.js';
 import { publicStartConversationRequestSchema, startConversationRequestSchema, type StartConversationRequest } from './models.js';
 import type { ServerStateService } from './serverState.js';
 
 export type ProfileLlmClientFactory = (profile: LLMProfile, secretStore: SecretStore) => Promise<LLMClient>;
 
+export type ProfileToolConfigurator = (tools: readonly ToolDefinition[], context: AgentFactoryContext) => readonly ToolDefinition[];
+
 interface ProfileAgentFactoryOptions {
+  readonly configureTools?: ProfileToolConfigurator;
   readonly state: ServerStateService;
   readonly secretStore: SecretStore;
   readonly llmClientFactory?: ProfileLlmClientFactory;
@@ -60,10 +65,12 @@ export function createProfileAgentFactory(options: ProfileAgentFactoryOptions): 
     // server default set", preserving the behavior of the previous non-nullable default.
     const configuredTools = settings.tools ?? [];
     const toolSpecs = configuredTools.length === 0 ? defaultToolNames : configuredTools;
+    const resolvedTools = toolSpecs.flatMap((spec) => resolveProfileTool(spec, workingDir));
+    const tools = options.configureTools?.(resolvedTools, context) ?? resolvedTools;
     const suffix = launchAdditionsSuffix(context.stored.request);
     return new Agent({
       llm: await createLlmClient(profile, options.secretStore),
-      tools: toolSpecs.flatMap((spec) => resolveProfileTool(spec, workingDir)),
+      tools,
       toolConcurrencyLimit: settings.tool_concurrency_limit,
       ...(suffix === null ? {} : { context: new AgentContext({ systemMessageSuffix: suffix }) }),
     });
@@ -116,6 +123,8 @@ export function resolveProfileTool(spec: unknown, workingDir: string): readonly 
     case 'think': return [ThinkTool.create()];
     // SmolPaws additive tools (EXT-SDK-001/002). Pure ActionEvent emitters; delivery and
     // scheduling are owned downstream by the coordinator/scheduler, not the server.
+    case 'send_media': return [SendMediaTool.create()];
+    case 'update_task': return [UpdateTaskTool.create()];
     case 'send_message': return [SendMessageTool.create()];
     case 'schedule_task': return [ScheduleTaskTool.create()];
     case 'list_tasks': return [ListTasksTool.create()];

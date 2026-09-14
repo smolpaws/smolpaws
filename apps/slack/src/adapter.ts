@@ -1,3 +1,4 @@
+import { createReadStream } from 'node:fs';
 /**
  * Standalone Slack Socket Mode bridge for the durable Message Relay architecture.
  *
@@ -123,6 +124,13 @@ export class SlackBridge {
           ? {}
           : { createConversationDefaults: this.createConversationDefaults }),
         sendChunk: (channel, text, threadTs) => this.postChunk(channel, text, threadTs),
+        sendMedia: async (channel, media, threadTs) => {
+          const upload = { channel_id: channel, file: createReadStream(media.path), filename: media.fileName,
+            ...(media.caption ? { initial_comment: media.caption } : {}) };
+          if (threadTs) await app.client.files.uploadV2({ ...upload, thread_ts: threadTs });
+          else await app.client.files.uploadV2(upload);
+          return null;
+        },
       });
       this.runtime = runtime;
       await runtime.start();

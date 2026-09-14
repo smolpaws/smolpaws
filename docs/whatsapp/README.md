@@ -175,26 +175,14 @@ cursors, delivery chunking, and an end-to-end run through a fake Baileys socket,
 TypeScript agent-server with a deterministic test LLM, the durable relay store, and the delivery
 target (both a mid-turn `send_message` and the final reply, exactly once, idempotent on replay).
 
-## Scheduler
+## Scheduler, media and rollback
 
-Scheduled tasks (`scheduled_tasks` in `messages.db`, driven by `src/task-scheduler.ts`) are not yet part
-of the bridge. The design (bead `smolpaws-kxa.4`) is to run the cron loop inside the bridge process and
-inject each due task as a synthetic intake on the task's chat lane, so scheduled prompts get the same
-idempotency and delivery guarantees as human messages. Until then, scheduled tasks only run under the
-legacy root process. The `schedule_task` family of tools (EXT-SDK-002) emit ActionEvents that a future
-scheduler consumer will read from the EventLog.
+The [shared product host](../bridges.md#shared-scheduler-and-media-tools) binds the task tools to the
+shared scheduler. Due tasks use the same relay intake as chat messages; all lifecycle commands return
+real results. Outbound media and voice notes, including the existing `voice-outbox.jsonl` producer,
+use a durable local spool and the normal delivery dispatcher.
 
-## Rollback
-
-A service swap alone is not a safe rollback. First stop/drain the bridge and reconcile handled and
-pending messages into the legacy cursor state, using the tested procedure required by
-[the readiness plan](READINESS.md). Otherwise the legacy process may replay canary-handled messages.
-Only after that handoff, change the service owner:
-
-```bash
-npm run bridge:launchagent:remove -- whatsapp
-npm run smolpaws:launchagent:install
-```
-
-Default paths share the ledger and auth directory. The two processes use different cursor storage;
-sharing files does not make their progress state interchangeable.
+Both updated host generations share message-identity progress. After draining and stopping the bridge,
+run `npm run whatsapp:handoff -- legacy` before starting the updated legacy host. The command checks
+in-flight work and exports scheduler changes; a simple service swap is insufficient. Follow the full
+[readiness and rollback checklist](READINESS.md), including state isolation and the live test gates.

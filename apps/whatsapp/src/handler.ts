@@ -40,6 +40,7 @@ export function laneDescriptorFor(selfJid: string, chatJid: string, group: Regis
 
 /** Per-scope workspace: `groups/<folder>` under the checkout, as the legacy runtime used. */
 export function scopeWorkingDir(repoRoot: string, group: RegisteredGroup): string {
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(group.folder)) throw new Error('Invalid scope folder');
   return path.join(repoRoot, 'groups', group.folder);
 }
 

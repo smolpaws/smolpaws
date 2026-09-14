@@ -241,3 +241,10 @@ The remaining work is operational confidence: keep supported provider profiles l
 write the cutover/rollback runbook, and advance the upstream pin deliberately. The separate
 upstream-compatible delivery queue replaces `/turns`; it is not package parity work and does
 not block this package.
+
+
+### Product tool composition
+
+`createAgentServerApp({ configureTools })` lets a host bind product tool executors after normal profile
+resolution. The default is unchanged. SmolPaws' relay-server host uses this seam for its shared scheduler
+and file outbox; the parity package owns no channel queue or scheduling database.

@@ -1,3 +1,4 @@
+import type { MediaSender } from '../../../src/coordinator/outboundMedia.js';
 import type { Logger } from 'pino';
 
 import { RelayRuntime, defaultRelayDbPath } from '../../../src/coordinator/relayRuntime.js';
@@ -6,6 +7,7 @@ import type { LaneDescriptor } from '../../../src/coordinator/types.js';
 import { DiscordDeliveryTarget, type DiscordChunkSender } from './deliveryTarget.js';
 
 export interface DiscordRelayRuntimeOptions {
+  sendMedia?: MediaSender;
   logger: Logger;
   serverUrl: string;
   sessionApiKey?: string;
@@ -27,7 +29,7 @@ export class DiscordRelayRuntime {
       logger: options.logger,
       serverUrl: options.serverUrl,
       sessionApiKey: options.sessionApiKey,
-      target: new DiscordDeliveryTarget(options.sendChunk, options.isConnected),
+      target: new DiscordDeliveryTarget(options.sendChunk, options.isConnected, options.sendMedia),
       dbPath: options.dbPath ?? defaultRelayDbPath('discord'),
       ...(options.tickMs === undefined ? {} : { tickMs: options.tickMs }),
       ...(options.createConversationDefaults === undefined

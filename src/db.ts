@@ -3,7 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import { proto } from '@whiskeysockets/baileys';
 import { NewMessage, ScheduledTask, TaskRunLog } from './types.js';
-import { WHATSAPP_DIR } from './config.js';
+import { WHATSAPP_DIR, DATA_DIR } from './config.js';
+import { assertLegacyHandoff, initializeWhatsAppProgress, markWhatsAppMessages, pendingWhatsAppClause } from './whatsapp-progress.js';
 
 let db: Database.Database;
 
@@ -77,6 +78,12 @@ export function initDatabase(): void {
   try {
     db.exec(`ALTER TABLE messages ADD COLUMN media_type TEXT`);
   } catch { /* column already exists */ }
+  initializeWhatsAppProgress(db, path.join(DATA_DIR, 'router_state.json'));
+  assertLegacyHandoff(db);
+}
+
+export function markMessages(messages: readonly NewMessage[], kind: 'dispatched' | 'seen'): void {
+  markWhatsAppMessages(db, messages, kind);
 }
 
 /**
@@ -201,7 +208,7 @@ export function storeMessage(
   const senderName = pushName || sender.split('@')[0];
   const msgId = msg.key.id || '';
 
-  db.prepare(`INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, media_path, media_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+  db.prepare(`INSERT INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, media_path, media_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id, chat_jid) DO UPDATE SET sender=excluded.sender, sender_name=excluded.sender_name, content=excluded.content, timestamp=excluded.timestamp, is_from_me=excluded.is_from_me, media_path=COALESCE(excluded.media_path,messages.media_path), media_type=COALESCE(excluded.media_type,messages.media_type)`)
     .run(msgId, chatJid, sender, senderName, content, timestamp, isFromMe ? 1 : 0, media?.path ?? null, media?.type ?? null);
 }
 
@@ -213,11 +220,11 @@ export function getNewMessages(jids: string[], lastTimestamp: string, botPrefix:
   const sql = `
     SELECT id, chat_jid, sender, sender_name, content, timestamp, media_path, media_type
     FROM messages
-    WHERE timestamp > ? AND chat_jid IN (${placeholders}) AND content NOT LIKE ?
+    WHERE chat_jid IN (${placeholders}) AND content NOT LIKE ? AND ${pendingWhatsAppClause('dispatched')}
     ORDER BY timestamp
   `;
 
-  const rows = db.prepare(sql).all(lastTimestamp, ...jids, `${botPrefix}:%`) as NewMessage[];
+  const rows = db.prepare(sql).all(...jids, `${botPrefix}:%`) as NewMessage[];
 
   let newTimestamp = lastTimestamp;
   for (const row of rows) {
@@ -232,10 +239,10 @@ export function getMessagesSince(chatJid: string, sinceTimestamp: string, botPre
   const sql = `
     SELECT id, chat_jid, sender, sender_name, content, timestamp, media_path, media_type
     FROM messages
-    WHERE chat_jid = ? AND timestamp > ? AND content NOT LIKE ?
+    WHERE chat_jid = ? AND content NOT LIKE ? AND ${pendingWhatsAppClause('seen')}
     ORDER BY timestamp
   `;
-  return db.prepare(sql).all(chatJid, sinceTimestamp, `${botPrefix}:%`) as NewMessage[];
+  return db.prepare(sql).all(chatJid, `${botPrefix}:%`) as NewMessage[];
 }
 
 export function createTask(task: Omit<ScheduledTask, 'last_run' | 'last_result'>): void {

@@ -48,9 +48,11 @@ export type DeliveryDispatchOutcome =
 
 export interface DeliveryDispatcherOptions {
   now?: () => number;
+  sendTimeoutMs?: number;
 }
 
 export class DeliveryDispatcher {
+  private readonly sendTimeoutMs: number;
   private readonly now: () => number;
 
   constructor(
@@ -58,6 +60,7 @@ export class DeliveryDispatcher {
     private readonly targets: DeliveryTargetRegistry,
     options: DeliveryDispatcherOptions = {},
   ) {
+    this.sendTimeoutMs = options.sendTimeoutMs ?? 30_000;
     this.now = options.now ?? (() => Date.now());
   }
 
@@ -101,7 +104,10 @@ export class DeliveryDispatcher {
     }
 
     try {
-      const result = await target.deliver(lane, claim.row.payload);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const result = await Promise.race([target.deliver(lane, claim.row.payload), new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('Platform delivery timed out; outcome unknown')), this.sendTimeoutMs);
+      })]).finally(() => { if (timer) clearTimeout(timer); });
       const externalMessageId = result.externalMessageId ?? null;
       const settled = this.store.settle(
         claim,

@@ -20,6 +20,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
 import Database from 'better-sqlite3';
+import { installWhatsAppProgress, initializeWhatsAppProgress, markWhatsAppMessages, pendingWhatsAppClause } from '../../../src/whatsapp-progress.js';
 
 export interface LedgerMessage {
   /** Local monotonic ingestion sequence. Cursors are expressed in this. */
@@ -56,6 +57,7 @@ export class WhatsAppLedger {
     if (ledgerPath !== ':memory:') mkdirSync(path.dirname(ledgerPath), { recursive: true });
     this.db = new Database(ledgerPath);
     this.db.pragma('journal_mode = WAL');
+    installWhatsAppProgress(this.db);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS chats (
         jid TEXT PRIMARY KEY,
@@ -101,6 +103,8 @@ export class WhatsAppLedger {
       CREATE INDEX IF NOT EXISTS idx_messages_chat_seq ON messages(chat_jid, seq);
     `);
   }
+
+  initializeProgress(statePath?: string): void { initializeWhatsAppProgress(this.db, statePath); }
 
   close(): void {
     this.db.close();
@@ -180,7 +184,7 @@ export class WhatsAppLedger {
       .prepare(
         `SELECT ${MESSAGE_COLUMNS}
          FROM messages
-         WHERE seq > ? AND chat_jid IN (${placeholders}) AND content NOT LIKE ?
+         WHERE seq > ? AND chat_jid IN (${placeholders}) AND content NOT LIKE ? AND ${pendingWhatsAppClause('dispatched')}
          ORDER BY seq`,
       )
       .all(afterSeq, ...chatJids, `${assistantName}:%`) as LedgerMessage[];
@@ -191,7 +195,7 @@ export class WhatsAppLedger {
       .prepare(
         `SELECT ${MESSAGE_COLUMNS}
          FROM messages
-         WHERE chat_jid = ? AND seq > ? AND content NOT LIKE ?
+         WHERE chat_jid = ? AND seq > ? AND content NOT LIKE ? AND ${pendingWhatsAppClause('seen')}
          ORDER BY seq`,
       )
       .all(chatJid, afterSeq, `${assistantName}:%`) as LedgerMessage[];
@@ -225,6 +229,7 @@ export class WhatsAppLedger {
   }
 
   setDispatchSeq(chatJid: string, seq: number): void {
+    markWhatsAppMessages(this.db, this.db.prepare('SELECT id, chat_jid FROM messages WHERE chat_jid = ? AND seq <= ?').all(chatJid, seq) as LedgerMessage[], 'dispatched');
     if (seq >= this.peekDispatchSeq(chatJid)) this.setState(`dispatch_seq:${chatJid}`, String(seq));
   }
 
@@ -239,6 +244,7 @@ export class WhatsAppLedger {
   }
 
   setLastAgentSeq(chatJid: string, seq: number): void {
+    markWhatsAppMessages(this.db, this.db.prepare('SELECT id, chat_jid FROM messages WHERE chat_jid = ? AND seq <= ?').all(chatJid, seq) as LedgerMessage[], 'seen');
     this.setState(`last_agent_seq:${chatJid}`, String(seq));
   }
 

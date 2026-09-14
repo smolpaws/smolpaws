@@ -31,7 +31,7 @@ export interface DiscordClientLike {
 }
 
 export interface DiscordChannelLike {
-  send(options: { content: string; allowedMentions: { parse: never[] } }): Promise<{ id: string }>;
+  send(options: { content?: string; files?: { attachment: string; name: string }[]; allowedMentions: { parse: never[] } }): Promise<{ id: string }>;
   sendTyping?: () => Promise<unknown>;
 }
 
@@ -111,6 +111,12 @@ export class DiscordBridge {
       serverUrl: this.serverUrl,
       sessionApiKey: this.sessionApiKey,
       sendChunk: (channelId, text) => this.sendChunk(channelId, text),
+      sendMedia: async (channelId, media) => {
+        const channel = await this.client?.channels.fetch(channelId);
+        if (!channel) throw new Error('Discord channel is unavailable');
+        const sent = await channel.send({ content: media.caption, files: [{ attachment: media.path, name: media.fileName }], allowedMentions: { parse: [] } });
+        return sent.id;
+      },
       isConnected: () => this.clientReady,
       ...(this.dbPath === undefined ? {} : { dbPath: this.dbPath }),
       ...(this.tickMs === undefined ? {} : { tickMs: this.tickMs }),

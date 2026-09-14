@@ -173,3 +173,10 @@ npm run test:openapi-parity
 - Beads/issues: work tracking only.
 
 Code/tests describe current factual behavior; this contract describes intended policy. A mismatch between them must be investigated rather than silently normalizing one to the other.
+
+## Product tool composition
+
+`createAgentServerApp({ configureTools })` may bind or extend profile-resolved SDK tools at the host boundary.
+The default factory retains its behavior when omitted. This TypeScript factory option has no HTTP/schema
+fields; scheduling, attachment spooling and bridge delivery remain in the consuming SmolPaws host,
+`apps/relay-server`, using SDK EXT-SDK-001/002. It does not add product state to the transpiled package.

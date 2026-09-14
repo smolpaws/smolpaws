@@ -3590,7 +3590,7 @@ ${suffix}`;
         })
       ];
     }
-    const observation = await tool.execute(action.action);
+    const observation = tool.meta?.smolpaws_execution_context === true ? await tool.execute(action.action, { actionEventId: action.id, toolCallId: action.tool_call_id }) : await tool.execute(action.action);
     return [
       observationEventSchema.parse({
         action_id: action.id,
@@ -5940,8 +5940,8 @@ async function defaultFetch3(url, init) {
 var openAIChatToolCallSchema = zod.z.object({
   id: zod.z.string(),
   type: zod.z.literal("function").default("function"),
-  function: zod.z.object({ name: zod.z.string(), arguments: zod.z.string() }).strict()
-}).strict();
+  function: zod.z.object({ name: zod.z.string(), arguments: zod.z.string() })
+});
 var openAIChatCompletionResponseSchema = zod.z.object({
   choices: zod.z.array(
     zod.z.object({
@@ -7373,7 +7373,47 @@ var TASK_SCHEDULER_TOOL_FACTORIES = {
   ListTasksTool: () => ListTasksTool.create(),
   PauseTaskTool: () => PauseTaskTool.create(),
   ResumeTaskTool: () => ResumeTaskTool.create(),
-  CancelTaskTool: () => CancelTaskTool.create()
+  CancelTaskTool: () => CancelTaskTool.create(),
+  UpdateTaskTool: () => UpdateTaskTool.create()
+};
+var updateTaskActionSchema = zod.z.object({
+  task_id: zod.z.string().min(1),
+  prompt: zod.z.string().min(1).optional(),
+  schedule_type: zod.z.enum(["cron", "interval", "once"]).optional(),
+  schedule_value: zod.z.string().min(1).optional()
+}).strict();
+var UpdateTaskTool = class {
+  static className = "UpdateTaskTool";
+  static create() {
+    return new ToolDefinition({
+      name: "update_task",
+      description: "Update the prompt or schedule of a task visible to this scope.",
+      inputSchema: updateTaskActionSchema,
+      outputSchema: taskObservationSchema,
+      annotations: toolAnnotationsSchema.parse({ ...mutatingAnnotations, title: "update_task" }),
+      executor: () => ({ text: "Task update requested.", is_error: false })
+    });
+  }
+};
+var sendMediaActionSchema = zod.z.object({
+  path: zod.z.string().min(1).describe("Path to a file in this conversation workspace."),
+  media_type: zod.z.enum(["image", "video", "audio", "document"]),
+  caption: zod.z.string().optional(),
+  mime_type: zod.z.string().optional(),
+  voice_note: zod.z.boolean().optional().describe("Send OGG/Opus audio as a voice note where supported.")
+}).strict();
+var SendMediaTool = class {
+  static className = "SendMediaTool";
+  static create() {
+    return new ToolDefinition({
+      name: "send_media",
+      description: "Send a file to the current ingress thread without ending the turn. The host validates and queues delivery.",
+      inputSchema: sendMediaActionSchema,
+      outputSchema: sendMessageObservationSchema,
+      annotations: toolAnnotationsSchema.parse({ title: "send_media", readOnlyHint: false, destructiveHint: false, openWorldHint: true }),
+      executor: () => ({ text: "Media delivery requested.", is_error: false })
+    });
+  }
 };
 var execAsync = util.promisify(child_process.exec);
 var baseToolObservationSchema = zod.z.object({ text: zod.z.string(), is_error: zod.z.boolean().default(false) }).strict();
@@ -8117,6 +8157,7 @@ exports.SEND_MESSAGE_TOOL_NAME = SEND_MESSAGE_TOOL_NAME;
 exports.SENSITIVE_URL_PARAMS = SENSITIVE_URL_PARAMS;
 exports.SUB_AGENT_TOOL_NAME = SUB_AGENT_TOOL_NAME;
 exports.ScheduleTaskTool = ScheduleTaskTool;
+exports.SendMediaTool = SendMediaTool;
 exports.SendMessageTool = SendMessageTool;
 exports.Skill = Skill;
 exports.StuckDetector = StuckDetector;
@@ -8130,6 +8171,7 @@ exports.TestLLMExhaustedError = TestLLMExhaustedError;
 exports.ThinkTool = ThinkTool;
 exports.ToolDefinition = ToolDefinition;
 exports.ToolRegistry = ToolRegistry;
+exports.UpdateTaskTool = UpdateTaskTool;
 exports.VERSION = VERSION;
 exports.ValueError = ValueError;
 exports.View = View;
@@ -8307,6 +8349,7 @@ exports.sanitizeOpenHandsMentions = sanitizeOpenHandsMentions;
 exports.sanitizedEnv = sanitizedEnv;
 exports.scheduleTaskActionSchema = scheduleTaskActionSchema;
 exports.secretRefSchema = secretRefSchema;
+exports.sendMediaActionSchema = sendMediaActionSchema;
 exports.sendMessageActionSchema = sendMessageActionSchema;
 exports.sendMessageObservationSchema = sendMessageObservationSchema;
 exports.setupLogging = setupLogging;
@@ -8337,6 +8380,7 @@ exports.tokenEventSchema = tokenEventSchema;
 exports.toolAnnotationsSchema = toolAnnotationsSchema;
 exports.toolSpecSchema = toolSpecSchema;
 exports.triggerSchema = triggerSchema;
+exports.updateTaskActionSchema = updateTaskActionSchema;
 exports.userRejectObservationSchema = userRejectObservationSchema;
 exports.utcNow = utcNow;
 exports.validateAgentProfile = validateAgentProfile;

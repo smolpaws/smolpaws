@@ -1,25 +1,16 @@
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-
+import type { MediaSender } from '../../../src/coordinator/outboundMedia.js';
 import type { Logger } from 'pino';
 
 import { deterministicConversationId } from '../../../src/coordinator/ids.js';
-import { RelayRuntime } from '../../../src/coordinator/relayRuntime.js';
+import { RelayRuntime, defaultRelayDbPath } from '../../../src/coordinator/relayRuntime.js';
 import type { MessageWorkStore } from '../../../src/coordinator/store.js';
 import type { IncomingMessage } from '../../../src/shared/bridgeAdapter.js';
 import { SlackDeliveryTarget, type SlackChunkSender } from './deliveryTarget.js';
 
 const SLACK_RELAY_ID_NAMESPACE = 'slack-relay:v1';
-// Keep the established on-disk location during the naming migration. Renaming the product concept must
-// not silently orphan an existing durable outbox.
-const DEFAULT_SLACK_RELAY_DB = join(
-  homedir(),
-  '.smolpaws',
-  'coordinator',
-  'slack-relay-v1.db',
-);
 
 export interface SlackRelayRuntimeOptions {
+  sendMedia?: MediaSender;
   logger: Logger;
   serverUrl: string;
   sessionApiKey?: string;
@@ -53,8 +44,8 @@ export class SlackRelayRuntime {
       logger: options.logger,
       serverUrl: options.serverUrl,
       sessionApiKey: options.sessionApiKey,
-      target: new SlackDeliveryTarget(options.sendChunk),
-      dbPath: options.dbPath ?? DEFAULT_SLACK_RELAY_DB,
+      target: new SlackDeliveryTarget(options.sendChunk, options.sendMedia),
+      dbPath: options.dbPath ?? defaultRelayDbPath('slack'),
       ...(options.tickMs === undefined ? {} : { tickMs: options.tickMs }),
       ...(options.createConversationDefaults === undefined
         ? {}

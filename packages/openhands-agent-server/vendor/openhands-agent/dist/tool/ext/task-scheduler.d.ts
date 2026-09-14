@@ -70,7 +70,7 @@ export declare class CancelTaskTool {
     static readonly className = "CancelTaskTool";
     static create(): ToolDefinition<typeof taskMutationActionSchema, typeof taskObservationSchema>;
 }
-/** All five task-scheduler tool factories, in a stable order. */
+/** All task-scheduler tool factories, in a stable order. */
 export declare const TASK_SCHEDULER_TOOL_FACTORIES: {
     readonly ScheduleTaskTool: () => ToolDefinition<z.ZodObject<{
         prompt: z.ZodString;
@@ -111,5 +111,33 @@ export declare const TASK_SCHEDULER_TOOL_FACTORIES: {
         text: z.ZodString;
         is_error: z.ZodDefault<z.ZodBoolean>;
     }, z.core.$strict>>;
+    readonly UpdateTaskTool: () => ToolDefinition<z.ZodObject<{
+        task_id: z.ZodString;
+        prompt: z.ZodOptional<z.ZodString>;
+        schedule_type: z.ZodOptional<z.ZodEnum<{
+            cron: "cron";
+            interval: "interval";
+            once: "once";
+        }>>;
+        schedule_value: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>, z.ZodObject<{
+        text: z.ZodString;
+        is_error: z.ZodDefault<z.ZodBoolean>;
+    }, z.core.$strict>>;
 };
+/** EXT-SDK-002: edit an existing task using the same schedule validation as creation. */
+export declare const updateTaskActionSchema: z.ZodObject<{
+    task_id: z.ZodString;
+    prompt: z.ZodOptional<z.ZodString>;
+    schedule_type: z.ZodOptional<z.ZodEnum<{
+        cron: "cron";
+        interval: "interval";
+        once: "once";
+    }>>;
+    schedule_value: z.ZodOptional<z.ZodString>;
+}, z.core.$strict>;
+export declare class UpdateTaskTool {
+    static readonly className = "UpdateTaskTool";
+    static create(): ToolDefinition<typeof updateTaskActionSchema, typeof taskObservationSchema>;
+}
 export {};

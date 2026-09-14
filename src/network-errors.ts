@@ -31,3 +31,14 @@ export function isTransientNetworkError(err: unknown): boolean {
     message.includes('network socket')
   );
 }
+
+/** Keep known transport failures from terminating the host; other failures remain fatal. */
+export function installNetworkErrorGuard(logger: { warn: (fields: object, message: string) => void; fatal: (fields: object, message: string) => void }): () => void {
+  const handler = (error: unknown) => {
+    if (isTransientNetworkError(error)) { logger.warn({ err: error }, 'Transient network failure'); return; }
+    logger.fatal({ err: error }, 'Unhandled failure; exiting');
+    setTimeout(() => process.exit(1), 100);
+  };
+  process.on('uncaughtException', handler); process.on('unhandledRejection', handler);
+  return () => { process.off('uncaughtException', handler); process.off('unhandledRejection', handler); };
+}

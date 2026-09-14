@@ -65,6 +65,11 @@ jobs:
       - name: Build OpenHands agent-server for relay integration tests
         run: npm run build --prefix packages/openhands-agent-server
 
+      - name: Verify product server composition
+        run: |
+          npm run relay-server:typecheck
+          npm run relay-server:test
+
       - name: Run shared bridge helper tests
         run: npm run shared:test
 

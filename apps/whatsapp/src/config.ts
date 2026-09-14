@@ -14,6 +14,9 @@ export interface RegisteredGroup {
 }
 
 export interface WhatsAppConfig {
+  relayDbPath?: string;
+  routerStatePath?: string;
+  startupPing?: boolean;
   assistantName: string;
   /** Regex matching an explicit mention such as `@smolpaws`. */
   triggerPattern: RegExp;
@@ -78,6 +81,9 @@ export function loadConfig(
   const whatsappDir = path.join(homeDir, 'whatsapp');
   const registeredGroupsPath = resolveRegisteredGroupsPath(env, whatsappDir, repoRoot);
   return {
+    relayDbPath: path.resolve(env.SMOLPAWS_RELAY_DB_PATH?.trim() || path.join(homeDir, 'coordinator', 'whatsapp-relay-v1.db')),
+    routerStatePath: path.resolve(env.SMOLPAWS_WHATSAPP_ROUTER_STATE?.trim() || path.join(repoRoot, 'data', 'router_state.json')),
+    startupPing: env.SMOLPAWS_WHATSAPP_STARTUP_PING !== '0',
     assistantName,
     triggerPattern: triggerPatternFor(assistantName),
     whatsappDir,

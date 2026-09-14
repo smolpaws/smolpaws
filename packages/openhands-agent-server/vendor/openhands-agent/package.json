@@ -23,7 +23,7 @@
   },
   "sideEffects": false,
   "_smolpawsProvenance": {
-    "source": "github.com/enyst/openhands-agent",
-    "gitCommit": "8e05ad1e805a6038cf27b521d0ac494155494a86"
+    "source": "github.com/smolpaws/openhands-agent",
+    "gitCommit": "573ec5de65a509743976043ee0f175a8af35e368"
   }
 }

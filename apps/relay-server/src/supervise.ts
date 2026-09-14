@@ -1,0 +1,11 @@
+import { homedir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { acquireProcessOwner } from '../../../src/whatsapp-owner.js';
+import { superviseServer } from '../../../src/coordinator/serverSupervisor.js';
+const home = process.env.SMOLPAWS_HOME_DIR || path.join(homedir(), '.smolpaws');
+const port = process.env.OPENHANDS_AGENT_SERVER_PORT || '8790';
+const release = acquireProcessOwner(path.join(home, 'run', `relay-server-${port}`), 'Shared relay server');
+const stop = superviseServer(process.execPath, ['--import', 'tsx/esm', fileURLToPath(new URL('./index.ts', import.meta.url))]);
+process.once('exit', release);
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { void stop().finally(() => { release(); process.exit(0); }); });

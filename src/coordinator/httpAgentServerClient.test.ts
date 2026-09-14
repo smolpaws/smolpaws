@@ -121,3 +121,19 @@ test('coordinator drives the http client: deterministic append, non-retryable ma
   await coord2.acceptInbound(lane(), { sourceMessageId: 'm1', content: 'hello' });
   assert.equal((await coord2.integrateNextIntake('w1')).kind, 'failed');
 });
+
+
+test('new relay store cannot adopt another store conversation; same-store retry is safe', async () => {
+  const make = (owner: string) => new HttpAgentServerClient({ baseUrl: 'http://h', conversationOwner: owner,
+    fetch: async (_url, init) => init?.method === 'POST' ? json({}, 409) : json({ tags: { smolpaws_relay_owner: 'old-store' } }) });
+  await assert.rejects(make('fresh-store').ensureConversation('c'), /another relay store/);
+  await make('old-store').ensureConversation('c');
+});
+
+test('HTTP deadline includes a stalled response body', async () => {
+  const client = new HttpAgentServerClient({ baseUrl: 'http://h', requestTimeoutMs: 20,
+    fetch: async (_url, init) => new Response(new ReadableStream({ start(controller) {
+      init?.signal?.addEventListener('abort', () => controller.error(new Error('aborted')), { once: true });
+    } })) });
+  await assert.rejects(client.searchEvents('c', null, 10), /aborted/);
+});

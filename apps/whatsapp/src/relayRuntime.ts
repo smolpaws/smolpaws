@@ -1,3 +1,4 @@
+import type { MediaSender } from '../../../src/coordinator/outboundMedia.js';
 import type { Logger } from 'pino';
 
 import { sendMessageExtractor, terminalResponseExtractor } from '../../../src/coordinator/messageRelay.js';
@@ -7,6 +8,7 @@ import type { AgentEvent, DeliverableExtractor, LaneDescriptor } from '../../../
 import { WhatsAppDeliveryTarget, type WhatsAppTextSender } from './deliveryTarget.js';
 
 export interface WhatsAppRelayRuntimeOptions {
+  sendMedia?: MediaSender;
   logger: Logger;
   serverUrl: string;
   sessionApiKey?: string;
@@ -38,7 +40,7 @@ export class WhatsAppRelayRuntime {
       logger: options.logger,
       serverUrl: options.serverUrl,
       sessionApiKey: options.sessionApiKey,
-      target: new WhatsAppDeliveryTarget(options.sendText, options.assistantName, options.isConnected),
+      target: new WhatsAppDeliveryTarget(options.sendText, options.assistantName, options.isConnected, options.sendMedia),
       dbPath: options.dbPath ?? defaultRelayDbPath('whatsapp'),
       extractor: whatsappExtractor,
       ...(options.tickMs === undefined ? {} : { tickMs: options.tickMs }),
@@ -50,6 +52,9 @@ export class WhatsAppRelayRuntime {
         : { createConversationDefaultsFor: options.createConversationDefaultsFor }),
     });
   }
+
+  registerLane(lane: LaneDescriptor) { return this.runtime.registerLane(lane); }
+  get scheduler() { return this.runtime.scheduler; }
 
   get workStore(): MessageWorkStore {
     return this.runtime.workStore;

@@ -11,7 +11,7 @@
 #   2. exports the git SHA as SMOLPAWS_BUILD_SHA and pins the agent-server's
 #      conversation persistence to ~/.smolpaws/conversations;
 #   3. if no healthy agent-server answers at SMOLPAWS_RELAY_SERVER_URL
-#      (default http://127.0.0.1:8790) and that URL is loopback, starts one
+#      (default http://127.0.0.1:8790) and that URL is loopback, starts a supervised product server
 #      detached (nohup, own session, logs under ~/.smolpaws/logs) and waits for
 #      /health. The server is deliberately NOT stopped when the bridge exits:
 #      other bridges share it, and launchd restarts bridges independently;
@@ -74,6 +74,10 @@ server_healthy() {
 
 ensure_agent_server() {
   if server_healthy; then
+    if ! curl -fsSI --max-time 2 "$HEALTH_URL" | grep -qi '^x-smolpaws-host: relay'; then
+      echo "[bridge:$BRIDGE] healthy endpoint is not the SmolPaws product server; use npm run relay-server:start for scheduler/media support." >&2
+      return 1
+    fi
     echo "[bridge:$BRIDGE] using healthy agent-server at $SERVER_URL" >&2
     return 0
   fi
@@ -87,7 +91,7 @@ ensure_agent_server() {
   export OPENHANDS_AGENT_SERVER_HOST="${OPENHANDS_AGENT_SERVER_HOST:-127.0.0.1}"
   echo "[bridge:$BRIDGE] starting the TypeScript OpenHands agent-server on $SERVER_URL…" >&2
   # Detached: its own session, no controlling terminal, survives this launcher and the bridge.
-  nohup npm --prefix packages/openhands-agent-server run dev:server \
+  nohup node --import tsx/esm apps/relay-server/src/supervise.ts \
     >>"$LOG_DIR/openhands-agent-server-$port.log" 2>&1 </dev/null &
   disown || true
 

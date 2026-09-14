@@ -1,3 +1,4 @@
+import { installNetworkErrorGuard } from '../../../src/network-errors.js';
 /** Standalone WhatsApp entrypoint for the Message Relay / new-agent-server path. */
 import pino from 'pino';
 
@@ -28,13 +29,15 @@ const sessionApiKey =
 const createConversationDefaults = buildRelayConversationDefaults({
   ingress: 'whatsapp',
   repoRoot: config.repoRoot,
-  extraContextFiles: privateMemoryFiles(),
+
 });
 
-const bridge = new WhatsAppBridge({ logger, serverUrl: agentServerUrl, sessionApiKey, config, createConversationDefaults });
+const controlConversationDefaults = buildRelayConversationDefaults({ ingress: 'whatsapp', repoRoot: config.repoRoot, extraContextFiles: privateMemoryFiles() });
+const bridge = new WhatsAppBridge({ controlConversationDefaults, logger, serverUrl: agentServerUrl, sessionApiKey, config, createConversationDefaults });
 let stopping = false;
 
 async function main(): Promise<void> {
+  installNetworkErrorGuard(logger);
   try {
     logger.info(
       {

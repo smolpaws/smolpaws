@@ -13,12 +13,13 @@ describe('resolveProfileTool', () => {
   });
 
   test('resolves the SmolPaws send_message extension tool (EXT-SDK-001)', () => {
+    expect(resolveProfileTool('send_media', WORKING_DIR)[0]?.name).toBe('send_media');
     const [tool] = resolveProfileTool('send_message', WORKING_DIR);
     expect(tool?.name).toBe('send_message');
   });
 
-  test('resolves all five task-scheduler extension tools (EXT-SDK-002)', () => {
-    for (const name of ['schedule_task', 'list_tasks', 'pause_task', 'resume_task', 'cancel_task']) {
+  test('resolves all task-scheduler extension tools (EXT-SDK-002)', () => {
+    for (const name of ['schedule_task', 'list_tasks', 'pause_task', 'resume_task', 'cancel_task', 'update_task']) {
       const [tool] = resolveProfileTool(name, WORKING_DIR);
       expect(tool?.name).toBe(name);
     }

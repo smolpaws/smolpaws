@@ -15,7 +15,7 @@ import { registerEventRoutes } from './eventRouter.js';
 import { registerFileRoutes } from './fileRouter.js';
 import { registerGitRoutes } from './gitRouter.js';
 import { generateOpenApiSchema } from './openapi.js';
-import { createProfileAgentFactory, prepareProfileStartRequest, type ProfileLlmClientFactory } from './profileAgentFactory.js';
+import { createProfileAgentFactory, prepareProfileStartRequest, type ProfileLlmClientFactory, type ProfileToolConfigurator } from './profileAgentFactory.js';
 import { registerProfileRoutes } from './profilesRouter.js';
 import { registerBashRoutes } from './bashRouter.js';
 import { McpServerNotFoundError, ServerStateService } from './serverState.js';
@@ -32,6 +32,7 @@ export interface AgentServerAppOptions extends ConversationServiceOptions {
   readonly secretStore?: SecretStore;
   readonly serverStateService?: ServerStateService;
   readonly llmClientFactory?: ProfileLlmClientFactory;
+  readonly configureTools?: ProfileToolConfigurator;
   readonly logger?: boolean;
 }
 
@@ -73,6 +74,7 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
   const agentFactory = options.agentFactory ?? createProfileAgentFactory({
     state: serverStateService,
     secretStore,
+    ...(options.configureTools === undefined ? {} : { configureTools: options.configureTools }),
     ...(options.llmClientFactory === undefined ? {} : { llmClientFactory: options.llmClientFactory }),
   });
   const serviceOptions: ConversationServiceOptions = {
