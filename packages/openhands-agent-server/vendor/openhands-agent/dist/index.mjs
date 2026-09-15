@@ -5342,6 +5342,35 @@ ${systemChunks.join("\n\n---\n\n")}
   ];
 }
 
+// src/llm/tool-result-order.ts
+function orderCompletedToolResults(messages) {
+  const ordered = [];
+  for (let i = 0; i < messages.length; i += 1) {
+    const message = messages[i];
+    if (message === void 0) continue;
+    ordered.push(message);
+    if (message.role !== "assistant" || !message.tool_calls?.length) continue;
+    const pending = new Set(message.tool_calls.map((call) => call.id));
+    if (pending.size !== message.tool_calls.length) continue;
+    const results = [];
+    const users = [];
+    let j = i + 1;
+    for (; j < messages.length && pending.size > 0; j += 1) {
+      const next = messages[j];
+      if (next?.role === "tool" && next.tool_call_id && pending.delete(next.tool_call_id)) {
+        results.push(next);
+      } else if (next?.role === "user" && !next.tool_calls && !next.tool_call_id && !next.name) {
+        users.push(next);
+      } else break;
+    }
+    if (pending.size === 0) {
+      ordered.push(...results, ...users);
+      i = j - 1;
+    }
+  }
+  return ordered;
+}
+
 // src/llm/provider-quirks.ts
 var ANTHROPIC_THINKING_MIN_BUDGET = 1024;
 var ANTHROPIC_THINKING_MAX_BUDGET = 128e3;
@@ -5504,7 +5533,7 @@ async function createAnthropicClientFromProfile(profile, store, options = {}) {
 }
 function buildAnthropicMessagesBody(profile, messages, tools) {
   const normalizedProfile = normalizeGenerationParamsForModel(profile);
-  const parsedMessages = messages.map((message) => messageSchema.parse(message));
+  const parsedMessages = orderCompletedToolResults(messages.map((message) => messageSchema.parse(message)));
   const systemMessages = parsedMessages.filter((message) => message.role === "system");
   const system = systemMessages.flatMap((message) => contentToString(message.content));
   const shouldCacheSystem = supportsPromptCaching(normalizedProfile) && systemMessages.some((message) => message.content.some((content) => content.cache_prompt));
@@ -5752,7 +5781,7 @@ async function createGeminiClientFromProfile(profile, store, options = {}) {
 }
 function buildGeminiInteractionsBody(profile, messages, tools = []) {
   assertSupportedGenerationParams(profile);
-  const parsedMessages = messages.map((message) => messageSchema.parse(message));
+  const parsedMessages = orderCompletedToolResults(messages.map((message) => messageSchema.parse(message)));
   const systemInstruction = parsedMessages.filter((message) => message.role === "system").flatMap((message) => contentToString(message.content)).join("\n");
   const body = {
     model: profile.model,
@@ -6141,7 +6170,7 @@ function buildChatCompletionsBody(profile, messages, tools = []) {
   const sendReasoningContent = isReasoningModel(normalizedProfile);
   const body = {
     model: normalizedProfile.model,
-    messages: messages.map((message) => toOpenAIChatMessage(messageSchema.parse(message), sendReasoningContent))
+    messages: orderCompletedToolResults(messages.map((message) => messageSchema.parse(message))).map((message) => toOpenAIChatMessage(message, sendReasoningContent))
   };
   if (tools.length > 0) {
     body.tools = tools.map(toOpenAIChatTool);
@@ -6166,7 +6195,7 @@ function buildChatCompletionsBody(profile, messages, tools = []) {
 }
 function buildOpenAIResponsesBody(profile, messages, tools = []) {
   const normalizedProfile = normalizeGenerationParamsForModel(profile);
-  const parsedMessages = messages.map((message) => messageSchema.parse(message));
+  const parsedMessages = orderCompletedToolResults(messages.map((message) => messageSchema.parse(message)));
   const instructions = parsedMessages.filter((message) => message.role === "system").flatMap((message) => contentToString(message.content));
   const body = {
     model: normalizedProfile.model,

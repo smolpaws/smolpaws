@@ -112,6 +112,14 @@ The restart invariant is: dropping the in-memory services and recreating them fr
 the same `persistence_dir` restores events through the SDK EventLog. The server
 must not need a parallel `events.jsonl` or route-owned append file to recover.
 
+Incoming user events may be persisted while a tool is running. The SDK provider
+adapters keep completed call/result groups adjacent in the outgoing LLM request,
+without changing durable arrival order. If an older build failed on this ordering
+after the tool completed, deploy the corrected SDK and use the existing conversation's
+`POST /api/conversations/{conversation_id}/run`. Do not append the accepted user input
+again or remove its completed observation. This recovery requires every tool result
+to be present; missing results are a separate interrupted-tool recovery case.
+
 ## Implemented surface in the first buildable slices
 
 Server details:
