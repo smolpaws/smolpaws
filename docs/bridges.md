@@ -113,6 +113,11 @@ and occurrences. `schedule_task`, `list_tasks`, `update_task`, `pause_task`, `re
 manages their own. Native API conversations get their own scope; an HTTP tag cannot grant control.
 Cron uses `TZ` or the host timezone; intervals use milliseconds and once schedules use timestamps.
 
+Each relay keeps its own work database. `SMOLPAWS_RELAY_DB_PATH` selects a bridge's store;
+the product host ignores that override for its native API worker and uses `agent-server-relay-v1.db`
+beside the scheduler, or `SMOLPAWS_AGENT_SERVER_RELAY_DB_PATH` when explicitly configured. Sharing
+a scheduler does not permit two platform dispatchers to claim work from the same relay store.
+
 Each bridge reserves its due occurrences and submits them through the existing durable intake.
 `context_mode=group` uses the existing conversation; `isolated` creates a conversation per occurrence,
 keeping scope, workspace and destination but never copying the original initial message. Run IDs and

@@ -1,4 +1,4 @@
-# WhatsApp readiness: provider preflight passed, deployment and canary next
+# WhatsApp readiness: connection and rollback verified, live replies pending
 
 Updated 2026-09-15. The standalone bridge now includes the history handoff (`kxa.6`), shared scheduler
 (`kxa.4`), outbound media/voice (`kxa.2`), existing scope rules (`kxa.8`), recovery (`kxa.9`) and bounded
@@ -9,8 +9,18 @@ Real-provider preflight passed on 2026-09-15: SmolPaws `7a98ef1`, SDK `573ec5d`,
 `deepseek-v4-flash` profile and its normal Keychain reference. A temporary real product host verified
 the product header and completed two consecutive turns, each with a `list_tasks` observation and
 `finish` carrying the expected marker. No bridge socket, live WhatsApp send or service swap was used.
-The deployed `:8790` server still lacks `X-SmolPaws-Host: relay`; deploy/recheck the product host before
-canary. Remaining gates are that deployment check (`kxa.7`), one-chat canary (`kxa.5`) and production soak.
+A bounded connection trial followed on 2026-09-15, 05:39–05:49 UTC: an isolated product host on
+`:8791` ran SmolPaws `822bb24` with SDK `775869e`, the same active profile and separate persistence.
+Its provider validation passed; the bridge reused the existing account with only Main allowlisted,
+startup ping disabled and zero offline messages. No test input arrived and the relay stayed empty.
+The drain/handoff check passed and the updated legacy bridge reconnected with its scheduler running.
+This proves connection and an empty-work rollback, **not** a live reply or recovery under load.
+
+The trial also exposed an inherited relay database override: the native host must use a separate
+work store from its launching bridge. `SMOLPAWS_AGENT_SERVER_RELAY_DB_PATH` now owns the native
+override; `SMOLPAWS_RELAY_DB_PATH` remains bridge-specific. The trial used separate stores before
+opening the socket. The existing bare `:8790` server remains unchanged. Remaining gates are the
+final deployed product-host check (`kxa.7`), live one-chat canary (`kxa.5`) and production soak.
 See [shared design](../bridges.md) and [architecture page](https://enyst.github.io/arch/whatsapp-readiness.html).
 
 ## Implemented and tested
@@ -49,7 +59,9 @@ See [subscription architecture](../../packages/openhands-agent-server/docs/ARCHI
 4. Use an explicit registered-chats file containing only the trusted control chat. Set
    `SMOLPAWS_WHATSAPP_REGISTERED_GROUPS`, `SMOLPAWS_WHATSAPP_ROUTER_STATE`, `SMOLPAWS_RELAY_DB_PATH`,
    `SMOLPAWS_SCHEDULER_DB_PATH`, server persistence/state and `SMOLPAWS_WHATSAPP_STARTUP_PING=0`.
-   `SMOLPAWS_HOME_DIR` now relocates the default relay path as well as WhatsApp state.
+   `SMOLPAWS_HOME_DIR` now relocates the default relay path as well as WhatsApp state. The native
+   host uses its own relay database beside the scheduler; use `SMOLPAWS_AGENT_SERVER_RELAY_DB_PATH`
+   only if it needs an explicit path. Never point two platform workers at one work database.
 5. Account for scheduled work and queued voice files in that test window. A canary allowlist excludes
    other chats, but tasks for its allowed chat can still become due. Pause them if the test excludes
    scheduled sends. Keep the existing `groups/main` workspace and intended context.

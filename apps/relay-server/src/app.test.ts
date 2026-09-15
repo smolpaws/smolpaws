@@ -17,6 +17,8 @@ for (const platform of ['whatsapp', 'slack', 'discord', 'agent-server']) test(`$
   const workspace = path.join(root, 'workspace'); mkdirSync(workspace);
   writeFileSync(path.join(workspace, 'voice.ogg'), 'test media bytes');
   const schedulerPath = path.join(root, 'scheduler.db');
+  const previousRelayPath = process.env.SMOLPAWS_RELAY_DB_PATH;
+  if (platform === 'agent-server') process.env.SMOLPAWS_RELAY_DB_PATH = path.join(root, 'whatsapp-relay.db');
   let created = 0;
   const { app, scheduler } = await createRelayServerApp({
     config: { conversationsPath: path.join(root, 'conversations'), statePath: path.join(root, 'state'), workspaceRoot: workspace, sessionApiKey: 'test' },
@@ -56,12 +58,22 @@ for (const platform of ['whatsapp', 'slack', 'discord', 'agent-server']) test(`$
     const task = scheduler.db.prepare('SELECT * FROM scheduler_tasks').get() as { status: string; last_result: string };
     assert.equal(task.status, 'completed'); assert.equal(task.last_result, 'task result');
     assert.equal((scheduler.db.prepare('SELECT COUNT(*) AS n FROM scheduler_tasks').get() as { n: number }).n, 1);
-    if (platform === 'agent-server') assert.match((scheduler.db.prepare('SELECT scope_id FROM scheduler_tasks').get() as { scope_id: string }).scope_id, /^agent-server:/);
+    if (platform === 'agent-server') {
+      assert.match((scheduler.db.prepare('SELECT scope_id FROM scheduler_tasks').get() as { scope_id: string }).scope_id, /^agent-server:/);
+      const registration = JSON.parse((scheduler.db.prepare('SELECT value_json FROM scheduler_lanes LIMIT 1').get() as { value_json: string }).value_json);
+      assert.equal(registration.relayDbPath, path.join(root, 'agent-server-relay-v1.db'));
+    }
     if (platform !== 'agent-server') {
       const media = deliveries.find(p => (p as { kind?: string }).kind === 'current_thread_media') as { path: string; voiceNote: boolean };
       assert.equal(media.voiceNote, true); assert.equal(readFileSync(media.path, 'utf8'), 'test media bytes');
     }
     await runtime.runOnce();
     assert.equal(deliveries.filter(p => (p as { text?: string }).text === 'task result').length, 1);
-  } finally { await runtime.stop(); await app.close(); rmSync(root, { recursive: true, force: true }); }
+  } finally {
+    await runtime.stop(); await app.close(); rmSync(root, { recursive: true, force: true });
+    if (platform === 'agent-server') {
+      if (previousRelayPath === undefined) delete process.env.SMOLPAWS_RELAY_DB_PATH;
+      else process.env.SMOLPAWS_RELAY_DB_PATH = previousRelayPath;
+    }
+  }
 });

@@ -11,7 +11,7 @@ this bridge has soaked. Run one or the other for a given WhatsApp account, never
 ## Deployment status
 
 Before starting on an existing WhatsApp account, follow [Readiness and cutover gates](READINESS.md).
-The bridge does not import `data/router_state.json`; an existing ledger can replay old messages.
+The bridge imports the actual legacy `data/router_state.json` once into its shared message-identity journal.
 A fresh relay database alone does not isolate reused server conversations. The setup below describes
 configuration, not a complete production migration or rollback procedure.
 
@@ -47,20 +47,20 @@ ledger recognizes the cat's own messages by that prefix.
 |---|---|
 | `index.ts` connect/reconnect/QR exit | `adapter.ts` `WhatsAppBridge.connect()` |
 | `index.ts` `messages.upsert` + media download | `adapter.ts` `ingest()` |
-| `startMessageLoop` + `message-loop.ts` | `adapter.ts` `pollOnce()` / `pollChat()` (per-chat cursors; stalled HTTP calls still need bounded deadlines) |
+| `startMessageLoop` + `message-loop.ts` | `adapter.ts` `pollOnce()` / `pollChat()` (per-chat progress; durable local intake and bounded HTTP requests) |
 | `processMessage` transcript + images/docs | `handler.ts` `buildPrompt()` |
 | `control-scope.ts` / `config.ts` trigger | `handler.ts` `shouldRespond()` + `config.ts` |
 | `db.ts` chats/messages | `ledger.ts` (same schema, plus `relay_state` cursors) |
-| `data/router_state.json` | New cursor storage is `relay_state` in `messages.db`; **no automatic JSON import** |
+| `data/router_state.json` | One-time import into the shared message-identity progress journal in `messages.db` |
 | `data/registered_groups.json` | `~/.smolpaws/whatsapp/registered_groups.json` (legacy path still read) |
 | `sendMessage` + `whatsapp-jid.ts` rewrite | `deliveryTarget.ts` + `adapter.ts` `sendText()` |
 | `whatsapp-auth.ts` | `auth.ts` (QR or pairing code) |
-| `task-scheduler.ts` | **not yet moved** — see "Scheduler" below |
-| voice outbox drain | **not yet moved** |
+| `task-scheduler.ts` | Shared `src/coordinator/taskScheduler.ts`; see "Scheduler, media and rollback" below |
+| voice outbox drain | `voiceOutbox.ts` imports the established producer into durable media delivery |
 
 Each chat's agent conversation works in `groups/<scope>` under the checkout, as before. Every
-conversation also gets the SmolPaws identity context (`docs/smolpaws/*.md` plus
-`~/.smolpaws/memory/MEMORY.md` when present) as its system-message suffix.
+conversation also gets the SmolPaws identity context (`docs/smolpaws/*.md`) as its system-message suffix.
+Private `~/.smolpaws/memory/MEMORY.md`, when present, is appended only for the control scope (`main`).
 
 ## Setup
 

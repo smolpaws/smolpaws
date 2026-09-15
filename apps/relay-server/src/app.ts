@@ -5,6 +5,7 @@ import { createAgentServerApp, type AgentServerApp, type AgentServerAppOptions }
 import type { ProfileToolConfigurator } from '../../../packages/openhands-agent-server/src/profileAgentFactory.js';
 import { TaskScheduler, type ScheduledLane } from '../../../src/coordinator/taskScheduler.js';
 import { queueMedia } from '../../../src/coordinator/outboundMedia.js';
+import { nativeRelayDbPath } from './relayPaths.js';
 import type * as Sdk from '../../../packages/openhands-agent-server/vendor/openhands-agent/dist/index.js';
 const sdk = createRequire(import.meta.url)('../../../packages/openhands-agent-server/vendor/openhands-agent/dist/index.cjs') as typeof Sdk;
 
@@ -15,7 +16,7 @@ export function productTools(scheduler: TaskScheduler): ProfileToolConfigurator 
       // A native server conversation is its own scope. HTTP tags cannot grant control authority.
       lane = { conversationId: stored.id, scopeId: `agent-server:${stored.id}`, workingDir: path.resolve(stored.workspace.working_dir),
         lane: { laneKey: `agent-server:${stored.id}`, platform: 'agent-server', accountId: null, chatId: stored.id, threadId: null },
-        relayDbPath: process.env.SMOLPAWS_RELAY_DB_PATH || path.join(path.dirname(scheduler.db.name), 'agent-server-relay-v1.db'), defaults: stored.request as unknown as Record<string, unknown> } satisfies ScheduledLane;
+        relayDbPath: nativeRelayDbPath(scheduler.db.name), defaults: stored.request as unknown as Record<string, unknown> } satisfies ScheduledLane;
       scheduler.register(lane);
     }
     const extensionTools = [...Object.values(sdk.TASK_SCHEDULER_TOOL_FACTORIES).map(make => make()), sdk.SendMessageTool.create(), sdk.SendMediaTool.create()];
