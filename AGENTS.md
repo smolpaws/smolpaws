@@ -120,6 +120,8 @@ On GitHub and other public surfaces:
 - Watch CodeRabbit, Devin, and any other active reviewers; resolve or consciously reject their actionable comments.
 - Right before merge, do one final GitHub pass over conversation, files changed, and checks.
 - When another agent is involved, coordinate review and status through Agent Mail too.
+- After merging upstream work in `smolpaws/smolpaws` or `smolpaws/openhands-agent`, synchronize the corresponding `enyst/` fork and local checkout. Fetch both remotes, fast-forward the fork to upstream's exact `main` commit, and fast-forward clean local branches while preserving ongoing work. Verify commit IDs, not just matching file trees.
+- For diverged histories, inspect fork-only commits and file differences, and preserve the old fork tip before any authorized realignment. Prefer direct fast-forward pushes for routine syncs; merge-based fork syncs can accumulate misleading differences.
 
 ## Hooks
 
