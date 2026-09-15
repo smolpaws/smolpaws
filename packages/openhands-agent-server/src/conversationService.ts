@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { conversationExecutionStatus, type SecretStore } from '@smolpaws/openhands-agent';
+import { conversationExecutionStatus, createMetricsResetEvent, metricsSnapshot, statsForEvents, type SecretStore } from '@smolpaws/openhands-agent';
 
 import { ConversationLease, ConversationLeaseHeldError, defaultLeaseTtlMs } from './conversationLease.js';
 import { conversationDirectory, ConversationMetadataStore } from './conversationMetadata.js';
@@ -255,7 +255,13 @@ export class ConversationService {
     await this.claimLease(stored);
     try {
       await this.copySecrets(source.id, stored.id, stored.secret_names);
+      sourceService.state.syncFromDisk();
       const eventService = new EventService(this.eventServiceOptions(stored, sourceService.state.events));
+      if (request.reset_metrics) {
+        // Preserve the copied conversation while starting the fork's accounting
+        // after a durable boundary, including when it is reopened from disk.
+        await eventService.state.appendEventAsync(createMetricsResetEvent());
+      }
       this.conversations.set(id, stored);
       this.eventServices.set(id, eventService);
       await this.saveOwnedConversation(stored);
@@ -276,6 +282,8 @@ export class ConversationService {
 
   toConversationInfo(stored: StoredConversation): ConversationInfo {
     const eventService = this.eventServices.get(stored.id);
+    eventService?.state.syncFromDisk();
+    const stats = eventService?.state.stats ?? statsForEvents([]);
     return {
       id: stored.id,
       workspace: stored.workspace,
@@ -288,12 +296,12 @@ export class ConversationService {
       blocked_actions: {},
       blocked_messages: {},
       last_user_message_id: null,
-      stats: {},
+      stats: { ...stats },
       secret_registry: Object.fromEntries(stored.secret_names.map((name) => [name, { source: 'keychain', ref: conversationSecretRef(stored.id, name) }])),
       agent_state: {},
       hook_config: null,
       title: stored.title,
-      metrics: null,
+      metrics: metricsSnapshot(stats),
       created_at: stored.created_at,
       updated_at: stored.updated_at,
       tags: stored.tags,
@@ -398,4 +406,3 @@ function sortConversations(items: readonly ConversationInfo[], sortOrder: Conver
     return direction * left[field].localeCompare(right[field]);
   });
 }
-

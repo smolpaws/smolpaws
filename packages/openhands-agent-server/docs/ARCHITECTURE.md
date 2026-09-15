@@ -120,6 +120,40 @@ after the tool completed, deploy the corrected SDK and use the existing conversa
 again or remove its completed observation. This recovery requires every tool result
 to be present; missing results are a separate interrupted-tool recovery case.
 
+## LLM usage and costs
+
+`GET /api/conversations/{id}` returns full per-usage accounting in
+`stats.usage_to_metrics`. Each group retains per-completion `records`, `token_usages`,
+`costs`, and `response_latencies`, plus accumulated values. `metrics` is the SDK's
+combined snapshot across those groups. Search and batch-get use the same projection.
+Groups use the profile identity by default; each record retains the requested and
+returned model, so a changed model cannot relabel earlier usage.
+
+Provider counters are recorded before dispatching the response's tools. The SDK
+persists one environment `ConversationStateUpdateEvent` with key `llm_usage` in the
+existing EventLog. Restoring a conversation derives its metrics from those records;
+reading, subscribing, or replaying a stored record does not add usage. A duplicate user
+append with `run:false` does not call the provider. A requested run that makes another
+provider completion records it, even when the provider reuses its response ID. The
+server publishes the metadata events through
+its existing event stream and includes full statistics in `full_state` snapshots.
+Consumers must not treat accounting metadata as an assistant message or a delivery.
+
+Missing values remain visible. `accumulated_token_usage` and `accumulated_cost`
+are nullable when observations are missing; `known_token_usage`, `known_costs`, and
+`coverage` describe what was measured. A provider's reported charge and a calculated
+estimate retain different provenance. Currency is preserved, including provider
+credits, and unknown cost is never presented as free usage. Historical conversations
+without accounting records keep `coverage.unmeasured_history:true`; new usage can
+accumulate without inventing a total for the earlier history.
+
+Forking with the default `reset_metrics:true` copies the conversation and appends an
+SDK `llm_metrics_reset` boundary. The fork starts fresh accounting after that boundary,
+including after a restart. `reset_metrics:false` retains the copied accounting. Both
+forks remain independent from the source. These behaviors and the intentional wire
+differences from Python are described by `DEV-SERVER-007` in `TRANSPILE_RULES.md` and
+covered by `src/__tests__/metrics.test.ts`.
+
 ## Implemented surface in the first buildable slices
 
 Server details:

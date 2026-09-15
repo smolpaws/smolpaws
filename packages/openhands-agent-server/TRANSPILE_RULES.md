@@ -105,6 +105,36 @@ registry and optional AWS discovery are not provided: TS calls providers directl
 bundle LiteLLM. The list is discovery guidance, not an allowlist or a claim that every provider
 configuration has been live-tested in TS. Profiles can still name models outside this catalog.
 
+### DEV-SERVER-007 — provider accounting with explicit unknown values
+
+`ConversationInfo.stats` projects the SDK's `ConversationStats`: per-usage metrics with
+per-completion records and accumulated values. The SDK owns provider normalization,
+cost provenance, accumulation, history coverage, and durable accounting. Its `DEV-SDK-007`
+policy applies at this boundary: unreported counters and costs remain unknown, totals with
+missing observations are nullable, and `known_token_usage`, `known_costs`, and `coverage`
+describe the measured portion. Currency is preserved; non-USD credits are not silently
+reported as a USD `accumulated_cost`. Calculated costs remain labeled estimates with their
+pricing provenance.
+
+The top-level `ConversationInfo.metrics` is the SDK's combined snapshot of those same
+records. At the Python pin, `_compose_conversation_info` instead reads the optional stored
+metadata snapshot, which native execution does not update. Populating the field from current
+SDK statistics is an intentional TS correction; the server does not maintain a second counter.
+
+The native EventLog stores one SDK `ConversationStateUpdateEvent` with key `llm_usage` per
+recorded completion, rather than Python's separate `base_state.json` metrics history.
+These environment metadata events are published through the existing event stream and are
+not agent replies. `full_state` updates include the full statistics object, as upstream does.
+Forks preserve their conversation events but append the SDK's durable `llm_metrics_reset`
+boundary by default; `reset_metrics:false` retains the source accounting. Restart replays
+the same records and reset boundary without charging them again. Histories created before
+accounting was available remain explicitly incomplete until a reset boundary.
+
+Evidence: `src/__tests__/metrics.test.ts`, adapted from pinned
+`tests/sdk/conversation/local/test_fork.py` and the `ConversationStats` serialization contract,
+exercises provider responses, idempotent append, event publication, restart, changed response
+models, fork reset/preservation, missing usage, and older unmeasured history.
+
 ## Tests-first rule
 
 For compatibility work:

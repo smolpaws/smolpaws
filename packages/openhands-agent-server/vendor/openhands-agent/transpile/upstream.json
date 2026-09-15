@@ -170,6 +170,25 @@
       "paths": []
     },
     {
+      "id": "DEV-SDK-007",
+      "kind": "DEVIATION",
+      "target": "sdk",
+      "prefixes": [],
+      "paths": [
+        "openhands-sdk/openhands/sdk/llm/utils/metrics.py",
+        "openhands-sdk/openhands/sdk/llm/utils/telemetry.py",
+        "openhands-sdk/openhands/sdk/llm/llm_response.py",
+        "openhands-sdk/openhands/sdk/llm/llm_registry.py",
+        "openhands-sdk/openhands/sdk/conversation/conversation_stats.py",
+        "openhands-sdk/openhands/sdk/conversation/state.py",
+        "openhands-sdk/openhands/sdk/event/conversation_state.py",
+        "tests/sdk/llm/test_llm_metrics.py",
+        "tests/sdk/llm/test_llm_telemetry.py",
+        "tests/sdk/conversation/test_conversation_stats.py",
+        "tests/sdk/conversation/test_stats_update_event_snapshot.py"
+      ]
+    },
+    {
       "id": "EXC-SDK-001",
       "kind": "EXCLUDED",
       "target": "sdk",
@@ -291,6 +310,17 @@
       "prefixes": [],
       "paths": [
         "openhands-agent-server/openhands/agent_server/llm_router.py"
+      ]
+    },
+    {
+      "id": "DEV-SERVER-007",
+      "kind": "DEVIATION",
+      "target": "server",
+      "prefixes": [],
+      "paths": [
+        "openhands-agent-server/openhands/agent_server/models.py",
+        "openhands-agent-server/openhands/agent_server/conversation_service.py",
+        "openhands-agent-server/openhands/agent_server/event_service.py"
       ]
     }
   ]

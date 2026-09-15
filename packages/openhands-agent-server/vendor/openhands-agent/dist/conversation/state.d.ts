@@ -1,5 +1,6 @@
 import { type ActionEvent, type AgentErrorEvent, type Event } from '../event/index.js';
 import { type Message } from '../llm/index.js';
+import { type ConversationStats } from '../llm/metrics.js';
 import { type EventLog } from './event-log.js';
 export declare const conversationExecutionStatus: {
     readonly IDLE: "idle";
@@ -20,6 +21,7 @@ export declare class ConversationState {
     readonly events: Event[];
     readonly eventLog: EventLog | null;
     executionStatus: ConversationExecutionStatus;
+    get stats(): ConversationStats;
     constructor(options?: ConversationStateOptions);
     appendEvent(event: Event): Event;
     appendEventAsync(event: Event): Promise<Event>;

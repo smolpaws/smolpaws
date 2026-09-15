@@ -26,11 +26,57 @@ export interface LLMClient {
     complete(messages: readonly Message[], tools?: readonly ToolDefinition[]): Promise<LLMCompletionResponse>;
 }
 export declare const llmUsageSchema: z.ZodObject<{
-    promptTokens: z.ZodDefault<z.ZodNumber>;
-    completionTokens: z.ZodDefault<z.ZodNumber>;
-    totalTokens: z.ZodDefault<z.ZodNumber>;
+    promptTokens: z.ZodOptional<z.ZodNumber>;
+    completionTokens: z.ZodOptional<z.ZodNumber>;
+    totalTokens: z.ZodOptional<z.ZodNumber>;
+    cacheReadTokens: z.ZodOptional<z.ZodNumber>;
+    cacheWriteTokens: z.ZodOptional<z.ZodNumber>;
+    cacheMissTokens: z.ZodOptional<z.ZodNumber>;
+    reasoningTokens: z.ZodOptional<z.ZodNumber>;
+    toolUsePromptTokens: z.ZodOptional<z.ZodNumber>;
+    providerUsage: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+    reportedCost: z.ZodOptional<z.ZodObject<{
+        amount: z.ZodNumber;
+        currency: z.ZodString;
+    }, z.core.$strict>>;
+}, z.core.$strict>;
+export declare const llmResponseMetadataSchema: z.ZodObject<{
+    usage: z.ZodDefault<z.ZodNullable<z.ZodObject<{
+        promptTokens: z.ZodOptional<z.ZodNumber>;
+        completionTokens: z.ZodOptional<z.ZodNumber>;
+        totalTokens: z.ZodOptional<z.ZodNumber>;
+        cacheReadTokens: z.ZodOptional<z.ZodNumber>;
+        cacheWriteTokens: z.ZodOptional<z.ZodNumber>;
+        cacheMissTokens: z.ZodOptional<z.ZodNumber>;
+        reasoningTokens: z.ZodOptional<z.ZodNumber>;
+        toolUsePromptTokens: z.ZodOptional<z.ZodNumber>;
+        providerUsage: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+        reportedCost: z.ZodOptional<z.ZodObject<{
+            amount: z.ZodNumber;
+            currency: z.ZodString;
+        }, z.core.$strict>>;
+    }, z.core.$strict>>>;
+    responseId: z.ZodOptional<z.ZodString>;
+    model: z.ZodOptional<z.ZodString>;
 }, z.core.$strict>;
 export declare const llmCompletionResponseSchema: z.ZodObject<{
+    usage: z.ZodDefault<z.ZodNullable<z.ZodObject<{
+        promptTokens: z.ZodOptional<z.ZodNumber>;
+        completionTokens: z.ZodOptional<z.ZodNumber>;
+        totalTokens: z.ZodOptional<z.ZodNumber>;
+        cacheReadTokens: z.ZodOptional<z.ZodNumber>;
+        cacheWriteTokens: z.ZodOptional<z.ZodNumber>;
+        cacheMissTokens: z.ZodOptional<z.ZodNumber>;
+        reasoningTokens: z.ZodOptional<z.ZodNumber>;
+        toolUsePromptTokens: z.ZodOptional<z.ZodNumber>;
+        providerUsage: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+        reportedCost: z.ZodOptional<z.ZodObject<{
+            amount: z.ZodNumber;
+            currency: z.ZodString;
+        }, z.core.$strict>>;
+    }, z.core.$strict>>>;
+    responseId: z.ZodOptional<z.ZodString>;
+    model: z.ZodOptional<z.ZodString>;
     message: z.ZodPipe<z.ZodObject<{
         role: z.ZodUnion<readonly [z.ZodLiteral<"user">, z.ZodLiteral<"system">, z.ZodLiteral<"assistant">, z.ZodLiteral<"tool">]>;
         content: z.ZodPipe<z.ZodDefault<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodUnion<readonly [z.ZodPipe<z.ZodObject<{
@@ -186,12 +232,15 @@ export declare const llmCompletionResponseSchema: z.ZodObject<{
         force_string_serializer?: boolean | undefined;
         send_reasoning_content?: boolean | undefined;
     }>>;
-    usage: z.ZodDefault<z.ZodNullable<z.ZodObject<{
-        promptTokens: z.ZodDefault<z.ZodNumber>;
-        completionTokens: z.ZodDefault<z.ZodNumber>;
-        totalTokens: z.ZodDefault<z.ZodNumber>;
-    }, z.core.$strict>>>;
     raw: z.ZodOptional<z.ZodUnknown>;
 }, z.core.$strict>;
 export type LLMUsage = z.infer<typeof llmUsageSchema>;
+export type LLMResponseMetadata = z.infer<typeof llmResponseMetadataSchema>;
 export type LLMCompletionResponse = z.infer<typeof llmCompletionResponseSchema>;
+/** A received provider response can be billable even when its content is invalid. */
+export declare class LLMResponseError extends Error {
+    readonly metadata: LLMResponseMetadata;
+    constructor(metadata: LLMResponseMetadata, cause: unknown);
+}
+/** Extract accounting before validating message/tool content; never fabricate a message. */
+export declare function parseLlmResponseWithMetadata(raw: unknown, parseMetadata: (raw: unknown) => LLMResponseMetadata, parseContent: (raw: unknown, metadata: LLMResponseMetadata) => LLMCompletionResponse): LLMCompletionResponse;

@@ -1538,6 +1538,333 @@ var View = class _View {
     this.events.push(...output);
   }
 };
+var llmUsageSchema = z.object({
+  promptTokens: z.number().int().min(0).optional(),
+  completionTokens: z.number().int().min(0).optional(),
+  totalTokens: z.number().int().min(0).optional(),
+  cacheReadTokens: z.number().int().min(0).optional(),
+  cacheWriteTokens: z.number().int().min(0).optional(),
+  cacheMissTokens: z.number().int().min(0).optional(),
+  reasoningTokens: z.number().int().min(0).optional(),
+  toolUsePromptTokens: z.number().int().min(0).optional(),
+  providerUsage: z.record(z.string(), z.unknown()).optional(),
+  reportedCost: z.object({ amount: z.number().finite().nonnegative(), currency: z.string().min(1) }).strict().optional()
+}).strict();
+var llmResponseMetadataSchema = z.object({
+  usage: llmUsageSchema.nullable().default(null),
+  responseId: z.string().optional(),
+  model: z.string().optional()
+}).strict();
+var llmCompletionResponseSchema = llmResponseMetadataSchema.extend({
+  message: messageSchema,
+  raw: z.unknown().optional()
+}).strict();
+var LLMResponseError = class extends Error {
+  constructor(metadata, cause) {
+    super("Provider returned an invalid or incomplete LLM response", { cause });
+    this.metadata = metadata;
+    this.name = "LLMResponseError";
+  }
+  metadata;
+};
+function parseLlmResponseWithMetadata(raw, parseMetadata, parseContent) {
+  const object = typeof raw === "object" && raw !== null && !Array.isArray(raw) ? raw : {};
+  const nativeUsage = object.usage;
+  let metadata = {
+    usage: typeof nativeUsage === "object" && nativeUsage !== null && !Array.isArray(nativeUsage) ? { providerUsage: nativeUsage } : null,
+    ...typeof object.id === "string" ? { responseId: object.id } : {},
+    ...typeof object.model === "string" ? { model: object.model } : {}
+  };
+  try {
+    metadata = parseMetadata(raw);
+    return parseContent(raw, metadata);
+  } catch (cause) {
+    throw new LLMResponseError(metadata, cause);
+  }
+}
+
+// src/llm/pricing.ts
+var DEEPSEEK_FLASH_MODELS = /* @__PURE__ */ new Set([
+  "deepseek-flash",
+  "deepseek-v4-flash",
+  "deepseek-v4-flash-vision-exp"
+]);
+var DEEPSEEK_FLASH_RESPONSE_MODELS = /* @__PURE__ */ new Set([
+  ...DEEPSEEK_FLASH_MODELS,
+  "DeepSeek-V4.1-Flash",
+  "deepseek-v4.1-flash"
+]);
+var DAY_MS = 864e5;
+var HOUR_MS = 36e5;
+function estimateUsageCost(profile, usage, startedAtMs, completedAtMs, servedModel) {
+  if (!isDirectDeepSeekFlash(profile) || usage === null) return null;
+  if (servedModel !== void 0 && !DEEPSEEK_FLASH_RESPONSE_MODELS.has(servedModel)) return null;
+  const tokens = priceableDeepSeekTokens(usage);
+  const band = requestPriceBand(startedAtMs, completedAtMs);
+  if (tokens === null || band === null) return null;
+  const rates = band === "peak" ? { cachedInputPerMillion: 6e-3, uncachedInputPerMillion: 0.3, outputPerMillion: 1.2 } : { cachedInputPerMillion: 3e-3, uncachedInputPerMillion: 0.15, outputPerMillion: 0.6 };
+  return {
+    amount: (tokens.hit * rates.cachedInputPerMillion + tokens.miss * rates.uncachedInputPerMillion + tokens.output * rates.outputPerMillion) / 1e6,
+    currency: "USD",
+    source: "calculated",
+    pricing: {
+      sourceUrl: "https://api-docs.deepseek.com/quick_start/pricing/",
+      checkedAt: "2026-09-15",
+      model: "DeepSeek-V4.1-Flash",
+      band,
+      rates
+    }
+  };
+}
+function isDirectDeepSeekFlash(profile) {
+  if (profile.authType === "subscription" || !DEEPSEEK_FLASH_MODELS.has(profile.model) || !profile.baseUrl) return false;
+  try {
+    const url = new URL(profile.baseUrl);
+    return url.protocol === "https:" && url.hostname === "api.deepseek.com" && url.port === "" && url.username === "" && url.password === "" && url.search === "" && url.hash === "" && ["", "/v1", "/anthropic"].includes(url.pathname.replace(/\/+$/u, ""));
+  } catch {
+    return false;
+  }
+}
+function isTokenCount(value) {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+function isPresent(value) {
+  return value !== void 0 && value !== null;
+}
+function priceableDeepSeekTokens(usage) {
+  const counts = [
+    usage.promptTokens,
+    usage.completionTokens,
+    usage.totalTokens,
+    usage.cacheReadTokens,
+    usage.cacheMissTokens,
+    usage.cacheWriteTokens,
+    usage.reasoningTokens
+  ];
+  if (counts.some((value) => isPresent(value) && !isTokenCount(value))) return null;
+  const hit = usage.cacheReadTokens;
+  const output = usage.completionTokens;
+  if (!isPresent(hit) || !isPresent(output)) return null;
+  const miss = usage.cacheMissTokens ?? (isPresent(usage.promptTokens) ? usage.promptTokens - hit : null);
+  if (miss === null || !isTokenCount(miss)) return null;
+  const prompt = hit + miss;
+  if (!isTokenCount(prompt) || !isTokenCount(prompt + output)) return null;
+  if (isPresent(usage.promptTokens) && usage.promptTokens !== prompt) return null;
+  if (isPresent(usage.totalTokens) && usage.totalTokens !== prompt + output) return null;
+  if (isPresent(usage.cacheWriteTokens) && usage.cacheWriteTokens !== 0) return null;
+  if (isPresent(usage.reasoningTokens) && usage.reasoningTokens > output) return null;
+  return { hit, miss, output };
+}
+function requestPriceBand(start, end) {
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start || !Number.isFinite(new Date(start).getTime()) || !Number.isFinite(new Date(end).getTime())) return null;
+  if (end - start >= 7 * DAY_MS) return null;
+  for (let day = Math.floor(start / DAY_MS) * DAY_MS; day <= end; day += DAY_MS) {
+    const weekday2 = new Date(day).getUTCDay();
+    if (weekday2 === 0 || weekday2 === 6) continue;
+    for (const hour2 of [1, 4, 6, 10]) {
+      const boundary = day + hour2 * HOUR_MS;
+      if (boundary > start && boundary <= end) return null;
+    }
+  }
+  const date = new Date(start);
+  const weekday = date.getUTCDay();
+  const hour = date.getUTCHours();
+  return weekday >= 1 && weekday <= 5 && (hour >= 1 && hour < 4 || hour >= 6 && hour < 10) ? "peak" : "off_peak";
+}
+
+// src/llm/metrics.ts
+var LLM_USAGE_KEY = "llm_usage";
+var LLM_METRICS_RESET_KEY = "llm_metrics_reset";
+var costSchema = z.object({
+  amount: z.number().finite().nonnegative(),
+  currency: z.string().min(1),
+  source: z.enum(["provider", "calculated"]),
+  pricing: z.record(z.string(), z.unknown()).optional()
+}).strict();
+var usageRecordSchema = z.object({
+  version: z.literal(1),
+  record_id: z.string().min(1),
+  response_id: z.string().nullable(),
+  usage_id: z.string().min(1),
+  profile_id: z.string(),
+  provider_id: z.string(),
+  model: z.string(),
+  requested_model: z.string(),
+  timestamp: z.string().datetime(),
+  latency: z.number().finite().nonnegative(),
+  usage: llmUsageSchema.nullable(),
+  cost: costSchema.nullable()
+}).strict();
+var fields = {
+  prompt_tokens: "promptTokens",
+  completion_tokens: "completionTokens",
+  total_tokens: "totalTokens",
+  cache_read_tokens: "cacheReadTokens",
+  cache_write_tokens: "cacheWriteTokens",
+  cache_miss_tokens: "cacheMissTokens",
+  reasoning_tokens: "reasoningTokens",
+  tool_use_prompt_tokens: "toolUsePromptTokens"
+};
+function createLlmUsageEvent(profile, response, timing) {
+  const recordId = randomUUID();
+  const reported = response.usage?.reportedCost;
+  const cost = reported === void 0 ? estimateUsageCost(profile, response.usage, timing.startedAt, timing.completedAt, response.model) : { ...reported, source: "provider" };
+  const record = usageRecordSchema.parse({
+    version: 1,
+    record_id: recordId,
+    response_id: response.responseId ?? null,
+    usage_id: timing.usageId ?? `profile:${profile.profileId}`,
+    profile_id: profile.profileId,
+    provider_id: profile.providerId,
+    model: response.model ?? profile.model,
+    requested_model: profile.model,
+    timestamp: new Date(timing.completedAt).toISOString(),
+    latency: Math.max(0, timing.completedAt - timing.startedAt) / 1e3,
+    usage: structuredClone(response.usage),
+    cost
+  });
+  return conversationStateUpdateEventSchema.parse({ id: recordId, key: LLM_USAGE_KEY, value: record });
+}
+function createMetricsResetEvent() {
+  return conversationStateUpdateEventSchema.parse({ key: LLM_METRICS_RESET_KEY, value: { version: 1 } });
+}
+function statsForEvents(events) {
+  let records = [];
+  const seen = /* @__PURE__ */ new Map();
+  const resets = /* @__PURE__ */ new Set();
+  const responseIds = /* @__PURE__ */ new Set();
+  let unmeasured = false;
+  let invalid = 0;
+  for (const event of events) {
+    if (event.kind === "ConversationStateUpdateEvent" && event.key === LLM_METRICS_RESET_KEY) {
+      if (resets.has(event.id)) continue;
+      resets.add(event.id);
+      if (!z.object({ version: z.literal(1) }).strict().safeParse(event.value).success) {
+        invalid += 1;
+        unmeasured = true;
+        continue;
+      }
+      records = [];
+      responseIds.clear();
+      unmeasured = false;
+      invalid = 0;
+    } else if (event.kind === "ConversationStateUpdateEvent" && event.key === LLM_USAGE_KEY) {
+      const parsed = usageRecordSchema.safeParse(structuredClone(event.value));
+      if (!parsed.success) {
+        invalid += 1;
+        unmeasured = true;
+        continue;
+      }
+      const record = parsed.data;
+      const fingerprint = JSON.stringify(record);
+      if (seen.has(record.record_id)) {
+        if (seen.get(record.record_id) !== fingerprint) {
+          invalid += 1;
+          unmeasured = true;
+        }
+        continue;
+      }
+      seen.set(record.record_id, fingerprint);
+      responseIds.add(record.response_id ?? record.record_id);
+      records.push(record);
+    } else if (event.kind === "ActionEvent" || event.kind === "MessageEvent" && event.source === "agent") {
+      if (event.llm_response_id === null || !responseIds.has(event.llm_response_id)) unmeasured = true;
+    }
+  }
+  const grouped = /* @__PURE__ */ new Map();
+  for (const record of records) {
+    const bucket = grouped.get(record.usage_id) ?? [];
+    bucket.push(record);
+    grouped.set(record.usage_id, bucket);
+  }
+  return {
+    usage_to_metrics: Object.fromEntries([...grouped].map(([id, bucket]) => [id, metricsForRecords(bucket, unmeasured)])),
+    coverage: { unmeasured_history: unmeasured, invalid_record_count: invalid, first_recorded_at: records[0]?.timestamp ?? null }
+  };
+}
+function metricsSnapshot(stats) {
+  const records = Object.values(stats.usage_to_metrics).flatMap((metrics) => metrics.records).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  return compactMetrics(metricsForRecords(records, stats.coverage.unmeasured_history));
+}
+function statsSnapshot(stats) {
+  return structuredClone({ usage_to_metrics: Object.fromEntries(Object.entries(stats.usage_to_metrics).map(([id, metrics]) => {
+    return [id, compactMetrics(metrics)];
+  })), coverage: stats.coverage });
+}
+function compactMetrics(metrics) {
+  return {
+    model_name: metrics.model_name,
+    accumulated_cost: metrics.accumulated_cost,
+    max_budget_per_task: metrics.max_budget_per_task,
+    accumulated_token_usage: metrics.accumulated_token_usage,
+    known_token_usage: metrics.known_token_usage,
+    known_costs: metrics.known_costs,
+    cost_sources: metrics.cost_sources,
+    cache_hit_rate: metrics.cache_hit_rate,
+    coverage: metrics.coverage
+  };
+}
+function tokenUsage(record) {
+  const usage = record.usage;
+  const counts = Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, usage?.[field] ?? null]));
+  return {
+    ...counts,
+    model: record.model,
+    response_id: record.response_id,
+    context_window: null,
+    per_turn_token: usage?.promptTokens !== void 0 && usage.completionTokens !== void 0 ? usage.promptTokens + usage.completionTokens : null
+  };
+}
+function metricsForRecords(records, unmeasured) {
+  const models = new Set(records.map((record) => record.model));
+  const model = models.size === 1 ? records[0].model : models.size === 0 ? "default" : "mixed";
+  const tokens = records.map(tokenUsage);
+  const known = { model, response_id: null, context_window: null, per_turn_token: tokens.length === 0 ? 0 : tokens.at(-1).per_turn_token };
+  const totals = { ...known };
+  const missing = {};
+  for (const field of Object.keys(fields)) {
+    missing[field] = tokens.filter((record) => record[field] === null).length;
+    known[field] = tokens.reduce((sum, record) => sum + (record[field] ?? 0), 0);
+    totals[field] = unmeasured || missing[field] > 0 ? null : known[field];
+  }
+  if (unmeasured && records.length === 0) totals.per_turn_token = null;
+  const knownCosts = /* @__PURE__ */ Object.create(null);
+  const costSources = /* @__PURE__ */ Object.create(null);
+  for (const record of records) if (record.cost !== null) {
+    knownCosts[record.cost.currency] = (knownCosts[record.cost.currency] ?? 0) + record.cost.amount;
+    costSources[record.cost.source] = (costSources[record.cost.source] ?? 0) + 1;
+  }
+  const missingCost = records.filter((record) => record.cost === null).length;
+  return {
+    model_name: model,
+    accumulated_cost: !unmeasured && missingCost === 0 && records.every((r) => r.cost?.currency === "USD") ? knownCosts.USD ?? 0 : null,
+    max_budget_per_task: null,
+    accumulated_token_usage: totals,
+    known_token_usage: known,
+    known_costs: knownCosts,
+    cost_sources: costSources,
+    cache_hit_rate: totals.prompt_tokens !== null && totals.prompt_tokens > 0 && totals.cache_read_tokens !== null && totals.cache_read_tokens <= totals.prompt_tokens ? totals.cache_read_tokens / totals.prompt_tokens : null,
+    coverage: {
+      completion_count: records.length,
+      missing_usage_count: records.filter((r) => r.usage === null).length,
+      missing_cost_count: missingCost,
+      missing_fields: missing,
+      unmeasured_history: unmeasured
+    },
+    records,
+    token_usages: tokens,
+    costs: records.map((r) => ({
+      model: r.model,
+      cost: r.cost?.amount ?? null,
+      timestamp: Date.parse(r.timestamp) / 1e3,
+      source: r.cost?.source ?? null,
+      currency: r.cost?.currency ?? null,
+      response_id: r.response_id,
+      record_id: r.record_id
+    })),
+    response_latencies: records.map((r) => ({ model: r.model, latency: r.latency, response_id: r.response_id, record_id: r.record_id }))
+  };
+}
 
 // src/llm/exceptions.ts
 var CONTENT_POLICY_PATTERNS = [
@@ -1805,6 +2132,10 @@ var EventLog = class {
   }
 };
 function serializeEvent(event) {
+  if (event.kind === "ConversationStateUpdateEvent" && event.key === "llm_usage") {
+    return `${JSON.stringify(event)}
+`;
+  }
   return `${JSON.stringify(event, (_key, value) => {
     if (value instanceof Set) {
       return [...value];
@@ -1850,6 +2181,9 @@ var ConversationState = class _ConversationState {
   events;
   eventLog;
   executionStatus;
+  get stats() {
+    return statsForEvents(this.events);
+  }
   constructor(options = {}) {
     this.eventLog = options.eventLog ?? null;
     this.events = this.eventLog === null ? [...options.events ?? []] : this.eventLog.toArray();
@@ -2038,16 +2372,6 @@ var PendingActionsQueue = class {
     );
   }
 };
-var llmUsageSchema = z.object({
-  promptTokens: z.number().int().min(0).default(0),
-  completionTokens: z.number().int().min(0).default(0),
-  totalTokens: z.number().int().min(0).default(0)
-}).strict();
-var llmCompletionResponseSchema = z.object({
-  message: messageSchema,
-  usage: llmUsageSchema.nullable().default(null),
-  raw: z.unknown().optional()
-}).strict();
 var INITIAL_CWD = process.cwd();
 function getUserPersistenceDir(defaultDir) {
   const envDir = process.env.OH_PERSISTENCE_DIR?.trim();
@@ -3417,8 +3741,8 @@ function actionFromToolCall(toolCall) {
   }
   return { arguments: toolCall.arguments };
 }
-function sortedKeys(record, fields) {
-  return Object.keys(record).filter((key) => fields.has(key)).sort();
+function sortedKeys(record, fields2) {
+  return Object.keys(record).filter((key) => fields2.has(key)).sort();
 }
 function recordOrThrow(value, name) {
   if (isRecord3(value)) {
@@ -3519,6 +3843,7 @@ var Agent = class {
   context;
   condenser;
   systemPrompt;
+  usageId;
   constructor(options) {
     this.llm = options.llm;
     this.tools = [...options.tools ?? []];
@@ -3526,6 +3851,7 @@ var Agent = class {
     this.context = options.context ?? null;
     this.condenser = options.condenser ?? null;
     this.systemPrompt = options.systemPrompt ?? null;
+    this.usageId = options.usageId;
   }
   async step(state) {
     const messages = this.messagesForState(state);
@@ -3533,10 +3859,18 @@ var Agent = class {
       return [state.events.at(-1)].filter((event) => event !== void 0);
     }
     let response;
+    const startedAt = Date.now();
     try {
       response = await this.llm.complete(messages, this.tools.filter((tool) => tool.usable));
     } catch (error) {
-      if (isContentPolicyViolation(error)) {
+      if (error instanceof LLMResponseError) {
+        await state.appendEventAsync(createLlmUsageEvent(this.llm.profile, error.metadata, {
+          startedAt,
+          completedAt: Date.now(),
+          ...this.usageId === void 0 ? {} : { usageId: this.usageId }
+        }));
+      }
+      if (isContentPolicyViolation(error instanceof LLMResponseError ? error.cause : error)) {
         return [
           await state.appendEventAsync(
             messageEventSchema.parse({
@@ -3551,7 +3885,14 @@ var Agent = class {
       }
       throw error;
     }
+    const accounting = createLlmUsageEvent(this.llm.profile, response, {
+      startedAt,
+      completedAt: Date.now(),
+      ...this.usageId === void 0 ? {} : { usageId: this.usageId }
+    });
+    await state.appendEventAsync(accounting);
     return dispatchLlmResponse(response, state, (action) => this.runTool(action), {
+      llmResponseId: response.responseId ?? accounting.id,
       maxConcurrency: this.toolConcurrencyLimit
     });
   }
@@ -3999,15 +4340,15 @@ async function getGitCommits(repoPath, limit = DEFAULT_COMMIT_LIMIT) {
     if (line.length === 0) {
       continue;
     }
-    const fields = line.split("");
-    if (fields.length !== 5) {
+    const fields2 = line.split("");
+    if (fields2.length !== 5) {
       continue;
     }
-    const sha = fields[0] ?? "";
-    const shortSha = fields[1] ?? "";
-    const author = fields[2] ?? "";
-    const timestamp = fields[3] ?? "";
-    const subject = fields[4] ?? "";
+    const sha = fields2[0] ?? "";
+    const shortSha = fields2[1] ?? "";
+    const author = fields2[2] ?? "";
+    const timestamp = fields2[3] ?? "";
+    const subject = fields2[4] ?? "";
     commits.push({ sha, short_sha: shortSha, subject, author, timestamp });
   }
   return { commits: commits.slice(0, limit), has_more: commits.length > limit };
@@ -5667,6 +6008,26 @@ function parseToolArguments2(toolCall) {
   return parsed;
 }
 function parseAnthropicMessagesResponse(raw) {
+  return parseLlmResponseWithMetadata(raw, parseAnthropicMetadata, parseAnthropicContent);
+}
+function parseAnthropicMetadata(raw) {
+  const parsed = anthropicMessagesResponseSchema.pick({ id: true, model: true, usage: true }).parse(raw);
+  const usage = parsed.usage;
+  const promptTokens = usage?.input_tokens === void 0 || usage.cache_read_input_tokens === void 0 || usage.cache_creation_input_tokens === void 0 ? void 0 : usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens;
+  return llmResponseMetadataSchema.parse({
+    usage: usage === null ? null : Object.fromEntries(Object.entries({
+      promptTokens,
+      completionTokens: usage.output_tokens,
+      totalTokens: promptTokens === void 0 || usage.output_tokens === void 0 ? void 0 : promptTokens + usage.output_tokens,
+      cacheReadTokens: usage.cache_read_input_tokens,
+      cacheWriteTokens: usage.cache_creation_input_tokens,
+      providerUsage: usage
+    }).filter(([, value]) => value !== void 0)),
+    ...parsed.id === void 0 ? {} : { responseId: parsed.id },
+    ...parsed.model === void 0 ? {} : { model: parsed.model }
+  });
+}
+function parseAnthropicContent(raw, metadata) {
   const parsed = anthropicMessagesResponseSchema.parse(raw);
   const text = parsed.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
   const thinkingBlocks = parsed.content.filter(
@@ -5683,11 +6044,7 @@ function parseAnthropicMessagesResponse(raw) {
       reasoning_content: reasoningContent.length > 0 ? reasoningContent : null,
       thinking_blocks: thinkingBlocks.map((block) => block.type === "thinking" ? { type: "thinking", thinking: block.thinking, signature: block.signature ?? null } : { type: "redacted_thinking", data: block.data })
     },
-    usage: parsed.usage === null ? null : {
-      promptTokens: parsed.usage.input_tokens,
-      completionTokens: parsed.usage.output_tokens,
-      totalTokens: parsed.usage.input_tokens + parsed.usage.output_tokens
-    },
+    ...metadata,
     raw
   });
 }
@@ -5733,11 +6090,15 @@ var anthropicContentBlockSchema = z.union([
   anthropicOtherBlockSchema
 ]);
 var anthropicMessagesResponseSchema = z.object({
+  id: z.string().optional(),
+  model: z.string().optional(),
   role: z.literal("assistant").default("assistant"),
   content: z.array(anthropicContentBlockSchema),
   usage: z.object({
-    input_tokens: z.number().int().min(0).default(0),
-    output_tokens: z.number().int().min(0).default(0)
+    input_tokens: z.number().int().min(0).optional(),
+    output_tokens: z.number().int().min(0).optional(),
+    cache_read_input_tokens: z.number().int().min(0).optional(),
+    cache_creation_input_tokens: z.number().int().min(0).optional()
   }).passthrough().nullable().default(null)
 }).passthrough();
 var DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
@@ -5921,6 +6282,27 @@ function parseFunctionCallArguments(toolCall) {
   return parsed;
 }
 function parseGeminiInteractionResponse(raw) {
+  return parseLlmResponseWithMetadata(raw, parseGeminiMetadata, parseGeminiContent);
+}
+function parseGeminiMetadata(raw) {
+  const parsed = geminiInteractionResponseSchema.pick({ id: true, model: true, usage: true }).parse(raw);
+  return llmResponseMetadataSchema.parse({
+    // Interactions reports thoughts separately from visible output. Cache reads
+    // are already in input; internal tool prompts remain a separate category.
+    usage: parsed.usage === null ? null : Object.fromEntries(Object.entries({
+      promptTokens: parsed.usage.total_input_tokens,
+      completionTokens: parsed.usage.total_output_tokens === void 0 || parsed.usage.total_thought_tokens === void 0 ? void 0 : parsed.usage.total_output_tokens + parsed.usage.total_thought_tokens,
+      totalTokens: parsed.usage.total_tokens,
+      cacheReadTokens: parsed.usage.total_cached_tokens,
+      reasoningTokens: parsed.usage.total_thought_tokens,
+      toolUsePromptTokens: parsed.usage.total_tool_use_tokens,
+      providerUsage: parsed.usage
+    }).filter(([, value]) => value !== void 0)),
+    ...parsed.id === void 0 ? {} : { responseId: parsed.id },
+    ...parsed.model === void 0 ? {} : { model: parsed.model }
+  });
+}
+function parseGeminiContent(raw, metadata) {
   const parsed = geminiInteractionResponseSchema.parse(raw);
   const modelOutputSteps = parsed.steps.filter((step) => step.type === "model_output");
   const text = modelOutputSteps.flatMap((step) => step.content).filter((content) => content.type === "text").map((content) => content.text).join("\n");
@@ -5939,11 +6321,7 @@ function parseGeminiInteractionResponse(raw) {
       reasoning_content: reasoningContent.length > 0 ? reasoningContent : null,
       thinking_blocks: thinkingBlocks
     },
-    usage: parsed.usage === null ? null : {
-      promptTokens: parsed.usage.total_input_tokens,
-      completionTokens: parsed.usage.total_output_tokens,
-      totalTokens: parsed.usage.total_tokens
-    },
+    ...metadata,
     raw
   });
 }
@@ -5996,17 +6374,22 @@ var geminiStepSchema = z.union([
   geminiOtherStepSchema
 ]);
 var geminiUsageSchema = z.object({
-  total_input_tokens: z.number().int().min(0).default(0),
-  total_output_tokens: z.number().int().min(0).default(0),
-  total_tokens: z.number().int().min(0).default(0)
+  total_input_tokens: z.number().int().min(0).optional(),
+  total_output_tokens: z.number().int().min(0).optional(),
+  total_tokens: z.number().int().min(0).optional(),
+  total_cached_tokens: z.number().int().min(0).optional(),
+  total_thought_tokens: z.number().int().min(0).optional(),
+  total_tool_use_tokens: z.number().int().min(0).optional()
 }).passthrough();
 var geminiInteractionResponseSchema = z.object({
+  id: z.string().optional(),
+  model: z.string().optional(),
   steps: z.array(geminiStepSchema).default([]),
   usage: geminiUsageSchema.nullable().default(null)
 }).passthrough();
 
 // src/llm/auth/stream.ts
-async function readSubscriptionResponse(response) {
+async function readSubscriptionResponse(response, onTerminalResponse) {
   const reader = response.body?.getReader();
   let pending = "";
   const outputItems = [];
@@ -6021,6 +6404,8 @@ async function readSubscriptionResponse(response) {
       throw new Error("Invalid OpenAI subscription stream event");
     }
     if (event.type === "response.output_item.done" && event.item !== void 0) outputItems.push(event.item);
+    if (event.response && ["response.completed", "response.failed", "response.incomplete"].includes(event.type ?? ""))
+      onTerminalResponse?.(event.response);
     if (event.type === "response.completed") {
       if (!event.response) throw new Error("Invalid OpenAI subscription completed response");
       return event.response.output?.length ? event.response : { ...event.response, output: outputItems };
@@ -6076,7 +6461,7 @@ var OpenAIChatClient = class {
       const text = await response.text();
       throw new Error(`OpenAI-compatible completion failed with HTTP ${response.status}: ${text}`);
     }
-    return parseChatCompletionsResponse(await response.json());
+    return parseChatCompletionsResponse(await response.json(), this.profile);
   }
 };
 var OpenAIResponsesClient = class {
@@ -6111,7 +6496,21 @@ var OpenAIResponsesClient = class {
       const text = await response.text();
       throw new Error(`OpenAI Responses completion failed with HTTP ${response.status}: ${text}`);
     }
-    return parseOpenAIResponsesResponse(this.subscriptionAuth ? await readSubscriptionResponse(response) : await response.json());
+    let raw;
+    let terminalResponse;
+    try {
+      raw = this.subscriptionAuth ? await readSubscriptionResponse(response, (received) => {
+        terminalResponse = received;
+      }) : await response.json();
+    } catch (error) {
+      if (terminalResponse !== void 0) {
+        return parseLlmResponseWithMetadata(terminalResponse, parseOpenAIResponsesMetadata, () => {
+          throw error;
+        });
+      }
+      throw error;
+    }
+    return parseOpenAIResponsesResponse(raw);
   }
 };
 async function createOpenAIChatClientFromProfile(profile, store, options = {}) {
@@ -6367,7 +6766,32 @@ function toOpenAIChatToolCall(toolCall) {
     }
   };
 }
-function parseChatCompletionsResponse(raw) {
+function parseChatCompletionsResponse(raw, profile) {
+  return parseLlmResponseWithMetadata(raw, (value) => parseChatCompletionsMetadata(value, profile), parseChatCompletionsContent);
+}
+function parseChatCompletionsMetadata(raw, profile) {
+  const parsed = openAIChatCompletionResponseSchema.pick({ id: true, model: true, usage: true }).parse(raw);
+  const usage = parsed.usage;
+  const isOpenRouter = profile.providerId === "openrouter" || new URL(resolveBaseUrl3(profile)).hostname === "openrouter.ai";
+  return llmResponseMetadataSchema.parse({
+    // Input/output totals already include their cache/reasoning breakdowns.
+    // DeepSeek's two cached-token fields are aliases, not separate usage.
+    usage: usage === null ? null : Object.fromEntries(Object.entries({
+      promptTokens: usage.prompt_tokens,
+      completionTokens: usage.completion_tokens,
+      totalTokens: usage.total_tokens,
+      cacheReadTokens: usage.prompt_cache_hit_tokens ?? usage.prompt_tokens_details?.cached_tokens,
+      cacheWriteTokens: usage.prompt_tokens_details?.cache_write_tokens,
+      cacheMissTokens: usage.prompt_cache_miss_tokens,
+      reasoningTokens: usage.completion_tokens_details?.reasoning_tokens,
+      reportedCost: isOpenRouter && typeof usage.cost === "number" && Number.isFinite(usage.cost) && usage.cost >= 0 ? { amount: usage.cost, currency: "credits" } : void 0,
+      providerUsage: usage
+    }).filter(([, value]) => value !== void 0)),
+    ...parsed.id === void 0 ? {} : { responseId: parsed.id },
+    ...parsed.model === void 0 ? {} : { model: parsed.model }
+  });
+}
+function parseChatCompletionsContent(raw, metadata) {
   const parsed = openAIChatCompletionResponseSchema.parse(raw);
   const firstChoice = parsed.choices[0];
   if (firstChoice === void 0) {
@@ -6383,11 +6807,7 @@ function parseChatCompletionsResponse(raw) {
   });
   return llmCompletionResponseSchema.parse({
     message,
-    usage: parsed.usage === null ? null : {
-      promptTokens: parsed.usage.prompt_tokens,
-      completionTokens: parsed.usage.completion_tokens,
-      totalTokens: parsed.usage.total_tokens
-    },
+    ...metadata,
     raw
   });
 }
@@ -6401,6 +6821,25 @@ function fromOpenAIChatToolCall(toolCall) {
   };
 }
 function parseOpenAIResponsesResponse(raw) {
+  return parseLlmResponseWithMetadata(raw, parseOpenAIResponsesMetadata, parseOpenAIResponsesContent);
+}
+function parseOpenAIResponsesMetadata(raw) {
+  const parsed = openAIResponsesResponseSchema.pick({ id: true, model: true, usage: true }).parse(raw);
+  return llmResponseMetadataSchema.parse({
+    usage: parsed.usage === null ? null : Object.fromEntries(Object.entries({
+      promptTokens: parsed.usage.input_tokens,
+      completionTokens: parsed.usage.output_tokens,
+      totalTokens: parsed.usage.total_tokens,
+      cacheReadTokens: parsed.usage.input_tokens_details?.cached_tokens,
+      cacheWriteTokens: parsed.usage.input_tokens_details?.cache_write_tokens,
+      reasoningTokens: parsed.usage.output_tokens_details?.reasoning_tokens,
+      providerUsage: parsed.usage
+    }).filter(([, value]) => value !== void 0)),
+    ...parsed.id === void 0 ? {} : { responseId: parsed.id },
+    ...parsed.model === void 0 ? {} : { model: parsed.model }
+  });
+}
+function parseOpenAIResponsesContent(raw, metadata) {
   const parsed = openAIResponsesResponseSchema.parse(raw);
   const text = parsed.output.filter((item) => item.type === "message").flatMap((item) => item.content).filter((content) => content.type === "output_text").map((content) => content.text).join("\n");
   const reasoningItem = parsed.output.find((item) => item.type === "reasoning") ?? null;
@@ -6418,11 +6857,7 @@ function parseOpenAIResponsesResponse(raw) {
         status: reasoningItem.status ?? null
       }
     },
-    usage: parsed.usage === null ? null : {
-      promptTokens: parsed.usage.input_tokens,
-      completionTokens: parsed.usage.output_tokens,
-      totalTokens: parsed.usage.total_tokens
-    },
+    ...metadata,
     raw
   });
 }
@@ -6479,6 +6914,8 @@ var openAIChatToolCallSchema = z.object({
   function: z.object({ name: z.string(), arguments: z.string() })
 });
 var openAIChatCompletionResponseSchema = z.object({
+  id: z.string().optional(),
+  model: z.string().optional(),
   choices: z.array(
     z.object({
       message: z.object({
@@ -6490,9 +6927,18 @@ var openAIChatCompletionResponseSchema = z.object({
     }).passthrough()
   ),
   usage: z.object({
-    prompt_tokens: z.number().int().min(0).default(0),
-    completion_tokens: z.number().int().min(0).default(0),
-    total_tokens: z.number().int().min(0).default(0)
+    prompt_tokens: z.number().int().min(0).optional(),
+    completion_tokens: z.number().int().min(0).optional(),
+    total_tokens: z.number().int().min(0).optional(),
+    prompt_cache_hit_tokens: z.number().int().min(0).optional(),
+    prompt_cache_miss_tokens: z.number().int().min(0).optional(),
+    prompt_tokens_details: z.object({
+      cached_tokens: z.number().int().min(0).optional(),
+      cache_write_tokens: z.number().int().min(0).optional()
+    }).passthrough().nullish(),
+    completion_tokens_details: z.object({
+      reasoning_tokens: z.number().int().min(0).optional()
+    }).passthrough().nullish()
   }).passthrough().nullable().default(null)
 }).passthrough();
 var openAIResponsesOutputTextSchema = z.object({ type: z.literal("output_text"), text: z.string() }).passthrough();
@@ -6533,11 +6979,20 @@ var openAIResponsesOutputItemSchema = z.union([
   z.object({ type: z.string() }).passthrough()
 ]);
 var openAIResponsesResponseSchema = z.object({
+  id: z.string().optional(),
+  model: z.string().optional(),
   output: z.array(openAIResponsesOutputItemSchema).default([]),
   usage: z.object({
-    input_tokens: z.number().int().min(0).default(0),
-    output_tokens: z.number().int().min(0).default(0),
-    total_tokens: z.number().int().min(0).default(0)
+    input_tokens: z.number().int().min(0).optional(),
+    output_tokens: z.number().int().min(0).optional(),
+    total_tokens: z.number().int().min(0).optional(),
+    input_tokens_details: z.object({
+      cached_tokens: z.number().int().min(0).optional(),
+      cache_write_tokens: z.number().int().min(0).optional()
+    }).passthrough().nullish(),
+    output_tokens_details: z.object({
+      reasoning_tokens: z.number().int().min(0).optional()
+    }).passthrough().nullish()
   }).passthrough().nullable().default(null)
 }).passthrough();
 
@@ -7827,8 +8282,8 @@ function checkScheduleValue(action) {
     }
     return null;
   }
-  const fields = action.schedule_value.trim().split(/\s+/u);
-  if (fields.length < 5 || fields.length > 6) {
+  const fields2 = action.schedule_value.trim().split(/\s+/u);
+  if (fields2.length < 5 || fields2.length > 6) {
     return `Invalid cron: "${action.schedule_value}". Use 5 fields like "0 9 * * *" (daily 9am).`;
   }
   return null;
@@ -8985,6 +9440,6 @@ var VERIFIED_MODELS = {
 // src/index.ts
 var VERSION = "0.2.0";
 
-export { AGENT_OUTCOME, AGENT_PROFILE_SCHEMA_VERSION, AGENT_SETTINGS_SCHEMA_VERSION, Agent, AgentContext, AgentDefinition, AgentFinishedCritic, AnthropicMessagesClient, AsyncCallbackWrapper, AsyncProcessManager, BROWSER_TOOL_NAME, BUILT_IN_TOOLS, BUILT_IN_TOOL_FACTORIES, BrowserTool, CANCEL_TASK_TOOL_NAME, CLIENT_ID, CODEX_API_ENDPOINT, CONSENT_BANNER, CONTENT_POLICY_NUDGE, CONVERSATION_SETTINGS_SCHEMA_VERSION, CORRECTIVE_NUDGE, CancelTaskTool, ConversationState, CredentialStore, CriticBase, CriticResult, DEFAULT_EXEC_TOOL_NAMES, DEFAULT_OAUTH_PORT, DEFAULT_SYSTEM_MESSAGE, DEFAULT_TERMINAL_TIMEOUT_SECONDS, DEFAULT_TEXT_CONTENT_LIMIT, DEFAULT_TRUNCATE_NOTICE, DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST, DEVICE_CODE_TIMEOUT_SECONDS, DuplicateEventError, EVENTS_DIR, EVENT_FILE_PATTERN, EmptyPatchCritic, EventLog, ExtensionFetchError, FULL_STATE_KEY, FileEditorExecutor, FileEditorTool, FinishTool, GIT_EMPTY_TREE_HASH, GeminiClient, GitChangeStatus, GitCommandError, GitError, GitPathError, GitRepositoryError, GlobExecutor, GlobTool, GrepExecutor, GrepTool, HookConfig, HookDecision, HookDefinition, HookExecutor, HookManager, HookMatcher, HookResult, HookEventType as HookTriggerEventType, HookType, ISSUER, InMemoryFileStore, InMemorySecretStore, InstallationInfo, InstallationMetadata, LIST_TASKS_TOOL_NAME, LLMContentPolicyViolationError, LLM_PROFILE_ID_PATTERN, LOCK_FILE_NAME, LOCK_TIMEOUT_SECONDS, ListTasksTool, LocalConversation, LocalFileStore, LocalWorkspace, LogLevel, MAX_FILE_SIZE_FOR_GIT_DIFF, MCPError, MCPTimeoutError, MCPToolAction, MCPToolDefinition, MCPToolExecutor, MCPToolObservation, MacOSKeychainSecretStore, MemoryLRUCache, N_CHAR_PREVIEW, NoCondensationAvailableError, NoOpCondenser, OAUTH_TIMEOUT_SECONDS, OAuthCredentials, OPENAI_CODEX_MODELS, OPENHANDS_KEYRING_SERVICE, OpenAIChatClient, OpenAIResponsesClient, OpenAISubscriptionAuth, PAUSE_TASK_TOOL_NAME, ParallelToolExecutor, PassCritic, PauseTaskTool, PendingActionsQueue, PipelineCondenser, RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED, RESUME_TASK_TOOL_NAME, ROOT_PARENT_ID, RemoteConversation, RemoteWorkspace, RepoSource, ResumeTaskTool, RollingCondenser, RootSpan, SCHEDULE_TASK_TOOL_NAME, SECRET_KEY_PATTERNS, SEND_MESSAGE_TOOL_NAME, SENSITIVE_URL_PARAMS, SUB_AGENT_TOOL_NAME, ScheduleTaskTool, SendMediaTool, SendMessageTool, Skill, StuckDetector, TASK_SCHEDULER_TOOL_FACTORIES, TaskTrackerExecutor, TaskTrackerTool, TerminalExecutor, TerminalTool, TestLLM, TestLLMExhaustedError, ThinkTool, ToolDefinition, ToolRegistry, UpdateTaskTool, VERIFIED_ANTHROPIC_MODELS, VERIFIED_DEEPSEEK_MODELS, VERIFIED_GEMINI_MODELS, VERIFIED_GLM_MODELS, VERIFIED_MINIMAX_MODELS, VERIFIED_MISTRAL_MODELS, VERIFIED_MODELS, VERIFIED_MOONSHOT_MODELS, VERIFIED_NVIDIA_MODELS, VERIFIED_OPENAI_MODELS, VERIFIED_OPENHANDS_MODELS, VERIFIED_QWEN_MODELS, VERSION, ValueError, View, acpAgentProfileSchema, acpAgentSettingsSchema, acpServerKindSchema, acpToolCallEventSchema, actionEventSchema, actionEventsFromMessage, agentErrorEventSchema, agentProfileSchema, agentSettingsSchema, baseObservationSchema, baseToolObservationSchema, browserActionSchema, browserObservationSchema, buildAnthropicMessagesBody, buildAuthorizeUrl, buildChatCompletionsBody, buildCloneUrl, buildGeminiInteractionsBody, buildOpenAIResponsesBody, cancellationToken, checkScheduleValue, classifyError, classifyResponse, clearRawLlmFieldsWhenProfileSelected, condensationRequestSchema, condensationRequirement, condensationSchema, condensationSummaryEventSchema, contentSchema, contentToString, conversationErrorEventSchema, conversationExecutionStatus, conversationSettingsSchema, conversationStateUpdateEventSchema, createAnthropicClientFromProfile, createClientFromProfile, createGeminiClientFromProfile, createMcpTools, createOpenAIChatClientFromProfile, createOpenAIResponsesClientFromProfile, criticModeSchema, defaultAgentSettings, defaultToolSpecs, detectProviderFromBaseUrl, disableLogger, discoverAgents, dispatchLlmResponse, displayJson, dumps, endRootSpan, errorClassificationSchema, eventSchema, eventsToMessages, executeCommand, extractActionName, extractRepoName, failureActionSchema, failureKindSchema, fetchExtension, fetchWithResolution, fileEditorActionSchema, fileEditorObservationSchema, finishActionSchema, generatePKCE, getAgentFactory, getCachePath, getChangesInRepo, getClosestGitRepo, getCommitChanges, getCommitFileDiff, getCredentialsDir, getDisplayBaseRef, getEnv, getFactoryInfo, getGitCommits, getGitDiff, getGitRepositoryMetadata, getLlmApiKey, getLogger, getRegisteredAgentDefinitions, getReposContext, getUserPersistenceDir, getValidRef, globActionSchema, globObservationSchema, globalToolRegistry, grepActionSchema, grepMatchSchema, grepObservationSchema, handleDeprecatedModelFields, hookEventSchema, hookEventTypeSchema, hookExecutionEventSchema, imageContent, imageContentSchema, injectSystemPrefix, inputMetadataSchema, interruptEventSchema, isAbsolutePathSource, isAcpPatchEdit, isContentPolicyViolation, isConversationStateUpdateEvent, isEnabledFor, isGitUrl, isHostAbsolutePath, isLocalPathSource, isMessageEvent, isSecretKey, keywordTriggerSchema, listRegisteredTools, listTasksActionSchema, listUsableTools, llmCompletionLogEventSchema, llmCompletionResponseSchema, llmConvertibleEventSchema, llmProfileIdSchema, llmProfileSchema, llmProfileSecretRef, llmProviderIdSchema, llmProviderSecretRef, llmResponseType, llmUsageSchema, loadAgentsFromDir, loadAgentsFromDirs, loadProjectAgents, loadSkillsFromDir, loadUserAgents, loads, maybeInitLaminar, maybeTruncate, mergeSkillsByName, messageEventSchema, messageSchema, messageToolCallSchema, normalizeGitUrl, oauthCredentialsSchema, observabilityEnvKeys, observabilityMetadataSchema, observabilitySpanNameSchema, observabilityTagsSchema, observationEventSchema, observe, openAiApiModeSchema, openHandsAgentProfileSchema, openHandsAgentSettingsSchema, pageIterator, parseExtensionSource, pathMatchesGlob, pathTriggerSchema, pauseEventSchema, posixPathName, profileVerificationSettingsSchema, promptCacheRetentionSchema, reasoningEffortSchema, reasoningItemSchema, reasoningSummarySchema, redactTextSecrets, redactUrlCredentials, redactUrlCredentialsInText, redactUrlParams, redactedThinkingBlockSchema, reduceTextContent, registerAgent, registerAgentIfAbsent, registerBuiltinResolver, registerTool, registerToolFactory, resetAgentRegistryForTests, resolveLlmApiKeyRef, resolveLlmProfileApiKeyRef, resolveProviderFromProfile, resolveTool, restoreConversationState, resumeTranscriptEventSchema, runGitCommand, sanitizeOpenHandsMentions, sanitizedEnv, scheduleTaskActionSchema, secretRefSchema, sendMediaActionSchema, sendMessageActionSchema, sendMessageObservationSchema, setupLogging, shouldEnableObservability, skillResourcesSchema, skillSchema, skillsToPrompt, sourceTypeSchema, startChildSpan, startRootSpan, streamingDeltaEventSchema, systemPromptEventSchema, taskItemSchema, taskMutationActionSchema, taskTrackerActionSchema, taskTrackerObservationSchema, taskTriggerSchema, terminalActionSchema, terminalObservationSchema, textContent, textContentSchema, thinkActionSchema, thinkingBlockSchema, toCamelCase, toLLMMessage, toPosixPath, tokenEventSchema, toolAnnotationsSchema, toolSpecSchema, transformForSubscription, triggerSchema, updateTaskActionSchema, userRejectObservationSchema, utcNow, validateAgentProfile, validateAgentSettings, validateConversationSettings, validateExtensionName, validateGitRepository, workspace };
+export { AGENT_OUTCOME, AGENT_PROFILE_SCHEMA_VERSION, AGENT_SETTINGS_SCHEMA_VERSION, Agent, AgentContext, AgentDefinition, AgentFinishedCritic, AnthropicMessagesClient, AsyncCallbackWrapper, AsyncProcessManager, BROWSER_TOOL_NAME, BUILT_IN_TOOLS, BUILT_IN_TOOL_FACTORIES, BrowserTool, CANCEL_TASK_TOOL_NAME, CLIENT_ID, CODEX_API_ENDPOINT, CONSENT_BANNER, CONTENT_POLICY_NUDGE, CONVERSATION_SETTINGS_SCHEMA_VERSION, CORRECTIVE_NUDGE, CancelTaskTool, ConversationState, CredentialStore, CriticBase, CriticResult, DEFAULT_EXEC_TOOL_NAMES, DEFAULT_OAUTH_PORT, DEFAULT_SYSTEM_MESSAGE, DEFAULT_TERMINAL_TIMEOUT_SECONDS, DEFAULT_TEXT_CONTENT_LIMIT, DEFAULT_TRUNCATE_NOTICE, DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST, DEVICE_CODE_TIMEOUT_SECONDS, DuplicateEventError, EVENTS_DIR, EVENT_FILE_PATTERN, EmptyPatchCritic, EventLog, ExtensionFetchError, FULL_STATE_KEY, FileEditorExecutor, FileEditorTool, FinishTool, GIT_EMPTY_TREE_HASH, GeminiClient, GitChangeStatus, GitCommandError, GitError, GitPathError, GitRepositoryError, GlobExecutor, GlobTool, GrepExecutor, GrepTool, HookConfig, HookDecision, HookDefinition, HookExecutor, HookManager, HookMatcher, HookResult, HookEventType as HookTriggerEventType, HookType, ISSUER, InMemoryFileStore, InMemorySecretStore, InstallationInfo, InstallationMetadata, LIST_TASKS_TOOL_NAME, LLMContentPolicyViolationError, LLMResponseError, LLM_METRICS_RESET_KEY, LLM_PROFILE_ID_PATTERN, LLM_USAGE_KEY, LOCK_FILE_NAME, LOCK_TIMEOUT_SECONDS, ListTasksTool, LocalConversation, LocalFileStore, LocalWorkspace, LogLevel, MAX_FILE_SIZE_FOR_GIT_DIFF, MCPError, MCPTimeoutError, MCPToolAction, MCPToolDefinition, MCPToolExecutor, MCPToolObservation, MacOSKeychainSecretStore, MemoryLRUCache, N_CHAR_PREVIEW, NoCondensationAvailableError, NoOpCondenser, OAUTH_TIMEOUT_SECONDS, OAuthCredentials, OPENAI_CODEX_MODELS, OPENHANDS_KEYRING_SERVICE, OpenAIChatClient, OpenAIResponsesClient, OpenAISubscriptionAuth, PAUSE_TASK_TOOL_NAME, ParallelToolExecutor, PassCritic, PauseTaskTool, PendingActionsQueue, PipelineCondenser, RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED, RESUME_TASK_TOOL_NAME, ROOT_PARENT_ID, RemoteConversation, RemoteWorkspace, RepoSource, ResumeTaskTool, RollingCondenser, RootSpan, SCHEDULE_TASK_TOOL_NAME, SECRET_KEY_PATTERNS, SEND_MESSAGE_TOOL_NAME, SENSITIVE_URL_PARAMS, SUB_AGENT_TOOL_NAME, ScheduleTaskTool, SendMediaTool, SendMessageTool, Skill, StuckDetector, TASK_SCHEDULER_TOOL_FACTORIES, TaskTrackerExecutor, TaskTrackerTool, TerminalExecutor, TerminalTool, TestLLM, TestLLMExhaustedError, ThinkTool, ToolDefinition, ToolRegistry, UpdateTaskTool, VERIFIED_ANTHROPIC_MODELS, VERIFIED_DEEPSEEK_MODELS, VERIFIED_GEMINI_MODELS, VERIFIED_GLM_MODELS, VERIFIED_MINIMAX_MODELS, VERIFIED_MISTRAL_MODELS, VERIFIED_MODELS, VERIFIED_MOONSHOT_MODELS, VERIFIED_NVIDIA_MODELS, VERIFIED_OPENAI_MODELS, VERIFIED_OPENHANDS_MODELS, VERIFIED_QWEN_MODELS, VERSION, ValueError, View, acpAgentProfileSchema, acpAgentSettingsSchema, acpServerKindSchema, acpToolCallEventSchema, actionEventSchema, actionEventsFromMessage, agentErrorEventSchema, agentProfileSchema, agentSettingsSchema, baseObservationSchema, baseToolObservationSchema, browserActionSchema, browserObservationSchema, buildAnthropicMessagesBody, buildAuthorizeUrl, buildChatCompletionsBody, buildCloneUrl, buildGeminiInteractionsBody, buildOpenAIResponsesBody, cancellationToken, checkScheduleValue, classifyError, classifyResponse, clearRawLlmFieldsWhenProfileSelected, condensationRequestSchema, condensationRequirement, condensationSchema, condensationSummaryEventSchema, contentSchema, contentToString, conversationErrorEventSchema, conversationExecutionStatus, conversationSettingsSchema, conversationStateUpdateEventSchema, createAnthropicClientFromProfile, createClientFromProfile, createGeminiClientFromProfile, createLlmUsageEvent, createMcpTools, createMetricsResetEvent, createOpenAIChatClientFromProfile, createOpenAIResponsesClientFromProfile, criticModeSchema, defaultAgentSettings, defaultToolSpecs, detectProviderFromBaseUrl, disableLogger, discoverAgents, dispatchLlmResponse, displayJson, dumps, endRootSpan, errorClassificationSchema, eventSchema, eventsToMessages, executeCommand, extractActionName, extractRepoName, failureActionSchema, failureKindSchema, fetchExtension, fetchWithResolution, fileEditorActionSchema, fileEditorObservationSchema, finishActionSchema, generatePKCE, getAgentFactory, getCachePath, getChangesInRepo, getClosestGitRepo, getCommitChanges, getCommitFileDiff, getCredentialsDir, getDisplayBaseRef, getEnv, getFactoryInfo, getGitCommits, getGitDiff, getGitRepositoryMetadata, getLlmApiKey, getLogger, getRegisteredAgentDefinitions, getReposContext, getUserPersistenceDir, getValidRef, globActionSchema, globObservationSchema, globalToolRegistry, grepActionSchema, grepMatchSchema, grepObservationSchema, handleDeprecatedModelFields, hookEventSchema, hookEventTypeSchema, hookExecutionEventSchema, imageContent, imageContentSchema, injectSystemPrefix, inputMetadataSchema, interruptEventSchema, isAbsolutePathSource, isAcpPatchEdit, isContentPolicyViolation, isConversationStateUpdateEvent, isEnabledFor, isGitUrl, isHostAbsolutePath, isLocalPathSource, isMessageEvent, isSecretKey, keywordTriggerSchema, listRegisteredTools, listTasksActionSchema, listUsableTools, llmCompletionLogEventSchema, llmCompletionResponseSchema, llmConvertibleEventSchema, llmProfileIdSchema, llmProfileSchema, llmProfileSecretRef, llmProviderIdSchema, llmProviderSecretRef, llmResponseMetadataSchema, llmResponseType, llmUsageSchema, loadAgentsFromDir, loadAgentsFromDirs, loadProjectAgents, loadSkillsFromDir, loadUserAgents, loads, maybeInitLaminar, maybeTruncate, mergeSkillsByName, messageEventSchema, messageSchema, messageToolCallSchema, metricsSnapshot, normalizeGitUrl, oauthCredentialsSchema, observabilityEnvKeys, observabilityMetadataSchema, observabilitySpanNameSchema, observabilityTagsSchema, observationEventSchema, observe, openAiApiModeSchema, openHandsAgentProfileSchema, openHandsAgentSettingsSchema, pageIterator, parseExtensionSource, parseLlmResponseWithMetadata, pathMatchesGlob, pathTriggerSchema, pauseEventSchema, posixPathName, profileVerificationSettingsSchema, promptCacheRetentionSchema, reasoningEffortSchema, reasoningItemSchema, reasoningSummarySchema, redactTextSecrets, redactUrlCredentials, redactUrlCredentialsInText, redactUrlParams, redactedThinkingBlockSchema, reduceTextContent, registerAgent, registerAgentIfAbsent, registerBuiltinResolver, registerTool, registerToolFactory, resetAgentRegistryForTests, resolveLlmApiKeyRef, resolveLlmProfileApiKeyRef, resolveProviderFromProfile, resolveTool, restoreConversationState, resumeTranscriptEventSchema, runGitCommand, sanitizeOpenHandsMentions, sanitizedEnv, scheduleTaskActionSchema, secretRefSchema, sendMediaActionSchema, sendMessageActionSchema, sendMessageObservationSchema, setupLogging, shouldEnableObservability, skillResourcesSchema, skillSchema, skillsToPrompt, sourceTypeSchema, startChildSpan, startRootSpan, statsForEvents, statsSnapshot, streamingDeltaEventSchema, systemPromptEventSchema, taskItemSchema, taskMutationActionSchema, taskTrackerActionSchema, taskTrackerObservationSchema, taskTriggerSchema, terminalActionSchema, terminalObservationSchema, textContent, textContentSchema, thinkActionSchema, thinkingBlockSchema, toCamelCase, toLLMMessage, toPosixPath, tokenEventSchema, toolAnnotationsSchema, toolSpecSchema, transformForSubscription, triggerSchema, updateTaskActionSchema, userRejectObservationSchema, utcNow, validateAgentProfile, validateAgentSettings, validateConversationSettings, validateExtensionName, validateGitRepository, workspace };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

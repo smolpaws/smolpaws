@@ -12,6 +12,7 @@ export * from './io/index.js';
 export * from './llm/index.js';
 export * from './llm/auth/index.js';
 export * from './llm/client.js';
+export * from './llm/metrics.js';
 export * from './llm/exceptions.js';
 export * from './llm/factory.js';
 export * from './llm/anthropic.js';

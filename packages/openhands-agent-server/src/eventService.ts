@@ -372,7 +372,7 @@ export class EventService {
       timestamp: new Date().toISOString(),
       source: 'environment',
       key: 'full_state',
-      value: { execution_status: this.state.executionStatus },
+      value: { execution_status: this.state.executionStatus, stats: this.state.stats },
     });
   }
 
