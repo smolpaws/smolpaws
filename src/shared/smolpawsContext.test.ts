@@ -62,6 +62,28 @@ test('the real checkout carries the canonical identity docs', () => {
   assert.ok(!names.includes('docs/smolpaws/HEARTBEAT.md'));
 });
 
+test('large private memory uses a file reference while identity stays inline', () => {
+  const root = fakeRepo();
+  const memory = path.join(root, 'private-memory.md');
+  writeFileSync(memory, 'private memory detail\n'.repeat(2400));
+  try {
+    const defaults = buildRelayConversationDefaults({ ingress: 'whatsapp', repoRoot: root, extraContextFiles: [memory] });
+    const suffix = (defaults.agent_launch_additions as { system_message_suffix_append: string }).system_message_suffix_append;
+    assert.ok(suffix.length <= 32768, 'must fit the pinned upstream AgentLaunchAdditions limit');
+    assert.ok(suffix.includes('be a good cat'));
+    assert.ok(suffix.includes(memory));
+    assert.ok(suffix.includes('Read this file before answering'));
+    assert.ok(!suffix.includes('private memory detail'));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('multiple large context files remain discoverable without exceeding the request limit', () => {
+  const docs = ['SOUL', 'MEMORY', 'TOOLS'].map(name => ({ name, path: `/tmp/${name}.md`, content: name.repeat(12000) }));
+  const suffix = renderSmolpawsContextSuffix(docs, 'whatsapp')!;
+  assert.ok(suffix.length <= 32768);
+  for (const doc of docs) assert.ok(suffix.includes(doc.path));
+});
+
 test('resolves the working dir from explicit env, workspace root, then the checkout', () => {
   const root = fakeRepo();
   const explicit = path.join(root, 'explicit', 'dir');

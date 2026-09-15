@@ -14,6 +14,8 @@ import { fileURLToPath } from 'node:url';
 
 /** Files under docs/smolpaws that are not conversation context (heartbeat checklist, directory readme). */
 const EXCLUDED_CONTEXT_FILES: ReadonlySet<string> = new Set(['README.md', 'HEARTBEAT.md']);
+// Pinned upstream AgentLaunchAdditions.system_message_suffix_append limit.
+const MAX_CONTEXT_SUFFIX_LENGTH = 32768;
 
 export interface SmolpawsContextOptions {
   /** Repository root that contains docs/smolpaws. Defaults to this checkout. */
@@ -83,7 +85,21 @@ export function renderSmolpawsContextSuffix(
   const header = ingress === undefined
     ? ''
     : `This conversation arrived through the ${ingress} bridge. Replies are delivered back to that channel.\n\n`;
-  return `<SMOLPAWS_CONTEXT>\n${header}${blocks.join('\n\n')}\n</SMOLPAWS_CONTEXT>`;
+  const render = () => `<SMOLPAWS_CONTEXT>\n${header}${blocks.join('\n\n')}\n</SMOLPAWS_CONTEXT>`;
+  let suffix = render();
+  // Keep complete documents, not arbitrary truncated fragments. Large memory files stay on disk
+  // and remain explicit startup context; the normal small identity documents remain inline.
+  const largestFirst = docs.map((doc, index) => ({ doc, index }))
+    .sort((a, b) => b.doc.content.length - a.doc.content.length);
+  for (const { doc, index } of largestFirst) {
+    if (suffix.length <= MAX_CONTEXT_SUFFIX_LENGTH) break;
+    const reference = `[BEGIN context from ${doc.name}]\nRead this file before answering: ${JSON.stringify(doc.path)}. Its full content is on disk because it exceeds the inline context budget.\n[END context]`;
+    if (reference.length >= blocks[index]!.length) continue;
+    blocks[index] = reference;
+    suffix = render();
+  }
+  if (suffix.length > MAX_CONTEXT_SUFFIX_LENGTH) throw new Error('SmolPaws context references exceed the server launch-context limit');
+  return suffix;
 }
 
 /** One-call convenience used by bridge entrypoints. */
