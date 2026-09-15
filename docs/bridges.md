@@ -165,3 +165,11 @@ When the combined context is larger, it replaces the largest documents with expl
 references and an instruction to read them before answering. It preserves the original files and
 does not truncate them. This normally leaves the small identity documents inline and references
 large private memory. WhatsApp still supplies private memory only for its control scope.
+
+### Final replies after explicit sends
+
+The relay suppresses a terminal reply that repeats text already queued by `send_message` in the
+same turn. It reads the durable EventLog back to the previous user message or terminal reply and
+checks the corresponding outbox record, so paging, cursor replay and process restart do not change
+the decision. It preserves explicit repeated sends, different final text, and identical text in a
+later turn. No provider or agent-loop rule owns this channel delivery policy.

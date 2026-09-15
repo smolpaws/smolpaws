@@ -24,6 +24,6 @@
   "sideEffects": false,
   "_smolpawsProvenance": {
     "source": "github.com/smolpaws/openhands-agent",
-    "gitCommit": "775869ec30ac2958701517a20556e9d50df977f6"
+    "gitCommit": "5f28eb8397cee3cc45c7ed24cf4658efb05e7904"
   }
 }

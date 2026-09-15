@@ -1,9 +1,9 @@
-# WhatsApp readiness: connection and rollback verified, live replies pending
+# WhatsApp readiness: iPad text and media proved; overnight canary next
 
 Updated 2026-09-15. The standalone bridge now includes the history handoff (`kxa.6`), shared scheduler
 (`kxa.4`), outbound media/voice (`kxa.2`), existing scope rules (`kxa.8`), recovery (`kxa.9`) and bounded
-HTTP intake (`39y`). SDK #31 is vendored at `775869e`, including SDK #30 bridge tools, provider
-fix #28 and ChatGPT subscription OAuth. Beads owns completion and deployment status.
+HTTP intake (`39y`). SDK #32 is vendored at `5f28eb8`, including SDK #31 subscription OAuth, #30 bridge tools, provider
+fix #28 and the multi-tool thought correction. Beads owns completion and deployment status.
 
 Real-provider preflight passed on 2026-09-15: SmolPaws `7a98ef1`, SDK `573ec5d`, the configured
 `deepseek-v4-flash` profile and its normal Keychain reference. A temporary real product host verified
@@ -22,6 +22,27 @@ override; `SMOLPAWS_RELAY_DB_PATH` remains bridge-specific. The trial used separ
 opening the socket. The existing bare `:8790` server remains unchanged. Remaining gates are the
 final deployed product-host check (`kxa.7`), live one-chat canary (`kxa.5`) and production soak.
 See [shared design](../bridges.md) and [architecture page](https://enyst.github.io/arch/whatsapp-readiness.html).
+
+## September 15 iPad canary
+
+During 18:19–18:30 UTC, the iPad input reached the ledger and durable relay. A 422 exposed an
+oversized launch suffix (64,997 characters versus upstream’s 32,768 cap). Product fix #175 keeps
+identity inline and references oversized files for reading; the corrected Main suffix was 18,300
+characters. Retrying the original intake completed the agent run. The user confirmed text replies
+on the iPad, but two identical outputs exposed the `send_message` plus `finish` echo (bead 955).
+
+A real image and OGG/Opus voice note were queued while the bridge was stopped. Both remained
+`ready` with no send attempt, then reached `done` with external WhatsApp IDs after reconnect. The
+user confirmed the image and playable voice. The agent failed before scheduling: a two-tool response
+duplicated its thought into both ActionEvents, and SDK history reconstruction rejected the next
+step (bead 956). SDK #32 repairs construction against pinned Python; fresh history is required or
+old malformed events must be explicitly reconciled without repeating completed effects.
+
+All delivered effects were accounted for, the unfinished scheduling request was abandoned, and
+rollback restored legacy at 18:30:20 UTC with its scheduled tasks unchanged. This trial proves text,
+media playback and queued-media restart, not scheduled delivery or permanent replacement. The user
+authorized leaving the corrected Main-only canary running overnight; deployed revision, fresh state,
+scheduled reply and soak evidence must be recorded before marking the remaining gates complete.
 
 ## Implemented and tested
 

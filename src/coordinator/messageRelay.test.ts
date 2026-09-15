@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { MessageRelay, terminalResponseExtractor } from './messageRelay.js';
+import { MessageRelay, sendMessageExtractor, terminalResponseExtractor } from './messageRelay.js';
 import { deterministicEventId } from './ids.js';
 import { MessageWorkStore } from './store.js';
 import type { AgentEvent, AgentServerClient, LaneDescriptor, RetryPolicy } from './types.js';
@@ -185,6 +185,33 @@ const finishObservation = (id: string, text: string): AgentEvent => ({
   kind: 'ObservationEvent',
   tool_name: 'finish',
   observation: { message: text },
+});
+
+test('final echoes are suppressed across pages and projector restart, but new turns and explicit sends survive', async () => {
+  const agent = new FakeAgentServer();
+  const { store } = makeCoordinator(Date.now, agent);
+  const make = () => new MessageRelay(store, agent, { outboxSyncPageSize: 1,
+    extractor: event => sendMessageExtractor(event) ?? terminalResponseExtractor(event) });
+  const coord = make(); const binding = await coord.resolveLane(lane());
+  const user = (id: string): AgentEvent => ({ id, kind: 'MessageEvent', source: 'user', llm_message: { role: 'user', content: [] } });
+  agent.events = [user('u1'), sendAction('s1', 'hello')];
+  assert.equal(await coord.syncDeliveryOutbox(binding.conversationId), 1);
+  agent.events.push(finishObservation('f1', 'hello'));
+  const restarted = make();
+  assert.equal(await restarted.syncDeliveryOutbox(binding.conversationId), 0);
+  agent.events.push(user('u2'), finishObservation('f2', 'hello'));
+  assert.equal(await restarted.syncDeliveryOutbox(binding.conversationId), 1);
+  agent.events.push(user('u3'), sendAction('s2', 'hello'), sendAction('s3', 'hello'), assistantMessage('a3', 'different final'));
+  assert.equal(await restarted.syncDeliveryOutbox(binding.conversationId), 3);
+  assert.equal(store.listLaneWork(binding.laneKey, 'delivery').length, 5);
+  assert.equal(await make().syncDeliveryOutbox(binding.conversationId), 0);
+});
+
+test('a send_message event without a delivery cannot suppress the final reply', async () => {
+  const { coord, agent } = makeCoordinator(Date.now, new FakeAgentServer(), terminalResponseExtractor);
+  const binding = await coord.resolveLane(lane());
+  agent.events = [sendAction('s1', 'hello'), finishObservation('f1', 'hello')];
+  assert.equal(await coord.syncDeliveryOutbox(binding.conversationId), 1);
 });
 
 test('terminalResponseExtractor delivers a plain assistant text message (no finish tool)', async () => {

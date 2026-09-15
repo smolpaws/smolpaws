@@ -126,6 +126,11 @@ export const terminalResponseExtractor: DeliverableExtractor = (event: AgentEven
   return { payload: { kind: 'current_thread_message', text } };
 };
 
+function deliveryText(payload: unknown): string | null {
+  const value = payload as { kind?: unknown; text?: unknown } | null;
+  return value?.kind === 'current_thread_message' && typeof value.text === 'string' ? value.text.trim() : null;
+}
+
 export class MessageRelay {
   private readonly store: MessageWorkStore;
   private readonly agent: AgentServerClient;
@@ -250,10 +255,13 @@ export class MessageRelay {
         }
         throw error;
       }
-      for (const event of page.items) {
+      for (const [index, event] of page.items.entries()) {
         this.onEvent?.(conversationId, event);
         const intent = this.extractor(event);
         if (!intent) continue;
+        const text = deliveryText(intent.payload);
+        if (text !== null && terminalResponseExtractor(event) !== null &&
+            await this.isQueuedFinalEcho(conversationId, lane.laneKey, text, offset, page.items.slice(0, index))) continue;
         const sourceKey = `${event.id}:${lane.laneKey}`;
         const before = this.store.getWorkBySourceKey('delivery', sourceKey);
         this.store.insertDelivery(
@@ -274,6 +282,27 @@ export class MessageRelay {
     }
 
     return created;
+  }
+
+  /** Consult durable history/outbox, so suppression survives paging, restart and cursor replay.
+   * Only a final echo is suppressed; explicit repeated sends and replies in a new turn remain valid.
+   */
+  private async isQueuedFinalEcho(conversationId: string, laneKey: string, text: string, beforePage: number, earlier: readonly AgentEvent[]): Promise<boolean> {
+    let events = earlier;
+    let end = beforePage;
+    for (;;) {
+      for (let index = events.length - 1; index >= 0; index -= 1) {
+        const event = events[index]!;
+        if ((event.kind === 'MessageEvent' && event.source === 'user') || terminalResponseExtractor(event) !== null) return false;
+        if (sendMessageExtractor(event) === null) continue;
+        const queued = this.store.getWorkBySourceKey('delivery', `${event.id}:${laneKey}`);
+        if (queued && queued.state !== 'skipped' && deliveryText(queued.payload) === text) return true;
+      }
+      if (end === 0) return false;
+      const start = Math.max(0, end - this.outboxSyncPageSize);
+      events = (await this.agent.searchEvents(conversationId, String(start), end - start)).items;
+      end = start;
+    }
   }
 
   /** Expose the store for worker/claim/settle/reconcile access and audit reads. */

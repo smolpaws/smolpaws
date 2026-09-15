@@ -11,6 +11,7 @@ import { TaskScheduler } from '../../../src/coordinator/taskScheduler.js';
 import type * as Sdk from '../../../packages/openhands-agent-server/vendor/openhands-agent/dist/index.js';
 const { TestLLM, InMemorySecretStore, messageSchema } = createRequire(import.meta.url)('../../../packages/openhands-agent-server/vendor/openhands-agent/dist/index.cjs') as typeof Sdk;
 const call = (name: string, args: object) => messageSchema.parse({ role: 'assistant' as const, content: [], tool_calls: [{ id: name, name, arguments: JSON.stringify(args), origin: 'completion' as const }] });
+const batch = (...messages: ReturnType<typeof call>[]) => messageSchema.parse({ role: 'assistant', content: [{ type: 'text', text: 'Scheduling and checking tasks.' }], tool_calls: messages.flatMap(message => message.tool_calls ?? []) });
 
 for (const platform of ['whatsapp', 'slack', 'discord', 'agent-server']) test(`${platform}: profile tools create a real task, return observations, and deliver its scheduled run`, async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'product-relay-'));
@@ -24,9 +25,12 @@ for (const platform of ['whatsapp', 'slack', 'discord', 'agent-server']) test(`$
     config: { conversationsPath: path.join(root, 'conversations'), statePath: path.join(root, 'state'), workspaceRoot: workspace, sessionApiKey: 'test' },
     secretStore: new InMemorySecretStore(),
     llmClientFactory: async () => TestLLM.fromMessages(++created === 1 ? [
-      call('schedule_task', { prompt: 'scheduled hello', schedule_type: 'once', schedule_value: new Date(Date.now() + 600).toISOString(), context_mode: 'isolated' }),
-      call('list_tasks', {}),
+      batch(
+        call('schedule_task', { prompt: 'scheduled hello', schedule_type: 'once', schedule_value: new Date(Date.now() + 600).toISOString(), context_mode: 'isolated' }),
+        call('list_tasks', {}),
+      ),
       ...(platform === 'agent-server' ? [] : [call('send_media', { path: 'voice.ogg', media_type: 'audio', voice_note: true })]),
+      call('send_message', { text: 'scheduled' }),
       call('finish', { message: 'scheduled' }),
     ] : [call('finish', { message: 'task result' })]),
   }, new TaskScheduler(schedulerPath));
@@ -69,6 +73,7 @@ for (const platform of ['whatsapp', 'slack', 'discord', 'agent-server']) test(`$
     }
     await runtime.runOnce();
     assert.equal(deliveries.filter(p => (p as { text?: string }).text === 'task result').length, 1);
+    assert.equal(deliveries.filter(p => (p as { text?: string }).text === 'scheduled').length, platform === 'agent-server' ? 0 : 1);
   } finally {
     await runtime.stop(); await app.close(); rmSync(root, { recursive: true, force: true });
     if (platform === 'agent-server') {
