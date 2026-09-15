@@ -1,4 +1,4 @@
-# WhatsApp readiness: iPad text and media proved; overnight canary next
+# WhatsApp readiness: iPad canary passed; overnight soak running
 
 Updated 2026-09-15. The standalone bridge now includes the history handoff (`kxa.6`), shared scheduler
 (`kxa.4`), outbound media/voice (`kxa.2`), existing scope rules (`kxa.8`), recovery (`kxa.9`) and bounded
@@ -19,8 +19,9 @@ This proves connection and an empty-work rollback, **not** a live reply or recov
 The trial also exposed an inherited relay database override: the native host must use a separate
 work store from its launching bridge. `SMOLPAWS_AGENT_SERVER_RELAY_DB_PATH` now owns the native
 override; `SMOLPAWS_RELAY_DB_PATH` remains bridge-specific. The trial used separate stores before
-opening the socket. The existing bare `:8790` server remains unchanged. Remaining gates are the
+opening the socket. The existing bare `:8790` server remains unchanged. At that point, the remaining gates were the
 final deployed product-host check (`kxa.7`), live one-chat canary (`kxa.5`) and production soak.
+The evening evidence below closes the first two; overnight soak remains open.
 See [shared design](../bridges.md) and [architecture page](https://enyst.github.io/arch/whatsapp-readiness.html).
 
 ## September 15 iPad canary
@@ -41,8 +42,34 @@ old malformed events must be explicitly reconciled without repeating completed e
 All delivered effects were accounted for, the unfinished scheduling request was abandoned, and
 rollback restored legacy at 18:30:20 UTC with its scheduled tasks unchanged. This trial proves text,
 media playback and queued-media restart, not scheduled delivery or permanent replacement. The user
-authorized leaving the corrected Main-only canary running overnight; deployed revision, fresh state,
-scheduled reply and soak evidence must be recorded before marking the remaining gates complete.
+authorized leaving the corrected Main-only canary running overnight.
+
+## September 15 overnight canary — running
+
+The Main-only bridge connected at 18:49:36 UTC on merged SmolPaws `c4ba8c4` with SDK `5f28eb8`,
+using the existing `deepseek-v4-flash` profile. Separate bridge/native relay stores and fresh server
+persistence avoid the earlier malformed history. The product host passed a real-provider two-tool
+batch (`list_tasks` and `think`), then continued its saved conversation after a process restart.
+
+An operator request through the actual Main conversation deliberately used `send_message` and
+`finish` with identical text. Fix #176 produced one `NIGHT-CANARY READY` delivery. Its once task
+then produced one `NIGHT-SCHEDULE OK` delivery. Each reached `done` with one send attempt and an
+external message ID; the user confirmed one visible copy of each on the iPad. This scheduled test
+was a direct operator request, while the earlier text test was real WhatsApp ingress. Offline replay
+of that captured intake at the relay acceptance boundary preserved the same completed work row
+without another server call or platform send.
+
+The canary host and WhatsApp bridge run under dedicated KeepAlive LaunchAgents. Legacy WhatsApp
+is stopped and disabled so it cannot compete for the device after reboot; its updated code remains
+available for rollback. Existing Main tasks were preserved. The next existing Main cron is due
+September 16 at 07:00 UTC. The other local servers and ingress services were left unchanged.
+
+Deployment and controlled-canary beads `kxa.7` and `kxa.5` are closed. **Overnight observation remains
+open as `smolpaws-957`**: inspect service health, actual replies, scheduled work and unsettled effects
+before deciding permanent cutover. All-ingress retirement remains `b1r.24`. These are timestamped
+observations, not a promise of continuous monitoring. The private runtime directory contains the
+exact service configuration, evidence and rollback procedure; never restore old auth or ledger
+snapshots over progress made during the canary.
 
 ## Implemented and tested
 
@@ -52,7 +79,7 @@ scheduled reply and soak evidence must be recorded before marking the remaining 
 | Isolation | One process lock per auth directory; explicit ledger/relay/allowlist paths; startup-ping control; refuse persisted lanes outside the allowlist. A persisted relay owner tag rejects adoption of an unrelated server EventLog. `historyHandoff.test.ts`, HTTP tests. |
 | Scheduler | One shared SQLite store, real task-tool observations, scoped lifecycle commands, cron/interval/once, group/isolated runs and idempotent synthetic intake. Real profile/server tests across WhatsApp, Slack, Discord and direct API conversations. |
 | Media | Immutable local spool and durable delivery rows; image/video/audio/document delivery. WhatsApp OGG/Opus PTT and the existing private `voice-outbox.jsonl` producer are supported. Outbound IDs suppress media echoes on the shared account. File and symlink scope checks; fake transport tests. |
-| Scope | WhatsApp `groups/<folder>` and existing control semantics: `main` can manage tasks across scopes; other scopes see/manage their own. Private durable memory is appended only to WhatsApp control context. No new sandbox or delegation model. |
+| Scope | WhatsApp `groups/<folder>` and existing control semantics: `main` can manage tasks across scopes; other scopes see/manage their own. Private durable memory is supplied inline or by file reference only to WhatsApp control context. No new sandbox or delegation model. |
 | Recovery | Durable acceptance requires no server request. HTTP deadlines include response bodies; interrupted tool outcomes are parked; disconnected delivery waits; timed-out sends stay `delivery_unknown`; reconnect creation retries; one shared child supervisor restarts the server. |
 
 The deterministic tests use fake platform transports and a test LLM with the real TypeScript
