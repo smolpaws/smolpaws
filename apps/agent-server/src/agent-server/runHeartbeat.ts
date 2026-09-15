@@ -1,26 +1,12 @@
-import { buildHeartbeatRequest, resolveHeartbeatRunnerBaseUrl } from './heartbeat.js';
+import { submitHeartbeat } from './heartbeatClient.js';
+import { buildHeartbeatRequest, heartbeatRequestHeaders, resolveHeartbeatRunnerBaseUrl } from './heartbeat.js';
 
 async function main(): Promise<void> {
   const baseUrl = resolveHeartbeatRunnerBaseUrl();
-  const headers: Record<string, string> = {
-    'content-type': 'application/json',
-  };
-  if (process.env.SMOLPAWS_RUNNER_TOKEN?.trim()) {
-    headers.authorization = `Bearer ${process.env.SMOLPAWS_RUNNER_TOKEN.trim()}`;
-  }
+  const headers = heartbeatRequestHeaders();
 
-  const response = await fetch(`${baseUrl}/api/conversations`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(buildHeartbeatRequest(new Date())),
-  });
-
-  if (!response.ok) {
-    throw new Error(`heartbeat_failed:${response.status}:${await response.text()}`);
-  }
-
-  const payload = await response.json().catch(() => ({}));
-  const id = typeof payload?.id === 'string' ? payload.id : '(unknown)';
+  const now = new Date();
+  const id = await submitHeartbeat(baseUrl, buildHeartbeatRequest(now), headers, now);
   console.log(`[heartbeat] queued conversation ${id}`);
 }
 

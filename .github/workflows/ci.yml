@@ -54,7 +54,7 @@ jobs:
           node-version: 22
 
       - name: Check bridge launcher syntax
-        run: bash -n scripts/run-local-bridge.sh scripts/install-bridge-launchagent.sh scripts/remove-bridge-launchagent.sh scripts/vendor-openhands-agent.sh
+        run: bash -n scripts/lib/product-server.sh scripts/run-local-heartbeat.sh scripts/run-local-bridge.sh scripts/install-bridge-launchagent.sh scripts/remove-bridge-launchagent.sh scripts/vendor-openhands-agent.sh
 
       - name: Install root dependencies
         run: npm ci

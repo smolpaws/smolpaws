@@ -1,9 +1,11 @@
+import { submitHeartbeat } from './heartbeatClient.js';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
   DEFAULT_HEARTBEAT_CRON,
+  heartbeatRequestHeaders,
   buildHeartbeatConversationId,
   buildHeartbeatPaths,
   buildHeartbeatPrompt,
@@ -32,7 +34,8 @@ test('buildHeartbeatRequest targets the new profile-first server without outboun
   assert.equal(request.agent.agent_kind, 'openhands');
   assert.equal(request.agent.llm_profile_ref, 'deepseek-v4-pro');
   assert.equal(request.workspace.kind, 'LocalWorkspace');
-  assert.equal(request.workspace.working_dir, 'smolpaws');
+  assert.ok(path.isAbsolute(request.workspace.working_dir));
+  assert.equal(path.basename(request.workspace.working_dir), 'smolpaws');
   assert.equal(request.max_iterations, 500);
   assert.equal(request.initial_message.role, 'user');
   assert.match(request.initial_message.content, /Carry out the heartbeat checklist quietly\./);
@@ -106,4 +109,36 @@ test('resolveHeartbeatRunnerBaseUrl prefers explicit runner url and otherwise us
     resolveHeartbeatRunnerBaseUrl({} as NodeJS.ProcessEnv),
     `http://${DEFAULT_HEARTBEAT_RUNNER_HOST}:${DEFAULT_HEARTBEAT_RUNNER_PORT}`,
   );
+});
+
+test('heartbeat uses the shared endpoint and session authentication', () => {
+  const env = { SMOLPAWS_RELAY_SERVER_URL: 'http://localhost:8791/', SMOLPAWS_RUNNER_URL: 'http://localhost:8788',
+    SMOLPAWS_RELAY_SERVER_API_KEY: 'session', SMOLPAWS_RUNNER_TOKEN: 'legacy' };
+  assert.equal(resolveHeartbeatRunnerBaseUrl(env), 'http://localhost:8791');
+  assert.deepEqual(heartbeatRequestHeaders(env), { 'content-type': 'application/json', 'x-session-api-key': 'session' });
+  assert.deepEqual(heartbeatRequestHeaders({SMOLPAWS_RUNNER_TOKEN: 'legacy'}), { 'content-type': 'application/json' });
+});
+
+test('later heartbeat ticks append and run; retries neither append twice nor run again', async () => {
+  const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const seen = new Set<string>();
+  const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body)); calls.push({ url: String(url), body });
+    if (String(url).endsWith('/api/conversations')) return new Response(JSON.stringify({ id: 'daily' }), { status: 200 });
+    if (String(url).endsWith('/events')) {
+      const id = String(body.event_id); const created = !seen.has(id); seen.add(id);
+      return new Response(JSON.stringify({ success: true, created }));
+    }
+    return new Response(JSON.stringify({ success: true }));
+  }) as typeof fetch;
+  const now = new Date('2026-09-15T12:00:00Z'); const request = buildHeartbeatRequest(now);
+  await submitHeartbeat('http://server', request, {}, now, fetcher);
+  assert.equal(calls[0].body.initial_message, undefined);
+  assert.match(String(calls[1].body.event_id), /^[0-9a-f-]{36}$/);
+  assert.equal(calls[1].body.run, false);
+  await submitHeartbeat('http://server', request, {}, now, fetcher);
+  assert.equal(calls.filter(c => c.url.endsWith('/run')).length, 1);
+  await submitHeartbeat('http://server', request, {}, new Date('2026-09-15T13:00:00Z'), fetcher);
+  assert.equal(seen.size, 2);
+  assert.equal(calls.filter(c => c.url.endsWith('/run')).length, 2);
 });

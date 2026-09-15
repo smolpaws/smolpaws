@@ -96,7 +96,7 @@ Bridges do not send `agent` at all; the agent and its LLM profile stay the serve
 | WhatsApp | standalone relay | implemented (`apps/whatsapp`), deterministic end-to-end test green; needs the live six-point canary on the Mac, then cutover; scheduler, outbound media/voice and recovery implemented; live provider/transport checks pending |
 | Discord | standalone relay | rewritten on the relay (`apps/discord`: Gateway → handler → `RelayRuntime` → `DiscordDeliveryTarget`), deterministic end-to-end test green; needs a live check in the test server |
 | GitHub, email | Cloudflare Workers → `/turns` on the legacy runner | unchanged; migrate to relay intake after WhatsApp soaks |
-| Heartbeat | LaunchAgent → `:8790` | already on the new server |
+| Heartbeat | LaunchAgent → shared product host (`:8790` by default) | uses the same supervised startup and product-host check as bridges; session-key authentication and absolute workspace |
 
 ## Shared scheduler and media tools
 
@@ -173,3 +173,19 @@ same turn. It reads the durable EventLog back to the previous user message or te
 checks the corresponding outbox record, so paging, cursor replay and process restart do not change
 the decision. It preserves explicit repeated sends, different final text, and identical text in a
 later turn. No provider or agent-loop rule owns this channel delivery policy.
+
+### Heartbeat startup
+
+Heartbeat and bridge launchers share `scripts/lib/product-server.sh`. They reuse an endpoint only
+when `/health` identifies the SmolPaws product host (`X-SmolPaws-Host: relay`), and bootstrap the
+supervised `apps/relay-server` locally when absent. A healthy bare SDK server is rejected with an
+upgrade instruction; it is never silently replaced or treated as a server with product tools.
+Heartbeat prefers `SMOLPAWS_RELAY_SERVER_URL`, then the coordinator alias, then its older explicit
+`SMOLPAWS_RUNNER_URL` override. The default remains loopback port 8790. Session authentication uses
+`X-Session-API-Key`; the legacy runner Bearer token is not used. Preserve the existing conversation
+and server-state directories when replacing a bare host, and drain active work first.
+
+Each heartbeat tick creates or reuses its daily conversation, appends a message with a stable
+per-minute event ID, and starts a run only for a newly appended tick. Repeating conversation
+creation alone does not run another turn. Failed submissions remain visible in the LaunchAgent
+error log; a successfully queued tick is not evidence of a completed agent run.

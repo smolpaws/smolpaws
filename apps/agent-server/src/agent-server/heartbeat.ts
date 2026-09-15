@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
+import { resolveRelayWorkingDir } from '../../../../src/shared/relayConversationDefaults.js';
 
 export const DEFAULT_HEARTBEAT_RUNNER_HOST = '127.0.0.1';
 // The heartbeat targets the new transpiled agent-server (packages/openhands-agent-server),
@@ -113,7 +114,7 @@ export function buildHeartbeatRequest(now: Date): HeartbeatConversationRequest {
     },
     workspace: {
       kind: 'LocalWorkspace',
-      working_dir: process.env.SMOLPAWS_DEFAULT_WORKING_DIR?.trim() || 'smolpaws',
+      working_dir: resolveRelayWorkingDir(),
     },
     max_iterations: DEFAULT_HEARTBEAT_MAX_ITERATIONS,
     // The new server accepts a plain string as message content. The heartbeat prompt itself
@@ -126,11 +127,24 @@ export function buildHeartbeatRequest(now: Date): HeartbeatConversationRequest {
 }
 
 export function resolveHeartbeatRunnerBaseUrl(env = process.env): string {
-  const explicit = env.SMOLPAWS_RUNNER_URL?.trim();
+  const explicit = env.SMOLPAWS_RELAY_SERVER_URL?.trim() || env.SMOLPAWS_COORD_SERVER_URL?.trim() || env.SMOLPAWS_RUNNER_URL?.trim();
   if (explicit) {
     return explicit.replace(/\/+$/, '');
   }
   const host = env.RUNNER_HOST?.trim() || DEFAULT_HEARTBEAT_RUNNER_HOST;
   const port = env.PORT?.trim() || DEFAULT_HEARTBEAT_RUNNER_PORT;
   return `http://${host}:${port}`;
+}
+
+/** Authentication for the upstream-shaped server; legacy runner Bearer tokens do not apply. */
+export function heartbeatRequestHeaders(env = process.env): Record<string, string> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  const key = env.SMOLPAWS_RELAY_SERVER_API_KEY?.trim() || env.SMOLPAWS_COORD_SERVER_API_KEY?.trim()
+    || env.OPENHANDS_SESSION_API_KEY?.trim() || env.SESSION_API_KEY?.trim();
+  if (key) headers['x-session-api-key'] = key;
+  return headers;
+}
+
+export function buildHeartbeatEventId(conversationId: string, now: Date): string {
+  return uuidV5(`${conversationId}:${Math.floor(now.getTime() / 60000)}`, HEARTBEAT_ID_NAMESPACE);
 }
