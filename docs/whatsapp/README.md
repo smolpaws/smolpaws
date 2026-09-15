@@ -60,7 +60,9 @@ ledger recognizes the cat's own messages by that prefix.
 
 Each chat's agent conversation works in `groups/<scope>` under the checkout, as before. Every
 conversation also gets the SmolPaws identity context (`docs/smolpaws/*.md`) as its system-message suffix.
-Private `~/.smolpaws/memory/MEMORY.md`, when present, is appended only for the control scope (`main`).
+Private `~/.smolpaws/memory/MEMORY.md`, when present, is supplied only for the control scope (`main`).
+The shared renderer respects the upstream 32,768-character launch-context limit: oversized documents
+remain on disk and are referenced with a read-before-answer instruction; smaller identity docs stay inline.
 
 ## Setup
 
