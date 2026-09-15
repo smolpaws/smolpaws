@@ -28,6 +28,8 @@ const delayTool = new ToolDefinition({
 });
 
 const llmProfile: LLMProfile = {
+  authType: 'api_key',
+  subscriptionVendor: null,
   profileId: 'local-endpoint-smoke-profile',
   providerId: 'test',
   model: 'scripted-local-smoke',

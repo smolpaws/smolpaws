@@ -9,6 +9,7 @@ export * from './conversationSecrets.js';
 export * from './conversationService.js';
 export * from './eventService.js';
 export * from './models.js';
+export * from './llmRouter.js';
 export * from './openapi.js';
 export * from './profileAgentFactory.js';
 export * from './profilesRouter.js';

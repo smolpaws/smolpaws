@@ -10,6 +10,7 @@ export type { HookConfigInput, HookDefinitionOptions, HookEvent, HookEventFieldN
 export * from './git/index.js';
 export * from './io/index.js';
 export * from './llm/index.js';
+export * from './llm/auth/index.js';
 export * from './llm/client.js';
 export * from './llm/exceptions.js';
 export * from './llm/factory.js';
@@ -31,3 +32,4 @@ export * from './tool/ext/index.js';
 export * from './tools/index.js';
 export * from './utils/index.js';
 export * from './workspace/index.js';
+export * from './llm/verified-models.js';

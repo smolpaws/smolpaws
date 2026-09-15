@@ -37,7 +37,8 @@
     "typecheck:examples": "tsc -p tsconfig.examples.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "smoke:local": "tsx examples/local-endpoint-smoke.ts"
+    "smoke:local": "tsx examples/local-endpoint-smoke.ts",
+    "manual:subscription": "tsx examples/manual-subscription-smoke.ts"
   },
   "dependencies": {
     "@fastify/multipart": "^9.4.0",

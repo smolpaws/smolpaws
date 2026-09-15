@@ -3,7 +3,7 @@ import websocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
-import { MacOSKeychainSecretStore, createClientFromProfile, type SecretStore } from '@smolpaws/openhands-agent';
+import { MacOSKeychainSecretStore, OpenAISubscriptionAuth, createClientFromProfile, type SecretStore } from '@smolpaws/openhands-agent';
 
 import { registerAgentProfileRoutes } from './agentProfilesRouter.js';
 import { BashEventService } from './bashService.js';
@@ -14,6 +14,7 @@ import { ConversationService, type ConversationServiceOptions } from './conversa
 import { registerEventRoutes } from './eventRouter.js';
 import { registerFileRoutes } from './fileRouter.js';
 import { registerGitRoutes } from './gitRouter.js';
+import { registerLlmRoutes } from './llmRouter.js';
 import { generateOpenApiSchema } from './openapi.js';
 import { createProfileAgentFactory, prepareProfileStartRequest, type ProfileLlmClientFactory, type ProfileToolConfigurator } from './profileAgentFactory.js';
 import { registerProfileRoutes } from './profilesRouter.js';
@@ -34,6 +35,7 @@ export interface AgentServerAppOptions extends ConversationServiceOptions {
   readonly llmClientFactory?: ProfileLlmClientFactory;
   readonly configureTools?: ProfileToolConfigurator;
   readonly logger?: boolean;
+  readonly subscriptionAuth?: OpenAISubscriptionAuth;
 }
 
 export interface AgentServerApp {
@@ -70,12 +72,14 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
   };
   const secretStore = options.secretStore ?? new MacOSKeychainSecretStore();
   const serverStateService = options.serverStateService ?? new ServerStateService({ stateDir: config.statePath, secretStore });
+  const subscriptionAuth = options.subscriptionAuth ?? new OpenAISubscriptionAuth();
+  const llmClientFactory: ProfileLlmClientFactory = options.llmClientFactory ?? ((profile, store) => createClientFromProfile(profile, store, { subscriptionAuth }));
   const usesProfileAgentFactory = options.agentFactory === undefined && options.conversationService === undefined;
   const agentFactory = options.agentFactory ?? createProfileAgentFactory({
     state: serverStateService,
     secretStore,
     ...(options.configureTools === undefined ? {} : { configureTools: options.configureTools }),
-    ...(options.llmClientFactory === undefined ? {} : { llmClientFactory: options.llmClientFactory }),
+    llmClientFactory,
   });
   const serviceOptions: ConversationServiceOptions = {
     persistenceDir: config.conversationsPath,
@@ -111,8 +115,9 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
   registerBashRoutes(app, bashEventService);
   registerGitRoutes(app);
   registerFileRoutes(app, config);
+  registerLlmRoutes(app, subscriptionAuth);
   registerSettingsRoutes(app, serverStateService);
-  registerProfileRoutes(app, serverStateService, options.llmClientFactory ?? createClientFromProfile, secretStore);
+  registerProfileRoutes(app, serverStateService, llmClientFactory, secretStore);
   registerAgentProfileRoutes(app, serverStateService);
   registerSkillsRoutes(app, { stateDir: config.statePath, workspaceRoot: config.workspaceRoot });
   registerSocketRoutes(app, { config, conversationService, bashEventService });

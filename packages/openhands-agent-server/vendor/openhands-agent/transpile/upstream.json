@@ -283,6 +283,15 @@
       "target": "server",
       "prefixes": [],
       "paths": []
+    },
+    {
+      "id": "DEV-SERVER-006",
+      "kind": "DEVIATION",
+      "target": "server",
+      "prefixes": [],
+      "paths": [
+        "openhands-agent-server/openhands/agent_server/llm_router.py"
+      ]
     }
   ]
 }

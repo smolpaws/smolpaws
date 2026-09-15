@@ -77,3 +77,14 @@ Credential-gated LLM examples are provider viability checks, not Python/TypeScri
 ## Work tracking
 
 Beads/issues track work. They do not define compatibility or transpilation scope.
+
+## ChatGPT subscription
+
+Connect through the session-authenticated `/api/llm/subscription/openai/device/start` and
+`/device/poll` endpoints, then use a profile with `authType: "subscription"` and
+`subscriptionVendor: "openai"`. Status/models/logout live under the same prefix. Credentials and
+refresh belong to the SDK's private `~/.openhands/auth` store; the server stores only profile
+configuration. See [subscription architecture](docs/ARCHITECTURE.md#chatgpt-subscription-profiles).
+
+`npm run manual:subscription` validates the connected account and a two-turn tool workflow in
+temporary state without connecting any bridge.

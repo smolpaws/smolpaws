@@ -6,6 +6,438 @@
     "description": "OpenHands Agent Server - REST/WebSocket interface for OpenHands AI Agent"
   },
   "paths": {
+    "/api/llm/providers": {
+      "get": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "List curated providers",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "providers": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "providers"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/llm/models": {
+      "get": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "List curated models",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "description": "Filter models by provider",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "models": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "models"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/llm/models/verified": {
+      "get": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "List upstream verified models",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "models": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "models"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/llm/subscription/openai/models": {
+      "get": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "List ChatGPT subscription models",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "vendor": {
+                      "default": "openai",
+                      "type": "string"
+                    },
+                    "models": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "vendor",
+                    "models"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/llm/subscription/openai/status": {
+      "get": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "Get safe ChatGPT subscription status",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "vendor": {
+                      "default": "openai",
+                      "type": "string"
+                    },
+                    "connected": {
+                      "type": "boolean"
+                    },
+                    "account_email": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "expires_at": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "vendor",
+                    "connected",
+                    "account_email",
+                    "expires_at"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/llm/subscription/openai/device/start": {
+      "post": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "Start ChatGPT device login",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "device_code": {
+                      "type": "string",
+                      "description": "Opaque server-side polling token."
+                    },
+                    "user_code": {
+                      "type": "string"
+                    },
+                    "verification_uri": {
+                      "type": "string"
+                    },
+                    "verification_uri_complete": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "expires_at": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "interval_seconds": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "device_code",
+                    "user_code",
+                    "verification_uri",
+                    "verification_uri_complete",
+                    "expires_at",
+                    "interval_seconds"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/llm/subscription/openai/device/poll": {
+      "post": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "Poll ChatGPT device login",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "device_code": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "device_code"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "vendor": {
+                      "default": "openai",
+                      "type": "string"
+                    },
+                    "connected": {
+                      "type": "boolean"
+                    },
+                    "account_email": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "expires_at": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "vendor",
+                    "connected",
+                    "account_email",
+                    "expires_at"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/llm/subscription/openai/logout": {
+      "post": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "Log out of ChatGPT subscription",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "vendor": {
+                      "default": "openai",
+                      "type": "string"
+                    },
+                    "connected": {
+                      "type": "boolean"
+                    },
+                    "account_email": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "expires_at": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "vendor",
+                    "connected",
+                    "account_email",
+                    "expires_at"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/": {
       "get": {
         "tags": [
@@ -5663,6 +6095,26 @@
                             "type": "string",
                             "minLength": 1
                           },
+                          "authType": {
+                            "default": "api_key",
+                            "type": "string",
+                            "enum": [
+                              "api_key",
+                              "subscription"
+                            ]
+                          },
+                          "subscriptionVendor": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "const": "openai"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "baseUrl": {
                             "default": null,
                             "anyOf": [
@@ -5863,6 +6315,8 @@
                           "profileId",
                           "providerId",
                           "model",
+                          "authType",
+                          "subscriptionVendor",
                           "baseUrl",
                           "openAiApiMode",
                           "temperature",
@@ -5931,6 +6385,26 @@
                     "type": "string",
                     "minLength": 1
                   },
+                  "authType": {
+                    "default": "api_key",
+                    "type": "string",
+                    "enum": [
+                      "api_key",
+                      "subscription"
+                    ]
+                  },
+                  "subscriptionVendor": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "openai"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "baseUrl": {
                     "default": null,
                     "anyOf": [
@@ -6159,6 +6633,26 @@
                       "type": "string",
                       "minLength": 1
                     },
+                    "authType": {
+                      "default": "api_key",
+                      "type": "string",
+                      "enum": [
+                        "api_key",
+                        "subscription"
+                      ]
+                    },
+                    "subscriptionVendor": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "const": "openai"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "baseUrl": {
                       "default": null,
                       "anyOf": [
@@ -6359,6 +6853,8 @@
                     "profileId",
                     "providerId",
                     "model",
+                    "authType",
+                    "subscriptionVendor",
                     "baseUrl",
                     "openAiApiMode",
                     "temperature",
@@ -6423,6 +6919,26 @@
                       "type": "string",
                       "minLength": 1
                     },
+                    "authType": {
+                      "default": "api_key",
+                      "type": "string",
+                      "enum": [
+                        "api_key",
+                        "subscription"
+                      ]
+                    },
+                    "subscriptionVendor": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "const": "openai"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "baseUrl": {
                       "default": null,
                       "anyOf": [
@@ -6623,6 +7139,8 @@
                     "profileId",
                     "providerId",
                     "model",
+                    "authType",
+                    "subscriptionVendor",
                     "baseUrl",
                     "openAiApiMode",
                     "temperature",
@@ -6683,6 +7201,26 @@
                   "model": {
                     "type": "string",
                     "minLength": 1
+                  },
+                  "authType": {
+                    "default": "api_key",
+                    "type": "string",
+                    "enum": [
+                      "api_key",
+                      "subscription"
+                    ]
+                  },
+                  "subscriptionVendor": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "openai"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "baseUrl": {
                     "default": null,
@@ -6912,6 +7450,26 @@
                       "type": "string",
                       "minLength": 1
                     },
+                    "authType": {
+                      "default": "api_key",
+                      "type": "string",
+                      "enum": [
+                        "api_key",
+                        "subscription"
+                      ]
+                    },
+                    "subscriptionVendor": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "const": "openai"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "baseUrl": {
                       "default": null,
                       "anyOf": [
@@ -7112,6 +7670,8 @@
                     "profileId",
                     "providerId",
                     "model",
+                    "authType",
+                    "subscriptionVendor",
                     "baseUrl",
                     "openAiApiMode",
                     "temperature",
@@ -7338,6 +7898,26 @@
                       "model": {
                         "type": "string",
                         "minLength": 1
+                      },
+                      "authType": {
+                        "default": "api_key",
+                        "type": "string",
+                        "enum": [
+                          "api_key",
+                          "subscription"
+                        ]
+                      },
+                      "subscriptionVendor": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "const": "openai"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       },
                       "baseUrl": {
                         "default": null,

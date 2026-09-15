@@ -80,19 +80,30 @@ The server may accept additive collection-level `POST /api/profiles` and `POST /
 
 The server exposes root-level server-details routes (`/`, `/alive`, `/health`, `/ready`, `/server_info`) that the upstream public OpenAPI contract no longer publishes after it narrowed the release contract to the `/api/` surface. They remain additive TS-server surface and are not part of the upstream `/api` parity comparison.
 
-## Deferred surface
+## Subscription authentication
 
-### DEFER-SERVER-001 — LLM subscription endpoints (`/llm/subscription/openai/*`)
+The five `/api/llm/subscription/openai/*` routes port the pinned Python device-login contract.
+The server retains opaque polling-token state, prevents concurrent polling of one challenge, drops
+expired challenges, and fences in-flight results across logout. The SDK owns device requests,
+credential persistence in `~/.openhands/auth`, refresh and subscription request transformation.
+Never read the Codex CLI's `~/.codex/auth.json`. OAuth credentials are never written into profile
+snapshots or server events. Profile validation and conversation execution use the same SDK factory
+and subscription auth instance, so both restore/refresh the connected account.
 
-The upstream Python server exposes an LLM router (`openhands/agent_server/llm_router.py`, prefix `/llm`) whose OpenAI subscription routes let a client connect a ChatGPT subscription over OAuth device login, backed by the SDK's `OpenAISubscriptionAuth`:
+This completes former `DEFER-SERVER-001` (beads `smolpaws-zlo.1` / `smolpaws-zlo.2`). The router's
+`/llm` prefix is mounted under `/api`, as in Python. `DEV-SERVER-003` applies to profile/general
+secret storage; it does not exclude the explicitly ported SDK OAuth credential store. The historical
+`3896f1869363:server` review classified preflight credential restoration too broadly as a deviation:
+that behavior is now ported and tested in `src/__tests__/subscriptionProfile.test.ts`.
 
-- `GET  /llm/subscription/openai/status` — safe connection state (no tokens); refreshes if needed;
-- `GET  /llm/subscription/openai/models` — models available through the subscription;
-- `POST /llm/subscription/openai/device/start` — start the OAuth device-code login;
-- `POST /llm/subscription/openai/device/poll` — poll that login to completion;
-- `POST /llm/subscription/openai/logout` — log out of the subscription.
+### DEV-SERVER-006 — curated model discovery without LiteLLM
 
-The TS server does **not** yet implement an `llmRouter`, so none of `/llm/*` exists here. **Consequence:** there is no HTTP path for a UI to connect a ChatGPT subscription via device login; only a static provider key/secret can be configured. This surface is **in scope** (`DEFERRED`) and must be transpiled — `PORT` it tests-first, including the server-side device-login state and drop-expired handling. It depends on the SDK subscription auth (credential store + refresh) landing first; the SDK's own `~/.openhands/auth` store is authoritative — do **not** read the Codex CLI's `~/.codex/auth.json` (that path belongs to the separate `tomcat` experiment). Tracked as beads `smolpaws-zlo.2` (this server surface) and `smolpaws-zlo.1` (the SDK auth it drives).
+`GET /api/llm/models/verified` returns the exact pinned SDK `VERIFIED_MODELS` mapping.
+`GET /api/llm/providers` and `GET /api/llm/models` use that curated mapping, preserving response
+shapes, sorted unique model lists and provider filtering. Python's additional LiteLLM unverified
+registry and optional AWS discovery are not provided: TS calls providers directly and does not
+bundle LiteLLM. The list is discovery guidance, not an allowlist or a claim that every provider
+configuration has been live-tested in TS. Profiles can still name models outside this catalog.
 
 ## Tests-first rule
 

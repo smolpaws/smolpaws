@@ -1,3 +1,4 @@
+import { OpenAISubscriptionAuth } from './auth/index.js';
 import type { SecretStore } from '../secrets/index.js';
 import type { ToolDefinition } from '../tool/index.js';
 import { type FetchLike, type LLMClient, type LLMCompletionResponse } from './client.js';
@@ -8,6 +9,7 @@ export { llmProfileSchema } from './index.js';
 export type { LLMProfile } from './index.js';
 export interface CreateLlmClientOptions {
     readonly fetch?: FetchLike;
+    readonly subscriptionAuth?: OpenAISubscriptionAuth;
 }
 export declare class OpenAIChatClient implements LLMClient {
     readonly profile: LLMProfile;
@@ -20,7 +22,8 @@ export declare class OpenAIResponsesClient implements LLMClient {
     readonly profile: LLMProfile;
     private readonly apiKey;
     private readonly fetchImpl;
-    constructor(profile: LLMProfile, apiKey: string, fetchImpl?: FetchLike);
+    private readonly subscriptionAuth?;
+    constructor(profile: LLMProfile, apiKey: string, fetchImpl?: FetchLike, subscriptionAuth?: OpenAISubscriptionAuth | undefined);
     complete(messages: readonly Message[], tools?: readonly ToolDefinition[]): Promise<LLMCompletionResponse>;
 }
 export declare function createOpenAIChatClientFromProfile(profile: LLMProfile, store: SecretStore, options?: CreateLlmClientOptions): Promise<OpenAIChatClient>;

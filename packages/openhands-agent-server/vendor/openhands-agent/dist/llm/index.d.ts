@@ -11,6 +11,11 @@ export declare const llmProfileSchema: z.ZodObject<{
     profileId: z.ZodString;
     providerId: z.ZodString;
     model: z.ZodString;
+    authType: z.ZodDefault<z.ZodEnum<{
+        api_key: "api_key";
+        subscription: "subscription";
+    }>>;
+    subscriptionVendor: z.ZodDefault<z.ZodNullable<z.ZodLiteral<"openai">>>;
     baseUrl: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     openAiApiMode: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"chat_completions">, z.ZodLiteral<"responses">]>>;
     temperature: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;

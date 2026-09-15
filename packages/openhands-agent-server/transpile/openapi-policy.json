@@ -122,31 +122,6 @@
       "tracking": "OPENAPI-DEFERRED-001",
       "reason": "Sub-agent catalog discovery is not yet ported to the TypeScript server package."
     },
-    "GET /api/llm/models": {
-      "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "The upstream model catalog has not yet been reconciled with the profile-first TypeScript product boundary."
-    },
-    "GET /api/llm/models/verified": {
-      "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "The upstream verified-model catalog has not yet been reconciled with the profile-first TypeScript product boundary."
-    },
-    "GET /api/llm/providers": {
-      "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "The upstream provider catalog has not yet been reconciled with the profile-first TypeScript product boundary."
-    },
-    "GET /api/llm/subscription/openai/models": {
-      "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "The OpenHands subscription runtime is not yet implemented in the TypeScript server."
-    },
-    "GET /api/llm/subscription/openai/status": {
-      "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "The OpenHands subscription runtime is not yet implemented in the TypeScript server."
-    },
     "GET /api/tools": {
       "disposition": "DEFERRED",
       "tracking": "OPENAPI-DEFERRED-001",
@@ -196,21 +171,6 @@
       "disposition": "DEVIATION",
       "policy": "DEV-SERVER-005",
       "reason": "The TypeScript product intentionally does not implement upstream deferred-init behavior as an active flow."
-    },
-    "POST /api/llm/subscription/openai/device/poll": {
-      "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "The OpenHands subscription runtime is not yet implemented in the TypeScript server."
-    },
-    "POST /api/llm/subscription/openai/device/start": {
-      "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "The OpenHands subscription runtime is not yet implemented in the TypeScript server."
-    },
-    "POST /api/llm/subscription/openai/logout": {
-      "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "The OpenHands subscription runtime is not yet implemented in the TypeScript server."
     },
     "POST /api/mcp/test": {
       "disposition": "DEFERRED",

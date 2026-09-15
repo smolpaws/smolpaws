@@ -56,6 +56,8 @@ import {
   validateProfileResponseSchema,
 } from './models.js';
 
+import { subscriptionStatusSchema, subscriptionDeviceStartSchema, subscriptionDevicePollSchema, subscriptionModelsSchema, providersSchema, modelsSchema, verifiedModelsSchema } from './llmRouter.js';
+
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
 type Schema = z.ZodType<unknown>;
@@ -159,6 +161,14 @@ const idListBodySchema = z.array(z.string());
 const conversationBatchSchema = z.array(conversationInfoSchema.nullable());
 
 export const routeSpecs = [
+  { method: 'get', path: '/api/llm/providers', tags: ['LLM'], summary: 'List curated providers', responses: { 200: providersSchema } },
+  { method: 'get', path: '/api/llm/models', tags: ['LLM'], summary: 'List curated models', query: [{ name: 'provider', schema: { type: 'string' }, description: 'Filter models by provider' }], responses: { 200: modelsSchema, 422: null } },
+  { method: 'get', path: '/api/llm/models/verified', tags: ['LLM'], summary: 'List upstream verified models', responses: { 200: verifiedModelsSchema } },
+  { method: 'get', path: '/api/llm/subscription/openai/models', tags: ['LLM'], summary: 'List ChatGPT subscription models', responses: { 200: subscriptionModelsSchema } },
+  { method: 'get', path: '/api/llm/subscription/openai/status', tags: ['LLM'], summary: 'Get safe ChatGPT subscription status', responses: { 200: subscriptionStatusSchema } },
+  { method: 'post', path: '/api/llm/subscription/openai/device/start', tags: ['LLM'], summary: 'Start ChatGPT device login', responses: { 200: subscriptionDeviceStartSchema } },
+  { method: 'post', path: '/api/llm/subscription/openai/device/poll', tags: ['LLM'], summary: 'Poll ChatGPT device login', requestBody: subscriptionDevicePollSchema, responses: { 200: subscriptionStatusSchema, 422: null } },
+  { method: 'post', path: '/api/llm/subscription/openai/logout', tags: ['LLM'], summary: 'Log out of ChatGPT subscription', responses: { 200: subscriptionStatusSchema } },
   { method: 'get', path: '/', tags: ['Server Details'], summary: 'Server info root', responses: { 200: serverInfoSchema } },
   { method: 'get', path: '/alive', tags: ['Server Details'], summary: 'Liveness check', responses: { 200: healthStatusSchema } },
   { method: 'get', path: '/health', tags: ['Server Details'], summary: 'Health check', responses: { 200: healthStatusSchema } },

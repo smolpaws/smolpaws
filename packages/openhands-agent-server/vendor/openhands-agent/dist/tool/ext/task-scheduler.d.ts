@@ -27,8 +27,8 @@ declare const taskObservationSchema: z.ZodObject<{
 export declare const scheduleTaskActionSchema: z.ZodObject<{
     prompt: z.ZodString;
     schedule_type: z.ZodEnum<{
-        cron: "cron";
         interval: "interval";
+        cron: "cron";
         once: "once";
     }>;
     schedule_value: z.ZodString;
@@ -75,8 +75,8 @@ export declare const TASK_SCHEDULER_TOOL_FACTORIES: {
     readonly ScheduleTaskTool: () => ToolDefinition<z.ZodObject<{
         prompt: z.ZodString;
         schedule_type: z.ZodEnum<{
-            cron: "cron";
             interval: "interval";
+            cron: "cron";
             once: "once";
         }>;
         schedule_value: z.ZodString;
@@ -115,8 +115,8 @@ export declare const TASK_SCHEDULER_TOOL_FACTORIES: {
         task_id: z.ZodString;
         prompt: z.ZodOptional<z.ZodString>;
         schedule_type: z.ZodOptional<z.ZodEnum<{
-            cron: "cron";
             interval: "interval";
+            cron: "cron";
             once: "once";
         }>>;
         schedule_value: z.ZodOptional<z.ZodString>;
@@ -130,8 +130,8 @@ export declare const updateTaskActionSchema: z.ZodObject<{
     task_id: z.ZodString;
     prompt: z.ZodOptional<z.ZodString>;
     schedule_type: z.ZodOptional<z.ZodEnum<{
-        cron: "cron";
         interval: "interval";
+        cron: "cron";
         once: "once";
     }>>;
     schedule_value: z.ZodOptional<z.ZodString>;

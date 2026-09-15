@@ -12,8 +12,8 @@ was fulfilled, and what should remain true when the port continues.
 
 ## Pinned upstream target
 
-Python `OpenHands/software-agent-sdk` / `openhands-agent-server` @
-**`966340979be26c2162e9ab8805557b715e1f1a78`**.
+Python `OpenHands/software-agent-sdk` / `openhands-agent-server`; the canonical
+shared pin is `vendor/openhands-agent/transpile/upstream.json#commit`.
 
 Keep this package and `@smolpaws/openhands-agent` in lockstep against that same
 pinned commit until we deliberately advance both together.
@@ -28,7 +28,7 @@ Primary upstream modules for this package:
 
 - `api.py`, `openapi.py`
 - `conversation_router.py`, `event_router.py`
-- `bash_router.py`, `file_router.py`, `git_router.py`
+- `bash_router.py`, `file_router.py`, `git_router.py`, `llm_router.py`
 - `conversation_service.py`, `event_service.py`
 - `pub_sub.py`, `sockets.py`, `conversation_lease.py`
 
@@ -59,9 +59,10 @@ Primary upstream modules for this package:
    responses, security analyzers, ACP runtime/model switching, and deferred init
    are not wanted as active features. If compatibility routes exist, they should
    return accepted-deviation/unsupported responses rather than fake no-ops.
-9. **Secrets are keychain-only.** Keep upstream-facing secret interfaces where
-   practical, but do not port Fernet/cipher/plaintext implementation details. Raw
-   secrets belong only in the SDK's keychain-backed `SecretStore` path.
+9. **Secret storage is SDK-owned.** General secrets use the keychain-backed
+   `SecretStore`; ChatGPT subscription OAuth uses the explicitly ported SDK
+   credential store in `~/.openhands/auth`. Never persist credentials in server
+   metadata, profiles or events, and never read Codex CLI credentials.
 10. **LLM config is profile-first.** Required settings/profile work should prefer
    LLM profiles and secret references. Avoid raw LLM objects/API keys in server
    surfaces except where compatibility genuinely requires it.
@@ -83,6 +84,7 @@ Primary upstream modules for this package:
 | Git | `src/gitRouter.ts`, `src/gitService.ts` | Upstream-shaped changes/diff routes. |
 | File | `src/fileRouter.ts` | Upstream-shaped home/search/download/upload routes with multipart support. |
 | Settings/profiles/skills | `src/serverState.ts`, `src/settingsRouter.ts`, `src/profilesRouter.ts`, `src/agentProfilesRouter.ts`, `src/skillsRouter.ts` | Profile-first settings, profile CRUD/activation/materialization, and local skills APIs. |
+| LLM discovery/subscription | `src/llmRouter.ts`, SDK subscription auth | Curated model discovery and opaque device-login lifecycle; SDK owns credentials, refresh and provider requests. |
 | Secrets | `src/conversationSecrets.ts`, SDK `SecretStore` | Keychain-backed app/conversation secret references without plaintext metadata or event persistence. |
 | OpenAPI | `src/openapi.ts`, `scripts/generate-openapi.ts` | zod-to-JSON-Schema route table and generated schema CLI. |
 
@@ -248,3 +250,30 @@ not block this package.
 `createAgentServerApp({ configureTools })` lets a host bind product tool executors after normal profile
 resolution. The default is unchanged. SmolPaws' relay-server host uses this seam for its shared scheduler
 and file outbox; the parity package owns no channel queue or scheduling database.
+
+## ChatGPT subscription profiles
+
+`POST /api/llm/subscription/openai/device/start` returns the browser verification URL, user code
+and an opaque polling token. Clients open that URL for user authorization, then post the token as
+`{"device_code":"…"}` to `/api/llm/subscription/openai/device/poll`. Tokens are scoped to one server
+process, expire after the upstream timeout, and are invalidated by logout. A pending or duplicate
+in-flight poll returns `connected:false`; an unknown/expired token returns 404. A server restart
+requires a new login challenge, but the SDK's connected credentials survive restart.
+
+Create a profile with `authType:"subscription"`, `subscriptionVendor:"openai"`, `providerId:"openai"`
+and a model from `/api/llm/subscription/openai/models`. No API key belongs in the profile. The same
+SDK auth instance serves status, profile validation, new conversations and restored conversations.
+Refresh occurs at the SDK request boundary; long-running conversations do not retain a stale bearer.
+Normal session-key authentication protects every `/api/llm` route. HTTP responses expose no OAuth
+access token, refresh token or provider device identifier.
+
+For a real provider check with temporary server state, run `npm run manual:subscription` from the
+package. It uses the connected SDK account, validates a profile, and completes two think/finish
+turns. `OPENHANDS_SUBSCRIPTION_MODEL` selects a model explicitly. It does not touch a bridge or change
+a running service or the user's active profile.
+
+Validation on 2026-09-15 against the canonical packed SDK `775869e` completed profile preflight,
+two real `gpt-5.5` think/finish turns and continuation using the existing SDK-owned OAuth account.
+No bridge was connected and no active deployment profile changed. Deterministic tests separately
+cover device login, expired/pending challenges, logout races, refresh, missing credentials and
+persisted conversation restoration; the live check does not replace those parity tests.

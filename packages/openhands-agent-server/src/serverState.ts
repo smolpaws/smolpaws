@@ -374,6 +374,8 @@ function defaultState(): PersistedState {
     profileId: defaultProfileId,
     providerId: 'openai',
     model: 'gpt-5-nano',
+    authType: 'api_key',
+    subscriptionVendor: null,
     baseUrl: null,
     openAiApiMode: 'responses',
     temperature: null,

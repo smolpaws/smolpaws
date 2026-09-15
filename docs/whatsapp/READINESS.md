@@ -1,12 +1,16 @@
-# WhatsApp readiness: implementation complete, live preflight next
+# WhatsApp readiness: provider preflight passed, deployment and canary next
 
-Updated 2026-09-14. The standalone bridge now includes the history handoff (`kxa.6`), shared scheduler
+Updated 2026-09-15. The standalone bridge now includes the history handoff (`kxa.6`), shared scheduler
 (`kxa.4`), outbound media/voice (`kxa.2`), existing scope rules (`kxa.8`), recovery (`kxa.9`) and bounded
-HTTP intake (`39y`). SDK #30 is merged at `573ec5d`; its reproducibly vendored package also includes
-provider fix #28. Beads owns completion and deployment status.
+HTTP intake (`39y`). SDK #31 is vendored at `775869e`, including SDK #30 bridge tools, provider
+fix #28 and ChatGPT subscription OAuth. Beads owns completion and deployment status.
 
-No live WhatsApp send, provider call or service swap was performed for this implementation. The
-remaining gates are real-provider preflight (`kxa.7`), one-chat canary (`kxa.5`) and production soak.
+Real-provider preflight passed on 2026-09-15: SmolPaws `7a98ef1`, SDK `573ec5d`, the configured
+`deepseek-v4-flash` profile and its normal Keychain reference. A temporary real product host verified
+the product header and completed two consecutive turns, each with a `list_tasks` observation and
+`finish` carrying the expected marker. No bridge socket, live WhatsApp send or service swap was used.
+The deployed `:8790` server still lacks `X-SmolPaws-Host: relay`; deploy/recheck the product host before
+canary. Remaining gates are that deployment check (`kxa.7`), one-chat canary (`kxa.5`) and production soak.
 See [shared design](../bridges.md) and [architecture page](https://enyst.github.io/arch/whatsapp-readiness.html).
 
 ## Implemented and tested
@@ -22,6 +26,13 @@ See [shared design](../bridges.md) and [architecture page](https://enyst.github.
 
 The deterministic tests use fake platform transports and a test LLM with the real TypeScript
 server/agent. They prove the local path, not provider availability or live media playback.
+
+The canonical packed SDK subscription path also passed on 2026-09-15 using the existing OpenHands
+OAuth account and `gpt-5.5`: profile preflight, two `think`/`finish` tool round trips and continuation,
+with temporary server state and no bridge sends. `authType: "subscription"` profiles use the SDK's
+private credential store; the deployed active model was not changed. The server-side device-login
+endpoints and restart/refresh path have deterministic HTTP and persisted-conversation coverage.
+See [subscription architecture](../../packages/openhands-agent-server/docs/ARCHITECTURE.md#chatgpt-subscription-profiles).
 
 ## Before the first live test — kxa.7
 

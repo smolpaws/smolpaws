@@ -8,6 +8,8 @@ var promises = require('fs/promises');
 var path2 = require('path');
 var fs = require('fs');
 var os = require('os');
+var http = require('http');
+var promises$1 = require('timers/promises');
 
 function _interopDefault (e) { return e && e.__esModule ? e : { default: e }; }
 
@@ -131,6 +133,8 @@ var llmProfileSchema = zod.z.object({
   profileId: llmProfileIdSchema,
   providerId: llmProviderIdSchema,
   model: zod.z.string().min(1),
+  authType: zod.z.enum(["api_key", "subscription"]).default("api_key"),
+  subscriptionVendor: zod.z.literal("openai").nullable().default(null),
   baseUrl: zod.z.string().url().nullable().default(null),
   openAiApiMode: openAiApiModeSchema.default("chat_completions"),
   temperature: zod.z.number().min(0).nullable().default(null),
@@ -2785,8 +2789,8 @@ function sleepSync(milliseconds) {
   Atomics.wait(view, 0, 0, milliseconds);
 }
 function sleepAsync(milliseconds) {
-  return new Promise((resolve5) => {
-    setTimeout(resolve5, milliseconds);
+  return new Promise((resolve6) => {
+    setTimeout(resolve6, milliseconds);
   });
 }
 function removeStaleLockFile(lockPath) {
@@ -3335,7 +3339,7 @@ function isRecord2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function sleep(ms) {
-  return new Promise((resolve5) => setTimeout(resolve5, ms));
+  return new Promise((resolve6) => setTimeout(resolve6, ms));
 }
 function globalRemoteFetch() {
   return {
@@ -4697,23 +4701,23 @@ ${JSON.stringify(event, null, 2)}`
     }
   }
   executeCommand(hook, eventJson, env) {
-    return new Promise((resolve5) => {
+    return new Promise((resolve6) => {
       const child = child_process.spawn(hook.command, { shell: true, cwd: this.workingDir, env });
       const stdout = [];
       const stderr = [];
       const timeout = setTimeout(() => {
         child.kill("SIGTERM");
-        resolve5(new HookResult({ success: false, exit_code: -1, error: `Hook timed out after ${hook.timeout} seconds` }));
+        resolve6(new HookResult({ success: false, exit_code: -1, error: `Hook timed out after ${hook.timeout} seconds` }));
       }, hook.timeout * 1e3);
       child.stdout.on("data", (chunk) => stdout.push(chunk));
       child.stderr.on("data", (chunk) => stderr.push(chunk));
       child.on("error", (error) => {
         clearTimeout(timeout);
-        resolve5(new HookResult({ success: false, exit_code: -1, error: `Hook execution failed: ${error.message}` }));
+        resolve6(new HookResult({ success: false, exit_code: -1, error: `Hook execution failed: ${error.message}` }));
       });
       child.on("close", (code) => {
         clearTimeout(timeout);
-        resolve5(parseCommandResult(code ?? -1, Buffer.concat(stdout).toString("utf8"), Buffer.concat(stderr).toString("utf8")));
+        resolve6(parseCommandResult(code ?? -1, Buffer.concat(stdout).toString("utf8"), Buffer.concat(stderr).toString("utf8")));
       });
       child.stdin.write(eventJson);
       child.stdin.end();
@@ -4916,6 +4920,431 @@ function findMatchingBrace(text, openIndex) {
   }
   return -1;
 }
+var INITIAL_CWD2 = process.cwd();
+var oauthCredentialsSchema = zod.z.object({
+  type: zod.z.literal("oauth").default("oauth"),
+  vendor: zod.z.string().regex(/^[A-Za-z0-9_-]+$/u),
+  access_token: zod.z.string().min(1),
+  refresh_token: zod.z.string().min(1),
+  expires_at: zod.z.number().int()
+});
+var OAuthCredentials = class {
+  type = "oauth";
+  vendor;
+  access_token;
+  refresh_token;
+  expires_at;
+  constructor(input) {
+    const parsed = oauthCredentialsSchema.parse(input);
+    this.vendor = parsed.vendor;
+    this.access_token = parsed.access_token;
+    this.refresh_token = parsed.refresh_token;
+    this.expires_at = parsed.expires_at;
+  }
+  isExpired(nowMs = Date.now()) {
+    return this.expires_at < nowMs + 6e4;
+  }
+};
+function getCredentialsDir() {
+  const configured = process.env.OH_PERSISTENCE_DIR || path2.join(os.homedir(), ".openhands");
+  const expanded = configured === "~" ? os.homedir() : configured.startsWith("~/") ? path2.join(os.homedir(), configured.slice(2)) : configured;
+  return path2.join(path2.resolve(INITIAL_CWD2, expanded), "auth");
+}
+var CredentialStore = class {
+  constructor(directory = getCredentialsDir()) {
+    this.directory = directory;
+  }
+  directory;
+  get credentialsDir() {
+    fs.mkdirSync(this.directory, { recursive: true, mode: 448 });
+    if (process.platform !== "win32") fs.chmodSync(this.directory, 448);
+    return this.directory;
+  }
+  file(vendor) {
+    if (!/^[A-Za-z0-9_-]+$/u.test(vendor)) throw new Error("Invalid credential vendor");
+    return path2.join(this.credentialsDir, `${vendor}_oauth.json`);
+  }
+  get(vendor) {
+    const file = this.file(vendor);
+    let raw;
+    try {
+      raw = fs.readFileSync(file, "utf8");
+    } catch (error) {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    }
+    try {
+      return new OAuthCredentials(oauthCredentialsSchema.parse(JSON.parse(raw)));
+    } catch {
+      fs.rmSync(file, { force: true });
+      return null;
+    }
+  }
+  save(credentials) {
+    const parsed = oauthCredentialsSchema.safeParse(credentials);
+    if (!parsed.success) throw new Error("Invalid OAuth credentials");
+    const file = this.file(parsed.data.vendor);
+    const temporary = `${file}.${crypto.randomUUID()}.tmp`;
+    try {
+      fs.writeFileSync(temporary, JSON.stringify(parsed.data, null, 2), {
+        mode: 384,
+        flag: "wx"
+      });
+      fs.renameSync(temporary, file);
+    } finally {
+      fs.rmSync(temporary, { force: true });
+    }
+  }
+  delete(vendor) {
+    try {
+      fs.rmSync(this.file(vendor));
+      return true;
+    } catch (error) {
+      if (error.code === "ENOENT") return false;
+      throw error;
+    }
+  }
+  updateTokens(vendor, accessToken, refreshToken, expiresIn, nowMs = Date.now()) {
+    const existing = this.get(vendor);
+    if (existing === null) return null;
+    const updated = new OAuthCredentials({
+      vendor,
+      access_token: accessToken,
+      refresh_token: refreshToken || existing.refresh_token,
+      expires_at: nowMs + expiresIn * 1e3
+    });
+    this.save(updated);
+    return updated;
+  }
+};
+async function login(auth, options) {
+  if (options.authMethod === "device_code") {
+    if (!options.onDeviceCode) throw new Error("Device login requires an onDeviceCode display callback");
+    const device = await auth.startDeviceLogin();
+    await options.onDeviceCode(device);
+    const deadline = performance.now() + (options.timeoutSeconds ?? DEVICE_CODE_TIMEOUT_SECONDS) * 1e3;
+    while (performance.now() < deadline) {
+      const credentials = await auth.pollDeviceLogin(device);
+      if (credentials) return credentials;
+      await promises$1.setTimeout(Math.min(device.interval * 1e3, Math.max(0, deadline - performance.now())));
+    }
+    throw new Error("Device auth timed out");
+  }
+  if (options.authMethod !== void 0 && options.authMethod !== "browser")
+    throw new Error("Unsupported OpenAI auth method");
+  if (!options.onAuthorize) throw new Error("Browser login requires an onAuthorize callback");
+  const { verifier, challenge } = generatePKCE();
+  const state = crypto.randomBytes(32).toString("base64url");
+  let resolve6;
+  let reject;
+  const result = new Promise((yes, no) => {
+    resolve6 = yes;
+    reject = no;
+  });
+  let redirectUri = "";
+  let handling = false;
+  let active = true;
+  const server = http.createServer((request, response) => {
+    const url = new URL(request.url ?? "/", "http://localhost");
+    if (url.pathname !== "/auth/callback") {
+      response.writeHead(404).end();
+      return;
+    }
+    if (handling) {
+      response.writeHead(409).end();
+      return;
+    }
+    handling = true;
+    const fail = (message, status = 400) => {
+      response.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" }).end("Authorization failed. Return to OpenHands.");
+      reject(new Error(message));
+    };
+    if (url.searchParams.has("error")) {
+      fail("OpenAI authorization failed");
+      return;
+    }
+    const code = url.searchParams.get("code");
+    if (!code) {
+      fail("Missing authorization code");
+      return;
+    }
+    if (url.searchParams.get("state") !== state) {
+      fail("Invalid state - potential CSRF attack");
+      return;
+    }
+    auth.exchangeCode(code, redirectUri, verifier, false).then((credentials) => {
+      if (!active) return;
+      auth.saveCredentials(credentials);
+      response.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }).end("Authorization successful. You can return to OpenHands.");
+      resolve6(credentials);
+    }).catch(() => {
+      fail("OpenAI token exchange failed", 500);
+    });
+  });
+  const port = options.oauthPort ?? Number(process.env.OPENHANDS_OAUTH_PORT || DEFAULT_OAUTH_PORT);
+  let timer;
+  try {
+    await new Promise((yes, no) => {
+      server.once("error", no);
+      server.listen(port, "127.0.0.1", yes);
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Could not start OAuth callback server");
+    redirectUri = `http://localhost:${address.port}/auth/callback`;
+    timer = setTimeout(
+      () => reject(new Error("OAuth callback timeout - authorization took too long")),
+      (options.timeoutSeconds ?? OAUTH_TIMEOUT_SECONDS) * 1e3
+    );
+    const [credentials] = await Promise.all([
+      result,
+      options.onAuthorize(buildAuthorizeUrl(redirectUri, challenge, state))
+    ]);
+    return credentials;
+  } finally {
+    active = false;
+    clearTimeout(timer);
+    await new Promise((done) => {
+      server.close(() => done());
+      server.closeAllConnections();
+    });
+  }
+}
+
+// src/llm/auth/openai.ts
+var CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
+var ISSUER = "https://auth.openai.com";
+var CODEX_API_ENDPOINT = "https://chatgpt.com/backend-api/codex/responses";
+var DEVICE_CODE_TIMEOUT_SECONDS = 900;
+var OAUTH_TIMEOUT_SECONDS = 300;
+var DEFAULT_OAUTH_PORT = 1455;
+var OPENAI_CODEX_MODELS = [
+  "gpt-6-astra",
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
+  "gpt-5.5"
+];
+var CONSENT_BANNER = "Signing in with ChatGPT uses your ChatGPT account. By continuing, you confirm you are a ChatGPT End User and are subject to OpenAI's Terms of Use.\nhttps://openai.com/policies/terms-of-use/\n";
+var defaultFetch = (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(3e4) });
+var tokenResponseSchema = zod.z.object({
+  access_token: zod.z.string().min(1),
+  refresh_token: zod.z.string().min(1).optional(),
+  expires_in: zod.z.number().int().positive().default(3600)
+});
+function generatePKCE() {
+  const verifier = crypto.randomBytes(48).toString("base64url");
+  return {
+    verifier,
+    challenge: crypto.createHash("sha256").update(verifier).digest("base64url")
+  };
+}
+function buildAuthorizeUrl(redirectUri, challenge, state) {
+  return `${ISSUER}/oauth/authorize?${new URLSearchParams({ response_type: "code", client_id: CLIENT_ID, redirect_uri: redirectUri, scope: "openid profile email offline_access", code_challenge: challenge, code_challenge_method: "S256", id_token_add_organizations: "true", codex_cli_simplified_flow: "true", state, originator: "openhands" }).toString()}`;
+}
+var OpenAISubscriptionAuth = class {
+  vendor = "openai";
+  store;
+  fetchImpl;
+  now;
+  refreshPromise = null;
+  generation = 0;
+  jwks = null;
+  constructor(options = {}) {
+    this.store = options.credentialStore ?? new CredentialStore();
+    this.fetchImpl = options.fetch ?? defaultFetch;
+    this.now = options.now ?? Date.now;
+  }
+  login(options = {}) {
+    return login(this, options);
+  }
+  getCredentials() {
+    return this.store.get(this.vendor);
+  }
+  hasValidCredentials() {
+    const c = this.getCredentials();
+    return c !== null && !c.isExpired(this.now());
+  }
+  saveCredentials(credentials) {
+    if (credentials.vendor !== this.vendor) throw new Error("Invalid subscription vendor");
+    this.generation++;
+    this.store.save(credentials);
+  }
+  logout() {
+    this.generation++;
+    return this.store.delete(this.vendor);
+  }
+  async refreshIfNeeded() {
+    if (this.refreshPromise) return this.refreshPromise;
+    const credentials = this.getCredentials();
+    if (credentials === null || !credentials.isExpired(this.now())) return credentials;
+    const generation = this.generation;
+    this.refreshPromise = (async () => {
+      const tokens = await this.tokenRequest(
+        {
+          grant_type: "refresh_token",
+          refresh_token: credentials.refresh_token
+        },
+        "Token refresh"
+      );
+      const current = this.getCredentials();
+      if (generation !== this.generation || current?.refresh_token !== credentials.refresh_token) return current;
+      return this.store.updateTokens(
+        this.vendor,
+        tokens.access_token,
+        tokens.refresh_token,
+        tokens.expires_in,
+        this.now()
+      );
+    })();
+    try {
+      return await this.refreshPromise;
+    } finally {
+      this.refreshPromise = null;
+    }
+  }
+  async request(path3, body) {
+    return this.fetchImpl(`${ISSUER}${path3}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+  }
+  async tokenRequest(data, operation) {
+    const response = await this.fetchImpl(`${ISSUER}/oauth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ ...data, client_id: CLIENT_ID }).toString()
+    });
+    if (!response.ok) throw new Error(`${operation} failed: ${response.status}`);
+    const parsed = tokenResponseSchema.safeParse(await response.json());
+    if (!parsed.success) throw new Error("Invalid token response from OpenAI");
+    return parsed.data;
+  }
+  async startDeviceLogin() {
+    const response = await this.request("/api/accounts/deviceauth/usercode", {
+      client_id: CLIENT_ID
+    });
+    if (!response.ok) {
+      if (response.status === 404)
+        throw new Error("Device code login is not enabled for this OpenAI server. Use browser login instead.");
+      throw new Error(`Device code request failed with status ${response.status}`);
+    }
+    const data = zod.z.object({
+      device_auth_id: zod.z.string().min(1),
+      user_code: zod.z.string().optional(),
+      usercode: zod.z.string().optional(),
+      interval: zod.z.union([zod.z.string(), zod.z.number()]).default(5)
+    }).safeParse(await response.json());
+    if (!data.success) throw new Error("Invalid device code response from OpenAI");
+    const interval = Number(String(data.data.interval).trim());
+    const userCode = data.data.user_code || data.data.usercode;
+    if (!userCode || !Number.isInteger(interval)) throw new Error("Invalid device code response from OpenAI");
+    return {
+      verification_url: `${ISSUER}/codex/device`,
+      user_code: userCode,
+      device_auth_id: data.data.device_auth_id,
+      interval: Math.max(interval, 1)
+    };
+  }
+  async pollDeviceLogin(deviceCode, options = {}) {
+    const response = await this.request("/api/accounts/deviceauth/token", {
+      device_auth_id: deviceCode.device_auth_id,
+      user_code: deviceCode.user_code
+    });
+    if (response.status === 403 || response.status === 404) return null;
+    if (!response.ok) throw new Error(`Device auth failed with status ${response.status}`);
+    const parsed = zod.z.object({
+      authorization_code: zod.z.string().min(1),
+      code_verifier: zod.z.string().min(1)
+    }).safeParse(await response.json());
+    if (!parsed.success) throw new Error("Invalid device token response from OpenAI");
+    return this.exchangeCode(
+      parsed.data.authorization_code,
+      `${ISSUER}/deviceauth/callback`,
+      parsed.data.code_verifier,
+      options.persist ?? true
+    );
+  }
+  async exchangeCode(code, redirectUri, verifier, persist = true) {
+    const tokens = await this.tokenRequest(
+      {
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: redirectUri,
+        code_verifier: verifier
+      },
+      "Token exchange"
+    );
+    if (!tokens.refresh_token) throw new Error("Invalid token response from OpenAI");
+    const credentials = new OAuthCredentials({
+      vendor: this.vendor,
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expires_at: this.now() + tokens.expires_in * 1e3
+    });
+    if (persist) this.saveCredentials(credentials);
+    return credentials;
+  }
+  async extractChatGPTAccountId(credentials) {
+    try {
+      const parts = credentials.access_token.split(".");
+      if (parts.length !== 3) return null;
+      const [headerPart, payloadPart, signaturePart] = parts;
+      const header = JSON.parse(Buffer.from(headerPart, "base64url").toString());
+      if (header.alg !== "RS256") return null;
+      if (!this.jwks?.keys.length || this.now() - this.jwks.fetchedAt > 36e5) {
+        const response = await this.fetchImpl(`${ISSUER}/.well-known/jwks.json`, { method: "GET", headers: {} });
+        if (!response.ok) return null;
+        const data = await response.json();
+        if (!Array.isArray(data.keys)) return null;
+        this.jwks = { keys: data.keys, fetchedAt: this.now() };
+      }
+      const key = this.jwks.keys.find(
+        (k) => k.kty === "RSA" && (header.kid === void 0 || k.kid === header.kid) && (k.use === void 0 || k.use === "sig")
+      );
+      if (!key || !crypto.verify(
+        "RSA-SHA256",
+        Buffer.from(`${headerPart}.${payloadPart}`),
+        crypto.createPublicKey({ key, format: "jwk" }),
+        Buffer.from(signaturePart, "base64url")
+      ))
+        return null;
+      const claims = JSON.parse(Buffer.from(payloadPart, "base64url").toString());
+      const now = this.now() / 1e3;
+      if (claims.exp !== void 0 && (typeof claims.exp !== "number" || claims.exp <= now)) return null;
+      if (claims.nbf !== void 0 && (typeof claims.nbf !== "number" || claims.nbf > now)) return null;
+      const auth = claims["https://api.openai.com/auth"];
+      return typeof auth?.chatgpt_account_id === "string" && auth.chatgpt_account_id ? auth.chatgpt_account_id : null;
+    } catch {
+      return null;
+    }
+  }
+};
+var DEFAULT_SYSTEM_MESSAGE = "You are OpenHands agent, a helpful AI assistant that can interact with a computer to solve tasks.";
+function injectSystemPrefix(inputItems, prefixContent) {
+  for (const item of inputItems) {
+    if (item.type === "message" && item.role === "user") {
+      const content = Array.isArray(item.content) ? item.content : item.content ? [item.content] : [];
+      item.content = [prefixContent, ...content];
+      return;
+    }
+  }
+  inputItems.unshift({ role: "user", content: [prefixContent] });
+}
+function transformForSubscription(systemChunks, inputItems) {
+  if (systemChunks.length)
+    injectSystemPrefix(inputItems, {
+      type: "input_text",
+      text: `Context (system prompt):
+${systemChunks.join("\n\n---\n\n")}
+
+`
+    });
+  return [
+    DEFAULT_SYSTEM_MESSAGE,
+    inputItems.map((item) => item.type === "message" ? { role: item.role, content: item.content || [] } : item)
+  ];
+}
 
 // src/llm/provider-quirks.ts
 var ANTHROPIC_THINKING_MIN_BUDGET = 1024;
@@ -5038,7 +5467,7 @@ var AnthropicMessagesClient = class {
   profile;
   apiKey;
   fetchImpl;
-  constructor(profile, apiKey, fetchImpl = defaultFetch) {
+  constructor(profile, apiKey, fetchImpl = defaultFetch2) {
     this.profile = profile;
     this.apiKey = apiKey;
     this.fetchImpl = fetchImpl;
@@ -5075,7 +5504,7 @@ async function createAnthropicClientFromProfile(profile, store, options = {}) {
       `Missing API key for Anthropic LLM profile '${profile.profileId}'. Set provider key '${profile.providerId}' or enable and set a profile override.`
     );
   }
-  return new AnthropicMessagesClient(profile, apiKey, options.fetch ?? defaultFetch);
+  return new AnthropicMessagesClient(profile, apiKey, options.fetch ?? defaultFetch2);
 }
 function buildAnthropicMessagesBody(profile, messages, tools) {
   const normalizedProfile = normalizeGenerationParamsForModel(profile);
@@ -5257,7 +5686,7 @@ function buildHeaders(profile, apiKey) {
     ...profile.headers
   };
 }
-async function defaultFetch(url, init) {
+async function defaultFetch2(url, init) {
   return globalThis.fetch(url, init);
 }
 var anthropicTextBlockSchema = zod.z.object({ type: zod.z.literal("text"), text: zod.z.string() }).passthrough();
@@ -5291,7 +5720,7 @@ var GeminiClient = class {
   profile;
   apiKey;
   fetchImpl;
-  constructor(profile, apiKey, fetchImpl = defaultFetch2) {
+  constructor(profile, apiKey, fetchImpl = defaultFetch3) {
     this.profile = profile;
     this.apiKey = apiKey;
     this.fetchImpl = fetchImpl;
@@ -5323,7 +5752,7 @@ async function createGeminiClientFromProfile(profile, store, options = {}) {
       `Missing API key for Gemini LLM profile '${profile.profileId}'. Set provider key '${profile.providerId}' or enable and set a profile override.`
     );
   }
-  return new GeminiClient(profile, apiKey, options.fetch ?? defaultFetch2);
+  return new GeminiClient(profile, apiKey, options.fetch ?? defaultFetch3);
 }
 function buildGeminiInteractionsBody(profile, messages, tools = []) {
   assertSupportedGenerationParams(profile);
@@ -5512,7 +5941,7 @@ function buildHeaders2(profile, apiKey) {
     ...profile.headers
   };
 }
-async function defaultFetch2(url, init) {
+async function defaultFetch3(url, init) {
   return globalThis.fetch(url, init);
 }
 function isJsonObject(value) {
@@ -5550,13 +5979,63 @@ var geminiInteractionResponseSchema = zod.z.object({
   steps: zod.z.array(geminiStepSchema).default([]),
   usage: geminiUsageSchema.nullable().default(null)
 }).passthrough();
+
+// src/llm/auth/stream.ts
+async function readSubscriptionResponse(response) {
+  const reader = response.body?.getReader();
+  let pending = "";
+  const outputItems = [];
+  const decode = new TextDecoder();
+  const consume = (frame) => {
+    const data = frame.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
+    if (!data || data === "[DONE]") return void 0;
+    let event;
+    try {
+      event = JSON.parse(data);
+    } catch {
+      throw new Error("Invalid OpenAI subscription stream event");
+    }
+    if (event.type === "response.output_item.done" && event.item !== void 0) outputItems.push(event.item);
+    if (event.type === "response.completed") {
+      if (!event.response) throw new Error("Invalid OpenAI subscription completed response");
+      return event.response.output?.length ? event.response : { ...event.response, output: outputItems };
+    }
+    if (event.type === "error" || event.type === "response.failed" || event.type === "response.incomplete")
+      throw new Error("OpenAI subscription response failed or was incomplete");
+    return void 0;
+  };
+  try {
+    do {
+      const chunk = reader ? await reader.read() : { done: true, value: void 0 };
+      pending += reader ? decode.decode(chunk.value, { stream: !chunk.done }) : await response.text();
+      pending = pending.replace(/\r\n/gu, "\n");
+      let end;
+      while ((end = pending.indexOf("\n\n")) !== -1) {
+        const frame = pending.slice(0, end);
+        pending = pending.slice(end + 2);
+        const result = consume(frame);
+        if (result !== void 0) return result;
+      }
+      if (chunk.done) {
+        const result = consume(pending);
+        if (result !== void 0) return result;
+        break;
+      }
+    } while (reader);
+    throw new Error("OpenAI subscription stream ended without a completed response");
+  } finally {
+    await reader?.cancel();
+  }
+}
+
+// src/llm/openai.ts
 var DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 var DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 var OpenAIChatClient = class {
   profile;
   apiKey;
   fetchImpl;
-  constructor(profile, apiKey, fetchImpl = defaultFetch3) {
+  constructor(profile, apiKey, fetchImpl = defaultFetch4) {
     this.profile = profile;
     this.apiKey = apiKey;
     this.fetchImpl = fetchImpl;
@@ -5576,25 +6055,38 @@ var OpenAIChatClient = class {
   }
 };
 var OpenAIResponsesClient = class {
-  profile;
-  apiKey;
-  fetchImpl;
-  constructor(profile, apiKey, fetchImpl = defaultFetch3) {
+  constructor(profile, apiKey, fetchImpl = defaultFetch4, subscriptionAuth) {
     this.profile = profile;
     this.apiKey = apiKey;
     this.fetchImpl = fetchImpl;
+    this.subscriptionAuth = subscriptionAuth;
   }
+  profile;
+  apiKey;
+  fetchImpl;
+  subscriptionAuth;
   async complete(messages, tools) {
+    let apiKey = this.apiKey;
+    const headers = Object.fromEntries(Object.entries(this.profile.headers).filter(([name]) => !this.subscriptionAuth || !["authorization", "chatgpt-account-id"].includes(name.toLowerCase())));
+    if (this.subscriptionAuth) {
+      const credentials = await this.subscriptionAuth.refreshIfNeeded();
+      if (!credentials) throw new Error("OpenAI subscription login is required");
+      apiKey = credentials.access_token;
+      const accountId = await this.subscriptionAuth.extractChatGPTAccountId(credentials);
+      Object.assign(headers, { originator: "codex_cli_rs", "OpenAI-Beta": "responses=experimental", "User-Agent": `openhands-sdk (${os.platform()}; ${os.arch()})` });
+      if (accountId) headers["chatgpt-account-id"] = accountId;
+    }
     const response = await this.fetchImpl(`${resolveBaseUrl3(this.profile)}/responses`, {
       method: "POST",
-      headers: buildHeaders3(this.profile, this.apiKey),
+      headers: buildHeaders3({ ...this.profile, headers }, apiKey),
       body: JSON.stringify(buildOpenAIResponsesBody(this.profile, messages, tools))
     });
     if (!response.ok) {
+      if (this.subscriptionAuth) throw new Error(`OpenAI subscription completion failed with HTTP ${response.status}`);
       const text = await response.text();
       throw new Error(`OpenAI Responses completion failed with HTTP ${response.status}: ${text}`);
     }
-    return parseOpenAIResponsesResponse(await response.json());
+    return parseOpenAIResponsesResponse(this.subscriptionAuth ? await readSubscriptionResponse(response) : await response.json());
   }
 };
 async function createOpenAIChatClientFromProfile(profile, store, options = {}) {
@@ -5611,9 +6103,18 @@ async function createOpenAIChatClientFromProfile(profile, store, options = {}) {
       `Missing API key for LLM profile '${profile.profileId}'. Set provider key '${profile.providerId}' or enable and set a profile override.`
     );
   }
-  return new OpenAIChatClient(profile, apiKey, options.fetch ?? defaultFetch3);
+  return new OpenAIChatClient(profile, apiKey, options.fetch ?? defaultFetch4);
 }
 async function createOpenAIResponsesClientFromProfile(profile, store, options = {}) {
+  if (profile.authType === "subscription") {
+    if (profile.providerId !== "openai" || profile.subscriptionVendor !== null && profile.subscriptionVendor !== "openai") throw new Error("Unsupported subscription vendor");
+    const model = profile.model.replace(/^openai\//u, "");
+    if (!OPENAI_CODEX_MODELS.includes(model)) throw new Error(`Model '${model}' is not supported for subscription access`);
+    const auth = options.subscriptionAuth ?? new OpenAISubscriptionAuth();
+    if (!await auth.refreshIfNeeded()) throw new Error("OpenAI subscription login is required");
+    const runtimeProfile = { ...profile, model, baseUrl: CODEX_API_ENDPOINT.slice(0, -"/responses".length), openAiApiMode: "responses", temperature: null, maxOutputTokens: null, subscriptionVendor: "openai" };
+    return new OpenAIResponsesClient(runtimeProfile, "", options.fetch ?? defaultFetch4, auth);
+  }
   const apiKey = await getLlmApiKey(
     {
       providerId: profile.providerId,
@@ -5627,7 +6128,7 @@ async function createOpenAIResponsesClientFromProfile(profile, store, options = 
       `Missing API key for LLM profile '${profile.profileId}'. Set provider key '${profile.providerId}' or enable and set a profile override.`
     );
   }
-  return new OpenAIResponsesClient(profile, apiKey, options.fetch ?? defaultFetch3);
+  return new OpenAIResponsesClient(profile, apiKey, options.fetch ?? defaultFetch4);
 }
 function applyOpenAIPromptCacheOptions(body, profile) {
   const retention = resolveOpenAIPromptCacheRetention(profile);
@@ -5697,6 +6198,16 @@ function buildOpenAIResponsesBody(profile, messages, tools = []) {
       ...normalizedProfile.reasoningEffort === null ? {} : { effort: normalizedProfile.reasoningEffort },
       ...normalizedProfile.reasoningSummary === null ? {} : { summary: normalizedProfile.reasoningSummary }
     };
+  }
+  if (profile.authType === "subscription") {
+    const [subscriptionInstructions, input] = transformForSubscription(instructions, body.input.filter((item) => item.type !== "reasoning"));
+    body.instructions = subscriptionInstructions;
+    body.input = input;
+    body.stream = true;
+    delete body.temperature;
+    delete body.max_output_tokens;
+    delete body.include;
+    delete body.reasoning;
   }
   applyOpenAIPromptCacheOptions(body, normalizedProfile);
   return body;
@@ -5934,7 +6445,7 @@ function buildHeaders3(profile, apiKey) {
     ...profile.headers
   };
 }
-async function defaultFetch3(url, init) {
+async function defaultFetch4(url, init) {
   return globalThis.fetch(url, init);
 }
 var openAIChatToolCallSchema = zod.z.object({
@@ -6008,6 +6519,9 @@ var openAIResponsesResponseSchema = zod.z.object({
 // src/llm/factory.ts
 var DETECTED_LLM_PROVIDERS = ["anthropic", "gemini", "openai", "openrouter", "litellm_proxy"];
 async function createClientFromProfile(profile, store, options = {}) {
+  if (profile.authType === "subscription") {
+    return createOpenAIResponsesClientFromProfile(profile, store, options);
+  }
   const provider = resolveProviderFromProfile(profile);
   if (provider === "anthropic") {
     return createAnthropicClientFromProfile(profile, store, options);
@@ -7827,7 +8341,7 @@ var RemoteWorkspace = class {
         if (exitCode !== null) {
           break;
         }
-        await delay(100);
+        await delay2(100);
       }
       if (exitCode === null) {
         exitCode = -1;
@@ -8037,7 +8551,7 @@ function joinRemotePath(base, path3) {
   const parts = [...baseStr.split("/"), ...pathStr.split("/")].filter((part) => part.length > 0 && part !== ".");
   return `${prefix}${parts.join("/")}`;
 }
-async function delay(ms) {
+async function delay2(ms) {
   await new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }
 function isRecord9(value) {
@@ -8046,6 +8560,402 @@ function isRecord9(value) {
 function isExecError3(error) {
   return typeof error === "object" && error !== null && ("stdout" in error || "stderr" in error || "code" in error);
 }
+
+// src/llm/verified-models.ts
+var VERIFIED_OPENAI_MODELS = [
+  "gpt-6-astra",
+  "gpt-5.6",
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
+  "gpt-5.5",
+  "gpt-5.4",
+  "gpt-5.2",
+  "gpt-5.2-codex",
+  "gpt-5.3-codex",
+  "gpt-5.1",
+  "gpt-5.1-codex-max",
+  "gpt-5.1-codex",
+  "gpt-5.1-codex-mini",
+  "gpt-5-codex",
+  "gpt-5-2025-08-07",
+  "gpt-5-mini-2025-08-07",
+  "o4-mini",
+  "gpt-4o",
+  "gpt-4o-mini",
+  "gpt-4-32k",
+  "gpt-4.1",
+  "gpt-4.1-2025-04-14",
+  "o1-mini",
+  "o3",
+  "o3-pro",
+  "codex-mini-latest"
+];
+var VERIFIED_ANTHROPIC_MODELS = [
+  "claude-sonnet-4-5-20250929",
+  "claude-haiku-4-5-20251001",
+  "claude-opus-4-5-20251101",
+  "claude-opus-4-5",
+  "claude-opus-4-6",
+  "claude-opus-4-7",
+  "claude-opus-4-8",
+  "claude-opus-5",
+  "claude-fable-5",
+  "claude-fable-5-1",
+  "claude-sonnet-5",
+  "claude-sonnet-4-5",
+  "claude-sonnet-4-6",
+  "claude-sonnet-4-20250514",
+  "claude-opus-4-20250514",
+  "claude-opus-4-1-20250805",
+  "claude-3-7-sonnet-20250219",
+  "claude-3-sonnet-20240229",
+  "claude-3-opus-20240229",
+  "claude-3-haiku-20240307",
+  "claude-3-5-haiku-20241022",
+  "claude-3-5-sonnet-20241022",
+  "claude-3-5-sonnet-20240620"
+];
+var VERIFIED_MISTRAL_MODELS = [
+  "devstral-small-2505",
+  "devstral-small-2507",
+  "devstral-medium-2507",
+  "devstral-2512",
+  "devstral-medium-2512"
+];
+var VERIFIED_GEMINI_MODELS = [
+  "gemini-3.1-pro-preview",
+  "gemini-3.1-pro",
+  "gemini-3.1-flash-lite",
+  "gemini-3.8-flash",
+  "gemini-3.7-flash",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-3-flash",
+  "gemini-3-pro"
+];
+var VERIFIED_DEEPSEEK_MODELS = [
+  "deepseek-chat",
+  "deepseek-v3.2-reasoner",
+  "deepseek-v4-pro",
+  "deepseek-v4-flash",
+  "deepseek-v4-flash-vision-exp"
+];
+var VERIFIED_MOONSHOT_MODELS = [
+  "kimi-k3",
+  "kimi-k2-thinking",
+  "kimi-k2.7-code",
+  "kimi-k2.6",
+  "kimi-k2.5",
+  "kimi-for-coding"
+];
+var VERIFIED_MINIMAX_MODELS = [
+  "minimax-m2.1",
+  "minimax-m2.5",
+  "minimax-m2.7",
+  "minimax-m3"
+];
+var VERIFIED_GLM_MODELS = [
+  "glm-4.7",
+  "glm-4.7-flash",
+  "glm-5",
+  "glm-5.1",
+  "glm-5.2",
+  "glm-5.3",
+  "glm-5.3-flash"
+];
+var VERIFIED_NVIDIA_MODELS = [
+  "nemotron-3-nano",
+  "nemotron-3-super-120b-a12b",
+  "nemotron-3-ultra-550b-a55b",
+  "nemotron-3.5-lightning-30b-a3b"
+];
+var VERIFIED_QWEN_MODELS = [
+  "qwen3-6-plus",
+  "qwen3.5-plus",
+  "qwen3.6-plus",
+  "qwen3.7-plus",
+  "qwen3.8-max",
+  "qwen3.7-max",
+  "qwen3-max",
+  "qwen3.8-flash",
+  "qwen3.7-flash",
+  "qwen3-coder-480b",
+  "qwen3-coder-next",
+  "qwen3-coder-plus",
+  "qwen3-coder-flash"
+];
+var VERIFIED_OPENHANDS_MODELS = [
+  "claude-opus-4-5-20251101",
+  "claude-opus-4-6",
+  "claude-opus-4-7",
+  "claude-opus-4-8",
+  "claude-opus-5",
+  "claude-fable-5",
+  "claude-fable-5-1",
+  "claude-sonnet-5",
+  "claude-sonnet-4-5",
+  "claude-sonnet-4-6",
+  "gpt-6-astra",
+  "gpt-5.6",
+  "gpt-5.5",
+  "gpt-5.4",
+  "gpt-5.2",
+  "gpt-5.2-codex",
+  "gpt-5.3-codex",
+  "minimax-m2.1",
+  "minimax-m2.5",
+  "minimax-m2.7",
+  "minimax-m3",
+  "gemini-3.1-pro",
+  "gemini-3.1-pro-preview",
+  "gemini-3.8-flash",
+  "gemini-3.7-flash",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-3-flash",
+  "gemini-3-pro",
+  "deepseek-chat",
+  "deepseek-v3.2-reasoner",
+  "deepseek-v4-pro",
+  "deepseek-v4-flash",
+  "deepseek-v4-flash-vision-exp",
+  "kimi-k3",
+  "kimi-k2-thinking",
+  "kimi-k2.7-code",
+  "kimi-k2.6",
+  "kimi-k2.5",
+  "devstral-medium-2512",
+  "devstral-2512",
+  "gpt-5.1-codex-max",
+  "gpt-5.1-codex",
+  "gpt-5.1",
+  "o3-pro",
+  "glm-4.7",
+  "glm-5",
+  "glm-5.1",
+  "glm-5.2",
+  "glm-5.3",
+  "glm-5.3-flash",
+  "nemotron-3-nano",
+  "nemotron-3-super-120b-a12b",
+  "nemotron-3-ultra-550b-a55b",
+  "nemotron-3.5-lightning-30b-a3b",
+  "qwen3-6-plus",
+  "qwen3.5-plus",
+  "qwen3.6-plus",
+  "qwen3.7-plus",
+  "qwen3.8-max",
+  "qwen3.7-max",
+  "qwen3-max",
+  "qwen3.8-flash",
+  "qwen3.7-flash",
+  "qwen3-coder-480b",
+  "qwen3-coder-next",
+  "qwen3-coder-plus",
+  "qwen3-coder-flash",
+  "trinity-large-thinking"
+];
+var VERIFIED_MODELS = {
+  "openhands": [
+    "claude-opus-4-5-20251101",
+    "claude-opus-4-6",
+    "claude-opus-4-7",
+    "claude-opus-4-8",
+    "claude-opus-5",
+    "claude-fable-5",
+    "claude-fable-5-1",
+    "claude-sonnet-5",
+    "claude-sonnet-4-5",
+    "claude-sonnet-4-6",
+    "gpt-6-astra",
+    "gpt-5.6",
+    "gpt-5.5",
+    "gpt-5.4",
+    "gpt-5.2",
+    "gpt-5.2-codex",
+    "gpt-5.3-codex",
+    "minimax-m2.1",
+    "minimax-m2.5",
+    "minimax-m2.7",
+    "minimax-m3",
+    "gemini-3.1-pro",
+    "gemini-3.1-pro-preview",
+    "gemini-3.8-flash",
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3-flash",
+    "gemini-3-pro",
+    "deepseek-chat",
+    "deepseek-v3.2-reasoner",
+    "deepseek-v4-pro",
+    "deepseek-v4-flash",
+    "deepseek-v4-flash-vision-exp",
+    "kimi-k3",
+    "kimi-k2-thinking",
+    "kimi-k2.7-code",
+    "kimi-k2.6",
+    "kimi-k2.5",
+    "devstral-medium-2512",
+    "devstral-2512",
+    "gpt-5.1-codex-max",
+    "gpt-5.1-codex",
+    "gpt-5.1",
+    "o3-pro",
+    "glm-4.7",
+    "glm-5",
+    "glm-5.1",
+    "glm-5.2",
+    "glm-5.3",
+    "glm-5.3-flash",
+    "nemotron-3-nano",
+    "nemotron-3-super-120b-a12b",
+    "nemotron-3-ultra-550b-a55b",
+    "nemotron-3.5-lightning-30b-a3b",
+    "qwen3-6-plus",
+    "qwen3.5-plus",
+    "qwen3.6-plus",
+    "qwen3.7-plus",
+    "qwen3.8-max",
+    "qwen3.7-max",
+    "qwen3-max",
+    "qwen3.8-flash",
+    "qwen3.7-flash",
+    "qwen3-coder-480b",
+    "qwen3-coder-next",
+    "qwen3-coder-plus",
+    "qwen3-coder-flash",
+    "trinity-large-thinking"
+  ],
+  "anthropic": [
+    "claude-sonnet-4-5-20250929",
+    "claude-haiku-4-5-20251001",
+    "claude-opus-4-5-20251101",
+    "claude-opus-4-5",
+    "claude-opus-4-6",
+    "claude-opus-4-7",
+    "claude-opus-4-8",
+    "claude-opus-5",
+    "claude-fable-5",
+    "claude-fable-5-1",
+    "claude-sonnet-5",
+    "claude-sonnet-4-5",
+    "claude-sonnet-4-6",
+    "claude-sonnet-4-20250514",
+    "claude-opus-4-20250514",
+    "claude-opus-4-1-20250805",
+    "claude-3-7-sonnet-20250219",
+    "claude-3-sonnet-20240229",
+    "claude-3-opus-20240229",
+    "claude-3-haiku-20240307",
+    "claude-3-5-haiku-20241022",
+    "claude-3-5-sonnet-20241022",
+    "claude-3-5-sonnet-20240620"
+  ],
+  "openai": [
+    "gpt-6-astra",
+    "gpt-5.6",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "gpt-5.5",
+    "gpt-5.4",
+    "gpt-5.2",
+    "gpt-5.2-codex",
+    "gpt-5.3-codex",
+    "gpt-5.1",
+    "gpt-5.1-codex-max",
+    "gpt-5.1-codex",
+    "gpt-5.1-codex-mini",
+    "gpt-5-codex",
+    "gpt-5-2025-08-07",
+    "gpt-5-mini-2025-08-07",
+    "o4-mini",
+    "gpt-4o",
+    "gpt-4o-mini",
+    "gpt-4-32k",
+    "gpt-4.1",
+    "gpt-4.1-2025-04-14",
+    "o1-mini",
+    "o3",
+    "o3-pro",
+    "codex-mini-latest"
+  ],
+  "mistral": [
+    "devstral-small-2505",
+    "devstral-small-2507",
+    "devstral-medium-2507",
+    "devstral-2512",
+    "devstral-medium-2512"
+  ],
+  "gemini": [
+    "gemini-3.1-pro-preview",
+    "gemini-3.1-pro",
+    "gemini-3.1-flash-lite",
+    "gemini-3.8-flash",
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3-flash",
+    "gemini-3-pro"
+  ],
+  "deepseek": [
+    "deepseek-chat",
+    "deepseek-v3.2-reasoner",
+    "deepseek-v4-pro",
+    "deepseek-v4-flash",
+    "deepseek-v4-flash-vision-exp"
+  ],
+  "moonshot": [
+    "kimi-k3",
+    "kimi-k2-thinking",
+    "kimi-k2.7-code",
+    "kimi-k2.6",
+    "kimi-k2.5",
+    "kimi-for-coding"
+  ],
+  "minimax": [
+    "minimax-m2.1",
+    "minimax-m2.5",
+    "minimax-m2.7",
+    "minimax-m3"
+  ],
+  "glm": [
+    "glm-4.7",
+    "glm-4.7-flash",
+    "glm-5",
+    "glm-5.1",
+    "glm-5.2",
+    "glm-5.3",
+    "glm-5.3-flash"
+  ],
+  "nvidia": [
+    "nemotron-3-nano",
+    "nemotron-3-super-120b-a12b",
+    "nemotron-3-ultra-550b-a55b",
+    "nemotron-3.5-lightning-30b-a3b"
+  ],
+  "qwen": [
+    "qwen3-6-plus",
+    "qwen3.5-plus",
+    "qwen3.6-plus",
+    "qwen3.7-plus",
+    "qwen3.8-max",
+    "qwen3.7-max",
+    "qwen3-max",
+    "qwen3.8-flash",
+    "qwen3.7-flash",
+    "qwen3-coder-480b",
+    "qwen3-coder-next",
+    "qwen3-coder-plus",
+    "qwen3-coder-flash"
+  ]
+};
 
 // src/index.ts
 var VERSION = "0.2.0";
@@ -8065,18 +8975,25 @@ exports.BUILT_IN_TOOLS = BUILT_IN_TOOLS;
 exports.BUILT_IN_TOOL_FACTORIES = BUILT_IN_TOOL_FACTORIES;
 exports.BrowserTool = BrowserTool;
 exports.CANCEL_TASK_TOOL_NAME = CANCEL_TASK_TOOL_NAME;
+exports.CLIENT_ID = CLIENT_ID;
+exports.CODEX_API_ENDPOINT = CODEX_API_ENDPOINT;
+exports.CONSENT_BANNER = CONSENT_BANNER;
 exports.CONTENT_POLICY_NUDGE = CONTENT_POLICY_NUDGE;
 exports.CONVERSATION_SETTINGS_SCHEMA_VERSION = CONVERSATION_SETTINGS_SCHEMA_VERSION;
 exports.CORRECTIVE_NUDGE = CORRECTIVE_NUDGE;
 exports.CancelTaskTool = CancelTaskTool;
 exports.ConversationState = ConversationState;
+exports.CredentialStore = CredentialStore;
 exports.CriticBase = CriticBase;
 exports.CriticResult = CriticResult;
 exports.DEFAULT_EXEC_TOOL_NAMES = DEFAULT_EXEC_TOOL_NAMES;
+exports.DEFAULT_OAUTH_PORT = DEFAULT_OAUTH_PORT;
+exports.DEFAULT_SYSTEM_MESSAGE = DEFAULT_SYSTEM_MESSAGE;
 exports.DEFAULT_TERMINAL_TIMEOUT_SECONDS = DEFAULT_TERMINAL_TIMEOUT_SECONDS;
 exports.DEFAULT_TEXT_CONTENT_LIMIT = DEFAULT_TEXT_CONTENT_LIMIT;
 exports.DEFAULT_TRUNCATE_NOTICE = DEFAULT_TRUNCATE_NOTICE;
 exports.DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST = DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST;
+exports.DEVICE_CODE_TIMEOUT_SECONDS = DEVICE_CODE_TIMEOUT_SECONDS;
 exports.DuplicateEventError = DuplicateEventError;
 exports.EVENTS_DIR = EVENTS_DIR;
 exports.EVENT_FILE_PATTERN = EVENT_FILE_PATTERN;
@@ -8107,6 +9024,7 @@ exports.HookMatcher = HookMatcher;
 exports.HookResult = HookResult;
 exports.HookTriggerEventType = HookEventType;
 exports.HookType = HookType;
+exports.ISSUER = ISSUER;
 exports.InMemoryFileStore = InMemoryFileStore;
 exports.InMemorySecretStore = InMemorySecretStore;
 exports.InstallationInfo = InstallationInfo;
@@ -8133,9 +9051,13 @@ exports.MemoryLRUCache = MemoryLRUCache;
 exports.N_CHAR_PREVIEW = N_CHAR_PREVIEW;
 exports.NoCondensationAvailableError = NoCondensationAvailableError;
 exports.NoOpCondenser = NoOpCondenser;
+exports.OAUTH_TIMEOUT_SECONDS = OAUTH_TIMEOUT_SECONDS;
+exports.OAuthCredentials = OAuthCredentials;
+exports.OPENAI_CODEX_MODELS = OPENAI_CODEX_MODELS;
 exports.OPENHANDS_KEYRING_SERVICE = OPENHANDS_KEYRING_SERVICE;
 exports.OpenAIChatClient = OpenAIChatClient;
 exports.OpenAIResponsesClient = OpenAIResponsesClient;
+exports.OpenAISubscriptionAuth = OpenAISubscriptionAuth;
 exports.PAUSE_TASK_TOOL_NAME = PAUSE_TASK_TOOL_NAME;
 exports.ParallelToolExecutor = ParallelToolExecutor;
 exports.PassCritic = PassCritic;
@@ -8172,6 +9094,18 @@ exports.ThinkTool = ThinkTool;
 exports.ToolDefinition = ToolDefinition;
 exports.ToolRegistry = ToolRegistry;
 exports.UpdateTaskTool = UpdateTaskTool;
+exports.VERIFIED_ANTHROPIC_MODELS = VERIFIED_ANTHROPIC_MODELS;
+exports.VERIFIED_DEEPSEEK_MODELS = VERIFIED_DEEPSEEK_MODELS;
+exports.VERIFIED_GEMINI_MODELS = VERIFIED_GEMINI_MODELS;
+exports.VERIFIED_GLM_MODELS = VERIFIED_GLM_MODELS;
+exports.VERIFIED_MINIMAX_MODELS = VERIFIED_MINIMAX_MODELS;
+exports.VERIFIED_MISTRAL_MODELS = VERIFIED_MISTRAL_MODELS;
+exports.VERIFIED_MODELS = VERIFIED_MODELS;
+exports.VERIFIED_MOONSHOT_MODELS = VERIFIED_MOONSHOT_MODELS;
+exports.VERIFIED_NVIDIA_MODELS = VERIFIED_NVIDIA_MODELS;
+exports.VERIFIED_OPENAI_MODELS = VERIFIED_OPENAI_MODELS;
+exports.VERIFIED_OPENHANDS_MODELS = VERIFIED_OPENHANDS_MODELS;
+exports.VERIFIED_QWEN_MODELS = VERIFIED_QWEN_MODELS;
 exports.VERSION = VERSION;
 exports.ValueError = ValueError;
 exports.View = View;
@@ -8189,6 +9123,7 @@ exports.baseToolObservationSchema = baseToolObservationSchema;
 exports.browserActionSchema = browserActionSchema;
 exports.browserObservationSchema = browserObservationSchema;
 exports.buildAnthropicMessagesBody = buildAnthropicMessagesBody;
+exports.buildAuthorizeUrl = buildAuthorizeUrl;
 exports.buildChatCompletionsBody = buildChatCompletionsBody;
 exports.buildCloneUrl = buildCloneUrl;
 exports.buildGeminiInteractionsBody = buildGeminiInteractionsBody;
@@ -8237,12 +9172,14 @@ exports.fetchWithResolution = fetchWithResolution;
 exports.fileEditorActionSchema = fileEditorActionSchema;
 exports.fileEditorObservationSchema = fileEditorObservationSchema;
 exports.finishActionSchema = finishActionSchema;
+exports.generatePKCE = generatePKCE;
 exports.getAgentFactory = getAgentFactory;
 exports.getCachePath = getCachePath;
 exports.getChangesInRepo = getChangesInRepo;
 exports.getClosestGitRepo = getClosestGitRepo;
 exports.getCommitChanges = getCommitChanges;
 exports.getCommitFileDiff = getCommitFileDiff;
+exports.getCredentialsDir = getCredentialsDir;
 exports.getDisplayBaseRef = getDisplayBaseRef;
 exports.getEnv = getEnv;
 exports.getFactoryInfo = getFactoryInfo;
@@ -8267,6 +9204,7 @@ exports.hookEventTypeSchema = hookEventTypeSchema;
 exports.hookExecutionEventSchema = hookExecutionEventSchema;
 exports.imageContent = imageContent;
 exports.imageContentSchema = imageContentSchema;
+exports.injectSystemPrefix = injectSystemPrefix;
 exports.inputMetadataSchema = inputMetadataSchema;
 exports.interruptEventSchema = interruptEventSchema;
 exports.isAbsolutePathSource = isAbsolutePathSource;
@@ -8306,6 +9244,7 @@ exports.messageEventSchema = messageEventSchema;
 exports.messageSchema = messageSchema;
 exports.messageToolCallSchema = messageToolCallSchema;
 exports.normalizeGitUrl = normalizeGitUrl;
+exports.oauthCredentialsSchema = oauthCredentialsSchema;
 exports.observabilityEnvKeys = observabilityEnvKeys;
 exports.observabilityMetadataSchema = observabilityMetadataSchema;
 exports.observabilitySpanNameSchema = observabilitySpanNameSchema;
@@ -8379,6 +9318,7 @@ exports.toPosixPath = toPosixPath;
 exports.tokenEventSchema = tokenEventSchema;
 exports.toolAnnotationsSchema = toolAnnotationsSchema;
 exports.toolSpecSchema = toolSpecSchema;
+exports.transformForSubscription = transformForSubscription;
 exports.triggerSchema = triggerSchema;
 exports.updateTaskActionSchema = updateTaskActionSchema;
 exports.userRejectObservationSchema = userRejectObservationSchema;
