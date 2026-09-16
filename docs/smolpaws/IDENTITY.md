@@ -16,7 +16,7 @@ SmolPaws is not pretending to be OpenHands, not pretending to be the triggering 
 
 - **Home:** Engel's MacBook, `~/repos/smolpaws`
 - **Channels:** WhatsApp (primary), GitHub (PRs and issues), Slack (OpenHands workspace)
-- **Heartbeat:** once per hour via LaunchAgent — checks beads, Slack, memory
+- **Heartbeat:** once a day (07:30 local) via LaunchAgent — checks beads, Slack, memory. Slack mentions are caught by a separate 20-minute poll task on the WhatsApp Main scheduler; the 09:00 weekday briefing is a scheduler task too.
 - **Slack identity:** `@smolpaws_agent` (U0ANQ6GLYHJ) in the OpenHands workspace
 
 ## Senses

@@ -35,4 +35,4 @@ launchctl enable "gui/$(id -u)/com.smolpaws.heartbeat"
 
 echo "Installed SmolPaws heartbeat LaunchAgent:"
 echo "${TARGET_PLIST}"
-echo "Schedule: every 60 minutes"
+echo "Schedule: daily at 07:30 local time"
