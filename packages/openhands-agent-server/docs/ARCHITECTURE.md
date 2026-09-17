@@ -171,8 +171,12 @@ Anthropic proxy profiles. The default profile factory passes the snapshotted pro
 and configured context through that SDK path; it must not add a separate server cache
 implementation. Supported models enable explicit cache breakpoints by default, even
 when an older stored profile has no `cachingPrompt` field. Set `cachingPrompt:false` in
-a profile to opt out. `anthropicCacheTtl` selects `"5m"` or `"1h"`; omitted fields retain
-five-minute behavior. The SDK emits `ttl:"1h"` on Anthropic cache controls for the
+a profile to opt out. The optional `anthropicCacheTtl` selects `"5m"` or `"1h"`.
+An omitted field stays absent from parsed profiles, REST output, persisted state and
+conversation snapshots; it has no schema default. For Anthropic models, including
+compatible proxies, cache serialization interprets omission as the provider's
+five-minute behavior. Other providers do not acquire an Anthropic setting.
+The SDK emits `ttl:"1h"` on Anthropic cache controls for the
 one-hour selection, including Anthropic models behind an OpenAI-compatible proxy.
 The five-minute selection preserves the existing wire format without an explicit TTL.
 This setting is separate from OpenAI's `promptCacheRetention`.
@@ -190,8 +194,9 @@ sending a breakpoint alone does not establish a cache hit. The
 documents the upstream behavior and provider-specific serialization. The server
 regression `src/__tests__/promptCaching.test.ts` exercises TTL validation and CRUD, generated
 OpenAPI, full configured context, outgoing requests, cache accounting, and preservation
-of a saved TTL across catalog edits and conversation restore. It keeps the normal
-Agent and profile factory; only the provider HTTP boundary is substituted.
+of a saved TTL or its absence across catalog edits and conversation restore. It also
+checks that non-Anthropic profiles and conversations keep the field absent. It keeps
+the normal Agent and profile factory; only the provider HTTP boundary is substituted.
 
 ## Implemented surface in the first buildable slices
 

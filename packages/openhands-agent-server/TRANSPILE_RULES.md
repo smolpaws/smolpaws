@@ -64,8 +64,12 @@ Prefer profile-oriented settings and secret references. Raw LLM/API-key fields m
 
 The SDK's profile-first Anthropic cache duration setting, `anthropicCacheTtl`, also flows
 through server CRUD, validation, generated OpenAPI and saved conversation profiles.
-Its accepted values (`5m`, `1h`), backward-compatible default (`5m`), provider serialization
-and accounting belong to the SDK. This is target profile policy under `DEV-SDK-004`,
+The field is optional, with accepted values `5m` and `1h`; omitted fields stay absent
+in API output, persisted profiles and conversation snapshots, including non-Anthropic
+profiles. For Anthropic models, including compatible proxies, cache serialization
+interprets omission as five-minute behavior.
+Validation, provider serialization and accounting belong to the SDK. This is target
+profile policy under `DEV-SDK-004`,
 not a claim that the pinned Python server exposes an equivalent TTL field. Do not add
 bridge-specific cache settings or a second server-side marker implementation. Preserve
 snapshot semantics: a catalog edit alone cannot alter the TTL of a saved conversation;

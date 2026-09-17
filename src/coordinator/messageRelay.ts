@@ -69,7 +69,7 @@ function isConversationAbsentError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { status?: unknown }).status === 404;
 }
 
-/** Terminal-response extractor: one delivery from a successful `finish` observation. */
+/** Terminal-response extractor: one delivery from a nonblank `finish` observation. */
 export const finalResponseExtractor: DeliverableExtractor = (event: AgentEvent) => {
   if (event.kind !== 'ObservationEvent') return null;
   if (event.tool_name !== 'finish') return null;
@@ -80,7 +80,7 @@ export const finalResponseExtractor: DeliverableExtractor = (event: AgentEvent) 
       : typeof observation.text === 'string'
         ? observation.text
         : undefined;
-  if (text === undefined) return null;
+  if (text === undefined || text.trim().length === 0) return null;
   return { payload: { kind: 'current_thread_message', text } };
 };
 

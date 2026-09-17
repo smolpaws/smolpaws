@@ -141,7 +141,7 @@ var llmProfileSchema = z.object({
   reasoningEffort: reasoningEffortSchema.nullable().default(null),
   reasoningSummary: reasoningSummarySchema.nullable().default(null),
   cachingPrompt: z.boolean().default(true),
-  anthropicCacheTtl: anthropicCacheTtlSchema.default("5m"),
+  anthropicCacheTtl: anthropicCacheTtlSchema.optional(),
   promptCacheRetention: promptCacheRetentionSchema.nullable().default(null),
   promptCacheKey: z.string().min(1).nullable().default(null),
   headers: z.record(z.string(), z.string()).default({}),

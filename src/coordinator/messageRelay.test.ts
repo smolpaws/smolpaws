@@ -14,6 +14,7 @@ import Database from 'better-sqlite3';
 import { MessageRelay, bridgeResponseExtractor, sendMessageExtractor, terminalResponseExtractor } from './messageRelay.js';
 import { deterministicEventId } from './ids.js';
 import { MessageWorkStore } from './store.js';
+import { TaskScheduler, type ScheduledLane, type ScheduledTask } from './taskScheduler.js';
 import type { AgentEvent, AgentServerClient, LaneDescriptor, RetryPolicy } from './types.js';
 
 const POLICY: RetryPolicy = { maxAttempts: 3, baseBackoffMs: 1_000, capBackoffMs: 8_000, claimTtlMs: 1_000 };
@@ -194,6 +195,66 @@ const conversationError = (id: string, code: string, detail: string): AgentEvent
   code,
   detail,
 });
+
+for (const observation of [{ message: '' }, { message: ' \n\t ' }, { text: '' }, { text: ' \n\t ' }]) {
+  test(`blank scheduled finish ${JSON.stringify(observation)} completes quietly and preserves later delivery`, async () => {
+    const c = clock();
+    const database = new Database(':memory:');
+    const store = new MessageWorkStore(database, POLICY);
+    const scheduler = new TaskScheduler(':memory:', c.now);
+    const agent = new FakeAgentServer();
+    const observed: AgentEvent[] = [];
+    const relay = new MessageRelay(store, agent, {
+      now: c.now, outboxSyncPageSize: 1, extractor: bridgeResponseExtractor,
+      onEvent: (conversationId, event) => { observed.push(event); scheduler.observe(conversationId, event); },
+    });
+    try {
+      const origin = lane({ laneKey: 'whatsapp:poll', platform: 'whatsapp', chatId: 'poll' });
+      const binding = await relay.resolveLane(origin);
+      scheduler.register({ conversationId: binding.conversationId, lane: origin, scopeId: 'poll',
+        workingDir: '/tmp', relayDbPath: ':memory:', defaults: {} });
+      scheduler.execute(binding.conversationId, 'schedule_task', {
+        prompt: 'Poll for new mentions; finish with an empty message when there are none.',
+        schedule_type: 'interval', schedule_value: '1000', context_mode: 'isolated',
+      }, 'schedule');
+      c.advance(1000);
+      const [run] = scheduler.due('whatsapp');
+      const registration = JSON.parse(run.lane_json) as ScheduledLane;
+      store.resolveLane(registration.lane, run.conversation_id, c.now());
+      scheduler.enqueued(run.id);
+      const output: AgentEvent = { id: 'poll-output', kind: 'ObservationEvent', tool_name: 'terminal',
+        observation: { text: 'poll: no new mentions', is_error: false } };
+      agent.events = [
+        { id: deterministicEventId('whatsapp', run.source_id), kind: 'MessageEvent', source: 'user' },
+        output,
+        { id: 'quiet-finish', kind: 'ObservationEvent', tool_name: 'finish', observation },
+      ];
+
+      assert.equal(await relay.syncDeliveryOutbox(run.conversation_id), 0);
+      assert.deepEqual(store.listLaneWork(registration.lane.laneKey, 'delivery'), []);
+      assert.deepEqual(observed, agent.events); // Tool output and completion still reach event observers.
+      assert.equal(store.getProjectionCursor(run.conversation_id), '3');
+      assert.deepEqual(scheduler.db.prepare('SELECT status FROM scheduler_runs WHERE id=?').get(run.id), { status: 'done' });
+      const [task] = JSON.parse(scheduler.execute(binding.conversationId, 'list_tasks', {}, 'list').text) as ScheduledTask[];
+      assert.equal(task.last_result, observation.message ?? observation.text);
+      assert.equal(task.last_run, new Date(c.now()).toISOString());
+      assert.equal(task.next_run, new Date(c.now() + 1000).toISOString());
+
+      agent.events.push(sendAction('explicit', 'Checking a new mention'), finishObservation('useful', '  Found a new mention.\n'),
+        conversationError('failure', 'ProviderError', 'private error details'));
+      assert.equal(await relay.syncDeliveryOutbox(run.conversation_id), 3);
+      const deliveries = store.listLaneWork(registration.lane.laneKey, 'delivery');
+      assert.deepEqual(deliveries.map(row => row.agentEventId), ['explicit', 'useful', 'failure']);
+      assert.equal((deliveries[1].payload as { text: string }).text, '  Found a new mention.\n');
+      assert.equal(await relay.syncDeliveryOutbox(run.conversation_id), 0);
+      c.advance(1000);
+      assert.equal(scheduler.due('whatsapp').length, 1);
+    } finally {
+      scheduler.close();
+      database.close();
+    }
+  });
+}
 
 test('conversation failures project safe notices while recoverable tool and server events do not', async () => {
   const { store, coord, agent } = makeCoordinator(Date.now, new FakeAgentServer(), bridgeResponseExtractor);

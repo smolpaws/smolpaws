@@ -126,6 +126,12 @@ WhatsApp imports the legacy `scheduled_tasks` table while the old scheduler is s
 for rollback. GitHub/email still use the legacy runner until their ingress migration; this change does
 not switch those deployed consumers.
 
+For a successful scheduled check with nothing to report, instruct the agent to call `finish` with
+`{"message":""}` and make no explicit send. Blank final responses create no delivery; the task still
+completes and schedules its next run. Tool output stays in the conversation EventLog, and useful final
+responses, explicit sends, and conversation-error notices are still delivered. Report check failures
+normally.
+
 `send_media` accepts a workspace path, media type, optional caption/MIME and voice-note flag. The host
 validates the file (including symlink scope), copies complete immutable bytes into `outbound-media/`,
 and queues delivery before acknowledging it. WhatsApp sends native media and OGG/Opus PTT; Slack uses

@@ -31,7 +31,7 @@ export declare const llmProfileSchema: z.ZodObject<{
     reasoningEffort: z.ZodDefault<z.ZodNullable<z.ZodUnion<readonly [z.ZodLiteral<"low">, z.ZodLiteral<"medium">, z.ZodLiteral<"high">]>>>;
     reasoningSummary: z.ZodDefault<z.ZodNullable<z.ZodUnion<readonly [z.ZodLiteral<"auto">, z.ZodLiteral<"concise">, z.ZodLiteral<"detailed">]>>>;
     cachingPrompt: z.ZodDefault<z.ZodBoolean>;
-    anthropicCacheTtl: z.ZodDefault<z.ZodEnum<{
+    anthropicCacheTtl: z.ZodOptional<z.ZodEnum<{
         "5m": "5m";
         "1h": "1h";
     }>>;

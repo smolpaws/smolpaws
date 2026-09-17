@@ -345,7 +345,7 @@ export class WhatsAppBridge {
         this.scheduleReconnect();
       });
     }, delay);
-    this.reconnectTimer.unref?.();
+    // Keep the process alive while disconnected; stop() cancels a pending retry.
   }
 
   private async connect(): Promise<void> {
