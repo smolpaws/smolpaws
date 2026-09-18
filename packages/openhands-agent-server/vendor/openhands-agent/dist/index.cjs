@@ -2201,7 +2201,7 @@ var LLMSummarizingCondenser = class extends RollingCondenser {
   constructor(options) {
     super();
     this.llm = options.llm;
-    this.maxSize = options.maxSize ?? 240;
+    this.maxSize = options.maxSize ?? 1e3;
     this.maxTokens = options.maxTokens ?? null;
     this.keepFirst = options.keepFirst ?? 2;
     this.minimumProgress = options.minimumProgress ?? 0.1;
@@ -2322,7 +2322,7 @@ var LLMSummarizingCondenser = class extends RollingCondenser {
   }
 };
 function defaultCondenser(llm) {
-  return new LLMSummarizingCondenser({ llm, maxSize: 80, keepFirst: 4 });
+  return new LLMSummarizingCondenser({ llm });
 }
 var llmUsageSchema = zod.z.object({
   promptTokens: zod.z.number().int().min(0).optional(),
@@ -8958,7 +8958,8 @@ var llmSummarizingCondenserSettingsSchema = zod.z.object({
   condenser_kind: zod.z.literal("llm_summarizing").default("llm_summarizing"),
   enabled: zod.z.boolean().default(true),
   llm_profile_ref: profileReferenceSchema.optional(),
-  max_size: zod.z.number().int().min(20).default(240),
+  // DEV-SDK-011: align omitted settings with the class and standard factory.
+  max_size: zod.z.number().int().min(20).default(1e3),
   // Absence inherits the agent limit at materialization; explicit null does not.
   max_tokens: zod.z.number().int().positive().nullable().optional(),
   keep_first: zod.z.number().int().nonnegative().default(2),

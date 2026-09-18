@@ -232,6 +232,22 @@
       ]
     },
     {
+      "id": "DEV-SDK-011",
+      "kind": "DEVIATION",
+      "target": "sdk",
+      "prefixes": [
+        "openhands-sdk/openhands/sdk/context/condenser/",
+        "tests/sdk/context/condenser/"
+      ],
+      "paths": [
+        "openhands-sdk/openhands/sdk/settings/model.py",
+        "tests/sdk/test_settings.py",
+        "openhands-tools/openhands/tools/preset/default.py",
+        "openhands-sdk/openhands/sdk/subagent/registry.py",
+        "tests/sdk/subagent/test_subagent_registry.py"
+      ]
+    },
+    {
       "id": "EXC-SDK-001",
       "kind": "EXCLUDED",
       "target": "sdk",

@@ -234,6 +234,11 @@ fork after capture retain it too. A fork before capture resolves independently i
 scope on first use. Disabled/no-op settings require no condenser profile or credentials. Missing
 configuration for an enabled summarizer fails explicitly instead of borrowing the agent profile.
 
+The server inherits SDK `DEV-SDK-011`: absent condenser event settings resolve to
+`max_size: 1000`, `keep_first: 2`, consistently with the SDK class and helper. Preserve
+explicit saved limits and captured bindings; do not restore Python's smaller defaults
+at the HTTP/settings boundary. Token budgets remain separately configured.
+
 The optional TypeScript host resolver selects the condenser role; channel scopes and command queues
 stay outside this package. REST and both socket families serialize SDK forgotten-ID sets as JSON
 arrays, as Python JSON-mode serialization does, without mutating the stored event or dropping unknown

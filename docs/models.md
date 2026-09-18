@@ -58,6 +58,37 @@ captures an immutable profile/settings binding; later role/catalog edits and mai
 or running a summarizing condenser. Missing configuration fails clearly. See
 [condensation](condensation.md) for defaults, commands and migration details.
 
+## DeepSeek V4 Pro condenser
+
+A shared selection applies to every registered scope that has no condenser override:
+
+```json
+{
+  "version": 1,
+  "roles": { "condenser": "deepseek-v4-pro" }
+}
+```
+
+Merge that role into the existing file to retain its main-agent selections. The name
+must reference a saved profile with provider `deepseek` and model `deepseek-v4-pro`.
+For a 400,000-token input budget, save `maxInputTokens: 400000` in the profile through
+its normal API; numeric limits are not `models.json` fields. Set the input budget on
+each intended profile separately. Preserve `maxOutputTokens`, which controls output.
+The input value is budget metadata, not a hard transport limit. For a main-context
+condensation trigger, configure the main profile's input budget or the condenser
+`max_tokens` setting; the summarizer does not independently enforce its own profile's
+input budget before sending a summary prompt.
+These catalog updates apply when a profile is captured; existing conversation snapshots
+keep their saved values.
+
+Checked 2026-09-18: DeepSeek's [official model details](https://api-docs.deepseek.com/quick_start/pricing/)
+list V4 Pro at a 1M-token context window and a 384K maximum output. Its
+[Chat Completions reference](https://api-docs.deepseek.com/api/create-chat-completion/)
+defines provider `max_tokens` as output, capped at 393,216, with input plus generated
+tokens limited by the context window. This differs from the SDK condenser setting
+also named `max_tokens`, which is the main-context condensation threshold. See the
+[condensation settings guide](condensation.md#configure-the-condenser).
+
 ## Changing a running conversation
 
 Save edits atomically: write a complete temporary file and rename it over

@@ -1,4 +1,4 @@
-/** PORT: context/condenser/llm_summarizing_condenser.py at the shared manifest pin. */
+/** PORT: pinned context/condenser/llm_summarizing_condenser.py; DEV-SDK-011 changes event defaults. */
 import { type Condensation, type LLMConvertibleEvent } from '../event/index.js';
 import type { LLMClient } from '../llm/client.js';
 import { RollingCondenser, type CondenserContext, type CondensationRequirement } from './condenser.js';
@@ -35,5 +35,5 @@ export declare class LLMSummarizingCondenser extends RollingCondenser {
     private recordCompletion;
     hardContextReset(view: View, _agentLlm?: LLMClient | null, context?: CondenserContext): Promise<Condensation | null>;
 }
-/** The upstream standard agent/sub-agent factory is intentionally smaller than class/settings defaults. */
+/** DEV-SDK-011: the standard factory shares the target class/settings defaults of 1000/2. */
 export declare function defaultCondenser(llm: LLMClient): LLMSummarizingCondenser;

@@ -37,7 +37,7 @@ test('explicit condenser ref wins over role selection and uses an independent cl
   const agent = await f.build();
   expect(f.select).not.toHaveBeenCalled();
   expect(agent.llm.profile.profileId).toBe('main');
-  expect(agent.condenser).toMatchObject({ llm: { profile: { profileId: 'explicit' } }, maxTokens: 900, maxSize: 240, keepFirst: 2 });
+  expect(agent.condenser).toMatchObject({ llm: { profile: { profileId: 'explicit' } }, maxTokens: 900, maxSize: 1000, keepFirst: 2 });
   expect(f.stored.request.condenser_binding).toMatchObject({ profile: { profileId: 'explicit' }, settings: { llm_profile_ref: 'explicit', max_tokens: 900 } });
   expect(f.complete).not.toHaveBeenCalled();
 });

@@ -35,10 +35,29 @@ own first use. Older metadata without embedded agent settings captures its effec
 server defaults with the binding. Catalog, role, or server-default edits alone do not
 rebind an existing condenser.
 
-Settings/class defaults are `max_size: 240`, `keep_first: 2`, and a token cap inherited
-from the initial main client when available. An explicitly supplied `max_tokens`
-is honored; the active main input limit can further lower the effective cap. The
-SDK's separate `defaultCondenser()` helper uses 80/4; the server uses saved settings.
+Settings, the SDK class, and `defaultCondenser()` share `max_size: 1000` and
+`keep_first: 2`. This deliberate difference from pinned Python defaults is registered
+as `DEV-SDK-011`; explicitly saved limits remain unchanged. The token cap is inherited
+from the initial main client when available. An explicitly supplied condenser
+`max_tokens` is honored; the active main input limit can further lower the effective cap.
+
+These token fields have different purposes:
+
+- A saved LLM profile's `maxInputTokens` declares that client's input budget. The
+  main client's effective budget participates in condensation thresholds and cuts.
+- `agent_settings.condenser.max_tokens` sets the threshold for condensing the main
+  conversation's estimated input. It does not set the summarizer's input capacity.
+- A profile's `maxOutputTokens` requests an output-token budget through the provider adapter.
+
+For example, a 400,000-token condensation threshold is `max_tokens: 400000` in
+condenser settings. A 400,000-token client input budget is `maxInputTokens: 400000`
+in its saved profile. Numeric budgets belong in these settings/profiles, while
+`models.json` selects profiles by name.
+The provider adapters do not enforce this budget as a hard request-size limit, and
+the summarizer does not separately check its own profile's input budget before sending
+a summary prompt. Setting only the condenser profile's `maxInputTokens` therefore
+does not establish a 400,000-token main-context trigger; configure the main profile
+or the condenser setting for that purpose.
 
 Previously, an enabled-looking condenser setting was ignored. It is now active and
 requires a valid condenser profile on first use. Configure it before rollout, or
