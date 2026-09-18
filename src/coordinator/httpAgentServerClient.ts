@@ -70,12 +70,20 @@ export class HttpAgentServerClient implements AgentServerClient {
 
   private async request(url: string, init?: RequestInit, timeoutMs = this.requestTimeoutMs): Promise<Response> {
     const controller = new AbortController();
+    const callerSignal = init?.signal;
+    // AbortSignal.any is unavailable on the earliest supported Node 20 releases.
+    const forwardAbort = () => controller.abort(callerSignal?.reason);
     const timeout = setTimeout(() => controller.abort(new Error('Agent-server request timed out')), timeoutMs);
     try {
-      const response = await this.doFetch(url, { ...init, signal: init?.signal ? AbortSignal.any([controller.signal, init.signal]) : controller.signal });
+      if (callerSignal?.aborted) throw callerSignal.reason;
+      callerSignal?.addEventListener('abort', forwardAbort, { once: true });
+      const response = await this.doFetch(url, { ...init, signal: controller.signal });
       const body = await response.arrayBuffer();
       return new Response(body.byteLength ? body : null, { status: response.status, statusText: response.statusText, headers: response.headers });
-    } finally { clearTimeout(timeout); }
+    } finally {
+      clearTimeout(timeout);
+      callerSignal?.removeEventListener('abort', forwardAbort);
+    }
   }
 
   private headers(json: boolean): Record<string, string> {

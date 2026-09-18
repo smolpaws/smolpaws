@@ -4,6 +4,7 @@
  * everything else is real.
  */
 import assert from 'node:assert/strict';
+import { getEventListeners } from 'node:events';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -154,4 +155,106 @@ test('condense requires the upstream completed-success response rather than assu
     const client = new HttpAgentServerClient({ baseUrl: 'http://h', fetch: async () => json(body, status) });
     await assert.rejects(client.condense('scope'), /unconfirmed/);
   }
+});
+
+
+test('condense supports Node 20 without AbortSignal.any and removes caller listeners after success', async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(AbortSignal, 'any');
+  Object.defineProperty(AbortSignal, 'any', { configurable: true, value: undefined });
+  const caller = new AbortController();
+  let requestSignal: AbortSignal | undefined;
+  const client = new HttpAgentServerClient({ baseUrl: 'http://h', fetch: async (_url, init) => {
+    requestSignal = init?.signal ?? undefined;
+    return json({ success: true });
+  } });
+  try {
+    await client.condense('scope', caller.signal);
+    assert.equal(getEventListeners(caller.signal, 'abort').length, 0);
+    caller.abort(new Error('cancel after completion'));
+    assert.equal(requestSignal?.aborted, false);
+  } finally {
+    if (descriptor) Object.defineProperty(AbortSignal, 'any', descriptor);
+    else Reflect.deleteProperty(AbortSignal, 'any');
+  }
+});
+
+test('an already-aborted caller does not send the non-idempotent condense request', async () => {
+  const caller = new AbortController();
+  const reason = new Error('cancel before request');
+  caller.abort(reason);
+  let fetchCalls = 0;
+  const client = new HttpAgentServerClient({ baseUrl: 'http://h', fetch: async () => {
+    fetchCalls++;
+    return json({ success: true });
+  } });
+  await assert.rejects(client.condense('scope', caller.signal), (error: unknown) => error === reason);
+  assert.equal(fetchCalls, 0);
+  assert.equal(getEventListeners(caller.signal, 'abort').length, 0);
+});
+
+test('caller abort interrupts a pending fetch with the original reason and cleans up listeners', async () => {
+  const caller = new AbortController();
+  const reason = new Error('cancel pending request');
+  const client = new HttpAgentServerClient({ baseUrl: 'http://h', fetch: async (_url, init) =>
+    new Promise<Response>((_resolve, reject) => {
+      const signal = init!.signal!;
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+    }) });
+  const pending = client.condense('scope', caller.signal);
+  caller.abort(reason);
+  await assert.rejects(pending, (error: unknown) => error === reason);
+  assert.equal(getEventListeners(caller.signal, 'abort').length, 0);
+});
+
+test('caller abort remains connected while reading the body and preserves its reason', async () => {
+  const caller = new AbortController();
+  const reason = new Error('cancel response body');
+  let bodyReadStarted!: () => void;
+  const bodyRead = new Promise<void>((resolve) => { bodyReadStarted = resolve; });
+  const client = new HttpAgentServerClient({ baseUrl: 'http://h', fetch: async (_url, init) =>
+    new Response(new ReadableStream({
+      start(controller) {
+        const signal = init!.signal!;
+        signal.addEventListener('abort', () => controller.error(signal.reason), { once: true });
+      },
+      pull() { bodyReadStarted(); },
+    })) });
+  const pending = client.condense('scope', caller.signal);
+  await bodyRead;
+  caller.abort(reason);
+  await assert.rejects(pending, (error: unknown) => error === reason);
+  assert.equal(getEventListeners(caller.signal, 'abort').length, 0);
+});
+
+test('fetch failure removes caller listeners and does not replace the failure reason', async () => {
+  const caller = new AbortController();
+  const reason = new Error('network failed');
+  let requestSignal: AbortSignal | undefined;
+  const client = new HttpAgentServerClient({ baseUrl: 'http://h', fetch: async (_url, init) => {
+    requestSignal = init?.signal ?? undefined;
+    throw reason;
+  } });
+  await assert.rejects(client.condense('scope', caller.signal), (error: unknown) => error === reason);
+  assert.equal(getEventListeners(caller.signal, 'abort').length, 0);
+  caller.abort(new Error('cancel after failure'));
+  assert.equal(requestSignal?.aborted, false);
+});
+
+test('request deadline wins over later caller cancellation and removes caller listeners', async () => {
+  const caller = new AbortController();
+  let requestSignal: AbortSignal | undefined;
+  const client = new HttpAgentServerClient({ baseUrl: 'http://h', fetch: async (_url, init) => {
+    requestSignal = init!.signal!;
+    return new Response(new ReadableStream({ start(controller) {
+      requestSignal!.addEventListener('abort', () => controller.error(requestSignal!.reason), { once: true });
+    } }));
+  } });
+  // Exercise the shared transport deadline without waiting for the three-minute command timeout.
+  const transport = client as unknown as { request(url: string, init: RequestInit, timeoutMs: number): Promise<Response> };
+  await assert.rejects(transport.request('http://h', { signal: caller.signal }, 20), /Agent-server request timed out/);
+  const timeoutReason: unknown = requestSignal?.reason;
+  assert.equal(caller.signal.aborted, false);
+  assert.equal(getEventListeners(caller.signal, 'abort').length, 0);
+  caller.abort(new Error('cancel after timeout'));
+  assert.equal(requestSignal?.reason, timeoutReason);
 });

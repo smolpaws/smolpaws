@@ -13,7 +13,7 @@ import { z } from 'zod';
 
 import { pathContainsPlaintext } from '../../examples/plaintextScan.js';
 import { createAgentServerApp, type AgentServerApp, type AgentServerAppOptions } from '../app.js';
-import { leaseFileName } from '../conversationLease.js';
+import { ConversationLeaseHeldError, ConversationLeaseInvalidError, ConversationOwnershipLostError, leaseFileName } from '../conversationLease.js';
 import type { AgentFactoryContext, EventService } from '../eventService.js';
 import type { StoredConversation } from '../models.js';
 
@@ -250,6 +250,42 @@ test('metadata failure after a paid summary still publishes its saved events onc
   save.mockRestore();
   expect((await condense(f)).statusCode).toBe(200);
   expect(new Set(relevant(emitted).map(event => event.id)).size).toBe(relevant(emitted).length);
+});
+
+test.each([
+  ['held', new ConversationLeaseHeldError('public-fixture', 'replacement-owner', 123), 409],
+  ['invalid', new ConversationLeaseInvalidError('public-fixture', 'payload does not match the lease schema'), 409],
+  ['lost', new ConversationOwnershipLostError('public-fixture', 'former-owner', 1), 409],
+  ['ordinary', new Error('Metadata failed'), 500],
+] as const)('manual provider failure followed by %s metadata failure preserves HTTP classification and publication', async (_kind, metadataError, statusCode) => {
+  const secret = 'combined-condensation-fixture-secret';
+  const f = await fixture({ summary: async () => { throw new Error(`Provider failed api_key=${secret}`); } });
+  f.service.state.executionStatus = conversationExecutionStatus.PAUSED;
+  const emitted: Event[] = [];
+  await f.service.subscribeToEvents(event => { emitted.push(event); });
+  const save = vi.spyOn(privateSave(f.service), 'saveConversation').mockRejectedValueOnce(metadataError);
+  const response = await condense(f);
+  expect(response.statusCode).toBe(statusCode);
+  if (statusCode === 409) expect(response.json()).toEqual({ detail: metadataError.message });
+  else {
+    expect(response.json().detail).toContain('Provider failed');
+    expect(response.json().detail).not.toContain('Metadata failed');
+  }
+  expect(response.body).not.toContain(secret);
+  expect(await pathContainsPlaintext(f.root, secret)).toBe(false);
+  expect(f.service.state.executionStatus).toBe('paused');
+  expect(f.service.state.events.some(event => event.kind === 'ConversationErrorEvent')).toBe(false);
+  expect(f.main).not.toHaveBeenCalled();
+  // One ordinary attempt and the single configured hard-reset attempt are recorded.
+  expect(f.summary).toHaveBeenCalledTimes(2);
+  expect(f.service.state.stats.usage_to_metrics.condenser?.records).toHaveLength(2);
+  const saved = relevant(await savedEvents(f.server, f.id));
+  expect(saved.some(event => event.kind === 'CondensationRequest')).toBe(true);
+  expect(saved.some(event => event.kind === 'ConversationStateUpdateEvent' && event.key === 'llm_usage')).toBe(true);
+  expect(relevant(emitted)).toEqual(saved);
+  expect(new Set(relevant(emitted).map(event => event.id)).size).toBe(saved.length);
+  await f.service.whenIdle();
+  save.mockRestore();
 });
 
 test('input arriving during a summary stays unconsumed and can run afterward', async () => {

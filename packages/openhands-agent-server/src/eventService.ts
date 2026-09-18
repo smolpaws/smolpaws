@@ -329,7 +329,8 @@ export class EventService {
       for (const event of this.events().slice(startIndex)) await this.publishEventOnce(event);
       await this.pubSub.publish(this.createStateUpdateEvent());
     }
-    if (failures.length > 0) throw safeMaintenanceError(failures[0]);
+    // Ownership conflicts must remain HTTP 409 even when the summary failed first.
+    if (failures.length > 0) throw safeMaintenanceError(failures.find(isOwnershipError) ?? failures[0]);
   }
 
   async getAgentFinalResponse(): Promise<string> {
@@ -524,9 +525,13 @@ export class EventService {
   }
 }
 
+function isOwnershipError(error: unknown): error is ConversationLeaseHeldError | ConversationLeaseInvalidError | ConversationOwnershipLostError {
+  return error instanceof ConversationLeaseHeldError || error instanceof ConversationLeaseInvalidError || error instanceof ConversationOwnershipLostError;
+}
+
 function safeMaintenanceError(error: unknown): Error {
   // Preserve ownership HTTP classification; these messages contain no credentials.
-  if (error instanceof ConversationLeaseHeldError || error instanceof ConversationLeaseInvalidError || error instanceof ConversationOwnershipLostError) return error;
+  if (isOwnershipError(error)) return error;
   const sanitized = safeRunError(error);
   const failure = new Error(sanitized.detail);
   failure.name = sanitized.code;
