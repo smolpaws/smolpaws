@@ -1,3 +1,4 @@
+import { parseRelayCommand } from '../../../src/coordinator/relayCommands.js';
 import type { Logger } from 'pino';
 import type {
   IncomingMessage,
@@ -104,12 +105,13 @@ export async function handleSlackEvent(ctx: SlackEventContext, deps: SlackDeps):
       return;
     }
 
+    const command = parseRelayCommand(prompt);
     const conversationId = buildConversationId(ctx);
     const threadTs = replyThreadTs(ctx);
 
     // Fetch thread context for threaded conversations.
     let fullPrompt = prompt;
-    if (ctx.threadTs && ctx.threadTs !== ctx.ts && deps.fetchThreadMessages) {
+    if (command === undefined && ctx.threadTs && ctx.threadTs !== ctx.ts && deps.fetchThreadMessages) {
       try {
         const threadMessages = await deps.fetchThreadMessages(ctx.channelId, ctx.threadTs);
         const contextPrefix = formatThreadContext(threadMessages, ctx.ts, ctx.botUserId);
@@ -143,6 +145,7 @@ export async function handleSlackEvent(ctx: SlackEventContext, deps: SlackDeps):
         conversationId,
         messageId: dedupKey,
         prompt: fullPrompt,
+        ...(command === undefined ? {} : { command }),
         platformContext: {
           team_id: ctx.teamId,
           channel_id: ctx.channelId,

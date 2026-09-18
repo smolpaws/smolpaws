@@ -39,6 +39,7 @@ export interface AgentServerAppOptions extends ConversationServiceOptions {
   readonly logger?: boolean;
   readonly subscriptionAuth?: OpenAISubscriptionAuth;
   readonly resolveProfileSelection?: ProfileSelectionResolver;
+  readonly resolveCondenserProfileSelection?: ProfileSelectionResolver;
 }
 
 export interface AgentServerApp {
@@ -55,6 +56,7 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
     || options.leaseTtlMs !== undefined
     || options.config?.conversationsPath !== undefined
     || options.resolveProfileSelection !== undefined
+    || options.resolveCondenserProfileSelection !== undefined
     || options.profileRuntime !== undefined
   )) {
     throw new Error('conversationService cannot be combined with managed conversation-service options');
@@ -83,12 +85,16 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
   if (options.agentFactory !== undefined && options.resolveProfileSelection !== undefined) {
     throw new Error('resolveProfileSelection requires the profile agent factory');
   }
+  if (options.agentFactory !== undefined && options.resolveCondenserProfileSelection !== undefined) {
+    throw new Error('resolveCondenserProfileSelection requires the profile agent factory');
+  }
   const agentFactory = options.agentFactory ?? createProfileAgentFactory({
     state: serverStateService,
     secretStore,
     ...(options.configureTools === undefined ? {} : { configureTools: options.configureTools }),
     ...(options.configureContext === undefined ? {} : { configureContext: options.configureContext }),
     llmClientFactory,
+    ...(options.resolveCondenserProfileSelection === undefined ? {} : { resolveCondenserProfileSelection: options.resolveCondenserProfileSelection }),
   });
   const serviceOptions: ConversationServiceOptions = {
     persistenceDir: config.conversationsPath,

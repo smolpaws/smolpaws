@@ -30,6 +30,8 @@ import {
 import type { AgentFactory, AgentFactoryContext } from './eventService.js';
 import { publicStartConversationRequestSchema, startConversationRequestSchema, type StartConversationRequest } from './models.js';
 import type { ServerStateService } from './serverState.js';
+import type { ProfileSelectionResolver } from './profileRuntime.js';
+import { materializeProfileCondenser } from './condenserBinding.js';
 
 export type ProfileLlmClientFactory = (profile: LLMProfile, secretStore: SecretStore) => Promise<LLMClient>;
 
@@ -44,6 +46,7 @@ interface ProfileAgentFactoryOptions {
   readonly state: ServerStateService;
   readonly secretStore: SecretStore;
   readonly llmClientFactory?: ProfileLlmClientFactory;
+  readonly resolveCondenserProfileSelection?: ProfileSelectionResolver;
 }
 
 const defaultToolNames = ['terminal', 'file_editor', 'glob', 'grep', 'finish', 'think'] as const;
@@ -84,8 +87,16 @@ export function createProfileAgentFactory(options: ProfileAgentFactoryOptions): 
     const agentContext = options.configureContext === undefined
       ? existingContext
       : await options.configureContext(existingContext, context);
+    const llm = context.llmClient ?? await createLlmClient(profile, options.secretStore);
+    const condenser = await materializeProfileCondenser(settings.condenser, llm, context, {
+      agentSettings: settings,
+      getProfile: (name) => options.state.getProfile(name),
+      createClient: (selected) => createLlmClient(selected, options.secretStore),
+      ...(options.resolveCondenserProfileSelection === undefined ? {} : { resolveProfileSelection: options.resolveCondenserProfileSelection }),
+    });
     return new Agent({
-      llm: context.llmClient ?? await createLlmClient(profile, options.secretStore),
+      llm,
+      condenser,
       tools,
       toolConcurrencyLimit: settings.tool_concurrency_limit,
       ...(agentContext === null ? {} : { context: agentContext }),

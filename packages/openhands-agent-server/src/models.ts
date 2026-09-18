@@ -5,6 +5,7 @@ import {
   conversationExecutionStatus,
   eventSchema,
   llmProfileSchema,
+  llmSummarizingCondenserSettingsSchema,
   messageSchema,
   type Content,
   type ConversationExecutionStatus,
@@ -91,9 +92,21 @@ const startConversationRequestBaseSchema = z
   })
   .passthrough();
 
+export const condenserBindingSchema = z.object({
+  profile: llmProfileSchema,
+  settings: llmSummarizingCondenserSettingsSchema.extend({
+    enabled: z.literal(true),
+    llm_profile_ref: z.string().min(1),
+    max_tokens: z.number().int().positive().nullable(),
+  }),
+}).strict().refine(binding => binding.profile.profileId === binding.settings.llm_profile_ref, 'Condenser binding profile reference mismatch')
+  .refine(binding => Math.floor(binding.settings.max_size / 2) - binding.settings.keep_first - 1 > 0, 'Condenser binding leaves no room for condensation');
+export type CondenserBinding = z.infer<typeof condenserBindingSchema>;
+
 export const publicStartConversationRequestSchema = startConversationRequestBaseSchema.transform(stripServerOwnedStartFields);
 export const startConversationRequestSchema = startConversationRequestBaseSchema.extend({
   llm_profile_snapshot: llmProfileSchema.optional(),
+  condenser_binding: condenserBindingSchema.optional(),
   llm_profile_selection: z.object({
     configured_ref: z.string().nullable(),
     pending_profile: llmProfileSchema.nullable(),
@@ -104,6 +117,7 @@ export type StartConversationRequest = z.infer<typeof startConversationRequestSc
 function stripServerOwnedStartFields(request: z.infer<typeof startConversationRequestBaseSchema>): z.infer<typeof startConversationRequestBaseSchema> {
   const publicRequest = { ...request } as Record<string, unknown>;
   delete publicRequest.llm_profile_snapshot;
+  delete publicRequest.condenser_binding;
   delete publicRequest.llm_profile_selection;
   return publicRequest as z.infer<typeof startConversationRequestBaseSchema>;
 }

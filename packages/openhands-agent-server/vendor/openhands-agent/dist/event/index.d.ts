@@ -451,7 +451,7 @@ export declare const actionEventSchema: z.ZodObject<{
         image_urls: string[];
         enable_truncation?: boolean | undefined;
     }>>]>>>;
-    action: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+    action: z.ZodDefault<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
     tool_name: z.ZodString;
     tool_call_id: z.ZodString;
     tool_call: z.ZodObject<{
@@ -1086,7 +1086,7 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         image_urls: string[];
         enable_truncation?: boolean | undefined;
     }>>]>>>;
-    action: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+    action: z.ZodDefault<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
     tool_name: z.ZodString;
     tool_call_id: z.ZodString;
     tool_call: z.ZodObject<{
@@ -1623,7 +1623,7 @@ export declare const llmConvertibleEventSchema: z.ZodDiscriminatedUnion<[z.ZodOb
         image_urls: string[];
         enable_truncation?: boolean | undefined;
     }>>]>>>;
-    action: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+    action: z.ZodDefault<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
     tool_name: z.ZodString;
     tool_call_id: z.ZodString;
     tool_call: z.ZodObject<{

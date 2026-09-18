@@ -64,7 +64,7 @@ test('product host loads full scoped memory before the first completion and rest
     const profile = { profileId: 'context-integration', providerId: 'openai', model: 'test-model' };
     assert.equal((await server.app.inject({ method: 'POST', url: '/api/profiles', payload: profile })).statusCode, 201);
     const started = await server.app.inject({ method: 'POST', url: '/api/conversations', payload: {
-      agent: { llm_profile_ref: profile.profileId, tools: ['finish'] }, workspace: { working_dir: repoRoot },
+      agent: { condenser: { enabled: false }, llm_profile_ref: profile.profileId, tools: ['finish'] }, workspace: { working_dir: repoRoot },
       agent_launch_additions: { system_message_suffix_append: 'Keep this additional launch instruction.' },
     } });
     assert.equal(started.statusCode, 201);

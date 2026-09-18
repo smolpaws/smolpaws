@@ -7,12 +7,14 @@
  *   POST /api/conversations                              (ensure conversation; 409 = already exists)
  *   POST /api/conversations/:id/events   {role,content,run[,event_id]}
  *   POST /api/conversations/:id/run
+ *   POST /api/conversations/:id/condense                 (one non-idempotent maintenance attempt)
  *   GET  /api/conversations/:id/events/search?page_id=&limit=&kind=&source=
  *
  * `event_id` on append is the ADR §8 idempotent-append delta. This client sends it when available and
  * reads back `{event_id, created}` if the server returns them; until the delta ships the server returns
  * only `{success:true}` and we fall back to the deterministic id with `created:true`.
  */
+import { CONDENSE_REQUEST_TIMEOUT_MS } from './relayCommands.js';
 import type { AgentEvent, AgentServerClient, LaneDescriptor } from './types.js';
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
@@ -66,11 +68,11 @@ export class HttpAgentServerClient implements AgentServerClient {
     this.searchKind = options.searchKind;
   }
 
-  private async request(url: string, init?: RequestInit): Promise<Response> {
+  private async request(url: string, init?: RequestInit, timeoutMs = this.requestTimeoutMs): Promise<Response> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(new Error('Agent-server request timed out')), this.requestTimeoutMs);
+    const timeout = setTimeout(() => controller.abort(new Error('Agent-server request timed out')), timeoutMs);
     try {
-      const response = await this.doFetch(url, { ...init, signal: controller.signal });
+      const response = await this.doFetch(url, { ...init, signal: init?.signal ? AbortSignal.any([controller.signal, init.signal]) : controller.signal });
       const body = await response.arrayBuffer();
       return new Response(body.byteLength ? body : null, { status: response.status, statusText: response.statusText, headers: response.headers });
     } finally { clearTimeout(timeout); }
@@ -110,6 +112,15 @@ export class HttpAgentServerClient implements AgentServerClient {
   async resume(conversationId: string): Promise<void> {
     const response = await this.request(`${this.baseUrl}/api/conversations/${encodeURIComponent(conversationId)}/run`, { method: 'POST', headers: this.headers(true), body: '{}' });
     if (!response.ok) await this.raise('resume', response);
+  }
+
+  async condense(conversationId: string, signal?: AbortSignal): Promise<void> {
+    const response = await this.request(`${this.baseUrl}/api/conversations/${encodeURIComponent(conversationId)}/condense`, {
+      method: 'POST', headers: this.headers(true), body: '{}', signal,
+    }, CONDENSE_REQUEST_TIMEOUT_MS);
+    if (!response.ok) await this.raise('condense', response);
+    const result = await this.json(response) as { success?: unknown } | null;
+    if (response.status !== 200 || result?.success !== true) throw new Error('Condensation outcome unconfirmed');
   }
 
   async appendEvent(

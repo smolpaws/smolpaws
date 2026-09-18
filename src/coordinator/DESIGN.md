@@ -43,6 +43,26 @@ bridge input
 
 If the append succeeds but the response is lost, retrying the same deterministic `event_id` is safe: agent-server returns the existing event instead of creating another user turn.
 
+## Explicit maintenance commands — 2026-09-18
+
+Trusted WhatsApp/Slack ingress recognizes the exact direct `/condense` command before adding
+history or media context, and attaches typed command intent to the durable intake. Ordinary
+text never gains command authority during replay. The existing lane binding selects the
+conversation; no conversation ID is parsed from user text.
+
+`intake_commands` journals pending, attempted and terminal outcomes alongside the existing work
+row. Before `POST /condense`, an atomic attempt fence extends its claim to a bounded deadline.
+The HTTP operation is tracked separately so other lanes and outbound delivery keep moving.
+Completion atomically records success/rejection/unknown, inserts one command receipt in the
+normal delivery outbox and marks intake done. A lost response or expired attempted claim becomes
+unknown and is not resent. A fresh platform message is a new explicit attempt. Preflight work
+before that fence retains safe retry behavior; exhausted preflight also produces a receipt.
+
+A command adds no user event or ordinary run. Receipts use the existing Delivery Dispatcher,
+including its external-send uncertainty rules. This journal tracks a product request outcome;
+it does not duplicate SDK conversation execution or add a server idempotency extension. See
+[condensation](../../docs/condensation.md) for user behavior and operator configuration.
+
 ## Outbound Relay
 
 The outbound half has two explicit responsibilities:

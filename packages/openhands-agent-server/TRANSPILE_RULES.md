@@ -216,6 +216,29 @@ from public creation requests. No HTTP switching route or ACP runtime is added; 
 Evidence: `src/__tests__/profileSwitch.test.ts` covers configuration/tool selection, active-step races,
 parallel tool completion, finish, failure, restart, bootstrap credentials, public fields and accounting.
 
+## Condensation integration
+
+The SDK owns View reconstruction, safe cuts, summarizing prompts, token/event/request triggers,
+provider-error recovery and per-attempt accounting. The server materializes validated condenser
+settings and delegates `POST /api/conversations/{conversation_id}/condense` to the cached SDK
+conversation. Preserve upstream success and missing-conversation behavior; an unsupported condenser
+is an error, never a successful no-op. Running work shares the SDK step guard. Manual maintenance
+must be drained before closing subscriptions or releasing ownership, and completed durable events
+must be published even when a later operation fails.
+
+Under `DEV-SERVER-004` and SDK `DEV-SDK-004`, the summarizer uses an explicitly selected independent
+profile. First use captures its secret-free profile and effective condenser settings with a guarded
+metadata update before paid calls. Provider/client preparation stays outside the lease lock. Public
+creation payloads cannot forge this internal binding. Main-profile changes retain it; restart and a
+fork after capture retain it too. A fork before capture resolves independently in its trusted host
+scope on first use. Disabled/no-op settings require no condenser profile or credentials. Missing
+configuration for an enabled summarizer fails explicitly instead of borrowing the agent profile.
+
+The optional TypeScript host resolver selects the condenser role; channel scopes and command queues
+stay outside this package. REST and both socket families serialize SDK forgotten-ID sets as JSON
+arrays, as Python JSON-mode serialization does, without mutating the stored event or dropping unknown
+accounting values. Source/evidence: [condensation port](transpile/condensation.md).
+
 ## Tests-first rule
 
 For compatibility work:

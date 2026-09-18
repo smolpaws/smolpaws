@@ -37,6 +37,7 @@ import {
   conversationDefaultsForGroup,
   laneDescriptorFor,
   shouldRespond,
+  splitCommandBatches,
 } from './handler.js';
 import { WhatsAppLedger, type LedgerMessage } from './ledger.js';
 import { WhatsAppRelayRuntime } from './relayRuntime.js';
@@ -139,6 +140,15 @@ export function extractMessageText(message: WAMessage['message']): string {
   );
   if (direct) return direct;
   return firstText(message.documentWithCaptionMessage?.message?.documentMessage?.caption);
+}
+
+/** A caption or forwarded payload never gains command authority when a download fails. */
+export function isDirectCommandText(message: WAMessage['message']): boolean {
+  if (!message || message.imageMessage || message.videoMessage || message.documentMessage || message.documentWithCaptionMessage
+    || message.audioMessage || message.stickerMessage) return false;
+  const context = message.extendedTextMessage?.contextInfo;
+  if (context?.isForwarded || (context?.forwardingScore ?? 0) > 0) return false;
+  return typeof message.conversation === 'string' || typeof message.extendedTextMessage?.text === 'string';
 }
 
 export class WhatsAppBridge {
@@ -436,6 +446,7 @@ export class WhatsAppBridge {
       sender,
       senderName: message.pushName || sender.split('@')[0] || sender,
       content: extractMessageText(message.message),
+      commandEligible: isDirectCommandText(message.message),
       timestamp,
       isFromMe: message.key.fromMe || false,
       media,
@@ -503,34 +514,32 @@ export class WhatsAppBridge {
     // Trailing-edge debounce: let a burst finish before the cat reads it as one prompt.
     if (Date.now() - Date.parse(latest.timestamp) < this.config.debounceMs) return;
 
-    const addressed = fresh.some((message) => shouldRespond(group, message.content.trim(), this.config.triggerPattern));
-    if (!addressed) {
-      ledger.setDispatchSeq(chatJid, latest.seq);
-      return;
-    }
-
-    const since = ledger.getLastAgentSeq(chatJid);
-    const transcript = ledger.getMessagesSince(chatJid, since, this.config.assistantName);
-    const batch: LedgerMessage[] = transcript.length > 0 ? transcript : fresh;
-    const prompt = await buildPrompt(batch, { maxImageBytes: this.config.maxImageBytes });
-
-    this.logger.info(
-      { chatJid, scope: group.folder, messageCount: batch.length, imageCount: prompt.images.length, documentCount: prompt.documentCount },
-      'Accepting WhatsApp batch into the Message Relay',
-    );
-    await this.setTyping(chatJid, true);
-    try {
-      await runtime.accept(
-        laneDescriptorFor(this.selfJid, chatJid, group),
-        latest.id,
-        prompt.content,
+    for (const segment of splitCommandBatches(fresh, group, this.config.triggerPattern)) {
+      if (segment.kind === 'command') {
+        await runtime.accept(laneDescriptorFor(this.selfJid, chatJid, group), segment.message.id, '/condense', segment.command);
+        // Keep commands out of future transcripts without discarding earlier ambient context.
+        ledger.markCommandSeen(segment.message);
+        ledger.setDispatchSeq(chatJid, segment.message.seq);
+        continue;
+      }
+      const last = segment.messages.at(-1)!;
+      const addressed = segment.messages.some(message => shouldRespond(group, message.content.trim(), this.config.triggerPattern));
+      if (!addressed) { ledger.setDispatchSeq(chatJid, last.seq); continue; }
+      const since = ledger.getLastAgentSeq(chatJid);
+      const transcript = ledger.getMessagesSince(chatJid, since, this.config.assistantName).filter(message => message.seq <= last.seq);
+      const batch = transcript.length > 0 ? transcript : segment.messages;
+      const prompt = await buildPrompt(batch, { maxImageBytes: this.config.maxImageBytes });
+      this.logger.info(
+        { chatJid, scope: group.folder, messageCount: batch.length, imageCount: prompt.images.length, documentCount: prompt.documentCount },
+        'Accepting WhatsApp batch into the Message Relay',
       );
-    } finally {
-      await this.setTyping(chatJid, false);
+      await this.setTyping(chatJid, true);
+      try { await runtime.accept(laneDescriptorFor(this.selfJid, chatJid, group), last.id, prompt.content); }
+      finally { await this.setTyping(chatJid, false); }
+      // Only after durable acceptance: this is the ingress success boundary.
+      ledger.setLastAgentSeq(chatJid, last.seq);
+      ledger.setDispatchSeq(chatJid, last.seq);
     }
-    // Only after durable acceptance: this is the ingress success boundary.
-    ledger.setLastAgentSeq(chatJid, latest.seq);
-    ledger.setDispatchSeq(chatJid, latest.seq);
   }
 
   /** Conversation defaults are per scope: the shared identity/context plus this chat's workspace. */

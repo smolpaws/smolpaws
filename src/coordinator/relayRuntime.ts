@@ -113,6 +113,7 @@ export class RelayRuntime {
     });
     this.agent = agent;
     this.messageRelay = new MessageRelay(this.store, agent, {
+      onCommandError: error => this.logger.error({ err: errorMessage(error) }, 'Command outcome persistence failed; recovery will report it as unconfirmed'),
       onEvent: (conversationId, event) => { this.scheduler.observe(conversationId, event); this.recovery.observe(conversationId, event); },
       extractor: options.extractor ?? bridgeResponseExtractor,
       deriveConversationId: options.deriveConversationId ?? ((descriptor) => deterministicConversationId(descriptor.laneKey)),
@@ -156,6 +157,7 @@ export class RelayRuntime {
       this.timer = null;
     }
     await this.activeTick?.catch(() => undefined);
+    await this.messageRelay.whenCommandsIdle();
     if (this.db.open) {
       this.db.close();
       this.scheduler.close();

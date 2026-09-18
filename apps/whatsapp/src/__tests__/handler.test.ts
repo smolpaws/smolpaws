@@ -12,6 +12,7 @@ import {
   laneDescriptorFor,
   scopeWorkingDir,
   shouldRespond,
+  splitCommandBatches,
 } from '../handler.js';
 import type { LedgerMessage } from '../ledger.js';
 
@@ -35,6 +36,7 @@ function message(overrides: Partial<LedgerMessage>): LedgerMessage {
     is_from_me: 0,
     media_path: null,
     media_type: null,
+    command_eligible: 1,
     ...overrides,
   };
 }
@@ -148,4 +150,29 @@ test('config resolves registered groups from the home dir, then the legacy check
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+
+test('direct commands split WhatsApp bursts before transcript rendering and preserve message order', () => {
+  const input = [message({ id: 'a', content: 'hello' }), message({ id: 'b', content: '@smolpaws /condense' }), message({ id: 'c', content: 'after' })];
+  const parts = splitCommandBatches(input, main, trigger);
+  assert.deepEqual(parts.map(part => part.kind), ['messages', 'command', 'messages']);
+  assert.equal(parts[1].kind === 'command' && parts[1].message.id, 'b');
+  assert.equal(parts[0].kind === 'messages' && parts[0].messages[0].id, 'a');
+  assert.equal(parts[2].kind === 'messages' && parts[2].messages[0].id, 'c');
+});
+
+test('WhatsApp command recognition preserves mention policy and excludes media, quoted and extended text', () => {
+  const input = ['/condense', '> /condense', '/condense now', 'please /condense'].map(content => message({ content }));
+  assert.deepEqual(splitCommandBatches(input, team, trigger).map(part => part.kind), ['messages']);
+  assert.deepEqual(splitCommandBatches([message({ content: '/condense', media_path: '/tmp/public-fixture' })], main, trigger).map(part => part.kind), ['messages']);
+  assert.deepEqual(splitCommandBatches([message({ content: '/condense' })], chatty, trigger).map(part => part.kind), ['command']);
+});
+
+test('missing direct-text provenance and adjacent quote mentions cannot authorize commands', () => {
+  for (const content of ['>@smolpaws /condense', '> @smolpaws /condense']) {
+    assert.deepEqual(splitCommandBatches([message({ content })], main, trigger).map(part => part.kind), ['messages']);
+  }
+  const captionWithoutDownloadedMedia = { ...message({ content: '@smolpaws /condense' }), command_eligible: 0 };
+  assert.deepEqual(splitCommandBatches([captionWithoutDownloadedMedia], main, trigger).map(part => part.kind), ['messages']);
 });

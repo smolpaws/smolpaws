@@ -158,7 +158,7 @@ export function registerConversationRoutes(app: FastifyInstance, service: Conver
     return notImplemented(reply, 'ask_agent_not_implemented');
   });
 
-  app.post('/api/conversations/:conversation_id/condense', async (_request, reply) => notImplemented(reply, 'condense_not_implemented'));
+  app.post('/api/conversations/:conversation_id/condense', async (request, reply) => successOrNotFound(reply, await service.condense(param(request, 'conversation_id'))));
 
   app.post('/api/conversations/:conversation_id/fork', async (request, reply) => {
     const body = forkConversationRequestSchema.catch({ id: null, title: null, tags: null, reset_metrics: true }).parse(request.body ?? {});

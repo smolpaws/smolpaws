@@ -1152,7 +1152,7 @@ describe('createAgentServerApp', () => {
         method: 'PATCH',
         url: '/api/settings',
         payload: {
-          agent_settings: { ...baseSettings.agent_settings, llm_profile_ref: 'gpt-nano', tools: ['finish'] },
+          agent_settings: { ...baseSettings.agent_settings, llm_profile_ref: 'gpt-nano', tools: ['finish'], condenser: { enabled: false } },
           conversation_settings: { ...baseSettings.conversation_settings, max_iterations: 2 },
           llm_api_key: 'test-openai-key',
         },
@@ -1204,7 +1204,7 @@ describe('createAgentServerApp', () => {
         payload: {
           workspace: { working_dir: thirdWorkspace },
           max_iterations: 4,
-          agent: { ...activated.agent_settings, llm_profile_ref: 'gpt-nano', tools: ['finish'] },
+          agent: { ...activated.agent_settings, llm_profile_ref: 'gpt-nano', tools: ['finish'], condenser: { enabled: false } },
         },
       });
       expect(second.statusCode).toBe(201);

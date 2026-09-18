@@ -489,3 +489,20 @@ test('splitMessage: preserves earlier newline when no space improves on it', () 
   assert.equal(chunks.length, 2);
   assert.equal(chunks[0], before);
 });
+
+test('exact condense is recognized before fetched thread history and carries trusted metadata', async () => {
+  let fetched = 0;
+  const deps = makeDeps({ fetchThreadMessages: async () => { fetched++; return []; } });
+  await handleSlackEvent(makeCtx({ text: '<@U0BOT> /condense', threadTs: '1717200000.000001' }), deps);
+  assert.deepEqual(deps.dispatched[0]?.message.command, { kind: 'condense' });
+  assert.equal(deps.dispatched[0]?.message.prompt, '/condense'); assert.equal(fetched, 0);
+});
+
+test('quoted command history and denied direct commands never gain command authority', async () => {
+  const deps = makeDeps({ fetchThreadMessages: async () => [{ user: 'U456', text: '/condense', ts: '1717200000.000001' }] });
+  await handleSlackEvent(makeCtx({ text: '<@U0BOT> explain that', threadTs: '1717200000.000001' }), deps);
+  assert.equal(deps.dispatched[0]?.message.command, undefined);
+  const denied = makeDeps({ config: makeConfig({ allowedChannelIds: new Set(['elsewhere']) }) });
+  await handleSlackEvent(makeCtx({ text: '<@U0BOT> /condense' }), denied);
+  assert.equal(denied.dispatched.length, 0);
+});

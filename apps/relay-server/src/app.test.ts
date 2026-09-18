@@ -43,13 +43,13 @@ for (const platform of ['whatsapp', 'slack', 'discord', 'agent-server']) test(`$
   const deliveries: unknown[] = [];
   const runtime = new RelayRuntime({ platform, logger: pino({ level: 'silent' }), serverUrl: address, sessionApiKey: 'test',
     dbPath: path.join(root, platform === 'agent-server' ? 'agent-server-relay-v1.db' : 'relay.db'), schedulerDbPath: schedulerPath,
-    createConversationDefaults: { workspace: { working_dir: workspace }, tags: { scope: 'main' } },
+    createConversationDefaults: { agent: { llm_profile_ref: 'test', condenser: { enabled: false } }, workspace: { working_dir: workspace }, tags: { scope: 'main' } },
     target: { validate() {}, async deliver(_lane, payload) { deliveries.push(payload); return { externalMessageId: 'fake' }; } }, tickMs: 60_000 });
   const lane = { laneKey: `${platform}:test`, platform, accountId: 'account', chatId: 'chat', threadId: null };
   try {
     if (platform === 'agent-server') {
       const response = await app.inject({ method: 'POST', url: '/api/conversations', headers, payload: {
-        workspace: { working_dir: workspace }, tags: { scope: 'main' }, initial_message: { role: 'user', content: 'schedule something', run: true },
+        agent: { llm_profile_ref: 'test', condenser: { enabled: false } }, workspace: { working_dir: workspace }, tags: { scope: 'main' }, initial_message: { role: 'user', content: 'schedule something', run: true },
       } });
       assert.equal(response.statusCode, 201);
     } else await runtime.accept({ lane, message: { sourceMessageId: 'inbound', content: 'schedule something' } });

@@ -61,3 +61,12 @@ export function productProfileSelection(scheduler: TaskScheduler, options: Produ
     return selectRoleProfile(await loadModelSelections(options), 'agent', `${lane.lane.platform}:${lane.scopeId}`);
   };
 }
+
+/** Condenser role is captured once by the server; scheduled main profiles are unrelated. */
+export function productCondenserProfileSelection(scheduler: TaskScheduler, options: ProductModelOptions = {}): ProfileSelectionResolver {
+  return async ({ stored }) => {
+    const lane = scheduler.lane(stored.id);
+    if (!lane) throw new Error('Model selection requires a registered scheduler lane');
+    return selectRoleProfile(await loadModelSelections(options), 'condenser', `${lane.lane.platform}:${lane.scopeId}`);
+  };
+}

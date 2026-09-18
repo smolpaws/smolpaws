@@ -353,3 +353,70 @@ test('queued deliveries wait as ready until the WhatsApp socket is open, then go
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('WhatsApp exact condense reaches the real API once, keeps ambient context, and never becomes a user turn', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'whatsapp-command-'));
+  const repoRoot = path.join(root, 'repo'); mkdirSync(path.join(repoRoot, 'data'), { recursive: true });
+  mkdirSync(path.join(repoRoot, 'groups', 'team'), { recursive: true });
+  writeFileSync(path.join(repoRoot, 'data', 'registered_groups.json'), JSON.stringify({
+    '123@g.us': { name: 'Team', folder: 'team', trigger: '@smolpaws', added_at: '2026-01-01' },
+  }));
+  const sdk = require('../../../../packages/openhands-agent-server/vendor/openhands-agent/dist/index.cjs') as OpenHandsAgentModule;
+  let summaries = 0; let mainCalls = 0;
+  const server = await createAgentServerApp({
+    agentFactory: () => new Agent({ llm: { profile: TestLLM.fromMessages([]).profile, async complete() { mainCalls++; return sdk.llmCompletionResponseSchema.parse({
+      responseId: 'answer', message: sdk.messageSchema.parse({ role: 'assistant', content: [{ type: 'text', text: 'CONTINUED' }] }),
+    }); } }, tools: [], condenser: { handlesCondensationRequests: () => true, condense(view) {
+      if (!view.unhandledCondensationRequest) return view;
+      summaries++; return sdk.condensationSchema.parse({ summary: 'Fixture summary', summary_offset: 0,
+        forgotten_event_ids: view.events.map(event => event.id) });
+    } } }),
+    config: { conversationsPath: path.join(root, 'conversations'), statePath: path.join(root, 'state'),
+      bashEventsPath: path.join(root, 'bash'), workspaceRoot: repoRoot, sessionApiKey: SESSION_KEY },
+  });
+  const app = server.app as unknown as AppLike; const baseUrl = await listen(app);
+  const socket = new FakeSocket();
+  const bridge = new WhatsAppBridge({ logger: pino({ level: 'silent' }), serverUrl: baseUrl, sessionApiKey: SESSION_KEY,
+    config: { ...loadConfig({ HOME: path.join(root, 'home') }, repoRoot), pollIntervalMs: 60_000, debounceMs: 0 },
+    relayDbPath: path.join(root, 'relay.db'), ledgerPath: path.join(root, 'messages.db'), tickMs: 60_000, startupPing: false,
+    socketFactory: async () => ({ socket, saveCreds: () => undefined }),
+    downloadMedia: async () => { throw new Error('Public synthetic media download failure'); } });
+  const upsert = (id: string, text: string) => ({ messages: [{ key: { remoteJid: '123@g.us', id, fromMe: false, participant: '111@s.whatsapp.net' },
+    message: { conversation: text }, messageTimestamp: 1_700_000_000, pushName: 'Engel' }] });
+  try {
+    await bridge.start(); await socket.emit('connection.update', { connection: 'open' }); await bridge.whenReady();
+    await socket.emit('messages.upsert', upsert('ambient', 'public ambient context'));
+    await socket.emit('messages.upsert', upsert('command', '@smolpaws /condense'));
+    await bridge.pollOnce();
+    await waitFor(() => socket.sent.some(item => item.text.includes('Conversation condensed.')), () => bridge['runtime']!.runOnce());
+    assert.equal(summaries, 1); assert.equal(mainCalls, 0);
+    await socket.emit('messages.upsert', upsert('command', '@smolpaws /condense')); await bridge.pollOnce(); await bridge['runtime']!.runOnce();
+    assert.equal(summaries, 1);
+    await socket.emit('messages.upsert', upsert('next', '@smolpaws continue')); await bridge.pollOnce();
+    await waitFor(() => socket.sent.some(item => item.text.includes('CONTINUED')), () => bridge['runtime']!.runOnce());
+    const db = new Database(path.join(root, 'relay.db'), { readonly: true });
+    try {
+      const rows = db.prepare("SELECT payload_json FROM work WHERE kind='intake' ORDER BY sequence").all() as { payload_json: string }[];
+      assert.equal(rows.length, 2); assert.match(rows[1].payload_json, /public ambient context/); assert.ok(!rows[1].payload_json.includes('/condense'));
+    } finally { db.close(); }
+    assert.equal(mainCalls, 1);
+    assert.equal(socket.sent.filter(item => item.text.includes('Conversation condensed.')).length, 1);
+    // Failed image fetch, wrapped document captions, and forwarded text retain ordinary-message authority.
+    const nonCommands = [
+      { imageMessage: { caption: '@smolpaws /condense', mimetype: 'image/png' } },
+      { documentWithCaptionMessage: { message: { documentMessage: { caption: '@smolpaws /condense', mimetype: 'application/pdf' } } } },
+      { extendedTextMessage: { text: '@smolpaws /condense', contextInfo: { isForwarded: true, forwardingScore: 1 } } },
+    ];
+    for (const [index, message] of nonCommands.entries()) await socket.emit('messages.upsert', { messages: [{
+      key: { remoteJid: '123@g.us', id: `non-command-${index}`, fromMe: false, participant: '111@s.whatsapp.net' },
+      message, messageTimestamp: 1_700_000_001, pushName: 'Engel',
+    }] });
+    await bridge.pollOnce();
+    await waitFor(() => mainCalls === 2, () => bridge['runtime']!.runOnce());
+    assert.equal(summaries, 1);
+    const ledger = new Database(path.join(root, 'messages.db'), { readonly: true });
+    try { assert.deepEqual(ledger.prepare("SELECT command_eligible FROM messages WHERE id LIKE 'non-command-%'").all(),
+      [{ command_eligible: 0 }, { command_eligible: 0 }, { command_eligible: 0 }]); }
+    finally { ledger.close(); }
+  } finally { await bridge.stop(); await app.close(); rmSync(root, { recursive: true, force: true }); }
+});

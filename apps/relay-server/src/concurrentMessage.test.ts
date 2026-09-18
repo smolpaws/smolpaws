@@ -42,7 +42,7 @@ test('user input during a running tool stays durable and produces valid provider
   try {
     await server.app.inject({ method: 'POST', url: '/api/profiles', headers, payload: { profileId: 'test', providerId: 'openai', model: 'test', openAiApiMode: 'chat_completions' } });
     const started = await server.app.inject({ method: 'POST', url: '/api/conversations', headers, payload: {
-      conversation_id: conversationId, agent: { agent_kind: 'openhands', llm_profile_ref: 'test' }, workspace: { working_dir: root },
+      conversation_id: conversationId, agent: { condenser: { enabled: false }, agent_kind: 'openhands', llm_profile_ref: 'test' }, workspace: { working_dir: root },
       initial_message: { role: 'user', content: 'Run the tool.', run: true }, max_iterations: 8,
     } }); assert.equal(started.statusCode, 201, started.body);
     await wait(async () => (await events()).some(e => e.kind === 'ActionEvent'));

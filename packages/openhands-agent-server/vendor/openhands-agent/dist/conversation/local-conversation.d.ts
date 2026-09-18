@@ -19,6 +19,7 @@ export declare class LocalConversation {
     private activeAgent;
     private readonly onStepBoundary;
     private runInProgress;
+    private stepTail;
     private stepUserMessageId;
     get agent(): Agent;
     /** Last user event included when an agent step began; later arrivals remain queued. */
@@ -33,6 +34,9 @@ export declare class LocalConversation {
     pause(): void;
     resume(): void;
     run(): Promise<void>;
+    /** Force one condensation step after the currently executing step, without resuming a run. */
+    condense(): Promise<void>;
+    private withStepLock;
     private runOnce;
     /**
      * Nudge once on a repeating action-error streak, otherwise apply isStuck().

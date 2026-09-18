@@ -68,7 +68,7 @@ test.each([0, 1, 3])('restart repairs %i completed results in a three-tool batch
     const profile = llmProfileSchema.parse({ profileId: 'recovery-haiku', providerId: 'litellm_proxy', model: 'anthropic/claude-haiku-4-5', baseUrl: 'https://proxy.example.test/v1' });
     expect((await server.app.inject({ method: 'POST', url: '/api/profiles/recovery-haiku', payload: profile })).statusCode).toBe(201);
     const created = await server.app.inject({ method: 'POST', url: '/api/conversations', payload: {
-      agent: { llm_profile_ref: profile.profileId, tools: ['terminal', 'finish'] }, workspace: { working_dir: root },
+      agent: { llm_profile_ref: profile.profileId, tools: ['terminal', 'finish'], condenser: { enabled: false } }, workspace: { working_dir: root },
     } });
     expect(created.statusCode).toBe(201);
     const id = created.json<{ id: string }>().id;

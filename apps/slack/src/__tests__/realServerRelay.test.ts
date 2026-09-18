@@ -179,3 +179,31 @@ test('Slack ingress reaches the real TypeScript agent-server and returns through
     rmSync(relayDir, { recursive: true, force: true });
   }
 });
+
+test('Slack command metadata reaches the real condense API and produces one receipt in its original thread', async () => {
+  const root = tempDir('slack-command-'); const dbPath = path.join(root, 'relay.db');
+  const sdk = require('../../../../packages/openhands-agent-server/vendor/openhands-agent/dist/index.cjs') as OpenHandsAgentModule;
+  let summaries = 0; let mainCalls = 0;
+  const server = await createAgentServerApp({ agentFactory: () => new Agent({
+    llm: { profile: TestLLM.fromMessages([]).profile, async complete() { mainCalls++; throw new Error('Command must not run main LLM'); } }, tools: [],
+    condenser: { handlesCondensationRequests: () => true, condense(view) {
+      if (!view.unhandledCondensationRequest) return view;
+      summaries++; return sdk.condensationSchema.parse({ summary: 'Public fixture summary', summary_offset: 0,
+        forgotten_event_ids: view.events.map(event => event.id) });
+    } },
+  }), config: { conversationsPath: path.join(root, 'conversations'), statePath: path.join(root, 'state'),
+    bashEventsPath: path.join(root, 'bash'), workspaceRoot: root, sessionApiKey: SESSION_KEY } });
+  const app = server.app as unknown as AppLike; const baseUrl = await listen(app);
+  const sent: { channel: string; text: string; threadTs?: string }[] = [];
+  const runtime = new SlackRelayRuntime({ logger: pino({ level: 'silent' }), serverUrl: baseUrl, sessionApiKey: SESSION_KEY,
+    dbPath, tickMs: 60_000, sendChunk: async (channel, text, threadTs) => { sent.push({ channel, text, threadTs }); return 'receipt'; } });
+  const message = { conversationId: 'slack-thread-T1-C1-100.001', prompt: '/condense', messageId: 'C1:100.002',
+    command: { kind: 'condense' as const }, platformContext: { team_id: 'T1', channel_id: 'C1', thread_ts: '100.001' } };
+  try {
+    await runtime.start(); await runtime.accept(message);
+    await waitFor(() => sent.length > 0, () => runtime.runOnce());
+    await runtime.accept(message); await runtime.runOnce();
+    assert.equal(summaries, 1); assert.equal(mainCalls, 0);
+    assert.deepEqual(sent, [{ channel: 'C1', text: 'Conversation condensed.', threadTs: '100.001' }]);
+  } finally { await runtime.stop(); await app.close(); rmSync(root, { recursive: true, force: true }); }
+});

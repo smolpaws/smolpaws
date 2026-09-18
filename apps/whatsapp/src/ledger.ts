@@ -34,6 +34,8 @@ export interface LedgerMessage {
   is_from_me: number;
   media_path: string | null;
   media_type: string | null;
+  /** Positive evidence from original direct text, independent of media download success. */
+  command_eligible: number;
 }
 
 export interface StoreMessageInput {
@@ -44,11 +46,12 @@ export interface StoreMessageInput {
   content: string;
   timestamp: string;
   isFromMe: boolean;
+  commandEligible?: boolean;
   media?: { path: string; type: string } | undefined;
 }
 
 const MESSAGE_COLUMNS =
-  'seq, id, chat_jid, sender, sender_name, content, timestamp, is_from_me, media_path, media_type';
+  'seq, id, chat_jid, sender, sender_name, content, timestamp, is_from_me, media_path, media_type, command_eligible';
 
 export class WhatsAppLedger {
   readonly db: Database.Database;
@@ -82,7 +85,7 @@ export class WhatsAppLedger {
         value TEXT NOT NULL
       );
     `);
-    for (const column of ['sender_name TEXT', 'media_path TEXT', 'media_type TEXT', 'seq INTEGER']) {
+    for (const column of ['sender_name TEXT', 'media_path TEXT', 'media_type TEXT', 'seq INTEGER', 'command_eligible INTEGER NOT NULL DEFAULT 0']) {
       try {
         this.db.exec(`ALTER TABLE messages ADD COLUMN ${column}`);
       } catch {
@@ -149,14 +152,15 @@ export class WhatsAppLedger {
     this.db
       .prepare(
         `INSERT INTO messages
-           (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, media_path, media_type)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, media_path, media_type, command_eligible)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id, chat_jid) DO UPDATE SET
            sender = excluded.sender,
            sender_name = excluded.sender_name,
            content = excluded.content,
            timestamp = excluded.timestamp,
            is_from_me = excluded.is_from_me,
+           command_eligible = excluded.command_eligible,
            media_path = COALESCE(excluded.media_path, messages.media_path),
            media_type = COALESCE(excluded.media_type, messages.media_type)`,
       )
@@ -170,6 +174,7 @@ export class WhatsAppLedger {
         input.isFromMe ? 1 : 0,
         input.media?.path ?? null,
         input.media?.type ?? null,
+        input.commandEligible === true ? 1 : 0,
       );
   }
 
@@ -246,6 +251,11 @@ export class WhatsAppLedger {
   setLastAgentSeq(chatJid: string, seq: number): void {
     markWhatsAppMessages(this.db, this.db.prepare('SELECT id, chat_jid FROM messages WHERE chat_jid = ? AND seq <= ?').all(chatJid, seq) as LedgerMessage[], 'seen');
     this.setState(`last_agent_seq:${chatJid}`, String(seq));
+  }
+
+  /** A consumed command must not enter a later transcript; earlier ambient messages remain unseen. */
+  markCommandSeen(message: Pick<LedgerMessage, 'id' | 'chat_jid'>): void {
+    markWhatsAppMessages(this.db, [message], 'seen');
   }
 
   private peekDispatchSeq(chatJid: string): number {

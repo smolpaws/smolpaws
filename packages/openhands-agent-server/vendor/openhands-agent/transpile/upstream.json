@@ -217,6 +217,21 @@
       ]
     },
     {
+      "id": "DEV-SDK-010",
+      "kind": "DEVIATION",
+      "target": "sdk",
+      "prefixes": [
+        "openhands-sdk/openhands/sdk/context/condenser/",
+        "tests/sdk/context/condenser/"
+      ],
+      "paths": [
+        "openhands-sdk/openhands/sdk/llm/llm.py",
+        "openhands-sdk/openhands/sdk/llm/utils/runtime_metadata.py",
+        "tests/sdk/llm/test_llm.py",
+        "uv.lock"
+      ]
+    },
+    {
       "id": "EXC-SDK-001",
       "kind": "EXCLUDED",
       "target": "sdk",

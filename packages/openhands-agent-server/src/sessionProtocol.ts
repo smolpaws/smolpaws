@@ -1,5 +1,7 @@
 import type { Event } from '@smolpaws/openhands-agent';
 
+import { eventForWire } from './eventWire.js';
+
 /**
  * Wire protocol for `/sockets/session/{conversation_id}`.
  *
@@ -71,5 +73,8 @@ function frameWithNulls(frame: Record<string, unknown>): string {
 }
 
 export function serializeSessionFrame(frame: SessionFrame): string {
-  return frameWithNulls(frame as unknown as Record<string, unknown>);
+  const wire = frame.type === 'durable' || frame.type === 'transient'
+    ? { ...frame, event: eventForWire(frame.event) }
+    : frame;
+  return frameWithNulls(wire as unknown as Record<string, unknown>);
 }

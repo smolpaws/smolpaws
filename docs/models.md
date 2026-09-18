@@ -47,10 +47,16 @@ An optional `roles` object supplies defaults across scopes:
 ```
 
 An exact scope selection wins over the shared role selection. Omitted roles stay
-unconfigured; a specialist role never implicitly borrows `agent`. **Only `agent`
-currently consumes these selections.** The new stack still needs its LLM
-summarizing condenser and oracle implementations (Beads `smolpaws-w2d.7` and
-`smolpaws-w2d.8`). Storing those role names does not enable the features.
+unconfigured; a specialist role never implicitly borrows `agent`. As of 2026-09-18,
+`agent` and `condenser` consume these selections. Other roles, including `oracle`,
+remain separate work; storing their names does not enable their features.
+
+The condenser first honors an explicit `agent_settings.condenser.llm_profile_ref`,
+then the trusted scope's `condenser` selection, then `roles.condenser`. Its first use
+captures an immutable profile/settings binding; later role/catalog edits and main
+`switch_llm` choices do not change that binding. Configure the role before enabling
+or running a summarizing condenser. Missing configuration fails clearly. See
+[condensation](condensation.md) for defaults, commands and migration details.
 
 ## Changing a running conversation
 

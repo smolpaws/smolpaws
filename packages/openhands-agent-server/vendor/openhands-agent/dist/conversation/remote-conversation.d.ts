@@ -34,6 +34,7 @@ export declare class RemoteConversation {
     constructor(options: RemoteConversationOptions);
     sendMessage(message: string | Message, sender?: string): Promise<void>;
     run(options?: RemoteRunOptions): Promise<void>;
+    condense(): Promise<void>;
     pause(): Promise<void>;
     interrupt(): Promise<void>;
     private waitForRunCompletion;

@@ -21,8 +21,17 @@ export type FetchLike = (url: string, init: {
     readonly headers: Readonly<Record<string, string>>;
     readonly body: string;
 }) => Promise<FetchResponseLike>;
+/** Stored SystemPromptEvent tools and executable tool definitions share a count boundary. */
+export type LLMTokenCountTool = ToolDefinition | Readonly<Record<string, unknown>>;
 export interface LLMClient {
     readonly profile: LLMProfile;
+    /** Profile override first, then known metadata; null means unknown. No I/O in this getter. */
+    readonly effectiveMaxInputTokens?: number | null;
+    readonly tokenCountAccuracy?: 'estimate' | 'exact';
+    /** Local estimates include system text and tools. Unknown modalities return null, never zero. */
+    getTokenCount?(messages: readonly Message[], tools?: readonly LLMTokenCountTool[]): Promise<number | null>;
+    /** Resolve route metadata before reading the effective limit; failed discovery stays unknown. */
+    resolveRuntimeMetadata?(): Promise<void>;
     complete(messages: readonly Message[], tools?: readonly ToolDefinition[]): Promise<LLMCompletionResponse>;
 }
 export declare const llmUsageSchema: z.ZodObject<{
@@ -244,3 +253,5 @@ export declare class LLMResponseError extends Error {
 }
 /** Extract accounting before validating message/tool content; never fabricate a message. */
 export declare function parseLlmResponseWithMetadata(raw: unknown, parseMetadata: (raw: unknown) => LLMResponseMetadata, parseContent: (raw: unknown, metadata: LLMResponseMetadata) => LLMCompletionResponse): LLMCompletionResponse;
+/** Retain available completion metadata on provider failure without an assistant message. */
+export declare function throwProviderErrorWithMetadata(body: unknown, error: unknown, parseMetadata: (raw: unknown) => LLMResponseMetadata): never;

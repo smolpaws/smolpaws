@@ -24,7 +24,8 @@ test('heartbeat ticks run real product task tools in one saved conversation with
   const profile = { profileId: 'heartbeat', providerId: 'openai', model: 'test', openAiApiMode: 'responses' };
   await app.inject({ method: 'POST', url: '/api/profiles', headers, payload: profile });
   const address = await app.listen({ host: '127.0.0.1', port: 0 });
-  const request: HeartbeatConversationRequest = { conversation_id: randomUUID(), agent: { agent_kind: 'openhands', llm_profile_ref: 'heartbeat' },
+  const agent = { agent_kind: 'openhands' as const, llm_profile_ref: 'heartbeat', condenser: { enabled: false } };
+  const request: HeartbeatConversationRequest = { conversation_id: randomUUID(), agent,
     workspace: { kind: 'LocalWorkspace', working_dir: root }, max_iterations: 10, initial_message: { role: 'user', content: 'List tasks and finish. Do not send messages.' } };
   const events = async () => (await app.inject({ url: `/api/conversations/${request.conversation_id}/events/search`, headers: { 'x-session-api-key': 'test' } })).json().items as Array<Record<string, unknown>>;
   const waitForFinish = async (count: number) => {

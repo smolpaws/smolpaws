@@ -262,6 +262,8 @@ test(
         dbPath,
         tickMs: 60_000,
         createConversationDefaults: {
+          // This fixture tests finish-to-delivery; dedicated command tests exercise condensation.
+          agent: { agent_kind: 'openhands', llm_profile_ref: 'default', condenser: { enabled: false } },
           workspace: { kind: 'LocalWorkspace', working_dir: workspace },
           tags: { ingress: 'slack' },
         },

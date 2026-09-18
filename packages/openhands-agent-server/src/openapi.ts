@@ -194,7 +194,7 @@ export const routeSpecs = [
   { method: 'post', path: '/api/conversations/{conversation_id}/confirmation_policy', tags: ['Conversations'], summary: 'Accepted deviation: confirmation policy is intentionally unsupported', requestBody: setConfirmationPolicyRequestSchema, responses: { 410: acceptedDeviationSchema, 404: null } },
   { method: 'post', path: '/api/conversations/{conversation_id}/security_analyzer', tags: ['Conversations'], summary: 'Accepted deviation: security analyzer is intentionally unsupported', requestBody: setSecurityAnalyzerRequestSchema, responses: { 410: acceptedDeviationSchema, 404: null } },
   { method: 'post', path: '/api/conversations/{conversation_id}/ask_agent', tags: ['Conversations'], summary: 'Ask agent out of band', requestBody: askAgentRequestSchema, responses: { 200: askAgentResponseSchema, 404: null, 501: null } },
-  { method: 'post', path: '/api/conversations/{conversation_id}/condense', tags: ['Conversations'], summary: 'Condense conversation', responses: { 200: successSchema, 404: null, 501: null } },
+  { method: 'post', path: '/api/conversations/{conversation_id}/condense', tags: ['Conversations'], summary: 'Condense conversation', responses: { 200: successSchema, 404: null, 500: null } },
   { method: 'post', path: '/api/conversations/{conversation_id}/fork', tags: ['Conversations'], summary: 'Fork conversation', query: includeSkillsQuery, requestBody: forkConversationRequestSchema, requestBodyRequired: false, responses: { 201: conversationInfoSchema, 404: null, 409: null } },
 
   { method: 'get', path: '/api/conversations/{conversation_id}/events/search', tags: ['Events'], summary: 'Search conversation events', query: eventSearchQuery, responses: { 200: openApiEventPageSchema, 404: null } },

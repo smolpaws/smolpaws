@@ -10,6 +10,8 @@
  */
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
+import { commandReceipt, type CommandRecord, type CommandResult } from './relayCommands.js';
+import { deterministicEventId } from './ids.js';
 import { applySchema } from './schema.js';
 import {
   DEFAULT_RETRY_POLICY,
@@ -194,12 +196,61 @@ export class MessageWorkStore {
 
   /** Accept intake work; idempotent on (kind='intake', source_key). Returns existing-or-new row. */
   acceptIntake(laneKey: string, input: IntakeInput, now: Date | number): WorkRow {
-    return this.insertWork('intake', {
-      sourceKey: input.sourceKey,
-      laneKey,
-      agentEventId: input.agentEventId,
-      payload: input.payload,
-    }, now);
+    return this.db.transaction(() => {
+      const existing = this.db.prepare("SELECT * FROM work WHERE kind='intake' AND source_key=?").get(input.sourceKey) as RawWorkRow | undefined;
+      // A replay must not change the original intent, including promoting ordinary text to a command.
+      if (existing) return mapWork(existing);
+      if (input.command !== undefined && input.command.kind !== 'condense') throw new Error('Unsupported relay command');
+      const row = this.insertWork('intake', { sourceKey: input.sourceKey, laneKey,
+        agentEventId: input.agentEventId, payload: input.payload }, now);
+      if (input.command !== undefined) this.db.prepare("INSERT INTO intake_commands VALUES (?, ?, 'pending', NULL)")
+        .run(row.id, JSON.stringify(input.command));
+      return row;
+    }).immediate();
+  }
+
+  getCommand(workId: string): CommandRecord | null {
+    const row = this.db.prepare('SELECT command_json, status FROM intake_commands WHERE work_id=?').get(workId) as
+      { command_json: string; status: CommandRecord['status'] } | undefined;
+    return row ? { command: JSON.parse(row.command_json), status: row.status } : null;
+  }
+
+  /** Durable fence before a non-idempotent operation. The longer claim protects its bounded deadline. */
+  startCommand(claim: ClaimedWork, now: Date | number, timeoutMs: number): boolean {
+    return this.db.transaction(() => {
+      const current = this.db.prepare("SELECT id FROM work WHERE id=? AND state='claimed' AND generation=?")
+        .get(claim.row.id, claim.generation);
+      if (!current) return false;
+      const deadline = iso((typeof now === 'number' ? now : now.getTime()) + timeoutMs);
+      const changed = this.db.prepare("UPDATE intake_commands SET status='attempted', attempt_deadline=? WHERE work_id=? AND status='pending'")
+        .run(deadline, claim.row.id).changes;
+      if (!changed) return false;
+      this.db.prepare('UPDATE work SET claim_until=? WHERE id=?').run(deadline, claim.row.id);
+      return true;
+    }).immediate();
+  }
+
+  /** Journal outcome, receipt and intake completion form one commit; a stale worker cannot overwrite it. */
+  finishCommand(claim: ClaimedWork, result: CommandResult, now: Date | number): boolean {
+    return this.db.transaction(() => {
+      const row = this.db.prepare("SELECT * FROM work WHERE id=? AND state IN ('claimed', 'failed') AND generation=?")
+        .get(claim.row.id, claim.generation) as RawWorkRow | undefined;
+      if (!row) return false;
+      const status = this.getCommand(row.id)?.status;
+      if (status !== 'attempted' && !(status === 'pending' && result === 'rejected')) return false;
+      if (row.state === 'failed' && !(status === 'pending' && result === 'rejected')) return false;
+      this.completeCommand(row, result, now);
+      return true;
+    }).immediate();
+  }
+
+  private completeCommand(row: RawWorkRow, result: CommandResult, now: Date | number): void {
+    this.db.prepare('UPDATE intake_commands SET status=?, attempt_deadline=NULL WHERE work_id=?').run(result, row.id);
+    this.insertDelivery({ sourceKey: `command:${row.id}:receipt`, laneKey: row.lane_key,
+      agentEventId: deterministicEventId('relay-command', row.source_key),
+      payload: { kind: 'current_thread_message', text: commandReceipt(result) } }, now);
+    this.db.prepare("UPDATE work SET state='done', generation=generation+1, claim_owner=NULL, claim_until=NULL, updated_at=? WHERE id=?")
+      .run(iso(now), row.id);
   }
 
   /** Insert delivery work (from the projector); idempotent on (kind='delivery', source_key). */
@@ -354,6 +405,11 @@ export class MessageWorkStore {
       if (!current || current.state !== 'claimed' || current.generation !== claim.generation) {
         return null;
       }
+      if (this.getCommand(current.id)?.status === 'pending' &&
+        (outcome.kind === 'fail' || outcome.kind === 'retry' && current.attempts >= this.policy.maxAttempts)) {
+        this.completeCommand(current, 'rejected', now);
+        return 'done';
+      }
       let next: WorkState;
       const set: Record<string, unknown> = { id: claim.row.id, now: ts };
       switch (outcome.kind) {
@@ -431,6 +487,15 @@ export class MessageWorkStore {
   reconcile(now: Date | number): ReconcileReport {
     const ts = iso(now);
     const tx = this.db.transaction((): ReconcileReport => {
+      // A lost response or crashed worker cannot safely repeat POST /condense. Finish with an
+      // explicit unknown outcome and receipt, then let subsequent ordinary intake proceed.
+      // Repair a preflight failure saved by a version that completed the journal separately.
+      const rejectedCommands = this.db.prepare(`SELECT w.* FROM work w JOIN intake_commands c ON c.work_id=w.id
+        WHERE c.status='pending' AND w.state='failed'`).all() as RawWorkRow[];
+      for (const command of rejectedCommands) this.completeCommand(command, 'rejected', now);
+      const expiredCommands = this.db.prepare(`SELECT w.* FROM work w JOIN intake_commands c ON c.work_id=w.id
+        WHERE c.status='attempted' AND c.attempt_deadline <= ?`).all(ts) as RawWorkRow[];
+      for (const command of expiredCommands) this.completeCommand(command, 'unknown', now);
       const toUnknown = this.db
         .prepare(
           `UPDATE work SET state='delivery_unknown', generation=generation+1, claim_owner=NULL,

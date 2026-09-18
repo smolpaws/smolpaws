@@ -88,3 +88,17 @@ configuration. See [subscription architecture](docs/ARCHITECTURE.md#chatgpt-subs
 
 `npm run manual:subscription` validates the connected account and a two-turn tool workflow in
 temporary state without connecting any bridge.
+
+## Condensation
+
+Configure an enabled `agent_settings.condenser` with `condenser_kind: "llm_summarizing"`
+and an explicit saved `llm_profile_ref` (or provide the host's condenser-role resolver).
+The summarizer keeps its own immutable profile/settings binding and usage accounting.
+An enabled but unconfigured summarizer reports a configuration error on first execution.
+Use disabled/no-op settings when no summarizer is intended.
+
+Automatic event/token pressure and supported provider overflow recovery run in the SDK.
+`POST /api/conversations/{conversation_id}/condense` uses the same session-key authentication
+and forces a serialized maintenance step, returning `{ "success": true }` only on success.
+It does not resume a paused conversation. See the [condensation guide](../../docs/condensation.md)
+for exact triggers, scope selection, command handling and rollout prerequisites.

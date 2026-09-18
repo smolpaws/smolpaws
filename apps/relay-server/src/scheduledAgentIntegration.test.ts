@@ -54,7 +54,7 @@ for (const activity of [false, true]) test(`isolated checker gets lean context a
   const address = await server.app.listen({ host: '127.0.0.1', port: 0 });
   const deliveries: Array<{ text?: string }> = [];
   const runtime = new RelayRuntime({ platform: 'whatsapp', logger: pino({ level: 'silent' }), serverUrl: address, dbPath: relayPath, schedulerDbPath: schedulerPath,
-    createConversationDefaults: { workspace: { working_dir: workspace }, tags: { scope: 'openhands' }, agent: { llm_profile_ref: 'full-owner' } },
+    createConversationDefaults: { workspace: { working_dir: workspace }, tags: { scope: 'openhands' }, agent: { condenser: { enabled: false }, llm_profile_ref: 'full-owner' } },
     target: { validate() {}, async deliver(_lane, payload) { deliveries.push(payload as { text?: string }); return {}; } },
   });
   const until = async (condition: () => boolean) => {

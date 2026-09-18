@@ -1,4 +1,5 @@
 import { z } from 'zod';
+export * from './condenser-settings.js';
 export declare const RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED: readonly ["provider", "model", "openaiApiMode", "baseUrl", "apiVersion", "timeout", "temperature", "topP", "topK", "maxInputTokens", "maxOutputTokens", "reasoningEffort", "reasoningSummary", "promptCacheRetention", "promptCacheKey", "inputCostPerToken", "outputCostPerToken"];
 export type RawLlmFieldIgnoredWhenProfileSelected = (typeof RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED)[number];
 export type ProfileSelectedLlmSettings = {
@@ -27,7 +28,20 @@ export declare const openHandsAgentSettingsSchema: z.ZodObject<{
     enable_sub_agents: z.ZodDefault<z.ZodBoolean>;
     enable_switch_llm_tool: z.ZodDefault<z.ZodBoolean>;
     tool_concurrency_limit: z.ZodDefault<z.ZodNumber>;
-    condenser: z.ZodDefault<z.ZodUnknown>;
+    condenser: z.ZodPrefault<z.ZodPreprocess<z.ZodUnion<readonly [z.ZodObject<{
+        condenser_kind: z.ZodDefault<z.ZodLiteral<"llm_summarizing">>;
+        enabled: z.ZodDefault<z.ZodBoolean>;
+        llm_profile_ref: z.ZodOptional<z.ZodString>;
+        max_size: z.ZodDefault<z.ZodNumber>;
+        max_tokens: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        keep_first: z.ZodDefault<z.ZodNumber>;
+        minimum_progress: z.ZodDefault<z.ZodNumber>;
+        hard_context_reset_max_retries: z.ZodDefault<z.ZodNumber>;
+        hard_context_reset_context_scaling: z.ZodDefault<z.ZodNumber>;
+    }, z.core.$strict>, z.ZodObject<{
+        condenser_kind: z.ZodLiteral<"no_op">;
+        enabled: z.ZodDefault<z.ZodBoolean>;
+    }, z.core.$strict>]>>>;
     verification: z.ZodDefault<z.ZodObject<{
         critic_enabled: z.ZodDefault<z.ZodBoolean>;
         critic_mode: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"finish_and_message">, z.ZodLiteral<"all_actions">]>>;
@@ -60,7 +74,20 @@ export declare const agentSettingsSchema: z.ZodUnion<readonly [z.ZodObject<{
     enable_sub_agents: z.ZodDefault<z.ZodBoolean>;
     enable_switch_llm_tool: z.ZodDefault<z.ZodBoolean>;
     tool_concurrency_limit: z.ZodDefault<z.ZodNumber>;
-    condenser: z.ZodDefault<z.ZodUnknown>;
+    condenser: z.ZodPrefault<z.ZodPreprocess<z.ZodUnion<readonly [z.ZodObject<{
+        condenser_kind: z.ZodDefault<z.ZodLiteral<"llm_summarizing">>;
+        enabled: z.ZodDefault<z.ZodBoolean>;
+        llm_profile_ref: z.ZodOptional<z.ZodString>;
+        max_size: z.ZodDefault<z.ZodNumber>;
+        max_tokens: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        keep_first: z.ZodDefault<z.ZodNumber>;
+        minimum_progress: z.ZodDefault<z.ZodNumber>;
+        hard_context_reset_max_retries: z.ZodDefault<z.ZodNumber>;
+        hard_context_reset_context_scaling: z.ZodDefault<z.ZodNumber>;
+    }, z.core.$strict>, z.ZodObject<{
+        condenser_kind: z.ZodLiteral<"no_op">;
+        enabled: z.ZodDefault<z.ZodBoolean>;
+    }, z.core.$strict>]>>>;
     verification: z.ZodDefault<z.ZodObject<{
         critic_enabled: z.ZodDefault<z.ZodBoolean>;
         critic_mode: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"finish_and_message">, z.ZodLiteral<"all_actions">]>>;

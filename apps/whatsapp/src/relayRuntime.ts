@@ -1,3 +1,4 @@
+import type { RelayCommand } from '../../../src/coordinator/relayCommands.js';
 import type { MediaSender } from '../../../src/coordinator/outboundMedia.js';
 import type { Logger } from 'pino';
 
@@ -69,8 +70,8 @@ export class WhatsAppRelayRuntime {
   }
 
   /** Durably accept one chat batch. `sourceMessageId` is the newest WhatsApp message id in the batch. */
-  accept(lane: LaneDescriptor, sourceMessageId: string, content: unknown): Promise<void> {
-    return this.runtime.accept({ lane, message: { sourceMessageId, content } });
+  accept(lane: LaneDescriptor, sourceMessageId: string, content: unknown, command?: RelayCommand): Promise<void> {
+    return this.runtime.accept({ lane, message: { sourceMessageId, content, ...(command === undefined ? {} : { command }) } });
   }
 
   runOnce(): Promise<void> {

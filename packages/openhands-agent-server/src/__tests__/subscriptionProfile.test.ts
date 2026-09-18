@@ -34,7 +34,7 @@ it('uses SDK subscription auth for preflight, execution and persisted conversati
     expect(validation.json()).toEqual({ valid: true, error: null });
     expect(authFetch).toHaveBeenCalledOnce();
     expect((await server.app.inject({ method: 'POST', url: '/api/profiles/chatgpt-test', payload: profile })).statusCode).toBe(201);
-    const started = await server.app.inject({ method: 'POST', url: '/api/conversations', payload: { agent: { llm_profile_ref: 'chatgpt-test', tools: ['finish'] }, workspace: { working_dir: root }, initial_message: { role: 'user', content: 'Finish first turn', run: false } } });
+    const started = await server.app.inject({ method: 'POST', url: '/api/conversations', payload: { agent: { llm_profile_ref: 'chatgpt-test', tools: ['finish'], condenser: { enabled: false } }, workspace: { working_dir: root }, initial_message: { role: 'user', content: 'Finish first turn', run: false } } });
     expect(started.statusCode).toBe(201);
     const id = started.json().id;
     await server.app.inject({ method: 'POST', url: `/api/conversations/${id}/run` });

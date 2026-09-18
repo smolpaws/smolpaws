@@ -16,7 +16,7 @@ try {
   assert((await server.app.inject({ method: 'POST', url: '/api/profiles/subscription-smoke', payload: profile })).statusCode === 201, 'Profile creation failed');
   const validation = (await server.app.inject({ method: 'POST', url: '/api/profiles/subscription-smoke/validate', payload: { llm: profile } })).json<{ valid: boolean }>();
   assert(validation.valid, 'Subscription profile preflight failed');
-  const started = await server.app.inject({ method: 'POST', url: '/api/conversations', payload: { agent: { llm_profile_ref: profile.profileId, tools: ['think', 'finish'] }, workspace: { working_dir: root }, max_iterations: 8 } });
+  const started = await server.app.inject({ method: 'POST', url: '/api/conversations', payload: { agent: { llm_profile_ref: profile.profileId, tools: ['think', 'finish'], condenser: { enabled: false } }, workspace: { working_dir: root }, max_iterations: 8 } });
   assert(started.statusCode === 201, 'Conversation creation failed');
   const { id } = started.json<{ id: string }>();
   for (const marker of ['SUBSCRIPTION_FIRST_OK', 'SUBSCRIPTION_CONTINUATION_OK']) {

@@ -74,7 +74,7 @@ test.each([undefined, '1h'] as const)('profile-created Anthropic proxy agents re
   try {
     const profile = { profileId: 'proxy-haiku', providerId: 'litellm_proxy', model: 'anthropic/claude-haiku-4-5', baseUrl: 'https://llm-proxy.example.test/v1', ...(ttl === undefined ? {} : { anthropicCacheTtl: ttl }) };
     expect((await server.app.inject({ method: 'POST', url: '/api/profiles/proxy-haiku', payload: profile })).statusCode).toBe(201);
-    const started = await server.app.inject({ method: 'POST', url: '/api/conversations', payload: { agent: { llm_profile_ref: profile.profileId, tools: ['finish'] }, workspace: { working_dir: root } } });
+    const started = await server.app.inject({ method: 'POST', url: '/api/conversations', payload: { agent: { llm_profile_ref: profile.profileId, tools: ['finish'], condenser: { enabled: false } }, workspace: { working_dir: root } } });
     expect(started.statusCode).toBe(201);
     const id = started.json<{ id: string }>().id;
     const first = await run(server, id, 'Finish the first turn.');
@@ -95,7 +95,7 @@ test.each([undefined, '1h'] as const)('profile-created Anthropic proxy agents re
     expectCacheTtl(second.launched_agent_profile, ttl);
     expectCacheTtl(JSON.parse(await readFile(metadataPath, 'utf8')).request.llm_profile_snapshot, ttl);
     const newConversation = await server.app.inject({ method: 'POST', url: '/api/conversations',
-      payload: { agent: { llm_profile_ref: profile.profileId, tools: ['finish'] }, workspace: { working_dir: root } } });
+      payload: { agent: { llm_profile_ref: profile.profileId, tools: ['finish'], condenser: { enabled: false } }, workspace: { working_dir: root } } });
     expect(newConversation.statusCode).toBe(201);
     const newer = await run(server, newConversation.json<{ id: string }>().id, 'Finish a new conversation.');
     expect(newer.launched_agent_profile.anthropicCacheTtl).toBe(changedTtl);
@@ -193,7 +193,7 @@ test('non-Anthropic default, catalog and conversation profiles never acquire an 
     const conversations: string[] = [];
     for (const profileId of ['default', ...profiles.map((profile) => profile.profileId)]) {
       const started = await server.app.inject({ method: 'POST', url: '/api/conversations',
-        payload: { agent: { llm_profile_ref: profileId, tools: ['finish'] }, workspace: { working_dir: root } } });
+        payload: { agent: { llm_profile_ref: profileId, tools: ['finish'], condenser: { enabled: false } }, workspace: { working_dir: root } } });
       expect(started.statusCode).toBe(201);
       const id = started.json<{ id: string }>().id;
       conversations.push(id);

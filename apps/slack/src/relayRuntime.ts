@@ -70,7 +70,7 @@ export class SlackRelayRuntime {
     }
     await this.runtime.accept({
       lane: slackLaneDescriptor(message),
-      message: { sourceMessageId: message.messageId, content: message.prompt },
+      message: { sourceMessageId: message.messageId, content: message.prompt, ...(message.command === undefined ? {} : { command: message.command }) },
     });
   }
 

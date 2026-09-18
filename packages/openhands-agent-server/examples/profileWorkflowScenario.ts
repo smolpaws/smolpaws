@@ -153,6 +153,8 @@ async function activateAndConfigure(client: AgentServerHttpClient, profileId: st
     agent_settings: { readonly llm_profile_ref?: string };
     conversation_settings: { readonly max_iterations: number };
   }>('/api/settings', {
+    // This short profile workflow exercises main completions, not summarization.
+    agent_settings: { ...current.agent_settings, condenser: { enabled: false } },
     conversation_settings: { ...current.conversation_settings, max_iterations: maxIterations },
     llm_api_key: apiKey,
   });

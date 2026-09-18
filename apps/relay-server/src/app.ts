@@ -8,7 +8,7 @@ import { TaskScheduler, type ScheduledLane } from '../../../src/coordinator/task
 import { queueMedia } from '../../../src/coordinator/outboundMedia.js';
 import { nativeRelayDbPath } from './relayPaths.js';
 import { productContext, type ProductContextOptions } from './context.js';
-import { productProfileSelection, type ProductModelOptions } from './models.js';
+import { productCondenserProfileSelection, productProfileSelection, type ProductModelOptions } from './models.js';
 import { loadScheduledAgent, type ScheduledAgentOptions } from './scheduledAgents.js';
 import { scheduledAgentTools, type SlackCheckerFactory } from './scheduledAgentTools.js';
 import type * as Sdk from '../../../packages/openhands-agent-server/vendor/openhands-agent/dist/index.js';
@@ -69,7 +69,7 @@ export function productTools(scheduler: TaskScheduler, options: { scheduledAgent
     return [...all.values()];
   };
 }
-export interface RelayServerAppOptions extends Omit<AgentServerAppOptions, 'configureContext' | 'resolveProfileSelection'> {
+export interface RelayServerAppOptions extends Omit<AgentServerAppOptions, 'configureContext' | 'resolveProfileSelection' | 'resolveCondenserProfileSelection'> {
   context?: ProductContextOptions;
   models?: ProductModelOptions;
   scheduledAgents?: ScheduledAgentOptions;
@@ -80,11 +80,15 @@ export async function createRelayServerApp(options: RelayServerAppOptions = {}, 
     const { context, models, scheduledAgents, slackCheckerFactory, ...serverOptions } = options;
     const managedProfiles = serverOptions.agentFactory === undefined && serverOptions.conversationService === undefined;
     if (!managedProfiles && models !== undefined) throw new Error('Model configuration requires the profile agent factory');
+    const selectCondenser = productCondenserProfileSelection(scheduler, models);
     const selectProfile = productProfileSelection(scheduler, { ...models, ...(scheduledAgents === undefined ? {} : { scheduledAgents }) });
     const server = await createAgentServerApp({ ...serverOptions, configureTools: productTools(scheduler, { scheduledAgents, slackCheckerFactory }), configureContext: productContext(scheduler, { ...context, ...(scheduledAgents === undefined ? {} : { scheduledAgents }) }),
       ...(managedProfiles ? { resolveProfileSelection: (factoryContext: Parameters<typeof selectProfile>[0]) => {
         productLane(scheduler, factoryContext.stored);
         return selectProfile(factoryContext);
+      }, resolveCondenserProfileSelection: (factoryContext: Parameters<typeof selectCondenser>[0]) => {
+        productLane(scheduler, factoryContext.stored);
+        return selectCondenser(factoryContext);
       } } : {}) });
     server.app.addHook('onSend', async (_request, reply) => { reply.header('x-smolpaws-host', 'relay'); });
     server.app.addHook('onClose', async () => { scheduler.close(); });

@@ -82,7 +82,7 @@ for (const platform of ['whatsapp', 'slack', 'agent-server']) test(`${platform} 
   try {
     for (const name of ['a', 'b', 'c']) await server.serverStateService.saveProfile(sdk.llmProfileSchema.parse({ profileId: name, providerId: 'openai', model: `model-${name}` }));
     const started = await server.app.inject({ method: 'POST', url: '/api/conversations', payload: { id,
-      workspace: { working_dir: root }, agent: { llm_profile_ref: 'c', tools: ['finish', 'think'], enable_switch_llm_tool: true } } });
+      workspace: { working_dir: root }, agent: { condenser: { enabled: false }, llm_profile_ref: 'c', tools: ['finish', 'think'], enable_switch_llm_tool: true } } });
     assert.equal(started.statusCode, 201);
     const first = await send('Remember the first request');
     assert.equal(first.agent.llm_profile_ref, 'a');

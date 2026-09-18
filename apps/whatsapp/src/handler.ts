@@ -1,3 +1,4 @@
+import { parseRelayCommand, type RelayCommand } from '../../../src/coordinator/relayCommands.js';
 /**
  * Pure WhatsApp intake policy: which chats the cat answers in, when a message counts as addressed to it,
  * how a batch of chat messages becomes one prompt, and how a chat maps to a durable relay lane.
@@ -150,4 +151,25 @@ export function conversationDefaultsForGroup(
     workspace: { kind: 'LocalWorkspace', working_dir: scopeWorkingDir(config.repoRoot, group) },
     tags: { ...((shared.tags as Record<string, string> | undefined) ?? {}), scope: group.folder },
   };
+}
+
+
+export type WhatsAppIntakeSegment = { kind: 'messages'; messages: LedgerMessage[] }
+  | { kind: 'command'; message: LedgerMessage; command: RelayCommand };
+
+/** Split fresh direct messages only. Historical transcript text never becomes a command. */
+export function splitCommandBatches(messages: readonly LedgerMessage[], group: RegisteredGroup, triggerPattern: RegExp): WhatsAppIntakeSegment[] {
+  const segments: WhatsAppIntakeSegment[] = [];
+  for (const message of messages) {
+    const normalized = message.content.trim().replace(triggerPattern, '$1').trim();
+    const command = message.command_eligible === 1 && !message.media_path && shouldRespond(group, message.content.trim(), triggerPattern)
+      ? parseRelayCommand(normalized) : undefined;
+    if (command) segments.push({ kind: 'command', message, command });
+    else {
+      const previous = segments.at(-1);
+      if (previous?.kind === 'messages') previous.messages.push(message);
+      else segments.push({ kind: 'messages', messages: [message] });
+    }
+  }
+  return segments;
 }

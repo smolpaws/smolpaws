@@ -137,3 +137,21 @@ test('HTTP deadline includes a stalled response body', async () => {
     } })) });
   await assert.rejects(client.searchEvents('c', null, 10), /aborted/);
 });
+
+test('condense uses the protected upstream route with the same session key and no message append', async () => {
+  const { fetchLike, calls } = stubFetch(() => json({ success: true }));
+  const client = new HttpAgentServerClient({ baseUrl: 'http://h', sessionApiKey: 'fixture-key', fetch: fetchLike });
+  await client.condense('scope/id');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'http://h/api/conversations/scope%2Fid/condense');
+  assert.equal(calls[0].method, 'POST');
+  assert.equal(calls[0].headers['x-session-api-key'], 'fixture-key');
+  assert.deepEqual(calls[0].body, {});
+});
+
+test('condense requires the upstream completed-success response rather than assuming any 2xx finished', async () => {
+  for (const [body, status] of [[{}, 200], [{ success: false }, 200], [{ success: true }, 202]] as const) {
+    const client = new HttpAgentServerClient({ baseUrl: 'http://h', fetch: async () => json(body, status) });
+    await assert.rejects(client.condense('scope'), /unconfirmed/);
+  }
+});

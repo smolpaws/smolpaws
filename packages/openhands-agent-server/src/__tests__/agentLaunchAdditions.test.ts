@@ -109,7 +109,7 @@ describe('conversation agent_launch_additions', () => {
         method: 'PATCH',
         url: '/api/settings',
         payload: {
-          agent_settings: { ...base.agent_settings, llm_profile_ref: 'gpt-nano', tools: ['finish'] },
+          agent_settings: { ...base.agent_settings, llm_profile_ref: 'gpt-nano', tools: ['finish'], condenser: { enabled: false } },
           conversation_settings: base.conversation_settings,
           llm_api_key: 'test-openai-key',
         },

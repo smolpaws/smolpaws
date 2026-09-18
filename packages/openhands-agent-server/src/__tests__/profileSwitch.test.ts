@@ -51,7 +51,7 @@ async function fixture(extra: Partial<AgentServerAppOptions> = {}, complete?: (p
   const server = await createAgentServerApp(options); servers.push(server);
   for (const name of ['a', 'b', 'c']) await server.serverStateService.saveProfile(llmProfileSchema.parse({ profileId: name, providerId: 'openai', model: `model-${name}` }));
   const start = await server.app.inject({ method: 'POST', url: '/api/conversations', payload: {
-    agent: { llm_profile_ref: 'a', tools: ['finish', 'think'], enable_switch_llm_tool: true, tool_concurrency_limit: 2 },
+    agent: { condenser: { enabled: false }, llm_profile_ref: 'a', tools: ['finish', 'think'], enable_switch_llm_tool: true, tool_concurrency_limit: 2 },
   } });
   expect(start.statusCode).toBe(201);
   return { server, id: start.json<{ id: string }>().id, observed, built, root, options };
@@ -310,7 +310,7 @@ test('public callers cannot inject a pending profile or configuration-observatio
   const f = await fixture();
   const b = await f.server.serverStateService.getProfile('b');
   const result = await f.server.app.inject({ method: 'POST', url: '/api/conversations', payload: {
-    agent: { llm_profile_ref: 'a' }, llm_profile_snapshot: b,
+    agent: { condenser: { enabled: false }, llm_profile_ref: 'a' }, llm_profile_snapshot: b,
     llm_profile_selection: { configured_ref: 'b', pending_profile: b },
   } });
   expect(result.statusCode).toBe(201);
@@ -331,7 +331,7 @@ test.each([
     return { message: reply('done'), usage: null };
   } }) });
   const start = await f.server.app.inject({ method: 'POST', url: '/api/conversations', payload: {
-    agent: { llm_profile_ref: 'a', tools: explicit ? ['switch_llm', 'finish'] : ['finish'], enable_switch_llm_tool: enabled },
+    agent: { condenser: { enabled: false }, llm_profile_ref: 'a', tools: explicit ? ['switch_llm', 'finish'] : ['finish'], enable_switch_llm_tool: enabled },
   } });
   expect(start.statusCode).toBe(201);
   await send(f.server, start.json().id); await settled(f.server, start.json().id);

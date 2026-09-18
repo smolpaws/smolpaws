@@ -1,4 +1,4 @@
-export declare const VERSION = "0.2.0";
+export declare const VERSION = "0.4.0";
 export * from './agent/index.js';
 export * from './conversation/index.js';
 export * from './context/index.js';
@@ -12,6 +12,7 @@ export * from './io/index.js';
 export * from './llm/index.js';
 export * from './llm/auth/index.js';
 export * from './llm/client.js';
+export type { MetadataFetchLike } from './llm/context-budget.js';
 export * from './llm/metrics.js';
 export * from './llm/history.js';
 export * from './llm/exceptions.js';

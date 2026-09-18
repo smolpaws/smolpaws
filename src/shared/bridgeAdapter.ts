@@ -16,6 +16,7 @@
  *   bridgeRegistry.register('discord', (config) => new DiscordAdapter(config));
  */
 
+import type { RelayCommand } from '../coordinator/relayCommands.js';
 import type { Logger } from 'pino';
 import type { SmolpawsOutboundMessage } from './runner.js';
 import { getSharedShadowIntake, isShadowEnabled } from './shadowIntake.js';
@@ -40,6 +41,8 @@ export type BridgeAdapterConfig = {
 };
 
 export type IncomingMessage = {
+  /** Trusted standalone bridge command, recognized before adding conversation history. */
+  command?: RelayCommand;
   /** Stable conversation ID for agent-server (e.g. 'discord-dm-12345'). */
   conversationId: string;
   /** The user's prompt text, stripped of triggers/mentions. */

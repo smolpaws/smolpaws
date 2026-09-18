@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 
 import type { ConversationService } from './conversationService.js';
+import { eventForWire } from './eventWire.js';
 import { eventSortOrderSchema, messageFromSendRequest, sendMessageRequestSchema, confirmationResponseRequestSchema } from './models.js';
 import {
   acceptedDeviation,
@@ -20,7 +21,7 @@ export function registerEventRoutes(app: FastifyInstance, service: ConversationS
     const eventService = await eventServiceOr404(reply, service, param(request, 'conversation_id'));
     if (eventService === null) return undefined;
     const query = queryRecord(request);
-    return eventService.searchEvents(
+    const page = await eventService.searchEvents(
       stringQuery(query.page_id),
       intQuery(query.limit, 100),
       stringQuery(query.kind),
@@ -30,6 +31,7 @@ export function registerEventRoutes(app: FastifyInstance, service: ConversationS
       dateQuery(query.timestamp__gte),
       dateQuery(query.timestamp__lt),
     );
+    return { ...page, items: page.items.map(eventForWire) };
   });
 
   app.get('/api/conversations/:conversation_id/events/count', async (request, reply) => {
@@ -47,7 +49,7 @@ export function registerEventRoutes(app: FastifyInstance, service: ConversationS
       reply.status(404);
       return { detail: 'Event not found' };
     }
-    return event;
+    return eventForWire(event);
   });
 
   app.get('/api/conversations/:conversation_id/events', async (request, reply) => {
@@ -57,7 +59,7 @@ export function registerEventRoutes(app: FastifyInstance, service: ConversationS
     const eventIds = bodyIds.length > 0
       ? bodyIds
       : arrayQuery(queryRecord(request).event_ids);
-    return eventService.batchGetEvents(eventIds);
+    return (await eventService.batchGetEvents(eventIds)).map(event => event === null ? null : eventForWire(event));
   });
 
   app.post('/api/conversations/:conversation_id/events', async (request, reply) => {

@@ -46,7 +46,7 @@ test('an inbound WhatsApp image is accepted and preserved by the real agent-serv
       timestamp: '2026-09-17T00:00:00.000Z',
       is_from_me: 0,
       media_path: imagePath,
-      media_type: 'image/png',
+      media_type: 'image/png', command_eligible: 0,
     }], { maxImageBytes: 1024 });
     const start = await app.inject({
       method: 'POST',

@@ -5,6 +5,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { BashEventService } from './bashService.js';
 import type { AgentServerConfig } from './config.js';
 import type { ConversationService } from './conversationService.js';
+import { eventForWire } from './eventWire.js';
 import { bashErrorSchema, executeBashRequestSchema, messageFromSendRequest, sendMessageRequestSchema, type BashEvent, type Event } from './models.js';
 import type { Subscriber } from './pubSub.js';
 
@@ -46,7 +47,7 @@ async function handleEventsSocket(socket: SocketLike, request: FastifyRequest, d
   // function carries the opt-in field so EventService's PubSub keeps fanning
   // `StreamingDeltaEvent`s out to this (and only this) subscriber.
   const sendEvent = (event: Event): void => {
-    if (socket.readyState === OPEN_SOCKET_STATE) socket.send(JSON.stringify(event));
+    if (socket.readyState === OPEN_SOCKET_STATE) socket.send(JSON.stringify(eventForWire(event)));
   };
   const subscriber: Subscriber<Event> = sendEvent;
   subscriber.receivesStreamingDeltas = true;

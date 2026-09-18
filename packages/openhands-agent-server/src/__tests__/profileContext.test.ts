@@ -42,7 +42,7 @@ async function start(server: AgentServerApp, suffix?: string): Promise<string> {
   const response = await server.app.inject({
     method: 'POST', url: '/api/conversations',
     payload: {
-      agent: { llm_profile_ref: profile.profileId, tools: ['finish'] },
+      agent: { condenser: { enabled: false }, llm_profile_ref: profile.profileId, tools: ['finish'] },
       ...(suffix === undefined ? {} : { agent_launch_additions: { system_message_suffix_append: suffix } }),
     },
   });
@@ -103,7 +103,7 @@ describe('profile agent context configuration', () => {
     const suffixId = await start(server, 'Unchanged launch suffix');
     await run(server, suffixId);
     expect(systemPrompt(complete.mock.calls[1]![0])).toContain('Unchanged launch suffix');
-    const tooLong = await server.app.inject({ method: 'POST', url: '/api/conversations', payload: { agent: { llm_profile_ref: profile.profileId }, agent_launch_additions: { system_message_suffix_append: 'x'.repeat(32769) } } });
+    const tooLong = await server.app.inject({ method: 'POST', url: '/api/conversations', payload: { agent: { condenser: { enabled: false }, llm_profile_ref: profile.profileId }, agent_launch_additions: { system_message_suffix_append: 'x'.repeat(32769) } } });
     expect(tooLong.statusCode).toBe(422);
   });
 

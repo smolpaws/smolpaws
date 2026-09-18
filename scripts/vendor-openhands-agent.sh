@@ -21,8 +21,8 @@
 #   3. `npm run build` and `npm pack` the SDK
 #   4. replace vendor/openhands-agent/{dist,transpile/upstream.json,
 #      transpile/updates/*.inventory.json,package.json}
-#   5. `npm ci` for packages/openhands-agent-server so the file: dependency is
-#      re-linked, then run `npm run test:upstream-provenance`
+#   5. refresh the server lockfile for the changed file: package dependencies,
+#      then `npm ci` and `npm run test:upstream-provenance`
 #
 # Nothing is committed. Review `git status` and commit with a message like:
 #   re-vendor agent-server SDK <OLD8>..<NEW8> (vX.Y.Z -> vA.B.C)
@@ -118,6 +118,9 @@ echo "Vendored SDK: upstream pin $OLD_PIN -> $NEW_PIN" >&2
 
 (
   cd "$PACKAGE_DIR"
+  # A new packed SDK can add runtime dependencies without changing the file: URL.
+  # Resolve that deliberate package replacement into the committed lock before ci.
+  npm install --package-lock-only --ignore-scripts --no-audit --no-fund
   npm ci --no-audit --no-fund
   npm run test:upstream-provenance
   # Fails until transpile/updates/<OLD8>..<NEW8>.json exists for every new interval: that is the review.

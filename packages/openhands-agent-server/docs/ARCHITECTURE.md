@@ -416,3 +416,25 @@ two real `gpt-5.5` think/finish turns and continuation using the existing SDK-ow
 No bridge was connected and no active deployment profile changed. Deterministic tests separately
 cover device login, expired/pending challenges, logout races, refresh, missing credentials and
 persisted conversation restoration; the live check does not replace those parity tests.
+
+## Standard condensation — 2026-09-18
+
+The profile factory constructs the SDK summarizer from validated settings and a separately selected
+profile. A private `condenser_binding` in the stored request freezes the profile and effective
+settings, including an inherited token cap. Resolution happens outside the ownership lock; the
+metadata update rechecks current state before saving. Public creation strips that binding. A later
+main-profile switch retains the same condenser. Restarts and forks after capture retain its settings;
+a fork before capture selects independently on first use. Host context snapshots and tools are not
+replaced or truncated by condensation.
+
+`EventService.condense()` shares its cached `LocalConversation` with ordinary runs. The SDK serializes
+maintenance with individual steps, so it waits for a complete model/tool batch without waiting for
+the entire run. The server tracks maintenance promises for idle/close, saves metadata and publishes
+new durable events once even on failure. Manual requests preserve paused/finished state and do not
+consume a queued user input. Automatic condensation remains entirely inside SDK steps.
+
+`eventWire.ts` adapts the SDK Set of forgotten IDs to an array at REST and WebSocket boundaries.
+EventLog continues to own disk serialization. Summary usage is the SDK's `condenser` usage group,
+with the actual selected profile/model and explicit unknown provider counters. There is no second
+server counter or summary algorithm. See [source and validation evidence](../transpile/condensation.md)
+and the [product configuration and command guide](../../../docs/condensation.md).

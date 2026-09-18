@@ -3295,7 +3295,7 @@
           "404": {
             "description": "Error"
           },
-          "501": {
+          "500": {
             "description": "Error"
           }
         }

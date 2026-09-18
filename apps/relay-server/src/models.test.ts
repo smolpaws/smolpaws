@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { startConversationRequestSchema, type StoredConversation } from '../../../packages/openhands-agent-server/src/models.js';
 import { TaskScheduler } from '../../../src/coordinator/taskScheduler.js';
-import { loadModelSelections, productProfileSelection, selectRoleProfile } from './models.js';
+import { loadModelSelections, productCondenserProfileSelection, productProfileSelection, selectRoleProfile } from './models.js';
 
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), 'smolpaws-models-'));
@@ -122,5 +122,32 @@ test('isolated task profile stays selected across scope edits while owner and gr
     tasks[taskId]!.profile = 'updated-checker-profile';
     writeFileSync(scheduledPath, JSON.stringify({ version: 1, tasks }));
     assert.equal(await select({ stored }), 'updated-checker-profile');
+  } finally { f.close(); }
+});
+
+
+test('condenser role uses trusted exact scope then global configuration without borrowing an agent role', async () => {
+  const f = fixture();
+  try {
+    const select = productCondenserProfileSelection(f.scheduler, { configPath: f.configPath });
+    f.write({ version: 1, roles: { agent: 'main', condenser: 'global-summary' }, scopes: { 'whatsapp:main': { condenser: 'scoped-summary' } } });
+    await assert.rejects(async () => select({ stored: f.stored }), /registered scheduler lane/);
+    f.register('whatsapp', 'main');
+    assert.equal(await select({ stored: f.stored }), 'scoped-summary');
+    f.register('slack', 'main');
+    assert.equal(await select({ stored: f.stored }), 'global-summary');
+    f.write({ version: 1, roles: { agent: 'main' } });
+    assert.equal(await select({ stored: f.stored }), undefined);
+  } finally { f.close(); }
+});
+
+test('condenser role does not read or reuse scheduled-helper main profile configuration', async () => {
+  const f = fixture();
+  try {
+    f.register('whatsapp', 'main');
+    f.write({ version: 1, roles: { condenser: 'summary' } });
+    const select = productCondenserProfileSelection(f.scheduler, { configPath: f.configPath,
+      scheduledAgents: { configPath: path.join(f.root, 'must-not-load-scheduled-config.json') } });
+    assert.equal(await select({ stored: f.stored }), 'summary');
   } finally { f.close(); }
 });

@@ -8,6 +8,7 @@ import { mkdirSync, existsSync, writeFileSync, readFileSync, statSync, openSync,
 import { homedir, tmpdir, platform, arch } from 'os';
 import { createServer } from 'http';
 import { setTimeout as setTimeout$1 } from 'timers/promises';
+import { getEncoding } from 'js-tiktoken';
 
 // src/event/index.ts
 var OPENHANDS_KEYRING_SERVICE = "openhands";
@@ -479,7 +480,7 @@ var actionEventSchema = eventObject({
   kind: z.literal("ActionEvent").default("ActionEvent"),
   source: z.literal("agent").default("agent"),
   thought: z.array(contentSchema).default([]),
-  action: recordSchema,
+  action: recordSchema.nullable().default(null),
   tool_name: z.string(),
   tool_call_id: z.string(),
   tool_call: messageToolCallSchema,
@@ -1427,36 +1428,50 @@ function assertUniqueSkillNames(skills) {
 }
 
 // src/context/condenser.ts
-var condensationRequirement = {
-  HARD: "hard",
-  SOFT: "soft"
-};
+var condensationRequirement = { HARD: "hard", SOFT: "soft" };
 var NoCondensationAvailableError = class extends Error {
+  name = "NoCondensationAvailableError";
+};
+var CondenserCompletionCallbackError = class extends Error {
+  constructor(cause) {
+    super("Condenser completion callback failed", { cause });
+  }
 };
 var RollingCondenser = class {
-  hardContextReset(_view, _agentLlm) {
+  hardContextReset(_view, _agentLlm, _context) {
     return null;
   }
-  condense(view, agentLlm) {
-    const requirement = this.condensationRequirement(view, agentLlm);
-    if (requirement === null) {
-      return view;
-    }
-    try {
-      return this.getCondensation(view, agentLlm);
-    } catch (error) {
-      if (!(error instanceof NoCondensationAvailableError)) {
+  condense(view, agentLlm, context) {
+    return mapMaybe(this.condensationRequirement(view, agentLlm, context), (requirement) => {
+      if (requirement === null) return view;
+      const recover = (error) => {
+        if (error instanceof CondenserCompletionCallbackError) throw error.cause;
+        if (!(error instanceof NoCondensationAvailableError)) throw error;
+        if (requirement === condensationRequirement.SOFT) return view;
+        const resetFailed = (resetError) => {
+          if (resetError instanceof CondenserCompletionCallbackError) throw resetError.cause;
+          if (resetError instanceof Error && resetError.cause === void 0) resetError.cause = error;
+          throw resetError;
+        };
+        try {
+          const reset = this.hardContextReset(view, agentLlm, context);
+          if (reset instanceof Promise) return reset.then((value) => {
+            if (value === null) throw error;
+            return value;
+          }, resetFailed);
+          if (reset !== null) return reset;
+        } catch (resetError) {
+          return resetFailed(resetError);
+        }
         throw error;
+      };
+      try {
+        const result = this.getCondensation(view, agentLlm, context);
+        return result instanceof Promise ? result.catch(recover) : result;
+      } catch (error) {
+        return recover(error);
       }
-      if (requirement === condensationRequirement.SOFT) {
-        return view;
-      }
-      const reset = this.hardContextReset(view, agentLlm);
-      if (reset !== null) {
-        return reset;
-      }
-      throw error;
-    }
+    });
   }
 };
 var NoOpCondenser = class {
@@ -1472,13 +1487,11 @@ var PipelineCondenser = class {
   constructor(condensers) {
     this.condensers = [...condensers];
   }
-  condense(view, agentLlm) {
+  condense(view, agentLlm, context) {
     let result = view;
     for (const condenser of this.condensers) {
-      if (isCondensation(result)) {
-        return result;
-      }
-      result = condenser.condense(result, agentLlm);
+      result = mapMaybe(result, (value) => isCondensation(value) ? value : condenser.condense(value, agentLlm, context));
+      if (!(result instanceof Promise) && isCondensation(result)) break;
     }
     return result;
   }
@@ -1486,8 +1499,169 @@ var PipelineCondenser = class {
     return this.condensers.some((condenser) => condenser.handlesCondensationRequests?.() === true);
   }
 };
+function mapMaybe(value, map) {
+  return value instanceof Promise ? value.then(map) : map(value);
+}
 function isCondensation(result) {
   return "kind" in result && result.kind === "Condensation";
+}
+
+// src/context/manipulation-indices.ts
+var ManipulationIndices = class _ManipulationIndices extends Set {
+  findNext(threshold) {
+    let next;
+    for (const index of this) {
+      if (index >= threshold && (next === void 0 || index < next)) next = index;
+    }
+    if (next === void 0) throw new RangeError(`No manipulation index found >= ${threshold}.`);
+    return next;
+  }
+  static complete(events) {
+    return new _ManipulationIndices(Array.from({ length: events.length + 1 }, (_, index) => index));
+  }
+};
+
+// src/context/view-properties.ts
+function isObservation(event) {
+  return event.kind === "ObservationEvent" || event.kind === "AgentErrorEvent" || event.kind === "UserRejectObservation";
+}
+var ObservationUniquenessProperty = class {
+  enforce(currentEvents, _allEvents) {
+    const seen = /* @__PURE__ */ new Set();
+    const remove = /* @__PURE__ */ new Set();
+    for (const event of currentEvents) {
+      if (!isObservation(event)) continue;
+      if (seen.has(event.tool_call_id)) remove.add(event.id);
+      else seen.add(event.tool_call_id);
+    }
+    return remove;
+  }
+  manipulationIndices(currentEvents) {
+    const seen = /* @__PURE__ */ new Set();
+    for (const event of currentEvents) {
+      if (!isObservation(event)) continue;
+      if (seen.has(event.tool_call_id)) console.warn(`Duplicate observation-like event for tool_call_id=${event.tool_call_id}`);
+      else seen.add(event.tool_call_id);
+    }
+    return ManipulationIndices.complete(currentEvents);
+  }
+};
+var BatchAtomicityProperty = class {
+  enforce(currentEvents, allEvents) {
+    const allBatches = buildBatches(allEvents);
+    const remove = /* @__PURE__ */ new Set();
+    for (const [responseId, viewBatch] of buildBatches(currentEvents)) {
+      const fullBatch = allBatches.get(responseId);
+      if (fullBatch?.size !== viewBatch.size || [...viewBatch].some((id) => !fullBatch.has(id))) {
+        for (const id of viewBatch) remove.add(id);
+      }
+    }
+    return remove;
+  }
+  manipulationIndices(currentEvents) {
+    const indices = ManipulationIndices.complete(currentEvents);
+    for (let index = 1; index < currentEvents.length; index += 1) {
+      const left = currentEvents[index - 1];
+      const right = currentEvents[index];
+      if (left?.kind === "ActionEvent" && right?.kind === "ActionEvent" && left.llm_response_id === right.llm_response_id) {
+        indices.delete(index);
+      }
+    }
+    return indices;
+  }
+};
+var ToolCallMatchingProperty = class {
+  enforce(currentEvents, _allEvents) {
+    const actions = /* @__PURE__ */ new Set();
+    const observations = /* @__PURE__ */ new Set();
+    for (const event of currentEvents) {
+      if (event.kind === "ActionEvent") actions.add(event.tool_call_id);
+      else if (isObservation(event)) observations.add(event.tool_call_id);
+    }
+    const remove = /* @__PURE__ */ new Set();
+    for (const event of currentEvents) {
+      if (event.kind === "ActionEvent" && !observations.has(event.tool_call_id)) remove.add(event.id);
+      else if (isObservation(event) && !actions.has(event.tool_call_id)) remove.add(event.id);
+    }
+    return remove;
+  }
+  manipulationIndices(currentEvents) {
+    const indices = ManipulationIndices.complete(currentEvents);
+    const pending = /* @__PURE__ */ new Set();
+    for (const [index, event] of currentEvents.entries()) {
+      if (event.kind === "ActionEvent") pending.add(event.tool_call_id);
+      else if (isObservation(event) && !pending.delete(event.tool_call_id)) {
+        throw new RangeError(`No pending tool call for observation: ${event.tool_call_id}`);
+      }
+      if (pending.size > 0) indices.delete(index + 1);
+    }
+    return indices;
+  }
+};
+var ToolLoopAtomicityProperty = class {
+  enforce(currentEvents, allEvents) {
+    const loops = toolLoops(allEvents);
+    const viewIds = new Set(currentEvents.map((event) => event.id));
+    const remove = /* @__PURE__ */ new Set();
+    for (const event of currentEvents) {
+      if (remove.has(event.id)) continue;
+      for (const loop of loops) {
+        if (!loop.has(event.id)) continue;
+        if ([...loop].some((id) => !viewIds.has(id))) {
+          for (const id of loop) if (viewIds.has(id)) remove.add(id);
+        }
+        break;
+      }
+    }
+    return remove;
+  }
+  manipulationIndices(currentEvents) {
+    const indices = ManipulationIndices.complete(currentEvents);
+    let inLoop = false;
+    for (const [index, event] of currentEvents.entries()) {
+      if (event.kind === "ActionEvent" && event.thinking_blocks.length > 0) inLoop = true;
+      else if (event.kind === "ActionEvent" || isObservation(event)) {
+        if (inLoop) indices.delete(index);
+      } else inLoop = false;
+    }
+    return indices;
+  }
+};
+var viewProperties = [
+  new ObservationUniquenessProperty(),
+  new BatchAtomicityProperty(),
+  new ToolCallMatchingProperty(),
+  new ToolLoopAtomicityProperty()
+];
+function buildBatches(events) {
+  const batches = /* @__PURE__ */ new Map();
+  for (const event of events) {
+    if (event.kind !== "ActionEvent") continue;
+    let batch = batches.get(event.llm_response_id);
+    if (batch === void 0) {
+      batch = /* @__PURE__ */ new Set();
+      batches.set(event.llm_response_id, batch);
+    }
+    batch.add(event.id);
+  }
+  return batches;
+}
+function toolLoops(events) {
+  const loops = [];
+  let current;
+  for (const event of events) {
+    if (event.kind === "ActionEvent" && event.thinking_blocks.length > 0) {
+      if (current !== void 0) loops.push(current);
+      current = /* @__PURE__ */ new Set([event.id]);
+    } else if (event.kind === "ActionEvent" || isObservation(event)) {
+      current?.add(event.id);
+    } else if (current !== void 0) {
+      loops.push(current);
+      current = void 0;
+    }
+  }
+  if (current !== void 0) loops.push(current);
+  return loops;
 }
 
 // src/context/view.ts
@@ -1500,6 +1674,31 @@ var View = class _View {
   }
   get length() {
     return this.events.length;
+  }
+  get manipulationIndices() {
+    const indices = ManipulationIndices.complete(this.events);
+    for (const property of viewProperties) {
+      const allowed = property.manipulationIndices(this.events);
+      for (const index of indices) if (!allowed.has(index)) indices.delete(index);
+    }
+    return indices;
+  }
+  enforceProperties(allEvents) {
+    const sourceEvents = [...allEvents];
+    while (true) {
+      let changed = false;
+      for (const property of viewProperties) {
+        const removed = property.enforce(this.events, sourceEvents);
+        if (removed.size === 0) continue;
+        console.warn(`Property ${property.constructor.name} enforced, ${removed.size} events dropped.`);
+        const retained = this.events.filter((event) => !removed.has(event.id));
+        this.events.length = 0;
+        this.events.push(...retained);
+        changed = true;
+        break;
+      }
+      if (!changed) return;
+    }
   }
   appendEvent(event) {
     switch (event.kind) {
@@ -1526,6 +1725,7 @@ var View = class _View {
     for (const event of events) {
       view.appendEvent(event);
     }
+    view.enforceProperties(events);
     return view;
   }
   applyCondensation(condensation) {
@@ -1541,6 +1741,583 @@ var View = class _View {
     this.events.push(...output);
   }
 };
+
+// src/context/condenser-utils.ts
+async function getTotalTokenCount(events, llm, context) {
+  if (!llm.getTokenCount) return null;
+  const messages = context?.messagesForEvents?.(events) ?? eventsToMessages(events);
+  const storedTools = events.find((event) => event.kind === "SystemPromptEvent")?.tools;
+  const tools = context?.tools ?? (storedTools?.length ? storedTools : void 0);
+  const count = await llm.getTokenCount(messages, tools);
+  if (count === null) return null;
+  if (!Number.isFinite(count) || count < 0) throw new RangeError("Invalid provider token count");
+  return count;
+}
+async function getShortestPrefixAboveTokenCount(events, llm, tokenCount, baseEvents = [], context) {
+  if (events.length === 0) return 0;
+  const baseTokens = baseEvents.length > 0 || context?.messagesForEvents !== void 0 ? await getTotalTokenCount(baseEvents, llm, context) : 0;
+  if (baseTokens === null) return null;
+  const total = await getTotalTokenCount([...baseEvents, ...events], llm, context);
+  if (total === null) return null;
+  if (total - baseTokens <= tokenCount) return events.length;
+  let left = 1, right = events.length;
+  while (left < right) {
+    const mid = Math.floor((left + right) / 2);
+    const prefix = await getTotalTokenCount([...baseEvents, ...events.slice(0, mid)], llm, context);
+    if (prefix === null) return null;
+    if (prefix - baseTokens > tokenCount) right = mid;
+    else left = mid + 1;
+  }
+  return left;
+}
+async function getSuffixLengthForTokenReduction(events, llm, tokenReduction, baseEvents = [], context) {
+  if (events.length === 0) return 0;
+  if (tokenReduction <= 0) return events.length;
+  const prefix = await getShortestPrefixAboveTokenCount(events, llm, tokenReduction, baseEvents, context);
+  return prefix === null ? null : events.length - prefix;
+}
+var INITIAL_CWD = process.cwd();
+function getUserPersistenceDir(defaultDir) {
+  const envDir = process.env.OH_PERSISTENCE_DIR?.trim();
+  if (envDir !== void 0 && envDir !== "") {
+    const expanded = envDir.startsWith("~/") ? path2.join(homedir(), envDir.slice(2)) : envDir;
+    return path2.isAbsolute(expanded) ? expanded : path2.resolve(INITIAL_CWD, expanded);
+  }
+  return defaultDir ?? path2.join(homedir(), ".openhands");
+}
+var AsyncCallbackWrapper = class {
+  callback;
+  asyncCallback;
+  pending = /* @__PURE__ */ new Set();
+  constructor(asyncCallback) {
+    this.asyncCallback = asyncCallback;
+    this.callback = (event) => this.call(event);
+  }
+  get pendingCount() {
+    return this.pending.size;
+  }
+  call(event) {
+    const pending = Promise.resolve().then(() => this.asyncCallback(event)).catch(() => void 0).finally(() => this.pending.delete(pending));
+    this.pending.add(pending);
+  }
+  async waitForPending(timeoutMs) {
+    const current = [...this.pending];
+    if (current.length === 0) {
+      return;
+    }
+    const waitForAll = Promise.allSettled(current).then(() => void 0);
+    if (timeoutMs === void 0 || timeoutMs === null) {
+      await waitForAll;
+      return;
+    }
+    let timeout;
+    try {
+      await Promise.race([
+        waitForAll,
+        new Promise((_resolve, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error(`Timed out waiting for async callbacks after ${timeoutMs}ms`)),
+            timeoutMs
+          );
+        })
+      ]);
+    } finally {
+      if (timeout !== void 0) {
+        clearTimeout(timeout);
+      }
+    }
+  }
+};
+var DEFAULT_TEXT_CONTENT_LIMIT = 5e4;
+var DEFAULT_TRUNCATE_NOTICE = "<response clipped><NOTE>Due to the max output limit, only part of the full response has been shown to you.</NOTE>";
+var DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST = "<response clipped><NOTE>Due to the max output limit, only part of the full response has been shown to you. The complete output has been saved to {filePath} - you can use other tools to view the full content (truncated part starts around line {lineNum}).</NOTE>";
+function maybeTruncate(content, options = {}) {
+  const truncateAfter = options.truncateAfter;
+  const truncateNotice = options.truncateNotice ?? DEFAULT_TRUNCATE_NOTICE;
+  if (truncateAfter === void 0 || truncateAfter === null || truncateAfter <= 0 || content.length <= truncateAfter) {
+    return content;
+  }
+  if (truncateNotice.length >= truncateAfter) {
+    return truncateNotice.slice(0, truncateAfter);
+  }
+  const availableChars = truncateAfter - truncateNotice.length;
+  const proposedHead = Math.floor(availableChars / 2) + availableChars % 2;
+  let finalNotice = truncateNotice;
+  if (options.saveDir !== void 0 && options.saveDir !== null && options.saveDir !== "") {
+    const savedFilePath = saveFullContent(content, options.saveDir, options.toolPrefix ?? "output");
+    if (savedFilePath !== null) {
+      const headContentLines = content.slice(0, proposedHead).split(/\r?\n/u).length;
+      finalNotice = DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST.replace("{filePath}", savedFilePath).replace(
+        "{lineNum}",
+        String(headContentLines + 1)
+      );
+    }
+  }
+  if (finalNotice.length >= truncateAfter) {
+    return finalNotice.slice(0, truncateAfter);
+  }
+  const remaining = truncateAfter - finalNotice.length;
+  const headChars = Math.min(proposedHead, remaining);
+  const tailChars = remaining - headChars;
+  return content.slice(0, headChars) + finalNotice + (tailChars > 0 ? content.slice(-tailChars) : "");
+}
+function saveFullContent(content, saveDir, toolPrefix) {
+  try {
+    mkdirSync(saveDir, { recursive: true });
+    const contentHash = createHash("sha256").update(content, "utf8").digest("hex").slice(0, 8);
+    const filePath = path2.join(saveDir, `${toolPrefix}_output_${contentHash}.txt`);
+    if (!existsSync(filePath)) {
+      writeFileSync(filePath, content, "utf8");
+    }
+    return filePath;
+  } catch {
+    return null;
+  }
+}
+function toPosixPath(inputPath) {
+  return inputPath.toString().replace(/\\/gu, "/");
+}
+function posixPathName(inputPath) {
+  const normalized = toPosixPath(inputPath).replace(/\/+$/u, "");
+  if (normalized.length === 0) {
+    return "";
+  }
+  return normalized.split("/").at(-1) ?? "";
+}
+var urlSchemePattern = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//u;
+var windowsDriveAbsolutePattern = /^[A-Za-z]:[\\/]/u;
+function isAbsolutePathSource(inputPath) {
+  const value = inputPath.toString().trim();
+  if (value.length === 0) {
+    return false;
+  }
+  return value.startsWith("/") || value.startsWith("\\") || path2.isAbsolute(value) || windowsDriveAbsolutePattern.test(value);
+}
+function isHostAbsolutePath(inputPath) {
+  const value = inputPath.toString().trim();
+  return value.length > 0 && path2.isAbsolute(value);
+}
+function isLocalPathSource(source) {
+  const value = source.trim();
+  if (value.length === 0) {
+    return false;
+  }
+  if (value.startsWith("file://") || value.startsWith("~") || value.startsWith(".")) {
+    return true;
+  }
+  if (isAbsolutePathSource(value)) {
+    return true;
+  }
+  return value.includes("\\") && !urlSchemePattern.test(value);
+}
+var ZWJ = "\u200D";
+function sanitizeOpenHandsMentions(text) {
+  return text.replace(/@(OpenHands)\b/giu, `@${ZWJ}$1`);
+}
+async function* pageIterator(searchFunc, params) {
+  let pageId = typeof params.pageId === "string" ? params.pageId : void 0;
+  const rest = { ...params };
+  delete rest.pageId;
+  while (true) {
+    const pageParams = pageId === void 0 ? rest : { ...rest, pageId };
+    const page = await searchFunc(pageParams);
+    for (const item of page.items) {
+      yield item;
+    }
+    pageId = page.nextPageId ?? void 0;
+    if (pageId === void 0 || pageId === "") {
+      break;
+    }
+  }
+}
+var SENSITIVE_ENV_VARS = /* @__PURE__ */ new Set(["SESSION_API_KEY", "OH_SECRET_KEY"]);
+var SENSITIVE_ENV_PREFIXES = ["OH_SESSION_API_KEYS_"];
+function sanitizedEnv(env = process.env) {
+  const result = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (value !== void 0) {
+      result[key] = value;
+    }
+  }
+  for (const key of SENSITIVE_ENV_VARS) {
+    delete result[key];
+  }
+  for (const key of Object.keys(result)) {
+    if (SENSITIVE_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      delete result[key];
+    }
+  }
+  if (Object.hasOwn(result, "LD_LIBRARY_PATH_ORIG")) {
+    const original = result.LD_LIBRARY_PATH_ORIG;
+    if (original === void 0 || original === "") {
+      delete result.LD_LIBRARY_PATH;
+    } else {
+      result.LD_LIBRARY_PATH = original;
+    }
+  }
+  return result;
+}
+function executeCommand(command, options = {}) {
+  const shell = typeof command === "string";
+  const executable = shell ? command : command[0];
+  if (executable === void 0) {
+    throw new Error("Command must not be empty");
+  }
+  const args = shell ? [] : command.slice(1);
+  const result = spawnSync(executable, args, {
+    cwd: options.cwd,
+    env: sanitizedEnv(options.env),
+    shell,
+    timeout: options.timeoutMs,
+    encoding: "utf8"
+  });
+  const stdout = result.stdout ?? "";
+  const stderr = result.stderr ?? "";
+  if (options.printOutput ?? true) {
+    process.stdout.write(stdout);
+    process.stderr.write(stderr);
+  }
+  return {
+    command,
+    status: result.error?.name === "ETIMEDOUT" ? -1 : result.status,
+    stdout,
+    stderr
+  };
+}
+var SECRET_KEY_PATTERNS = /* @__PURE__ */ new Set([
+  "AUTHORIZATION",
+  "COOKIE",
+  "CREDENTIAL",
+  "KEY",
+  "PASSWORD",
+  "SECRET",
+  "SESSION",
+  "TOKEN"
+]);
+var SENSITIVE_URL_PARAMS = /* @__PURE__ */ new Set(["tavilyapikey", "apikey", "api_key", "token", "access_token", "secret", "key"]);
+function isSecretKey(key) {
+  const upper = key.toUpperCase();
+  return [...SECRET_KEY_PATTERNS].some((pattern) => upper.includes(pattern));
+}
+function redactUrlCredentials(url, options = {}) {
+  const match = /^(https?:\/\/)([^@/]+)@(.+)$/u.exec(url);
+  if (match === null) {
+    return url;
+  }
+  if (options.preservePlaceholders === true && match[2]?.includes("${")) {
+    return url;
+  }
+  return `${match[1]}****@${match[3]}`;
+}
+var embeddedUrlCredentialsPattern = /(https?:\/\/)[^/@\s]+@/giu;
+function redactUrlCredentialsInText(text) {
+  return text.replace(embeddedUrlCredentialsPattern, "$1****@");
+}
+function redactUrlParams(url) {
+  if (url.length === 0 || !url.includes("?")) {
+    return url;
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.search.length === 0) {
+      return url;
+    }
+    for (const key of [...parsed.searchParams.keys()]) {
+      if (SENSITIVE_URL_PARAMS.has(key.toLowerCase()) || isSecretKey(key)) {
+        const values = parsed.searchParams.getAll(key);
+        parsed.searchParams.delete(key);
+        for (let index = 0; index < Math.max(1, values.length); index += 1) {
+          parsed.searchParams.append(key, "<redacted>");
+        }
+      }
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+var keyValueSecretPattern = /\b([A-Za-z0-9_.-]*(?:api[_-]?key|authorization|cookie|credential|password|secret|session|token|key)[A-Za-z0-9_.-]*)\s*=\s*("[^"]*"|'[^']*'|[^\s]+)/giu;
+var anthropicKeyPattern = /sk-ant-api\d{2}-[A-Za-z0-9_-]{20,}/gu;
+var singleQuotedDictSecretPattern = /('[A-Za-z_]*(?:KEY|SECRET|TOKEN|PASSWORD)[A-Za-z_]*':\s*')[^']*(')/giu;
+var doubleQuotedDictSecretPattern = /("[A-Za-z_]*(?:KEY|SECRET|TOKEN|PASSWORD)[A-Za-z_]*":\s*")[^"]*(")/giu;
+function redactTextSecrets(text) {
+  return redactUrlCredentialsInText(text).replace(anthropicKeyPattern, "<redacted>").replace(keyValueSecretPattern, (_match, key) => `${key}=<redacted>`).replace(singleQuotedDictSecretPattern, "$1<redacted>$2").replace(doubleQuotedDictSecretPattern, "$1<redacted>$2");
+}
+function utcNow() {
+  return /* @__PURE__ */ new Date();
+}
+function dumps(value, space) {
+  return JSON.stringify(value, (_key, item) => item, space);
+}
+function loads(text) {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`No valid JSON object found in response.`, { cause: error });
+  }
+}
+function handleDeprecatedModelFields(data, deprecatedFields) {
+  if (data === null || typeof data !== "object" || Array.isArray(data)) {
+    return data;
+  }
+  const result = { ...data };
+  for (const field of deprecatedFields) {
+    delete result[field];
+  }
+  return result;
+}
+function displayJson(value) {
+  if (Array.isArray(value)) {
+    return [`[List with ${value.length} items]`, ...value.map((item, index) => `  [${index}]: ${formatDisplayValue(item)}`)].join("\n");
+  }
+  if (value !== null && typeof value === "object") {
+    const lines = [];
+    for (const [key, item] of Object.entries(value)) {
+      if (item === null || item === void 0) {
+        continue;
+      }
+      lines.push(`
+  ${key}: ${formatDisplayValue(item)}`);
+    }
+    return lines.join("");
+  }
+  if (typeof value === "string" && value.includes("\n")) {
+    return `String:
+${value.split("\n").map((line) => `  ${line}`).join("\n")}`;
+  }
+  return formatDisplayValue(value);
+}
+function formatDisplayValue(value) {
+  if (typeof value === "string") {
+    return value.includes("\n") ? `
+${value.split("\n").map((line) => `    ${line}`).join("\n")}` : `"${value}"`;
+  }
+  if (typeof value === "boolean") {
+    return value ? "True" : "False";
+  }
+  if (value === null) {
+    return "null";
+  }
+  if (typeof value === "number" || typeof value === "bigint" || typeof value === "symbol") {
+    return String(value);
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  if (typeof value === "undefined") {
+    return "undefined";
+  }
+  if (typeof value === "function") {
+    return `[Function ${value.name || "anonymous"}]`;
+  }
+  return JSON.stringify(value);
+}
+
+// src/context/condenser-prompt.ts
+var PROMPT_HEAD = 'You are maintaining a context-aware state summary for an interactive agent.\nYou will be given a list of events corresponding to actions taken by the agent, which will include previous summaries.\nIf the events being summarized contain ANY task-tracking, you MUST include a TASK_TRACKING section to maintain continuity.\nWhen referencing tasks make sure to preserve exact task IDs and statuses.\n\nTrack:\n\nUSER_CONTEXT: (Preserve essential user requirements, goals, and clarifications in concise form)\n\nTASK_TRACKING: {Active tasks, their IDs and statuses - PRESERVE TASK IDs}\n\nCOMPLETED: (Tasks completed so far, with brief results)\nPENDING: (Tasks that still need to be done)\nCURRENT_STATE: (Current variables, data structures, or relevant state)\n\nFor code-specific tasks, also include:\nCODE_STATE: {File paths, function signatures, data structures}\nTESTS: {Failing cases, error messages, outputs}\nCHANGES: {Code edits, variable updates}\nDEPS: {Dependencies, imports, external calls}\nVERSION_CONTROL_STATUS: {Repository state, current branch, PR status, commit history}\n\nPRIORITIZE:\n1. Adapt tracking format to match the actual task type\n2. Capture key user requirements and goals\n3. Distinguish between completed and pending tasks\n4. Keep all sections concise and relevant\n\nSKIP: Tracking irrelevant details for the current task type\n\nExample formats:\n\nFor code tasks:\nUSER_CONTEXT: Fix FITS card float representation issue\nCOMPLETED: Modified mod_float() in card.py, all tests passing\nPENDING: Create PR, update documentation\nCODE_STATE: mod_float() in card.py updated\nTESTS: test_format() passed\nCHANGES: str(val) replaces f"{val:.16G}"\nDEPS: None modified\nVERSION_CONTROL_STATUS: Branch: fix-float-precision, Latest commit: a1b2c3d\n\nFor other tasks:\nUSER_CONTEXT: Write 20 haikus based on coin flip results\nCOMPLETED: 15 haikus written for results [T,H,T,H,T,H,T,T,H,T,H,T,H,T,H]\nPENDING: 5 more haikus needed\nCURRENT_STATE: Last flip: Heads, Haiku count: 15/20\n\n';
+var PROMPT_TAIL = "\n\nNow summarize the events using the rules above.";
+function renderSummarizingPrompt(eventStrings) {
+  return PROMPT_HEAD + eventStrings.map((event) => `
+<EVENT>
+${event}
+</EVENT>
+`).join("") + PROMPT_TAIL;
+}
+var characters = (value) => [...value];
+var preview = (value, length = 500) => characters(value).length > 500 ? characters(value).slice(0, length).join("") + "..." : value;
+function renderCondenserEvent(event) {
+  const base = `${event.kind} (${event.source})`;
+  switch (event.kind) {
+    case "SystemPromptEvent": {
+      const text = event.system_prompt.type === "text" ? event.system_prompt.text : "";
+      const dynamic = event.dynamic_context?.type === "text" ? `
+  Dynamic Context: ${characters(event.dynamic_context.text).length} chars` : "";
+      return `${base}
+  System: ${preview(text)}
+  Tools: ${event.tools.length} available${dynamic}`;
+    }
+    case "ActionEvent": {
+      const thought = contentToString(event.thought).join(" ");
+      if (event.action === null) return `${base}
+  Thought: ${preview(thought)}
+  Action: (not executed)
+  Call: ${event.tool_call.name}:${event.tool_call.id}`;
+      const actionName = typeof event.action.kind === "string" ? event.action.kind : event.tool_name === "switch_llm" ? "SwitchLLMAction" : `${event.tool_name.split("_").map((part) => part[0]?.toUpperCase() + part.slice(1)).join("")}Action`;
+      return `${base}
+  Thought: ${preview(thought)}
+  Action: ${actionName}`;
+    }
+    case "ObservationEvent": {
+      const content = typeof event.observation.text === "string" ? event.observation.text : contentToString(toLLMMessage({ ...event, extended_content: [] }).content).join("");
+      return `${base}
+  Tool: ${event.tool_name}
+  Result: ${preview(content)}`;
+    }
+    case "UserRejectObservation":
+      return `${base}
+  Tool: ${event.tool_name}
+  Reason: ${preview(event.rejection_reason)}`;
+    case "AgentErrorEvent":
+      return `${base}
+  Error: ${preview(event.error)}`;
+    case "MessageEvent": {
+      const message = toLLMMessage(event), parts = contentToString(message.content);
+      if (!parts.length) return `${base}
+  ${message.role}: [no text content]`;
+      const skills = event.activated_skills.length ? ` [Skills: ${event.activated_skills.join(", ")}]` : "";
+      const thinking = event.llm_message.thinking_blocks.length ? ` [Thinking blocks: ${event.llm_message.thinking_blocks.length}]` : "";
+      return `${base}
+  ${message.role}: ${preview(parts.join(" "), 497)}${skills}${thinking}`;
+    }
+    case "CondensationSummaryEvent":
+      return `${base}
+  user: ${preview(event.summary, 497)}`;
+  }
+}
+function truncateCondenserEvent(value, limit) {
+  const chars = characters(value);
+  if (limit === null || limit <= 0 || chars.length <= limit) return value;
+  const notice = characters(DEFAULT_TRUNCATE_NOTICE);
+  if (notice.length >= limit) return notice.slice(0, limit).join("");
+  const available = limit - notice.length, head = Math.ceil(available / 2), tail = Math.floor(available / 2);
+  return chars.slice(0, head).join("") + DEFAULT_TRUNCATE_NOTICE + (tail > 0 ? chars.slice(-tail).join("") : "");
+}
+
+// src/context/llm-summarizing-condenser.ts
+var LLMSummarizingCondenser = class extends RollingCondenser {
+  llm;
+  maxSize;
+  maxTokens;
+  keepFirst;
+  minimumProgress;
+  hardContextResetMaxRetries;
+  hardContextResetContextScaling;
+  constructor(options) {
+    super();
+    this.llm = options.llm;
+    this.maxSize = options.maxSize ?? 240;
+    this.maxTokens = options.maxTokens ?? null;
+    this.keepFirst = options.keepFirst ?? 2;
+    this.minimumProgress = options.minimumProgress ?? 0.1;
+    this.hardContextResetMaxRetries = options.hardContextResetMaxRetries ?? 5;
+    this.hardContextResetContextScaling = options.hardContextResetContextScaling ?? 0.8;
+    if (!Number.isInteger(this.maxSize) || this.maxSize <= 0) throw new RangeError("maxSize must be a positive integer");
+    if (!Number.isInteger(this.keepFirst) || this.keepFirst < 0) throw new RangeError("keepFirst must be a non-negative integer");
+    if (Math.floor(this.maxSize / 2) - this.keepFirst - 1 <= 0) throw new RangeError("keepFirst must be less than maxSize // 2 to leave room for condensation");
+    if (this.maxTokens !== null && !Number.isInteger(this.maxTokens)) throw new RangeError("maxTokens must be an integer or null");
+    if (!(this.minimumProgress > 0 && this.minimumProgress < 1)) throw new RangeError("minimumProgress must be between zero and one");
+    if (!Number.isInteger(this.hardContextResetMaxRetries) || this.hardContextResetMaxRetries <= 0) throw new RangeError("hardContextResetMaxRetries must be positive");
+    if (!(this.hardContextResetContextScaling > 0 && this.hardContextResetContextScaling < 1)) throw new RangeError("hardContextResetContextScaling must be between zero and one");
+  }
+  handlesCondensationRequests() {
+    return true;
+  }
+  effectiveMaxTokens(agentLlm) {
+    const limits = [this.maxTokens, agentLlm?.effectiveMaxInputTokens].filter((limit) => limit !== null && limit !== void 0);
+    return limits.length ? Math.min(...limits) : null;
+  }
+  async getCondensationReasons(view, agentLlm, context) {
+    await agentLlm?.resolveRuntimeMetadata?.();
+    const reasons = /* @__PURE__ */ new Set();
+    if (view.unhandledCondensationRequest) reasons.add("request");
+    const maxTokens = this.effectiveMaxTokens(agentLlm);
+    if (maxTokens !== null && agentLlm) {
+      const total = await getTotalTokenCount(view.events, agentLlm, context);
+      if (total !== null && total > maxTokens) reasons.add("tokens");
+    }
+    if (view.length > this.maxSize) reasons.add("events");
+    return reasons;
+  }
+  async condensationRequirement(view, agentLlm, context) {
+    const reasons = await this.getCondensationReasons(view, agentLlm, context);
+    if (!reasons.size) return null;
+    return reasons.has("tokens") || reasons.has("request") ? "hard" : "soft";
+  }
+  async getForgottenEvents(view, agentLlm, context) {
+    const reasons = await this.getCondensationReasons(view, agentLlm, context);
+    if (reasons.size === 0) throw new Error("No condensation reasons found.");
+    const tailSizes = [];
+    if (reasons.has("request")) tailSizes.push(Math.floor(view.length / 2) - this.keepFirst - 1);
+    if (reasons.has("events")) tailSizes.push(Math.floor(this.maxSize / 2) - this.keepFirst - 1);
+    if (reasons.has("tokens") && agentLlm) {
+      const maxTokens = this.effectiveMaxTokens(agentLlm), total = await getTotalTokenCount(view.events, agentLlm, context);
+      if (maxTokens !== null && total !== null) {
+        const tail = await getSuffixLengthForTokenReduction(
+          view.events.slice(this.keepFirst),
+          agentLlm,
+          total - Math.floor(maxTokens / 2),
+          view.events.slice(0, this.keepFirst),
+          context
+        );
+        if (tail !== null) tailSizes.push(tail);
+      }
+    }
+    if (!tailSizes.length) throw new NoCondensationAvailableError("Token count became unavailable while computing forgotten events");
+    const start = view.manipulationIndices.findNext(this.keepFirst);
+    const end = view.manipulationIndices.findNext(view.length - Math.min(...tailSizes));
+    return { events: view.events.slice(start, end), summaryOffset: start };
+  }
+  async getCondensation(view, agentLlm, context) {
+    let forgotten;
+    try {
+      forgotten = await this.getForgottenEvents(view, agentLlm, context);
+    } catch (error) {
+      if (error instanceof RangeError) throw new NoCondensationAvailableError("Unable to compute forgotten events", { cause: error });
+      throw error;
+    }
+    if (forgotten.events.length === 0) throw new NoCondensationAvailableError("Cannot condense 0 events. No valid range for forgetting events.");
+    if (forgotten.events.length < view.length * this.minimumProgress) throw new NoCondensationAvailableError("Cannot apply condensation: events forgotten below minimum progress threshold.");
+    return this.generateCondensation(forgotten.events, forgotten.summaryOffset, null, context);
+  }
+  async generateCondensation(events, summaryOffset, maxEventStringLength = null, context) {
+    if (events.length === 0) throw new Error("No events to condense.");
+    const forgottenEvents = [...events];
+    const projected = context?.projectEvents?.(forgottenEvents, this.llm.profile) ?? forgottenEvents;
+    const prompt = renderSummarizingPrompt(projected.map((event) => truncateCondenserEvent(renderCondenserEvent(event), maxEventStringLength)));
+    const messages = [messageSchema.parse({ role: "user", content: [textContent(prompt)] })];
+    const startedAt = Date.now();
+    let response;
+    try {
+      response = await this.llm.complete(messages);
+    } catch (error) {
+      await this.recordCompletion(context, { llm: this.llm, error, startedAt, completedAt: Date.now() });
+      throw new NoCondensationAvailableError(`Summarization LLM call failed: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+    }
+    await this.recordCompletion(context, { llm: this.llm, response, startedAt, completedAt: Date.now() });
+    const first = response.message.content[0];
+    return condensationSchema.parse({
+      forgotten_event_ids: forgottenEvents.map((event) => event.id),
+      summary: first?.type === "text" ? first.text : null,
+      summary_offset: summaryOffset,
+      llm_response_id: response.responseId ?? null
+    });
+  }
+  async recordCompletion(context, attempt) {
+    try {
+      await context?.onCompletion?.(attempt);
+    } catch (error) {
+      throw new CondenserCompletionCallbackError(error);
+    }
+  }
+  async hardContextReset(view, _agentLlm, context) {
+    const events = [...view.events];
+    let limit = null;
+    for (let attempt = 0; attempt < this.hardContextResetMaxRetries; attempt++) {
+      try {
+        return await this.generateCondensation(events, 0, limit, context);
+      } catch (error) {
+        if (error instanceof CondenserCompletionCallbackError) throw error;
+        if (events.length === 0) throw error;
+        limit ??= Math.max(...events.map((event) => [...renderCondenserEvent(event)].length));
+        limit = Math.trunc(limit * this.hardContextResetContextScaling);
+      }
+    }
+    return null;
+  }
+};
+function defaultCondenser(llm) {
+  return new LLMSummarizingCondenser({ llm, maxSize: 80, keepFirst: 4 });
+}
 var llmUsageSchema = z.object({
   promptTokens: z.number().int().min(0).optional(),
   completionTokens: z.number().int().min(0).optional(),
@@ -1584,6 +2361,26 @@ function parseLlmResponseWithMetadata(raw, parseMetadata, parseContent) {
   } catch (cause) {
     throw new LLMResponseError(metadata, cause);
   }
+}
+function throwProviderErrorWithMetadata(body, error, parseMetadata) {
+  let raw = body;
+  if (typeof body === "string") {
+    try {
+      raw = JSON.parse(body);
+    } catch {
+      throw error;
+    }
+  }
+  if (typeof raw === "object" && raw !== null && !Array.isArray(raw) && ("usage" in raw || "id" in raw || "model" in raw)) {
+    try {
+      parseLlmResponseWithMetadata(raw, parseMetadata, () => {
+        throw error;
+      });
+    } catch (failure2) {
+      if (failure2 instanceof LLMResponseError) throw new LLMResponseError(failure2.metadata, error);
+    }
+  }
+  throw error;
 }
 
 // src/llm/pricing.ts
@@ -1727,7 +2524,7 @@ function createLlmUsageEvent(profile, response, timing) {
   const recordId = randomUUID();
   const reported = response.usage?.reportedCost;
   const cost = reported === void 0 ? estimateUsageCost(profile, response.usage, timing.startedAt, timing.completedAt, response.model) : { ...reported, source: "provider" };
-  const record2 = usageRecordSchema.parse({
+  const record4 = usageRecordSchema.parse({
     version: 1,
     record_id: recordId,
     response_id: response.responseId ?? null,
@@ -1742,7 +2539,7 @@ function createLlmUsageEvent(profile, response, timing) {
     usage: structuredClone(response.usage),
     cost
   });
-  return conversationStateUpdateEventSchema.parse({ id: recordId, key: LLM_USAGE_KEY, value: record2 });
+  return conversationStateUpdateEventSchema.parse({ id: recordId, key: LLM_USAGE_KEY, value: record4 });
 }
 function createMetricsResetEvent() {
   return conversationStateUpdateEventSchema.parse({ key: LLM_METRICS_RESET_KEY, value: { version: 1 } });
@@ -1774,27 +2571,27 @@ function statsForEvents(events) {
         unmeasured = true;
         continue;
       }
-      const record2 = parsed.data;
-      const fingerprint = JSON.stringify(record2);
-      if (seen.has(record2.record_id)) {
-        if (seen.get(record2.record_id) !== fingerprint) {
+      const record4 = parsed.data;
+      const fingerprint = JSON.stringify(record4);
+      if (seen.has(record4.record_id)) {
+        if (seen.get(record4.record_id) !== fingerprint) {
           invalid += 1;
           unmeasured = true;
         }
         continue;
       }
-      seen.set(record2.record_id, fingerprint);
-      responseIds.add(record2.response_id ?? record2.record_id);
-      records.push(record2);
+      seen.set(record4.record_id, fingerprint);
+      responseIds.add(record4.response_id ?? record4.record_id);
+      records.push(record4);
     } else if (event.kind === "ActionEvent" || event.kind === "MessageEvent" && event.source === "agent") {
       if (event.llm_response_id === null || !responseIds.has(event.llm_response_id)) unmeasured = true;
     }
   }
   const grouped = /* @__PURE__ */ new Map();
-  for (const record2 of records) {
-    const bucket = grouped.get(record2.usage_id) ?? [];
-    bucket.push(record2);
-    grouped.set(record2.usage_id, bucket);
+  for (const record4 of records) {
+    const bucket = grouped.get(record4.usage_id) ?? [];
+    bucket.push(record4);
+    grouped.set(record4.usage_id, bucket);
   }
   return {
     usage_to_metrics: Object.fromEntries([...grouped].map(([id, bucket]) => [id, metricsForRecords(bucket, unmeasured)])),
@@ -1823,37 +2620,37 @@ function compactMetrics(metrics) {
     coverage: metrics.coverage
   };
 }
-function tokenUsage(record2) {
-  const usage = record2.usage;
+function tokenUsage(record4) {
+  const usage = record4.usage;
   const counts = Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, usage?.[field] ?? null]));
   return {
     ...counts,
-    model: record2.model,
-    response_id: record2.response_id,
+    model: record4.model,
+    response_id: record4.response_id,
     context_window: null,
     per_turn_token: usage?.promptTokens !== void 0 && usage.completionTokens !== void 0 ? usage.promptTokens + usage.completionTokens : null
   };
 }
 function metricsForRecords(records, unmeasured) {
-  const models = new Set(records.map((record2) => record2.model));
+  const models = new Set(records.map((record4) => record4.model));
   const model = models.size === 1 ? records[0].model : models.size === 0 ? "default" : "mixed";
   const tokens = records.map(tokenUsage);
   const known = { model, response_id: null, context_window: null, per_turn_token: tokens.length === 0 ? 0 : tokens.at(-1).per_turn_token };
   const totals = { ...known };
   const missing = {};
   for (const field of Object.keys(fields)) {
-    missing[field] = tokens.filter((record2) => record2[field] === null).length;
-    known[field] = tokens.reduce((sum, record2) => sum + (record2[field] ?? 0), 0);
+    missing[field] = tokens.filter((record4) => record4[field] === null).length;
+    known[field] = tokens.reduce((sum, record4) => sum + (record4[field] ?? 0), 0);
     totals[field] = unmeasured || missing[field] > 0 ? null : known[field];
   }
   if (unmeasured && records.length === 0) totals.per_turn_token = null;
   const knownCosts = /* @__PURE__ */ Object.create(null);
   const costSources = /* @__PURE__ */ Object.create(null);
-  for (const record2 of records) if (record2.cost !== null) {
-    knownCosts[record2.cost.currency] = (knownCosts[record2.cost.currency] ?? 0) + record2.cost.amount;
-    costSources[record2.cost.source] = (costSources[record2.cost.source] ?? 0) + 1;
+  for (const record4 of records) if (record4.cost !== null) {
+    knownCosts[record4.cost.currency] = (knownCosts[record4.cost.currency] ?? 0) + record4.cost.amount;
+    costSources[record4.cost.source] = (costSources[record4.cost.source] ?? 0) + 1;
   }
-  const missingCost = records.filter((record2) => record2.cost === null).length;
+  const missingCost = records.filter((record4) => record4.cost === null).length;
   return {
     model_name: model,
     accumulated_cost: !unmeasured && missingCost === 0 && records.every((r) => r.cost?.currency === "USD") ? knownCosts.USD ?? 0 : null,
@@ -1894,10 +2691,10 @@ async function ensureLlmHistoryOrigin(state, profile) {
     value: { version: 1, origin: llmHistoryOrigin(profile) }
   }));
 }
-function historyForProfile(view, history, profile) {
+function historyForProfile(view, history, profile, legacyProfile) {
   if (!view.some((event) => event.kind === "ActionEvent" ? event.thinking_blocks.length > 0 || event.responses_reasoning_item !== null : event.kind === "MessageEvent" && (event.llm_message.thinking_blocks.length > 0 || event.llm_message.responses_reasoning_item !== null))) return [...view];
   const current = llmHistoryOrigin(profile);
-  const legacy = legacyOrigin(history);
+  const legacy = legacyOrigin(history) ?? (legacyProfile === void 0 ? null : llmHistoryOrigin(legacyProfile));
   const legacyMatches = legacy === null || legacy === current;
   const responses = /* @__PURE__ */ new Map();
   const compatible = /* @__PURE__ */ new Map();
@@ -1999,20 +2796,114 @@ var CONTENT_POLICY_PATTERNS = [
   "content filtering policy",
   "output blocked by content filtering"
 ];
-var LLMContentPolicyViolationError = class extends Error {
+var LLMBadRequestError = class extends Error {
+  constructor(message = "Provider rejected the LLM request") {
+    super(message);
+    this.name = "LLMBadRequestError";
+  }
+};
+var LLMContextWindowExceedError = class extends LLMBadRequestError {
+  constructor(message = "LLM context window exceeded") {
+    super(message);
+    this.name = "LLMContextWindowExceedError";
+  }
+};
+var LLMMalformedConversationHistoryError = class extends LLMBadRequestError {
+  constructor(message = "Provider rejected malformed conversation history") {
+    super(message);
+    this.name = "LLMMalformedConversationHistoryError";
+  }
+};
+var LLMContentPolicyViolationError = class extends LLMBadRequestError {
   constructor(message = "Output blocked by content filtering policy") {
     super(message);
     this.name = "LLMContentPolicyViolationError";
   }
 };
 function isContentPolicyViolation(error) {
-  if (error instanceof LLMContentPolicyViolationError) {
+  if (hasCause(error, (value) => value instanceof LLMContentPolicyViolationError)) {
     return true;
   }
   const text = error instanceof Error ? error.message : String(error);
   const normalized = text.toLowerCase();
   const typeName = error instanceof Error ? error.name.toLowerCase() : "";
   return CONTENT_POLICY_PATTERNS.some((pattern) => normalized.includes(pattern) || typeName.includes(pattern));
+}
+var LONG_PROMPT_PATTERNS = [
+  "contextwindowexceedederror",
+  "prompt is too long",
+  "input length and `max_tokens` exceed context limit",
+  "please reduce the length of",
+  "exceeds the available context size",
+  "context length exceeded",
+  "input exceeds the context window",
+  "context window exceeds limit",
+  "maximum context length"
+];
+var MALFORMED_HISTORY_PATTERNS = [
+  "tool_use ids were found without `tool_result` blocks immediately after",
+  "`tool_use` ids were found without `tool_result` blocks immediately after",
+  "each `tool_use` block must have a corresponding `tool_result` block in the next message",
+  "each tool_use must have a single result",
+  "found multiple `tool_result` blocks with id:",
+  "unexpected `tool_use_id` found in `tool_result` blocks",
+  "each `tool_result` block must have a corresponding `tool_use` block in the previous message",
+  "must be followed by tool messages responding to each 'tool_call_id'",
+  "failed to parse tool call arguments as json"
+];
+var CONTEXT_CODES = /* @__PURE__ */ new Set(["context_length_exceeded", "context_window_exceeded", "input_context_length_exceeded"]);
+function hasCause(error, predicate) {
+  const seen = /* @__PURE__ */ new Set();
+  while (error instanceof Error && !seen.has(error)) {
+    seen.add(error);
+    if (predicate(error)) return true;
+    error = error.cause;
+  }
+  return false;
+}
+function isContextWindowExceeded(error) {
+  return hasCause(error, (value) => value instanceof LLMContextWindowExceedError);
+}
+function looksLikeMalformedConversationHistoryError(error) {
+  return hasCause(error, (value) => value instanceof LLMMalformedConversationHistoryError);
+}
+function errorDetails(body) {
+  if (typeof body === "string") {
+    try {
+      return errorDetails(JSON.parse(body));
+    } catch {
+      return [body];
+    }
+  }
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return [];
+  const object = body;
+  return ["code", "type", "message", "status"].flatMap((key) => typeof object[key] === "string" ? [object[key]] : []).concat(object.error === void 0 ? [] : errorDetails(object.error));
+}
+function providerResponseError(provider, status, body) {
+  const message = `${provider} completion failed with HTTP ${status}`;
+  const details = errorDetails(body).map((value) => value.toLowerCase());
+  const text = details.join(" ");
+  if ([401, 403, 429].includes(status)) return new Error(message);
+  if (CONTENT_POLICY_PATTERNS.some((pattern) => text.includes(pattern)))
+    return new LLMContentPolicyViolationError();
+  if (/invalid api key|unauthorized|missing api key|invalid authentication|access denied|status 40[13]/u.test(text))
+    return new Error(message);
+  if (/max_(?:output_|completion_)?tokens(?: value)? (?:must be|is too (?:large|high)|cannot exceed)/u.test(text))
+    return new LLMBadRequestError(message);
+  if ([200, 400, 413, 422, 500, 502, 503].includes(status)) {
+    if (details.some((value) => CONTEXT_CODES.has(value)) || LONG_PROMPT_PATTERNS.some((pattern) => text.includes(pattern)) || /input token count[^.]*exceeds the maximum number of tokens/u.test(text))
+      return new LLMContextWindowExceedError(message);
+    if (MALFORMED_HISTORY_PATTERNS.some((pattern) => text.includes(pattern)))
+      return new LLMMalformedConversationHistoryError(message);
+  }
+  return status >= 400 && status < 500 ? new LLMBadRequestError(message) : new Error(message);
+}
+function mapProviderException(error) {
+  if (error instanceof Error && ["BadRequestError", "OpenAIError", "APIConnectionError", "InternalServerError", "ContextWindowExceededError"].includes(error.name)) {
+    if (error.name === "ContextWindowExceededError") return new LLMContextWindowExceedError();
+    return providerResponseError("LLM provider", error.name === "BadRequestError" ? 400 : 500, error.message);
+  }
+  return error;
 }
 
 // src/conversation/event-log.ts
@@ -2499,344 +3390,6 @@ var PendingActionsQueue = class {
     );
   }
 };
-var INITIAL_CWD = process.cwd();
-function getUserPersistenceDir(defaultDir) {
-  const envDir = process.env.OH_PERSISTENCE_DIR?.trim();
-  if (envDir !== void 0 && envDir !== "") {
-    const expanded = envDir.startsWith("~/") ? path2.join(homedir(), envDir.slice(2)) : envDir;
-    return path2.isAbsolute(expanded) ? expanded : path2.resolve(INITIAL_CWD, expanded);
-  }
-  return defaultDir ?? path2.join(homedir(), ".openhands");
-}
-var AsyncCallbackWrapper = class {
-  callback;
-  asyncCallback;
-  pending = /* @__PURE__ */ new Set();
-  constructor(asyncCallback) {
-    this.asyncCallback = asyncCallback;
-    this.callback = (event) => this.call(event);
-  }
-  get pendingCount() {
-    return this.pending.size;
-  }
-  call(event) {
-    const pending = Promise.resolve().then(() => this.asyncCallback(event)).catch(() => void 0).finally(() => this.pending.delete(pending));
-    this.pending.add(pending);
-  }
-  async waitForPending(timeoutMs) {
-    const current = [...this.pending];
-    if (current.length === 0) {
-      return;
-    }
-    const waitForAll = Promise.allSettled(current).then(() => void 0);
-    if (timeoutMs === void 0 || timeoutMs === null) {
-      await waitForAll;
-      return;
-    }
-    let timeout;
-    try {
-      await Promise.race([
-        waitForAll,
-        new Promise((_resolve, reject) => {
-          timeout = setTimeout(
-            () => reject(new Error(`Timed out waiting for async callbacks after ${timeoutMs}ms`)),
-            timeoutMs
-          );
-        })
-      ]);
-    } finally {
-      if (timeout !== void 0) {
-        clearTimeout(timeout);
-      }
-    }
-  }
-};
-var DEFAULT_TEXT_CONTENT_LIMIT = 5e4;
-var DEFAULT_TRUNCATE_NOTICE = "<response clipped><NOTE>Due to the max output limit, only part of the full response has been shown to you.</NOTE>";
-var DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST = "<response clipped><NOTE>Due to the max output limit, only part of the full response has been shown to you. The complete output has been saved to {filePath} - you can use other tools to view the full content (truncated part starts around line {lineNum}).</NOTE>";
-function maybeTruncate(content, options = {}) {
-  const truncateAfter = options.truncateAfter;
-  const truncateNotice = options.truncateNotice ?? DEFAULT_TRUNCATE_NOTICE;
-  if (truncateAfter === void 0 || truncateAfter === null || truncateAfter <= 0 || content.length <= truncateAfter) {
-    return content;
-  }
-  if (truncateNotice.length >= truncateAfter) {
-    return truncateNotice.slice(0, truncateAfter);
-  }
-  const availableChars = truncateAfter - truncateNotice.length;
-  const proposedHead = Math.floor(availableChars / 2) + availableChars % 2;
-  let finalNotice = truncateNotice;
-  if (options.saveDir !== void 0 && options.saveDir !== null && options.saveDir !== "") {
-    const savedFilePath = saveFullContent(content, options.saveDir, options.toolPrefix ?? "output");
-    if (savedFilePath !== null) {
-      const headContentLines = content.slice(0, proposedHead).split(/\r?\n/u).length;
-      finalNotice = DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST.replace("{filePath}", savedFilePath).replace(
-        "{lineNum}",
-        String(headContentLines + 1)
-      );
-    }
-  }
-  if (finalNotice.length >= truncateAfter) {
-    return finalNotice.slice(0, truncateAfter);
-  }
-  const remaining = truncateAfter - finalNotice.length;
-  const headChars = Math.min(proposedHead, remaining);
-  const tailChars = remaining - headChars;
-  return content.slice(0, headChars) + finalNotice + (tailChars > 0 ? content.slice(-tailChars) : "");
-}
-function saveFullContent(content, saveDir, toolPrefix) {
-  try {
-    mkdirSync(saveDir, { recursive: true });
-    const contentHash = createHash("sha256").update(content, "utf8").digest("hex").slice(0, 8);
-    const filePath = path2.join(saveDir, `${toolPrefix}_output_${contentHash}.txt`);
-    if (!existsSync(filePath)) {
-      writeFileSync(filePath, content, "utf8");
-    }
-    return filePath;
-  } catch {
-    return null;
-  }
-}
-function toPosixPath(inputPath) {
-  return inputPath.toString().replace(/\\/gu, "/");
-}
-function posixPathName(inputPath) {
-  const normalized = toPosixPath(inputPath).replace(/\/+$/u, "");
-  if (normalized.length === 0) {
-    return "";
-  }
-  return normalized.split("/").at(-1) ?? "";
-}
-var urlSchemePattern = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//u;
-var windowsDriveAbsolutePattern = /^[A-Za-z]:[\\/]/u;
-function isAbsolutePathSource(inputPath) {
-  const value = inputPath.toString().trim();
-  if (value.length === 0) {
-    return false;
-  }
-  return value.startsWith("/") || value.startsWith("\\") || path2.isAbsolute(value) || windowsDriveAbsolutePattern.test(value);
-}
-function isHostAbsolutePath(inputPath) {
-  const value = inputPath.toString().trim();
-  return value.length > 0 && path2.isAbsolute(value);
-}
-function isLocalPathSource(source) {
-  const value = source.trim();
-  if (value.length === 0) {
-    return false;
-  }
-  if (value.startsWith("file://") || value.startsWith("~") || value.startsWith(".")) {
-    return true;
-  }
-  if (isAbsolutePathSource(value)) {
-    return true;
-  }
-  return value.includes("\\") && !urlSchemePattern.test(value);
-}
-var ZWJ = "\u200D";
-function sanitizeOpenHandsMentions(text) {
-  return text.replace(/@(OpenHands)\b/giu, `@${ZWJ}$1`);
-}
-async function* pageIterator(searchFunc, params) {
-  let pageId = typeof params.pageId === "string" ? params.pageId : void 0;
-  const rest = { ...params };
-  delete rest.pageId;
-  while (true) {
-    const pageParams = pageId === void 0 ? rest : { ...rest, pageId };
-    const page = await searchFunc(pageParams);
-    for (const item of page.items) {
-      yield item;
-    }
-    pageId = page.nextPageId ?? void 0;
-    if (pageId === void 0 || pageId === "") {
-      break;
-    }
-  }
-}
-var SENSITIVE_ENV_VARS = /* @__PURE__ */ new Set(["SESSION_API_KEY", "OH_SECRET_KEY"]);
-var SENSITIVE_ENV_PREFIXES = ["OH_SESSION_API_KEYS_"];
-function sanitizedEnv(env = process.env) {
-  const result = {};
-  for (const [key, value] of Object.entries(env)) {
-    if (value !== void 0) {
-      result[key] = value;
-    }
-  }
-  for (const key of SENSITIVE_ENV_VARS) {
-    delete result[key];
-  }
-  for (const key of Object.keys(result)) {
-    if (SENSITIVE_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) {
-      delete result[key];
-    }
-  }
-  if (Object.hasOwn(result, "LD_LIBRARY_PATH_ORIG")) {
-    const original = result.LD_LIBRARY_PATH_ORIG;
-    if (original === void 0 || original === "") {
-      delete result.LD_LIBRARY_PATH;
-    } else {
-      result.LD_LIBRARY_PATH = original;
-    }
-  }
-  return result;
-}
-function executeCommand(command, options = {}) {
-  const shell = typeof command === "string";
-  const executable = shell ? command : command[0];
-  if (executable === void 0) {
-    throw new Error("Command must not be empty");
-  }
-  const args = shell ? [] : command.slice(1);
-  const result = spawnSync(executable, args, {
-    cwd: options.cwd,
-    env: sanitizedEnv(options.env),
-    shell,
-    timeout: options.timeoutMs,
-    encoding: "utf8"
-  });
-  const stdout = result.stdout ?? "";
-  const stderr = result.stderr ?? "";
-  if (options.printOutput ?? true) {
-    process.stdout.write(stdout);
-    process.stderr.write(stderr);
-  }
-  return {
-    command,
-    status: result.error?.name === "ETIMEDOUT" ? -1 : result.status,
-    stdout,
-    stderr
-  };
-}
-var SECRET_KEY_PATTERNS = /* @__PURE__ */ new Set([
-  "AUTHORIZATION",
-  "COOKIE",
-  "CREDENTIAL",
-  "KEY",
-  "PASSWORD",
-  "SECRET",
-  "SESSION",
-  "TOKEN"
-]);
-var SENSITIVE_URL_PARAMS = /* @__PURE__ */ new Set(["tavilyapikey", "apikey", "api_key", "token", "access_token", "secret", "key"]);
-function isSecretKey(key) {
-  const upper = key.toUpperCase();
-  return [...SECRET_KEY_PATTERNS].some((pattern) => upper.includes(pattern));
-}
-function redactUrlCredentials(url, options = {}) {
-  const match = /^(https?:\/\/)([^@/]+)@(.+)$/u.exec(url);
-  if (match === null) {
-    return url;
-  }
-  if (options.preservePlaceholders === true && match[2]?.includes("${")) {
-    return url;
-  }
-  return `${match[1]}****@${match[3]}`;
-}
-var embeddedUrlCredentialsPattern = /(https?:\/\/)[^/@\s]+@/giu;
-function redactUrlCredentialsInText(text) {
-  return text.replace(embeddedUrlCredentialsPattern, "$1****@");
-}
-function redactUrlParams(url) {
-  if (url.length === 0 || !url.includes("?")) {
-    return url;
-  }
-  try {
-    const parsed = new URL(url);
-    if (parsed.search.length === 0) {
-      return url;
-    }
-    for (const key of [...parsed.searchParams.keys()]) {
-      if (SENSITIVE_URL_PARAMS.has(key.toLowerCase()) || isSecretKey(key)) {
-        const values = parsed.searchParams.getAll(key);
-        parsed.searchParams.delete(key);
-        for (let index = 0; index < Math.max(1, values.length); index += 1) {
-          parsed.searchParams.append(key, "<redacted>");
-        }
-      }
-    }
-    return parsed.toString();
-  } catch {
-    return url;
-  }
-}
-var keyValueSecretPattern = /\b([A-Za-z0-9_.-]*(?:api[_-]?key|authorization|cookie|credential|password|secret|session|token|key)[A-Za-z0-9_.-]*)\s*=\s*("[^"]*"|'[^']*'|[^\s]+)/giu;
-var anthropicKeyPattern = /sk-ant-api\d{2}-[A-Za-z0-9_-]{20,}/gu;
-var singleQuotedDictSecretPattern = /('[A-Za-z_]*(?:KEY|SECRET|TOKEN|PASSWORD)[A-Za-z_]*':\s*')[^']*(')/giu;
-var doubleQuotedDictSecretPattern = /("[A-Za-z_]*(?:KEY|SECRET|TOKEN|PASSWORD)[A-Za-z_]*":\s*")[^"]*(")/giu;
-function redactTextSecrets(text) {
-  return redactUrlCredentialsInText(text).replace(anthropicKeyPattern, "<redacted>").replace(keyValueSecretPattern, (_match, key) => `${key}=<redacted>`).replace(singleQuotedDictSecretPattern, "$1<redacted>$2").replace(doubleQuotedDictSecretPattern, "$1<redacted>$2");
-}
-function utcNow() {
-  return /* @__PURE__ */ new Date();
-}
-function dumps(value, space) {
-  return JSON.stringify(value, (_key, item) => item, space);
-}
-function loads(text) {
-  try {
-    return JSON.parse(text);
-  } catch (error) {
-    throw new Error(`No valid JSON object found in response.`, { cause: error });
-  }
-}
-function handleDeprecatedModelFields(data, deprecatedFields) {
-  if (data === null || typeof data !== "object" || Array.isArray(data)) {
-    return data;
-  }
-  const result = { ...data };
-  for (const field of deprecatedFields) {
-    delete result[field];
-  }
-  return result;
-}
-function displayJson(value) {
-  if (Array.isArray(value)) {
-    return [`[List with ${value.length} items]`, ...value.map((item, index) => `  [${index}]: ${formatDisplayValue(item)}`)].join("\n");
-  }
-  if (value !== null && typeof value === "object") {
-    const lines = [];
-    for (const [key, item] of Object.entries(value)) {
-      if (item === null || item === void 0) {
-        continue;
-      }
-      lines.push(`
-  ${key}: ${formatDisplayValue(item)}`);
-    }
-    return lines.join("");
-  }
-  if (typeof value === "string" && value.includes("\n")) {
-    return `String:
-${value.split("\n").map((line) => `  ${line}`).join("\n")}`;
-  }
-  return formatDisplayValue(value);
-}
-function formatDisplayValue(value) {
-  if (typeof value === "string") {
-    return value.includes("\n") ? `
-${value.split("\n").map((line) => `    ${line}`).join("\n")}` : `"${value}"`;
-  }
-  if (typeof value === "boolean") {
-    return value ? "True" : "False";
-  }
-  if (value === null) {
-    return "null";
-  }
-  if (typeof value === "number" || typeof value === "bigint" || typeof value === "symbol") {
-    return String(value);
-  }
-  if (typeof value === "object") {
-    return JSON.stringify(value);
-  }
-  if (typeof value === "undefined") {
-    return "undefined";
-  }
-  if (typeof value === "function") {
-    return `[Function ${value.name || "anonymous"}]`;
-  }
-  return JSON.stringify(value);
-}
-
-// src/io/index.ts
 var MemoryLRUCache = class {
   maxMemory;
   maxSize;
@@ -3500,6 +4053,7 @@ var LocalConversation = class {
   activeAgent;
   onStepBoundary;
   runInProgress = null;
+  stepTail = Promise.resolve();
   stepUserMessageId = null;
   get agent() {
     return this.activeAgent;
@@ -3550,6 +4104,22 @@ var LocalConversation = class {
       this.runInProgress = null;
     }
   }
+  /** Force one condensation step after the currently executing step, without resuming a run. */
+  async condense() {
+    await this.withStepLock(async () => {
+      if (this.agent.condenser?.handlesCondensationRequests?.() !== true) {
+        throw new Error("Cannot condense conversation: configure a condenser that handles condensation requests.");
+      }
+      await this.state.appendEventAsync(condensationRequestSchema.parse({}));
+      await this.agent.step(this.state);
+      this.activeAgent = await applyAgentStepBoundary(this.agent, this.state, this.onStepBoundary);
+    });
+  }
+  withStepLock(operation) {
+    const result = this.stepTail.then(operation);
+    this.stepTail = result.then(() => void 0, () => void 0);
+    return result;
+  }
   async runOnce() {
     if (this.state.executionStatus === conversationExecutionStatus.PAUSED) {
       return;
@@ -3558,29 +4128,32 @@ var LocalConversation = class {
       this.state.executionStatus = conversationExecutionStatus.RUNNING;
     }
     let iteration = 0;
-    if (this.state.executionStatus === conversationExecutionStatus.RUNNING) {
-      this.activeAgent = await applyAgentStepBoundary(this.agent, this.state, this.onStepBoundary);
-    }
+    await this.withStepLock(async () => {
+      if (this.state.executionStatus === conversationExecutionStatus.RUNNING) {
+        this.activeAgent = await applyAgentStepBoundary(this.agent, this.state, this.onStepBoundary);
+      }
+    });
     while (this.state.executionStatus === conversationExecutionStatus.RUNNING) {
-      if (this.stuckDetector !== null && this.checkStuckOrNudge()) {
-        return;
-      }
-      this.stepUserMessageId = latestUserMessageId(this.state.events);
-      const emitted = await this.agent.step(this.state);
-      iteration += 1;
-      if (emitted.some(isSuccessfulFinishObservation)) {
-        this.state.executionStatus = conversationExecutionStatus.FINISHED;
-      } else if (iteration >= this.maxIterations && this.state.executionStatus === conversationExecutionStatus.RUNNING) {
-        this.state.executionStatus = conversationExecutionStatus.ERROR;
-        await this.state.appendEventAsync(
-          conversationErrorEventSchema.parse({
-            source: "environment",
-            code: "MaxIterationsReached",
-            detail: `Agent reached maximum iterations limit (${this.maxIterations}).`
-          })
-        );
-      }
-      this.activeAgent = await applyAgentStepBoundary(this.agent, this.state, this.onStepBoundary);
+      await this.withStepLock(async () => {
+        if (this.state.executionStatus !== conversationExecutionStatus.RUNNING) return;
+        if (this.stuckDetector !== null && this.checkStuckOrNudge()) return;
+        this.stepUserMessageId = latestUserMessageId(this.state.events);
+        const emitted = await this.agent.step(this.state);
+        iteration += 1;
+        if (emitted.some(isSuccessfulFinishObservation)) {
+          this.state.executionStatus = conversationExecutionStatus.FINISHED;
+        } else if (iteration >= this.maxIterations && this.state.executionStatus === conversationExecutionStatus.RUNNING) {
+          this.state.executionStatus = conversationExecutionStatus.ERROR;
+          await this.state.appendEventAsync(
+            conversationErrorEventSchema.parse({
+              source: "environment",
+              code: "MaxIterationsReached",
+              detail: `Agent reached maximum iterations limit (${this.maxIterations}).`
+            })
+          );
+        }
+        this.activeAgent = await applyAgentStepBoundary(this.agent, this.state, this.onStepBoundary);
+      });
     }
   }
   /**
@@ -3754,6 +4327,9 @@ var RemoteConversation = class {
     }
     await this.waitForRunCompletion(options.pollIntervalMs ?? 1e3, options.timeoutMs ?? 36e5);
   }
+  async condense() {
+    await this.request("POST", `${this.actionBasePath}/condense`);
+  }
   async pause() {
     await this.request("POST", `${this.actionBasePath}/pause`);
     this.state.executionStatus = conversationExecutionStatus.PAUSED;
@@ -3847,8 +4423,7 @@ var unsupportedStateFields = /* @__PURE__ */ new Set([
 ]);
 var unsupportedEventFields = /* @__PURE__ */ new Set([
   "critic_result",
-  "security_risk",
-  "summary"
+  "security_risk"
 ]);
 function restoreConversationState(payload) {
   const source = Array.isArray(payload) ? { events: payload } : recordOrThrow(payload, "conversation restore payload");
@@ -3866,6 +4441,8 @@ function restoreConversationState(payload) {
 function migrateEvent(payload, index, droppedEventFields) {
   const event = { ...recordOrThrow(payload, `event ${index}`) };
   const dropped = sortedKeys(event, unsupportedEventFields);
+  if (event.kind === "ActionEvent" && Object.hasOwn(event, "summary")) dropped.push("summary");
+  dropped.sort();
   for (const field of dropped) {
     delete event[field];
   }
@@ -3876,9 +4453,6 @@ function migrateEvent(payload, index, droppedEventFields) {
       dropped.push("tool_call.security_risk");
     }
     event.tool_call = toolCall;
-  }
-  if (event.kind === "ActionEvent" && !isRecord3(event.action)) {
-    event.action = actionFromToolCall(event.tool_call);
   }
   if (dropped.length > 0) {
     droppedEventFields.push({ index, fields: dropped });
@@ -3891,22 +4465,8 @@ function parseExecutionStatus(value) {
   }
   return conversationExecutionStatus.IDLE;
 }
-function actionFromToolCall(toolCall) {
-  if (!isRecord3(toolCall) || typeof toolCall.arguments !== "string") {
-    return {};
-  }
-  try {
-    const parsed = JSON.parse(toolCall.arguments);
-    if (isRecord3(parsed)) {
-      return parsed;
-    }
-  } catch {
-    return { arguments: toolCall.arguments };
-  }
-  return { arguments: toolCall.arguments };
-}
-function sortedKeys(record2, fields2) {
-  return Object.keys(record2).filter((key) => fields2.has(key)).sort();
+function sortedKeys(record4, fields2) {
+  return Object.keys(record4).filter((key) => fields2.has(key)).sort();
 }
 function recordOrThrow(value, name) {
   if (isRecord3(value)) {
@@ -4015,10 +4575,10 @@ var Agent = class {
   async step(state) {
     const history = [...state.events];
     const inputEventId = history.at(-1)?.id ?? null;
-    const messages = this.messagesForState(state, history);
-    if (messages === null) {
-      return [state.events.at(-1)].filter((event) => event !== void 0);
-    }
+    const system = this.renderSystemPrompt();
+    await this.llm.resolveRuntimeMetadata?.();
+    const messages = await this.messagesForState(state, history, system);
+    if (!Array.isArray(messages)) return [messages];
     let response;
     const startedAt = Date.now();
     try {
@@ -4031,7 +4591,11 @@ var Agent = class {
           ...this.usageId === void 0 ? {} : { usageId: this.usageId }
         }));
       }
-      if (isContentPolicyViolation(error instanceof LLMResponseError ? error.cause : error)) {
+      const cause = error instanceof LLMResponseError ? error.cause : error;
+      if ((cause instanceof LLMContextWindowExceedError || cause instanceof LLMMalformedConversationHistoryError) && this.condenser?.handlesCondensationRequests?.() === true) {
+        return [await state.appendEventAsync(condensationRequestSchema.parse({}))];
+      }
+      if (isContentPolicyViolation(cause)) {
         return [
           await state.appendEventAsync(
             messageEventSchema.parse({
@@ -4058,19 +4622,31 @@ var Agent = class {
       inputEventId
     });
   }
-  messagesForState(state, history) {
+  async messagesForState(state, history, system) {
     const view = View.fromEvents(history);
-    const condensed = this.condenser?.condense(view, this.llm) ?? view;
+    const projectEvents = (events, profile) => historyForProfile(historyForRequests(events, history), history, profile, this.llm.profile);
+    const messagesForEvents = (events) => {
+      const messages = eventsToMessages(projectEvents(events, this.llm.profile));
+      return system === null ? messages : [systemMessage(system), ...messages];
+    };
+    const condensed = await (this.condenser?.condense(view, this.llm, {
+      tools: this.tools.filter((tool) => tool.usable),
+      messagesForEvents,
+      projectEvents,
+      onCompletion: async (attempt) => {
+        const metadata = attempt.response ?? (attempt.error instanceof LLMResponseError ? attempt.error.metadata : { usage: null });
+        await state.appendEventAsync(createLlmUsageEvent(attempt.llm.profile, metadata, {
+          startedAt: attempt.startedAt,
+          completedAt: attempt.completedAt,
+          usageId: "condenser"
+        }));
+      }
+    }) ?? view);
     if (!(condensed instanceof View)) {
-      state.appendEvent(condensed);
-      return null;
+      await state.appendEventAsync(condensed);
+      return condensed;
     }
-    const messages = eventsToMessages(historyForProfile(historyForRequests(condensed.events.filter(isLlmConvertibleEvent), history), history, this.llm.profile));
-    const system = this.renderSystemPrompt();
-    if (system !== null) {
-      return [systemMessage(system), ...messages];
-    }
-    return messages;
+    return messagesForEvents(condensed.events.filter(isLlmConvertibleEvent));
   }
   renderSystemPrompt() {
     const suffix = this.context?.getSystemMessageSuffix() ?? null;
@@ -5841,6 +6417,657 @@ ${systemChunks.join("\n\n---\n\n")}
   ];
 }
 
+// src/llm/model-input-limits.ts
+var MODEL_INPUT_LIMITS = {
+  "chatgpt-4o-latest": { "provider": "openai", "maxInputTokens": 128e3 },
+  "claude-3-7-sonnet-20250219": { "provider": "anthropic", "maxInputTokens": 2e5 },
+  "claude-3-haiku-20240307": { "provider": "anthropic", "maxInputTokens": 2e5 },
+  "claude-3-opus-20240229": { "provider": "anthropic", "maxInputTokens": 2e5 },
+  "claude-4-opus-20250514": { "provider": "anthropic", "maxInputTokens": 2e5 },
+  "claude-4-sonnet-20250514": { "provider": "anthropic", "maxInputTokens": 1e6 },
+  "claude-fable-5": { "provider": "anthropic", "maxInputTokens": 1e6 },
+  "claude-haiku-4-5": { "provider": "anthropic", "maxInputTokens": 2e5 },
+  "claude-haiku-4-5-20251001": { "provider": "anthropic", "maxInputTokens": 2e5 },
+  "claude-opus-4-1": { "provider": "anthropic", "maxInputTokens": 2e5 },
+  "claude-opus-4-1-20250805": { "provider": "anthropic", "maxInputTokens": 2e5 },
+  "claude-opus-4-20250514": { "provider": "anthropic", "maxInputTokens": 2e5 },
+  "claude-opus-4-5": { "provider": "anthropic", "maxInputTokens": 2e5 },
+  "claude-opus-4-5-20251101": { "provider": "anthropic", "maxInputTokens": 2e5 },
+  "claude-opus-4-6": { "provider": "anthropic", "maxInputTokens": 1e6 },
+  "claude-opus-4-6-20260205": { "provider": "anthropic", "maxInputTokens": 1e6 },
+  "claude-opus-4-7": { "provider": "anthropic", "maxInputTokens": 1e6 },
+  "claude-opus-4-7-20260416": { "provider": "anthropic", "maxInputTokens": 1e6 },
+  "claude-opus-4-8": { "provider": "anthropic", "maxInputTokens": 1e6 },
+  "claude-sonnet-4-20250514": { "provider": "anthropic", "maxInputTokens": 1e6 },
+  "claude-sonnet-4-5": { "provider": "anthropic", "maxInputTokens": 2e5 },
+  "claude-sonnet-4-5-20250929": { "provider": "anthropic", "maxInputTokens": 2e5 },
+  "claude-sonnet-4-6": { "provider": "anthropic", "maxInputTokens": 1e6 },
+  "claude-sonnet-5": { "provider": "anthropic", "maxInputTokens": 1e6 },
+  "codex-mini-latest": { "provider": "openai", "maxInputTokens": 2e5 },
+  "deepseek-chat": { "provider": "deepseek", "maxInputTokens": 131072 },
+  "deepseek-reasoner": { "provider": "deepseek", "maxInputTokens": 131072 },
+  "deepseek-v4-flash": { "provider": "deepseek", "maxInputTokens": 1e6 },
+  "deepseek-v4-pro": { "provider": "deepseek", "maxInputTokens": 1e6 },
+  "deepseek/deepseek-chat": { "provider": "deepseek", "maxInputTokens": 131072 },
+  "deepseek/deepseek-coder": { "provider": "deepseek", "maxInputTokens": 128e3 },
+  "deepseek/deepseek-r1": { "provider": "deepseek", "maxInputTokens": 65536 },
+  "deepseek/deepseek-reasoner": { "provider": "deepseek", "maxInputTokens": 131072 },
+  "deepseek/deepseek-v3": { "provider": "deepseek", "maxInputTokens": 65536 },
+  "deepseek/deepseek-v3.2": { "provider": "deepseek", "maxInputTokens": 163840 },
+  "deepseek/deepseek-v4-flash": { "provider": "deepseek", "maxInputTokens": 1e6 },
+  "deepseek/deepseek-v4-pro": { "provider": "deepseek", "maxInputTokens": 1e6 },
+  "ft:gpt-3.5-turbo": { "provider": "openai", "maxInputTokens": 16385 },
+  "ft:gpt-3.5-turbo-0125": { "provider": "openai", "maxInputTokens": 16385 },
+  "ft:gpt-3.5-turbo-0613": { "provider": "openai", "maxInputTokens": 4096 },
+  "ft:gpt-3.5-turbo-1106": { "provider": "openai", "maxInputTokens": 16385 },
+  "ft:gpt-4-0613": { "provider": "openai", "maxInputTokens": 8192 },
+  "ft:gpt-4.1-2025-04-14": { "provider": "openai", "maxInputTokens": 1047576 },
+  "ft:gpt-4.1-mini-2025-04-14": { "provider": "openai", "maxInputTokens": 1047576 },
+  "ft:gpt-4.1-nano-2025-04-14": { "provider": "openai", "maxInputTokens": 1047576 },
+  "ft:gpt-4o-2024-08-06": { "provider": "openai", "maxInputTokens": 128e3 },
+  "ft:gpt-4o-2024-11-20": { "provider": "openai", "maxInputTokens": 128e3 },
+  "ft:gpt-4o-mini-2024-07-18": { "provider": "openai", "maxInputTokens": 128e3 },
+  "ft:o4-mini-2025-04-16": { "provider": "openai", "maxInputTokens": 2e5 },
+  "gemini-2.5-flash-native-audio-latest": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini-2.5-flash-native-audio-preview-09-2025": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini-2.5-flash-native-audio-preview-12-2025": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini-3.1-flash-live-preview": { "provider": "gemini", "maxInputTokens": 131072 },
+  "gemini-exp-1206": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini-flash-latest": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini-flash-lite-latest": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini-pro-latest": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-2.0-flash": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-2.0-flash-001": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-2.0-flash-lite": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-2.0-flash-lite-001": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-2.5-computer-use-preview-10-2025": { "provider": "gemini", "maxInputTokens": 128e3 },
+  "gemini/gemini-2.5-flash": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-2.5-flash-lite": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-2.5-flash-lite-preview-06-17": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-2.5-flash-lite-preview-09-2025": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-2.5-flash-native-audio-latest": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-2.5-flash-native-audio-preview-09-2025": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-2.5-flash-native-audio-preview-12-2025": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-2.5-flash-preview-09-2025": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-2.5-pro": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-2.5-pro-preview-tts": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-3-flash-preview": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-3-pro-preview": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-3.1-flash-lite": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-3.1-flash-lite-preview": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-3.1-flash-live-preview": { "provider": "gemini", "maxInputTokens": 131072 },
+  "gemini/gemini-3.1-pro-preview": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-3.1-pro-preview-customtools": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-3.5-flash": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-exp-1114": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-exp-1206": { "provider": "gemini", "maxInputTokens": 2097152 },
+  "gemini/gemini-flash-latest": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-flash-lite-latest": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-pro-latest": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemini-robotics-er-1.5-preview": { "provider": "gemini", "maxInputTokens": 1048576 },
+  "gemini/gemma-3-27b-it": { "provider": "gemini", "maxInputTokens": 131072 },
+  "gemini/learnlm-1.5-pro-experimental": { "provider": "gemini", "maxInputTokens": 32767 },
+  "gemini/lyria-3-clip-preview": { "provider": "gemini", "maxInputTokens": 131072 },
+  "gemini/lyria-3-pro-preview": { "provider": "gemini", "maxInputTokens": 131072 },
+  "gpt-3.5-turbo": { "provider": "openai", "maxInputTokens": 16385 },
+  "gpt-3.5-turbo-0125": { "provider": "openai", "maxInputTokens": 16385 },
+  "gpt-3.5-turbo-1106": { "provider": "openai", "maxInputTokens": 16385 },
+  "gpt-3.5-turbo-16k": { "provider": "openai", "maxInputTokens": 16385 },
+  "gpt-4": { "provider": "openai", "maxInputTokens": 8192 },
+  "gpt-4-0125-preview": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4-0314": { "provider": "openai", "maxInputTokens": 8192 },
+  "gpt-4-0613": { "provider": "openai", "maxInputTokens": 8192 },
+  "gpt-4-1106-preview": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4-turbo": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4-turbo-2024-04-09": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4-turbo-preview": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4.1": { "provider": "openai", "maxInputTokens": 1047576 },
+  "gpt-4.1-2025-04-14": { "provider": "openai", "maxInputTokens": 1047576 },
+  "gpt-4.1-mini": { "provider": "openai", "maxInputTokens": 1047576 },
+  "gpt-4.1-mini-2025-04-14": { "provider": "openai", "maxInputTokens": 1047576 },
+  "gpt-4.1-nano": { "provider": "openai", "maxInputTokens": 1047576 },
+  "gpt-4.1-nano-2025-04-14": { "provider": "openai", "maxInputTokens": 1047576 },
+  "gpt-4o": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4o-2024-05-13": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4o-2024-08-06": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4o-2024-11-20": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4o-audio-preview": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4o-audio-preview-2024-12-17": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4o-audio-preview-2025-06-03": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4o-mini": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4o-mini-2024-07-18": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4o-mini-audio-preview": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4o-mini-audio-preview-2024-12-17": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4o-mini-realtime-preview": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4o-mini-realtime-preview-2024-12-17": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4o-mini-search-preview": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4o-mini-search-preview-2025-03-11": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4o-realtime-preview": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4o-realtime-preview-2024-12-17": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4o-realtime-preview-2025-06-03": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4o-search-preview": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-4o-search-preview-2025-03-11": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-5": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5-2025-08-07": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5-chat": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-5-chat-latest": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-5-codex": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5-mini": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5-mini-2025-08-07": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5-nano": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5-nano-2025-08-07": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5-pro": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-5-pro-2025-10-06": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-5-search-api": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5-search-api-2025-10-14": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5.1": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5.1-2025-11-13": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5.1-chat-latest": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-5.1-codex": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5.1-codex-max": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5.1-codex-mini": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5.2": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5.2-2025-12-11": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5.2-chat-latest": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-5.2-codex": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5.2-pro": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5.2-pro-2025-12-11": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5.3-chat-latest": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-5.3-codex": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5.4": { "provider": "openai", "maxInputTokens": 105e4 },
+  "gpt-5.4-2026-03-05": { "provider": "openai", "maxInputTokens": 105e4 },
+  "gpt-5.4-mini": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5.4-mini-2026-03-17": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5.4-nano": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5.4-nano-2026-03-17": { "provider": "openai", "maxInputTokens": 272e3 },
+  "gpt-5.4-pro": { "provider": "openai", "maxInputTokens": 105e4 },
+  "gpt-5.4-pro-2026-03-05": { "provider": "openai", "maxInputTokens": 105e4 },
+  "gpt-5.5": { "provider": "openai", "maxInputTokens": 105e4 },
+  "gpt-5.5-2026-04-23": { "provider": "openai", "maxInputTokens": 105e4 },
+  "gpt-5.5-pro": { "provider": "openai", "maxInputTokens": 105e4 },
+  "gpt-5.5-pro-2026-04-23": { "provider": "openai", "maxInputTokens": 105e4 },
+  "gpt-5.6": { "provider": "openai", "maxInputTokens": 105e4 },
+  "gpt-5.6-luna": { "provider": "openai", "maxInputTokens": 105e4 },
+  "gpt-5.6-sol": { "provider": "openai", "maxInputTokens": 105e4 },
+  "gpt-5.6-terra": { "provider": "openai", "maxInputTokens": 105e4 },
+  "gpt-audio": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-audio-1.5": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-audio-2025-08-28": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-audio-mini": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-audio-mini-2025-10-06": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-audio-mini-2025-12-15": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-realtime": { "provider": "openai", "maxInputTokens": 32e3 },
+  "gpt-realtime-1.5": { "provider": "openai", "maxInputTokens": 32e3 },
+  "gpt-realtime-2": { "provider": "openai", "maxInputTokens": 32e3 },
+  "gpt-realtime-2.1": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-realtime-2.1-mini": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-realtime-2025-08-28": { "provider": "openai", "maxInputTokens": 32e3 },
+  "gpt-realtime-mini": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-realtime-mini-2025-10-06": { "provider": "openai", "maxInputTokens": 128e3 },
+  "gpt-realtime-mini-2025-12-15": { "provider": "openai", "maxInputTokens": 128e3 },
+  "minimax/MiniMax-M2": { "provider": "minimax", "maxInputTokens": 2e5 },
+  "minimax/MiniMax-M2.1": { "provider": "minimax", "maxInputTokens": 1e6 },
+  "minimax/MiniMax-M2.1-lightning": { "provider": "minimax", "maxInputTokens": 1e6 },
+  "minimax/MiniMax-M2.5": { "provider": "minimax", "maxInputTokens": 1e6 },
+  "minimax/MiniMax-M2.5-lightning": { "provider": "minimax", "maxInputTokens": 1e6 },
+  "minimax/MiniMax-M3": { "provider": "minimax", "maxInputTokens": 1e6 },
+  "mistral/codestral-2405": { "provider": "mistral", "maxInputTokens": 32e3 },
+  "mistral/codestral-2508": { "provider": "mistral", "maxInputTokens": 256e3 },
+  "mistral/codestral-latest": { "provider": "mistral", "maxInputTokens": 32e3 },
+  "mistral/codestral-mamba-latest": { "provider": "mistral", "maxInputTokens": 256e3 },
+  "mistral/devstral-2512": { "provider": "mistral", "maxInputTokens": 256e3 },
+  "mistral/devstral-latest": { "provider": "mistral", "maxInputTokens": 256e3 },
+  "mistral/devstral-medium-2507": { "provider": "mistral", "maxInputTokens": 128e3 },
+  "mistral/devstral-medium-latest": { "provider": "mistral", "maxInputTokens": 256e3 },
+  "mistral/devstral-small-2505": { "provider": "mistral", "maxInputTokens": 128e3 },
+  "mistral/devstral-small-2507": { "provider": "mistral", "maxInputTokens": 128e3 },
+  "mistral/devstral-small-latest": { "provider": "mistral", "maxInputTokens": 256e3 },
+  "mistral/labs-devstral-small-2512": { "provider": "mistral", "maxInputTokens": 256e3 },
+  "mistral/magistral-medium-1-2-2509": { "provider": "mistral", "maxInputTokens": 4e4 },
+  "mistral/magistral-medium-2506": { "provider": "mistral", "maxInputTokens": 4e4 },
+  "mistral/magistral-medium-2509": { "provider": "mistral", "maxInputTokens": 4e4 },
+  "mistral/magistral-medium-latest": { "provider": "mistral", "maxInputTokens": 4e4 },
+  "mistral/magistral-small-1-2-2509": { "provider": "mistral", "maxInputTokens": 4e4 },
+  "mistral/magistral-small-2506": { "provider": "mistral", "maxInputTokens": 4e4 },
+  "mistral/magistral-small-latest": { "provider": "mistral", "maxInputTokens": 4e4 },
+  "mistral/ministral-3-14b-2512": { "provider": "mistral", "maxInputTokens": 262144 },
+  "mistral/ministral-3-3b-2512": { "provider": "mistral", "maxInputTokens": 131072 },
+  "mistral/ministral-3-8b-2512": { "provider": "mistral", "maxInputTokens": 262144 },
+  "mistral/ministral-8b-2512": { "provider": "mistral", "maxInputTokens": 262144 },
+  "mistral/ministral-8b-latest": { "provider": "mistral", "maxInputTokens": 262144 },
+  "mistral/mistral-large-2402": { "provider": "mistral", "maxInputTokens": 32e3 },
+  "mistral/mistral-large-2407": { "provider": "mistral", "maxInputTokens": 128e3 },
+  "mistral/mistral-large-2411": { "provider": "mistral", "maxInputTokens": 128e3 },
+  "mistral/mistral-large-2512": { "provider": "mistral", "maxInputTokens": 262144 },
+  "mistral/mistral-large-3": { "provider": "mistral", "maxInputTokens": 262144 },
+  "mistral/mistral-large-latest": { "provider": "mistral", "maxInputTokens": 262144 },
+  "mistral/mistral-medium": { "provider": "mistral", "maxInputTokens": 32e3 },
+  "mistral/mistral-medium-2312": { "provider": "mistral", "maxInputTokens": 32e3 },
+  "mistral/mistral-medium-2505": { "provider": "mistral", "maxInputTokens": 131072 },
+  "mistral/mistral-medium-2508": { "provider": "mistral", "maxInputTokens": 131072 },
+  "mistral/mistral-medium-2604": { "provider": "mistral", "maxInputTokens": 262144 },
+  "mistral/mistral-medium-3-1-2508": { "provider": "mistral", "maxInputTokens": 131072 },
+  "mistral/mistral-medium-3-5": { "provider": "mistral", "maxInputTokens": 262144 },
+  "mistral/mistral-medium-latest": { "provider": "mistral", "maxInputTokens": 262144 },
+  "mistral/mistral-small": { "provider": "mistral", "maxInputTokens": 32e3 },
+  "mistral/mistral-small-3-2-2506": { "provider": "mistral", "maxInputTokens": 131072 },
+  "mistral/mistral-small-latest": { "provider": "mistral", "maxInputTokens": 131072 },
+  "mistral/mistral-tiny": { "provider": "mistral", "maxInputTokens": 32e3 },
+  "mistral/open-codestral-mamba": { "provider": "mistral", "maxInputTokens": 256e3 },
+  "mistral/open-mistral-7b": { "provider": "mistral", "maxInputTokens": 32e3 },
+  "mistral/open-mistral-nemo": { "provider": "mistral", "maxInputTokens": 128e3 },
+  "mistral/open-mistral-nemo-2407": { "provider": "mistral", "maxInputTokens": 128e3 },
+  "mistral/open-mixtral-8x22b": { "provider": "mistral", "maxInputTokens": 65336 },
+  "mistral/open-mixtral-8x7b": { "provider": "mistral", "maxInputTokens": 32e3 },
+  "mistral/pixtral-12b-2409": { "provider": "mistral", "maxInputTokens": 128e3 },
+  "mistral/pixtral-large-2411": { "provider": "mistral", "maxInputTokens": 128e3 },
+  "mistral/pixtral-large-latest": { "provider": "mistral", "maxInputTokens": 128e3 },
+  "moonshot/kimi-k2-0711-preview": { "provider": "moonshot", "maxInputTokens": 131072 },
+  "moonshot/kimi-k2-0905-preview": { "provider": "moonshot", "maxInputTokens": 262144 },
+  "moonshot/kimi-k2-thinking": { "provider": "moonshot", "maxInputTokens": 262144 },
+  "moonshot/kimi-k2-thinking-turbo": { "provider": "moonshot", "maxInputTokens": 262144 },
+  "moonshot/kimi-k2-turbo-preview": { "provider": "moonshot", "maxInputTokens": 262144 },
+  "moonshot/kimi-k2.5": { "provider": "moonshot", "maxInputTokens": 262144 },
+  "moonshot/kimi-k2.6": { "provider": "moonshot", "maxInputTokens": 262144 },
+  "moonshot/kimi-latest": { "provider": "moonshot", "maxInputTokens": 131072 },
+  "moonshot/kimi-latest-128k": { "provider": "moonshot", "maxInputTokens": 131072 },
+  "moonshot/kimi-latest-32k": { "provider": "moonshot", "maxInputTokens": 32768 },
+  "moonshot/kimi-latest-8k": { "provider": "moonshot", "maxInputTokens": 8192 },
+  "moonshot/kimi-thinking-preview": { "provider": "moonshot", "maxInputTokens": 131072 },
+  "moonshot/moonshot-v1-128k": { "provider": "moonshot", "maxInputTokens": 131072 },
+  "moonshot/moonshot-v1-128k-0430": { "provider": "moonshot", "maxInputTokens": 131072 },
+  "moonshot/moonshot-v1-128k-vision-preview": { "provider": "moonshot", "maxInputTokens": 131072 },
+  "moonshot/moonshot-v1-32k": { "provider": "moonshot", "maxInputTokens": 32768 },
+  "moonshot/moonshot-v1-32k-0430": { "provider": "moonshot", "maxInputTokens": 32768 },
+  "moonshot/moonshot-v1-32k-vision-preview": { "provider": "moonshot", "maxInputTokens": 32768 },
+  "moonshot/moonshot-v1-8k": { "provider": "moonshot", "maxInputTokens": 8192 },
+  "moonshot/moonshot-v1-8k-0430": { "provider": "moonshot", "maxInputTokens": 8192 },
+  "moonshot/moonshot-v1-8k-vision-preview": { "provider": "moonshot", "maxInputTokens": 8192 },
+  "moonshot/moonshot-v1-auto": { "provider": "moonshot", "maxInputTokens": 131072 },
+  "o1": { "provider": "openai", "maxInputTokens": 2e5 },
+  "o1-2024-12-17": { "provider": "openai", "maxInputTokens": 2e5 },
+  "o1-pro": { "provider": "openai", "maxInputTokens": 2e5 },
+  "o1-pro-2025-03-19": { "provider": "openai", "maxInputTokens": 2e5 },
+  "o3": { "provider": "openai", "maxInputTokens": 2e5 },
+  "o3-2025-04-16": { "provider": "openai", "maxInputTokens": 2e5 },
+  "o3-deep-research": { "provider": "openai", "maxInputTokens": 2e5 },
+  "o3-deep-research-2025-06-26": { "provider": "openai", "maxInputTokens": 2e5 },
+  "o3-mini": { "provider": "openai", "maxInputTokens": 2e5 },
+  "o3-mini-2025-01-31": { "provider": "openai", "maxInputTokens": 2e5 },
+  "o3-pro": { "provider": "openai", "maxInputTokens": 2e5 },
+  "o3-pro-2025-06-10": { "provider": "openai", "maxInputTokens": 2e5 },
+  "o4-mini": { "provider": "openai", "maxInputTokens": 2e5 },
+  "o4-mini-2025-04-16": { "provider": "openai", "maxInputTokens": 2e5 },
+  "o4-mini-deep-research": { "provider": "openai", "maxInputTokens": 2e5 },
+  "o4-mini-deep-research-2025-06-26": { "provider": "openai", "maxInputTokens": 2e5 },
+  "xai/grok-2": { "provider": "xai", "maxInputTokens": 131072 },
+  "xai/grok-2-1212": { "provider": "xai", "maxInputTokens": 131072 },
+  "xai/grok-2-latest": { "provider": "xai", "maxInputTokens": 131072 },
+  "xai/grok-2-vision": { "provider": "xai", "maxInputTokens": 32768 },
+  "xai/grok-2-vision-1212": { "provider": "xai", "maxInputTokens": 32768 },
+  "xai/grok-2-vision-latest": { "provider": "xai", "maxInputTokens": 32768 },
+  "xai/grok-3": { "provider": "xai", "maxInputTokens": 131072 },
+  "xai/grok-3-beta": { "provider": "xai", "maxInputTokens": 131072 },
+  "xai/grok-3-fast-beta": { "provider": "xai", "maxInputTokens": 131072 },
+  "xai/grok-3-fast-latest": { "provider": "xai", "maxInputTokens": 131072 },
+  "xai/grok-3-latest": { "provider": "xai", "maxInputTokens": 131072 },
+  "xai/grok-3-mini": { "provider": "xai", "maxInputTokens": 131072 },
+  "xai/grok-3-mini-beta": { "provider": "xai", "maxInputTokens": 131072 },
+  "xai/grok-3-mini-fast": { "provider": "xai", "maxInputTokens": 131072 },
+  "xai/grok-3-mini-fast-beta": { "provider": "xai", "maxInputTokens": 131072 },
+  "xai/grok-3-mini-fast-latest": { "provider": "xai", "maxInputTokens": 131072 },
+  "xai/grok-3-mini-latest": { "provider": "xai", "maxInputTokens": 131072 },
+  "xai/grok-4": { "provider": "xai", "maxInputTokens": 256e3 },
+  "xai/grok-4-0709": { "provider": "xai", "maxInputTokens": 256e3 },
+  "xai/grok-4-latest": { "provider": "xai", "maxInputTokens": 256e3 },
+  "xai/grok-4.20-0309-reasoning": { "provider": "xai", "maxInputTokens": 2e6 },
+  "xai/grok-4.20-beta-0309-non-reasoning": { "provider": "xai", "maxInputTokens": 2e6 },
+  "xai/grok-4.20-beta-0309-reasoning": { "provider": "xai", "maxInputTokens": 2e6 },
+  "xai/grok-4.20-multi-agent-beta-0309": { "provider": "xai", "maxInputTokens": 2e6 },
+  "xai/grok-4.3": { "provider": "xai", "maxInputTokens": 1e6 },
+  "xai/grok-4.3-latest": { "provider": "xai", "maxInputTokens": 1e6 },
+  "xai/grok-4.5": { "provider": "xai", "maxInputTokens": 5e5 },
+  "xai/grok-4.5-latest": { "provider": "xai", "maxInputTokens": 5e5 },
+  "xai/grok-beta": { "provider": "xai", "maxInputTokens": 131072 },
+  "xai/grok-code-fast": { "provider": "xai", "maxInputTokens": 256e3 },
+  "xai/grok-code-fast-1": { "provider": "xai", "maxInputTokens": 256e3 },
+  "xai/grok-code-fast-1-0825": { "provider": "xai", "maxInputTokens": 256e3 },
+  "xai/grok-vision-beta": { "provider": "xai", "maxInputTokens": 8192 },
+  "zai/glm-4-32b-0414-128k": { "provider": "zai", "maxInputTokens": 128e3 },
+  "zai/glm-4.5": { "provider": "zai", "maxInputTokens": 128e3 },
+  "zai/glm-4.5-air": { "provider": "zai", "maxInputTokens": 128e3 },
+  "zai/glm-4.5-airx": { "provider": "zai", "maxInputTokens": 128e3 },
+  "zai/glm-4.5-flash": { "provider": "zai", "maxInputTokens": 128e3 },
+  "zai/glm-4.5-x": { "provider": "zai", "maxInputTokens": 128e3 },
+  "zai/glm-4.5v": { "provider": "zai", "maxInputTokens": 128e3 },
+  "zai/glm-4.6": { "provider": "zai", "maxInputTokens": 2e5 },
+  "zai/glm-4.7": { "provider": "zai", "maxInputTokens": 2e5 },
+  "zai/glm-5": { "provider": "zai", "maxInputTokens": 2e5 },
+  "zai/glm-5-code": { "provider": "zai", "maxInputTokens": 2e5 }
+};
+
+// src/tool/defaults.ts
+var DEFAULT_EXEC_TOOL_NAMES = ["terminal", "file_editor", "task_tracker"];
+var BROWSER_TOOL_NAME = "browser_tool_set";
+var SUB_AGENT_TOOL_NAME = "task_tool_set";
+function defaultToolSpecs(options = {}) {
+  const names = [...DEFAULT_EXEC_TOOL_NAMES];
+  if (options.enableBrowser === true) {
+    names.push(BROWSER_TOOL_NAME);
+  }
+  if (options.enableSubAgents === true) {
+    names.push(SUB_AGENT_TOOL_NAME);
+  }
+  return names;
+}
+
+// src/tool/index.ts
+var toolAnnotationsSchema = z.object({
+  title: z.string().nullable().default(null),
+  readOnlyHint: z.boolean().default(false),
+  destructiveHint: z.boolean().default(true),
+  idempotentHint: z.boolean().default(false),
+  openWorldHint: z.boolean().default(true)
+}).strict();
+var toolSpecSchema = z.object({
+  name: z.string().min(1),
+  params: z.record(z.string(), z.unknown()).default({})
+}).strict();
+var ToolDefinition = class {
+  name;
+  description;
+  inputSchema;
+  outputSchema;
+  executor;
+  annotations;
+  meta;
+  usable;
+  constructor(options) {
+    this.name = options.name;
+    this.description = options.description;
+    this.inputSchema = options.inputSchema;
+    this.outputSchema = options.outputSchema;
+    this.executor = options.executor;
+    this.annotations = options.annotations;
+    this.meta = options.meta;
+    this.usable = options.usable ?? true;
+  }
+  async execute(input, context) {
+    if (this.executor === void 0) {
+      throw new Error(`Tool '${this.name}' has no executor`);
+    }
+    const action = this.inputSchema.parse(input);
+    const result = await this.executor(action, context);
+    if (this.outputSchema === void 0) {
+      return result;
+    }
+    return this.outputSchema.parse(result);
+  }
+  toMcpTool(inputSchema, outputSchema) {
+    const tool = {
+      name: this.name,
+      description: this.description,
+      inputSchema: inputSchema ?? schemaToJsonObject(this.inputSchema)
+    };
+    const derivedOutputSchema = outputSchema ?? (this.outputSchema === void 0 ? void 0 : schemaToJsonObject(this.outputSchema));
+    if (derivedOutputSchema !== void 0) {
+      tool.outputSchema = derivedOutputSchema;
+    }
+    if (this.annotations !== void 0) {
+      tool.annotations = this.annotations;
+    }
+    if (this.meta !== void 0) {
+      tool._meta = this.meta;
+    }
+    return tool;
+  }
+  toResponsesTool() {
+    return {
+      type: "function",
+      name: this.name,
+      description: this.description,
+      strict: false,
+      parameters: schemaToJsonObject(this.inputSchema)
+    };
+  }
+};
+var ToolRegistry = class {
+  registrations = /* @__PURE__ */ new Map();
+  register(name, tool) {
+    this.registrations.set(name, tool);
+  }
+  registerFactory(name, factory) {
+    this.registrations.set(name, factory);
+  }
+  resolve(spec, context) {
+    const parsedSpec = toolSpecSchema.parse(spec);
+    const registration = this.registrations.get(parsedSpec.name);
+    if (registration === void 0) {
+      const builtin = builtinToolResolvers.get(parsedSpec.name);
+      if (builtin !== void 0) {
+        return builtin(parsedSpec.params, context);
+      }
+      throw new Error(`Unknown tool: ${parsedSpec.name}`);
+    }
+    if (registration instanceof ToolDefinition) {
+      if (Object.keys(parsedSpec.params).length > 0) {
+        throw new Error(`Registered tool instance '${parsedSpec.name}' does not accept params`);
+      }
+      return [registration];
+    }
+    return registration(parsedSpec.params, context);
+  }
+  listRegisteredTools() {
+    return [...this.registrations.keys()];
+  }
+  listUsableTools() {
+    return [...this.registrations.entries()].filter(([_name, registration]) => !(registration instanceof ToolDefinition) || registration.usable).map(([name]) => name);
+  }
+};
+var globalToolRegistry = new ToolRegistry();
+function registerTool(name, tool) {
+  globalToolRegistry.register(name, tool);
+}
+function registerToolFactory(name, factory) {
+  globalToolRegistry.registerFactory(name, factory);
+}
+function resolveTool(spec, context) {
+  return globalToolRegistry.resolve(spec, context);
+}
+function listRegisteredTools() {
+  return globalToolRegistry.listRegisteredTools();
+}
+function listUsableTools() {
+  return globalToolRegistry.listUsableTools();
+}
+function schemaToJsonObject(schema) {
+  const jsonSchema = z.toJSONSchema(schema);
+  if (!isJsonObject(jsonSchema)) {
+    throw new Error("Zod schema did not produce a JSON object schema");
+  }
+  return jsonSchema;
+}
+function isJsonObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+var builtinToolResolvers = /* @__PURE__ */ new Map();
+function registerBuiltinResolver(name, resolver) {
+  builtinToolResolvers.set(name, resolver);
+}
+
+// src/llm/token-count.ts
+var encodings = /* @__PURE__ */ new Map();
+function encoder(model) {
+  const name = /^(?:openai\/)?(?:gpt-(?:4o|4\.1|[5-9])|o[134](?:-|$))/u.test(model) ? "o200k_base" : "cl100k_base";
+  let value = encodings.get(name);
+  if (!value) {
+    value = getEncoding(name);
+    encodings.set(name, value);
+  }
+  return value;
+}
+function record2(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
+}
+function formatType(props, indent) {
+  switch (props.type) {
+    case "string":
+      return Array.isArray(props.enum) ? props.enum.map((value) => JSON.stringify(value)).join(" | ") : "string";
+    case "integer":
+    case "number":
+      return Array.isArray(props.enum) ? props.enum.map((value) => `"${String(value)}"`).join(" | ") : "number";
+    case "boolean":
+      return "boolean";
+    case "null":
+      return "null";
+    case "array":
+      return `${formatType(record2(props.items), indent)}[]`;
+    case "object":
+      return `{
+${formatParameters(props, indent + 2)}
+}`;
+    default:
+      return "any";
+  }
+}
+function formatParameters(parameters, indent) {
+  const required = Array.isArray(parameters.required) ? parameters.required : [];
+  return Object.entries(record2(parameters.properties)).flatMap(([key, value]) => {
+    const props = record2(value);
+    const lines = typeof props.description === "string" && props.description ? [`// ${props.description}`] : [];
+    lines.push(`${key}${required.includes(key) ? "" : "?"}: ${formatType(props, indent)},`);
+    return lines.map((line) => `${" ".repeat(indent)}${line}`);
+  }).join("\n");
+}
+function formatTools(tools) {
+  const lines = ["namespace functions {", ""];
+  for (const tool of tools) {
+    const definition = tool instanceof ToolDefinition ? { ...tool.toResponsesTool() } : tool;
+    const nested = record2(definition.function);
+    const fn = Object.keys(nested).length ? nested : definition;
+    if (typeof fn.name !== "string" || !fn.name) continue;
+    if (typeof fn.description === "string" && fn.description) lines.push(`// ${fn.description}`);
+    const parameters = record2(fn.parameters ?? fn.input_schema);
+    if (Object.keys(record2(parameters.properties)).length) {
+      lines.push(`type ${fn.name} = (_: {`, formatParameters(parameters, 0), "}) => any;");
+    } else lines.push(`type ${fn.name} = () => any;`);
+    lines.push("");
+  }
+  lines.push("} // namespace functions");
+  return lines.join("\n");
+}
+function estimateInputTokens(model, messages, tools = []) {
+  const encoding = encoder(model);
+  const count = (text) => encoding.encode(text, [], []).length;
+  let total = 3;
+  for (const message of messages) {
+    if (message.content.some((content) => content.type !== "text") || message.thinking_blocks?.some((block) => block.type === "redacted_thinking") || message.responses_reasoning_item?.encrypted_content) return null;
+    total += (model === "gpt-3.5-turbo-0301" ? 4 : 3) + count(message.role);
+    for (const content of message.content) if (content.type === "text") total += count(content.text);
+    if (message.name !== null && message.name !== void 0) total += count(message.name) + (model === "gpt-3.5-turbo-0301" ? -1 : 1);
+    if (message.tool_call_id) total += count(message.tool_call_id);
+    for (const call of message.tool_calls ?? []) total += count(call.arguments);
+    if (message.reasoning_content) total += count(message.reasoning_content);
+    if (!message.reasoning_content) {
+      for (const block of message.thinking_blocks ?? []) if (block.type === "thinking") total += count(block.thinking);
+    }
+  }
+  if (tools.length) total += count(formatTools(tools)) + 9 - (messages.some((message) => message.role === "system") ? 4 : 0);
+  return total;
+}
+
+// src/llm/context-budget.ts
+function record3(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
+}
+function positiveLimit(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+function staticLimit(profile) {
+  const endpoint = profile.baseUrl ? new URL(profile.baseUrl) : null;
+  const host = endpoint?.hostname ?? null;
+  if (endpoint && (endpoint.port || !["", "/", "/v1", "/v1/", "/v1beta", "/v1beta/"].includes(endpoint.pathname))) return null;
+  const nativeHosts = { openai: "api.openai.com", anthropic: "api.anthropic.com", gemini: "generativelanguage.googleapis.com", deepseek: "api.deepseek.com", moonshot: "api.moonshot.ai", minimax: "api.minimax.io", mistral: "api.mistral.ai", xai: "api.x.ai", zai: "api.z.ai" };
+  if (!nativeHosts[profile.providerId] || host && host !== nativeHosts[profile.providerId]) return null;
+  const entry = MODEL_INPUT_LIMITS[profile.model] ?? MODEL_INPUT_LIMITS[`${profile.providerId}/${profile.model}`];
+  return entry?.provider === profile.providerId ? entry.maxInputTokens : null;
+}
+var LLMContextBudget = class {
+  constructor(profile, options = {}) {
+    this.profile = profile;
+    this.options = options;
+  }
+  profile;
+  options;
+  tokenCountAccuracy = "estimate";
+  resolvedLimit = null;
+  freshUntil = 0;
+  inflight;
+  get effectiveMaxInputTokens() {
+    return this.profile.maxInputTokens ?? (Date.now() < this.freshUntil ? this.resolvedLimit : null) ?? staticLimit(this.profile);
+  }
+  getTokenCount(messages, tools) {
+    return Promise.resolve(estimateInputTokens(this.profile.model, messages, tools));
+  }
+  resolveRuntimeMetadata() {
+    if (this.profile.maxInputTokens !== null || Date.now() < this.freshUntil) return Promise.resolve();
+    if (this.inflight) return this.inflight;
+    this.inflight = this.resolve().finally(() => {
+      this.inflight = void 0;
+    });
+    return this.inflight;
+  }
+  async resolve() {
+    this.resolvedLimit = null;
+    const profile = this.profile;
+    const host = profile.baseUrl ? new URL(profile.baseUrl).hostname : null;
+    const openrouter = profile.providerId === "openrouter" && (!host || host === "openrouter.ai") || host === "openrouter.ai";
+    const proxy = profile.providerId === "litellm_proxy" || profile.model.startsWith("litellm_proxy/") || host !== null && /litellm|llm-proxy/u.test(host);
+    let url = null;
+    if (openrouter && profile.model.includes("/")) url = `https://openrouter.ai/api/v1/models/${profile.model.replace(/^openrouter\//u, "").split("/").map(encodeURIComponent).join("/")}/endpoints`;
+    if (proxy && profile.baseUrl) url = `${profile.baseUrl.replace(/\/v1\/?$|\/$/u, "")}/v1/model/info`;
+    if (!url) {
+      this.freshUntil = Date.now() + 3e5;
+      return;
+    }
+    const abort = new AbortController();
+    let timer;
+    try {
+      const fetcher = this.options.fetch ?? ((input, init) => globalThis.fetch(input, init));
+      const payload = await Promise.race([
+        fetcher(url, { method: "GET", redirect: "error", headers: openrouter ? {} : this.options.headers ?? {}, signal: abort.signal }).then(async (response) => {
+          if (!response.ok) throw new Error("Metadata unavailable");
+          return await response.json();
+        }),
+        new Promise((_resolve, reject) => {
+          timer = setTimeout(() => {
+            abort.abort();
+            reject(new Error("Metadata timeout"));
+          }, 1e4);
+        })
+      ]);
+      const data = record3(payload).data;
+      if (openrouter) {
+        const endpoints = record3(Array.isArray(data) ? data[0] : data).endpoints;
+        if (Array.isArray(endpoints)) {
+          const limits = endpoints.map((item) => positiveLimit(record3(item).context_length)).filter((value) => value !== null);
+          this.resolvedLimit = limits.length ? Math.min(...limits) : null;
+        }
+      } else if (Array.isArray(data)) {
+        const model = profile.model.replace(/^litellm_proxy\//u, "");
+        const matches = data.map(record3).filter((item) => item.model_name === model || record3(item.litellm_params).model === model);
+        const limits = matches.map((item) => positiveLimit(record3(item.model_info).max_input_tokens));
+        this.resolvedLimit = limits.length && limits.every((value) => value !== null) ? Math.min(...limits) : null;
+      }
+    } catch {
+      this.resolvedLimit = null;
+    } finally {
+      if (timer !== void 0) clearTimeout(timer);
+      this.freshUntil = Date.now() + (this.resolvedLimit === null ? 3e5 : 36e5);
+    }
+  }
+};
+
 // src/llm/tool-result-order.ts
 function orderCompletedToolResults(messages) {
   const ordered = [];
@@ -6033,10 +7260,22 @@ var AnthropicMessagesClient = class {
   profile;
   apiKey;
   fetchImpl;
-  constructor(profile, apiKey, fetchImpl = defaultFetch2) {
+  constructor(profile, apiKey, fetchImpl = defaultFetch2, metadataFetch) {
     this.profile = profile;
     this.apiKey = apiKey;
     this.fetchImpl = fetchImpl;
+    this.contextBudget = new LLMContextBudget(profile, { ...metadataFetch ? { fetch: metadataFetch } : {}, headers: buildHeaders(profile, apiKey) });
+  }
+  contextBudget;
+  tokenCountAccuracy = "estimate";
+  get effectiveMaxInputTokens() {
+    return this.contextBudget.effectiveMaxInputTokens;
+  }
+  getTokenCount(messages, tools) {
+    return this.contextBudget.getTokenCount(messages, tools);
+  }
+  resolveRuntimeMetadata() {
+    return this.contextBudget.resolveRuntimeMetadata();
   }
   async complete(messages, tools) {
     const body = buildAnthropicMessagesBody(this.profile, messages, tools);
@@ -6044,14 +7283,12 @@ var AnthropicMessagesClient = class {
       method: "POST",
       headers: buildHeaders(this.profile, this.apiKey),
       body: JSON.stringify(body)
+    }).catch((error) => {
+      throw mapProviderException(error);
     });
     if (!response.ok) {
       const text = await response.text();
-      const error = new Error(`Anthropic messages completion failed with HTTP ${response.status}: ${text}`);
-      if (isContentPolicyViolation(error)) {
-        throw new LLMContentPolicyViolationError(text);
-      }
-      throw error;
+      throwProviderErrorWithMetadata(text, providerResponseError("Anthropic messages", response.status, text), parseAnthropicMetadata);
     }
     return parseAnthropicMessagesResponse(await response.json());
   }
@@ -6070,7 +7307,7 @@ async function createAnthropicClientFromProfile(profile, store, options = {}) {
       `Missing API key for Anthropic LLM profile '${profile.profileId}'. Set provider key '${profile.providerId}' or enable and set a profile override.`
     );
   }
-  return new AnthropicMessagesClient(profile, apiKey, options.fetch ?? defaultFetch2);
+  return new AnthropicMessagesClient(profile, apiKey, options.fetch ?? defaultFetch2, options.metadataFetch);
 }
 function buildAnthropicMessagesBody(profile, messages, tools) {
   const normalizedProfile = normalizeGenerationParamsForModel(profile);
@@ -6296,20 +7533,34 @@ var GeminiClient = class {
   profile;
   apiKey;
   fetchImpl;
-  constructor(profile, apiKey, fetchImpl = defaultFetch3) {
+  constructor(profile, apiKey, fetchImpl = defaultFetch3, metadataFetch) {
     this.profile = profile;
     this.apiKey = apiKey;
     this.fetchImpl = fetchImpl;
+    this.contextBudget = new LLMContextBudget(profile, { ...metadataFetch ? { fetch: metadataFetch } : {}, headers: buildHeaders2(profile, apiKey) });
+  }
+  contextBudget;
+  tokenCountAccuracy = "estimate";
+  get effectiveMaxInputTokens() {
+    return this.contextBudget.effectiveMaxInputTokens;
+  }
+  getTokenCount(messages, tools) {
+    return this.contextBudget.getTokenCount(messages, tools);
+  }
+  resolveRuntimeMetadata() {
+    return this.contextBudget.resolveRuntimeMetadata();
   }
   async complete(messages, tools) {
     const response = await this.fetchImpl(`${resolveBaseUrl2(this.profile)}/interactions`, {
       method: "POST",
       headers: buildHeaders2(this.profile, this.apiKey),
       body: JSON.stringify(buildGeminiInteractionsBody(this.profile, messages, tools))
+    }).catch((error) => {
+      throw mapProviderException(error);
     });
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`Gemini Interactions completion failed with HTTP ${response.status}: ${text}`);
+      throwProviderErrorWithMetadata(text, providerResponseError("Gemini Interactions", response.status, text), parseGeminiMetadata);
     }
     return parseGeminiInteractionResponse(await response.json());
   }
@@ -6328,7 +7579,7 @@ async function createGeminiClientFromProfile(profile, store, options = {}) {
       `Missing API key for Gemini LLM profile '${profile.profileId}'. Set provider key '${profile.providerId}' or enable and set a profile override.`
     );
   }
-  return new GeminiClient(profile, apiKey, options.fetch ?? defaultFetch3);
+  return new GeminiClient(profile, apiKey, options.fetch ?? defaultFetch3, options.metadataFetch);
 }
 function buildGeminiInteractionsBody(profile, messages, tools = []) {
   assertSupportedGenerationParams(profile);
@@ -6390,7 +7641,7 @@ function stripUnsupportedSchemaProperties(value) {
   if (Array.isArray(value)) {
     return value.map(stripUnsupportedSchemaProperties);
   }
-  if (!isJsonObject(value)) {
+  if (!isJsonObject2(value)) {
     return value;
   }
   return Object.fromEntries(
@@ -6466,7 +7717,7 @@ function parseFunctionCallArguments(toolCall) {
   } catch {
     throw new Error(`Gemini function call '${toolCall.id}' arguments must be a valid JSON object.`);
   }
-  if (!isJsonObject(parsed)) {
+  if (!isJsonObject2(parsed)) {
     throw new Error(`Gemini function call '${toolCall.id}' arguments must be a valid JSON object.`);
   }
   return parsed;
@@ -6537,7 +7788,7 @@ function buildHeaders2(profile, apiKey) {
 async function defaultFetch3(url, init) {
   return globalThis.fetch(url, init);
 }
-function isJsonObject(value) {
+function isJsonObject2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 var geminiTextContentSchema = z.object({ type: z.literal("text"), text: z.string() }).passthrough();
@@ -6601,7 +7852,7 @@ async function readSubscriptionResponse(response, onTerminalResponse) {
       return event.response.output?.length ? event.response : { ...event.response, output: outputItems };
     }
     if (event.type === "error" || event.type === "response.failed" || event.type === "response.incomplete")
-      throw new Error("OpenAI subscription response failed or was incomplete");
+      throw providerResponseError("OpenAI subscription", 200, event.response?.error ?? event.error ?? event);
     return void 0;
   };
   try {
@@ -6635,10 +7886,22 @@ var OpenAIChatClient = class {
   profile;
   apiKey;
   fetchImpl;
-  constructor(profile, apiKey, fetchImpl = defaultFetch4) {
+  constructor(profile, apiKey, fetchImpl = defaultFetch4, metadataFetch) {
     this.profile = profile;
     this.apiKey = apiKey;
     this.fetchImpl = fetchImpl;
+    this.contextBudget = new LLMContextBudget(profile, { ...metadataFetch ? { fetch: metadataFetch } : {}, headers: buildHeaders3(profile, apiKey) });
+  }
+  contextBudget;
+  tokenCountAccuracy = "estimate";
+  get effectiveMaxInputTokens() {
+    return this.contextBudget.effectiveMaxInputTokens;
+  }
+  getTokenCount(messages, tools) {
+    return this.contextBudget.getTokenCount(messages, tools);
+  }
+  resolveRuntimeMetadata() {
+    return this.contextBudget.resolveRuntimeMetadata();
   }
   async complete(messages, tools) {
     const body = buildChatCompletionsBody(this.profile, messages, tools);
@@ -6646,25 +7909,39 @@ var OpenAIChatClient = class {
       method: "POST",
       headers: buildHeaders3(this.profile, this.apiKey),
       body: JSON.stringify(body)
+    }).catch((error) => {
+      throw mapProviderException(error);
     });
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`OpenAI-compatible completion failed with HTTP ${response.status}: ${text}`);
+      throwProviderErrorWithMetadata(text, providerResponseError("OpenAI-compatible", response.status, text), (raw) => parseChatCompletionsMetadata(raw, this.profile));
     }
     return parseChatCompletionsResponse(await response.json(), this.profile);
   }
 };
 var OpenAIResponsesClient = class {
-  constructor(profile, apiKey, fetchImpl = defaultFetch4, subscriptionAuth) {
+  constructor(profile, apiKey, fetchImpl = defaultFetch4, subscriptionAuth, metadataFetch) {
     this.profile = profile;
     this.apiKey = apiKey;
     this.fetchImpl = fetchImpl;
     this.subscriptionAuth = subscriptionAuth;
+    this.contextBudget = new LLMContextBudget(profile, { ...metadataFetch ? { fetch: metadataFetch } : {}, headers: buildHeaders3(profile, apiKey) });
   }
   profile;
   apiKey;
   fetchImpl;
   subscriptionAuth;
+  contextBudget;
+  tokenCountAccuracy = "estimate";
+  get effectiveMaxInputTokens() {
+    return this.contextBudget.effectiveMaxInputTokens;
+  }
+  getTokenCount(messages, tools) {
+    return this.contextBudget.getTokenCount(messages, tools);
+  }
+  resolveRuntimeMetadata() {
+    return this.contextBudget.resolveRuntimeMetadata();
+  }
   async complete(messages, tools) {
     let apiKey = this.apiKey;
     const headers = Object.fromEntries(Object.entries(this.profile.headers).filter(([name]) => !this.subscriptionAuth || !["authorization", "chatgpt-account-id"].includes(name.toLowerCase())));
@@ -6680,11 +7957,12 @@ var OpenAIResponsesClient = class {
       method: "POST",
       headers: buildHeaders3({ ...this.profile, headers }, apiKey),
       body: JSON.stringify(buildOpenAIResponsesBody(this.profile, messages, tools))
+    }).catch((error) => {
+      throw mapProviderException(error);
     });
     if (!response.ok) {
-      if (this.subscriptionAuth) throw new Error(`OpenAI subscription completion failed with HTTP ${response.status}`);
       const text = await response.text();
-      throw new Error(`OpenAI Responses completion failed with HTTP ${response.status}: ${text}`);
+      throwProviderErrorWithMetadata(text, providerResponseError(this.subscriptionAuth ? "OpenAI subscription" : "OpenAI Responses", response.status, text), parseOpenAIResponsesMetadata);
     }
     let raw;
     let terminalResponse;
@@ -6694,9 +7972,7 @@ var OpenAIResponsesClient = class {
       }) : await response.json();
     } catch (error) {
       if (terminalResponse !== void 0) {
-        return parseLlmResponseWithMetadata(terminalResponse, parseOpenAIResponsesMetadata, () => {
-          throw error;
-        });
+        throwProviderErrorWithMetadata(terminalResponse, error, parseOpenAIResponsesMetadata);
       }
       throw error;
     }
@@ -6717,7 +7993,7 @@ async function createOpenAIChatClientFromProfile(profile, store, options = {}) {
       `Missing API key for LLM profile '${profile.profileId}'. Set provider key '${profile.providerId}' or enable and set a profile override.`
     );
   }
-  return new OpenAIChatClient(profile, apiKey, options.fetch ?? defaultFetch4);
+  return new OpenAIChatClient(profile, apiKey, options.fetch ?? defaultFetch4, options.metadataFetch);
 }
 async function createOpenAIResponsesClientFromProfile(profile, store, options = {}) {
   if (profile.authType === "subscription") {
@@ -6727,7 +8003,7 @@ async function createOpenAIResponsesClientFromProfile(profile, store, options = 
     const auth = options.subscriptionAuth ?? new OpenAISubscriptionAuth();
     if (!await auth.refreshIfNeeded()) throw new Error("OpenAI subscription login is required");
     const runtimeProfile = { ...profile, model, baseUrl: CODEX_API_ENDPOINT.slice(0, -"/responses".length), openAiApiMode: "responses", temperature: null, maxOutputTokens: null, subscriptionVendor: "openai" };
-    return new OpenAIResponsesClient(runtimeProfile, "", options.fetch ?? defaultFetch4, auth);
+    return new OpenAIResponsesClient(runtimeProfile, "", options.fetch ?? defaultFetch4, auth, options.metadataFetch);
   }
   const apiKey = await getLlmApiKey(
     {
@@ -6742,7 +8018,7 @@ async function createOpenAIResponsesClientFromProfile(profile, store, options = 
       `Missing API key for LLM profile '${profile.profileId}'. Set provider key '${profile.providerId}' or enable and set a profile override.`
     );
   }
-  return new OpenAIResponsesClient(profile, apiKey, options.fetch ?? defaultFetch4);
+  return new OpenAIResponsesClient(profile, apiKey, options.fetch ?? defaultFetch4, void 0, options.metadataFetch);
 }
 function applyOpenAIPromptCacheOptions(body, profile) {
   const retention = resolveOpenAIPromptCacheRetention(profile);
@@ -6948,8 +8224,8 @@ function isEmptySerializedContent(content) {
     if (typeof item !== "object" || item === null || !("type" in item)) {
       return false;
     }
-    const record2 = item;
-    return record2.type === "text" && record2.text === "";
+    const record4 = item;
+    return record4.type === "text" && record4.text === "";
   });
 }
 function toOpenAIChatToolCall(toolCall) {
@@ -7018,6 +8294,11 @@ function fromOpenAIChatToolCall(toolCall) {
   };
 }
 function parseOpenAIResponsesResponse(raw) {
+  if (typeof raw === "object" && raw !== null) {
+    const response = raw;
+    if (response.status === "failed" || response.status === "incomplete" || response.error)
+      throwProviderErrorWithMetadata(raw, providerResponseError("OpenAI Responses", 200, response.error ?? response.incomplete_details), parseOpenAIResponsesMetadata);
+  }
   return parseLlmResponseWithMetadata(raw, parseOpenAIResponsesMetadata, parseOpenAIResponsesContent);
 }
 function parseOpenAIResponsesMetadata(raw) {
@@ -7666,6 +8947,59 @@ function extractActionName(actionEvent) {
 function isRecord7(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+var profileReferenceSchema = z.string().trim().min(1);
+var llmSummarizingCondenserSettingsSchema = z.object({
+  condenser_kind: z.literal("llm_summarizing").default("llm_summarizing"),
+  enabled: z.boolean().default(true),
+  llm_profile_ref: profileReferenceSchema.optional(),
+  max_size: z.number().int().min(20).default(240),
+  // Absence inherits the agent limit at materialization; explicit null does not.
+  max_tokens: z.number().int().positive().nullable().optional(),
+  keep_first: z.number().int().nonnegative().default(2),
+  minimum_progress: z.number().gt(0).lt(1).default(0.1),
+  hard_context_reset_max_retries: z.number().int().positive().default(5),
+  hard_context_reset_context_scaling: z.number().gt(0).lt(1).default(0.8)
+}).strict();
+var noOpCondenserSettingsSchema = z.object({
+  condenser_kind: z.literal("no_op"),
+  enabled: z.boolean().default(true)
+}).strict();
+var condenserSettingsSchema = z.preprocess((value) => {
+  if (typeof value === "object" && value !== null && !Array.isArray(value) && "condenser_kind" in value && value.condenser_kind === "noop") {
+    return { ...value, condenser_kind: "no_op" };
+  }
+  return value;
+}, z.union([llmSummarizingCondenserSettingsSchema, noOpCondenserSettingsSchema]));
+async function materializeCondenser(data, options) {
+  const settings = condenserSettingsSchema.parse(data);
+  if (!settings.enabled) return null;
+  if (settings.condenser_kind === "no_op") return new NoOpCondenser();
+  if (Math.floor(settings.max_size / 2) - settings.keep_first - 1 <= 0) {
+    throw new RangeError("keep_first must be less than max_size // 2 to leave room for condensation");
+  }
+  const selectedRef = settings.llm_profile_ref ?? options.defaultProfileRef;
+  if (selectedRef === void 0) {
+    throw new Error("Enabled LLM condenser requires llm_profile_ref or an explicit host defaultProfileRef.");
+  }
+  const profileRef = profileReferenceSchema.parse(selectedRef);
+  const llm = await options.resolveClient(profileRef);
+  let maxTokens = settings.max_tokens;
+  if (maxTokens === void 0) {
+    await options.agentLlm?.resolveRuntimeMetadata?.();
+    maxTokens = options.agentLlm?.effectiveMaxInputTokens ?? null;
+  }
+  return new LLMSummarizingCondenser({
+    llm,
+    maxSize: settings.max_size,
+    maxTokens,
+    keepFirst: settings.keep_first,
+    minimumProgress: settings.minimum_progress,
+    hardContextResetMaxRetries: settings.hard_context_reset_max_retries,
+    hardContextResetContextScaling: settings.hard_context_reset_context_scaling
+  });
+}
+
+// src/settings/index.ts
 var RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED = [
   "provider",
   "model",
@@ -7714,7 +9048,7 @@ var openHandsAgentSettingsSchema = z.object({
   enable_sub_agents: z.boolean().default(false),
   enable_switch_llm_tool: z.boolean().default(true),
   tool_concurrency_limit: z.number().int().min(1).default(1),
-  condenser: z.unknown().default({ condenser_kind: "llm_summarizing", enabled: true }),
+  condenser: condenserSettingsSchema.prefault({}),
   verification: profileVerificationSettingsSchema.default(defaultVerificationSettings)
 }).strict();
 var acpAgentSettingsSchema = z.object({
@@ -8173,155 +9507,6 @@ function defaultTestProfile() {
 }
 function isCompletionResponse(value) {
   return typeof value === "object" && value !== null && "message" in value;
-}
-
-// src/tool/defaults.ts
-var DEFAULT_EXEC_TOOL_NAMES = ["terminal", "file_editor", "task_tracker"];
-var BROWSER_TOOL_NAME = "browser_tool_set";
-var SUB_AGENT_TOOL_NAME = "task_tool_set";
-function defaultToolSpecs(options = {}) {
-  const names = [...DEFAULT_EXEC_TOOL_NAMES];
-  if (options.enableBrowser === true) {
-    names.push(BROWSER_TOOL_NAME);
-  }
-  if (options.enableSubAgents === true) {
-    names.push(SUB_AGENT_TOOL_NAME);
-  }
-  return names;
-}
-
-// src/tool/index.ts
-var toolAnnotationsSchema = z.object({
-  title: z.string().nullable().default(null),
-  readOnlyHint: z.boolean().default(false),
-  destructiveHint: z.boolean().default(true),
-  idempotentHint: z.boolean().default(false),
-  openWorldHint: z.boolean().default(true)
-}).strict();
-var toolSpecSchema = z.object({
-  name: z.string().min(1),
-  params: z.record(z.string(), z.unknown()).default({})
-}).strict();
-var ToolDefinition = class {
-  name;
-  description;
-  inputSchema;
-  outputSchema;
-  executor;
-  annotations;
-  meta;
-  usable;
-  constructor(options) {
-    this.name = options.name;
-    this.description = options.description;
-    this.inputSchema = options.inputSchema;
-    this.outputSchema = options.outputSchema;
-    this.executor = options.executor;
-    this.annotations = options.annotations;
-    this.meta = options.meta;
-    this.usable = options.usable ?? true;
-  }
-  async execute(input, context) {
-    if (this.executor === void 0) {
-      throw new Error(`Tool '${this.name}' has no executor`);
-    }
-    const action = this.inputSchema.parse(input);
-    const result = await this.executor(action, context);
-    if (this.outputSchema === void 0) {
-      return result;
-    }
-    return this.outputSchema.parse(result);
-  }
-  toMcpTool(inputSchema, outputSchema) {
-    const tool = {
-      name: this.name,
-      description: this.description,
-      inputSchema: inputSchema ?? schemaToJsonObject(this.inputSchema)
-    };
-    const derivedOutputSchema = outputSchema ?? (this.outputSchema === void 0 ? void 0 : schemaToJsonObject(this.outputSchema));
-    if (derivedOutputSchema !== void 0) {
-      tool.outputSchema = derivedOutputSchema;
-    }
-    if (this.annotations !== void 0) {
-      tool.annotations = this.annotations;
-    }
-    if (this.meta !== void 0) {
-      tool._meta = this.meta;
-    }
-    return tool;
-  }
-  toResponsesTool() {
-    return {
-      type: "function",
-      name: this.name,
-      description: this.description,
-      strict: false,
-      parameters: schemaToJsonObject(this.inputSchema)
-    };
-  }
-};
-var ToolRegistry = class {
-  registrations = /* @__PURE__ */ new Map();
-  register(name, tool) {
-    this.registrations.set(name, tool);
-  }
-  registerFactory(name, factory) {
-    this.registrations.set(name, factory);
-  }
-  resolve(spec, context) {
-    const parsedSpec = toolSpecSchema.parse(spec);
-    const registration = this.registrations.get(parsedSpec.name);
-    if (registration === void 0) {
-      const builtin = builtinToolResolvers.get(parsedSpec.name);
-      if (builtin !== void 0) {
-        return builtin(parsedSpec.params, context);
-      }
-      throw new Error(`Unknown tool: ${parsedSpec.name}`);
-    }
-    if (registration instanceof ToolDefinition) {
-      if (Object.keys(parsedSpec.params).length > 0) {
-        throw new Error(`Registered tool instance '${parsedSpec.name}' does not accept params`);
-      }
-      return [registration];
-    }
-    return registration(parsedSpec.params, context);
-  }
-  listRegisteredTools() {
-    return [...this.registrations.keys()];
-  }
-  listUsableTools() {
-    return [...this.registrations.entries()].filter(([_name, registration]) => !(registration instanceof ToolDefinition) || registration.usable).map(([name]) => name);
-  }
-};
-var globalToolRegistry = new ToolRegistry();
-function registerTool(name, tool) {
-  globalToolRegistry.register(name, tool);
-}
-function registerToolFactory(name, factory) {
-  globalToolRegistry.registerFactory(name, factory);
-}
-function resolveTool(spec, context) {
-  return globalToolRegistry.resolve(spec, context);
-}
-function listRegisteredTools() {
-  return globalToolRegistry.listRegisteredTools();
-}
-function listUsableTools() {
-  return globalToolRegistry.listUsableTools();
-}
-function schemaToJsonObject(schema) {
-  const jsonSchema = z.toJSONSchema(schema);
-  if (!isJsonObject2(jsonSchema)) {
-    throw new Error("Zod schema did not produce a JSON object schema");
-  }
-  return jsonSchema;
-}
-function isJsonObject2(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-var builtinToolResolvers = /* @__PURE__ */ new Map();
-function registerBuiltinResolver(name, resolver) {
-  builtinToolResolvers.set(name, resolver);
 }
 var switchLLMActionSchema = z.object({
   profile_name: z.string().describe("Name of the saved LLM profile to use for future agent steps."),
@@ -9712,8 +10897,8 @@ var VERIFIED_MODELS = {
 };
 
 // src/index.ts
-var VERSION = "0.2.0";
+var VERSION = "0.4.0";
 
-export { AGENT_OUTCOME, AGENT_PROFILE_SCHEMA_VERSION, AGENT_SETTINGS_SCHEMA_VERSION, Agent, AgentContext, AgentDefinition, AgentFinishedCritic, AnthropicMessagesClient, AsyncCallbackWrapper, AsyncProcessManager, BROWSER_TOOL_NAME, BUILT_IN_TOOLS, BUILT_IN_TOOL_FACTORIES, BrowserTool, CANCEL_TASK_TOOL_NAME, CLIENT_ID, CODEX_API_ENDPOINT, CONSENT_BANNER, CONTENT_POLICY_NUDGE, CONVERSATION_SETTINGS_SCHEMA_VERSION, CORRECTIVE_NUDGE, CancelTaskTool, ConversationState, CredentialStore, CriticBase, CriticResult, DEFAULT_EXEC_TOOL_NAMES, DEFAULT_OAUTH_PORT, DEFAULT_SYSTEM_MESSAGE, DEFAULT_TERMINAL_TIMEOUT_SECONDS, DEFAULT_TEXT_CONTENT_LIMIT, DEFAULT_TRUNCATE_NOTICE, DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST, DEVICE_CODE_TIMEOUT_SECONDS, DuplicateEventError, EVENTS_DIR, EVENT_FILE_PATTERN, EmptyPatchCritic, EventLog, ExtensionFetchError, FULL_STATE_KEY, FileEditorExecutor, FileEditorTool, FinishTool, GIT_EMPTY_TREE_HASH, GeminiClient, GitChangeStatus, GitCommandError, GitError, GitPathError, GitRepositoryError, GlobExecutor, GlobTool, GrepExecutor, GrepTool, HookConfig, HookDecision, HookDefinition, HookExecutor, HookManager, HookMatcher, HookResult, HookEventType as HookTriggerEventType, HookType, ISSUER, InMemoryFileStore, InMemorySecretStore, InstallationInfo, InstallationMetadata, LIST_TASKS_TOOL_NAME, LLMContentPolicyViolationError, LLMResponseError, LLM_HISTORY_ORIGIN_KEY, LLM_METRICS_RESET_KEY, LLM_PROFILE_ID_PATTERN, LLM_USAGE_KEY, LOCK_FILE_NAME, LOCK_TIMEOUT_SECONDS, ListTasksTool, LocalConversation, LocalFileStore, LocalWorkspace, LogLevel, MAX_FILE_SIZE_FOR_GIT_DIFF, MCPError, MCPTimeoutError, MCPToolAction, MCPToolDefinition, MCPToolExecutor, MCPToolObservation, MacOSKeychainSecretStore, MemoryLRUCache, N_CHAR_PREVIEW, NoCondensationAvailableError, NoOpCondenser, OAUTH_TIMEOUT_SECONDS, OAuthCredentials, OPENAI_CODEX_MODELS, OPENHANDS_KEYRING_SERVICE, OpenAIChatClient, OpenAIResponsesClient, OpenAISubscriptionAuth, PAUSE_TASK_TOOL_NAME, ParallelToolExecutor, PassCritic, PauseTaskTool, PendingActionsQueue, PipelineCondenser, RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED, RESUME_TASK_TOOL_NAME, ROOT_PARENT_ID, RemoteConversation, RemoteWorkspace, RepoSource, ResumeTaskTool, RollingCondenser, RootSpan, SCHEDULE_TASK_TOOL_NAME, SECRET_KEY_PATTERNS, SEND_MESSAGE_TOOL_NAME, SENSITIVE_URL_PARAMS, SUB_AGENT_TOOL_NAME, ScheduleTaskTool, SendMediaTool, SendMessageTool, Skill, StuckDetector, SwitchLLMTool, TASK_SCHEDULER_TOOL_FACTORIES, TaskTrackerExecutor, TaskTrackerTool, TerminalExecutor, TerminalTool, TestLLM, TestLLMExhaustedError, ThinkTool, ToolDefinition, ToolRegistry, UpdateTaskTool, VERIFIED_ANTHROPIC_MODELS, VERIFIED_DEEPSEEK_MODELS, VERIFIED_GEMINI_MODELS, VERIFIED_GLM_MODELS, VERIFIED_MINIMAX_MODELS, VERIFIED_MISTRAL_MODELS, VERIFIED_MODELS, VERIFIED_MOONSHOT_MODELS, VERIFIED_NVIDIA_MODELS, VERIFIED_OPENAI_MODELS, VERIFIED_OPENHANDS_MODELS, VERIFIED_QWEN_MODELS, VERSION, ValueError, View, acpAgentProfileSchema, acpAgentSettingsSchema, acpServerKindSchema, acpToolCallEventSchema, actionEventSchema, actionEventsFromMessage, agentErrorEventSchema, agentProfileSchema, agentSettingsSchema, anthropicCacheTtlSchema, baseObservationSchema, baseToolObservationSchema, browserActionSchema, browserObservationSchema, buildAnthropicMessagesBody, buildAuthorizeUrl, buildChatCompletionsBody, buildCloneUrl, buildGeminiInteractionsBody, buildOpenAIResponsesBody, cancellationToken, checkScheduleValue, classifyError, classifyResponse, clearRawLlmFieldsWhenProfileSelected, condensationRequestSchema, condensationRequirement, condensationSchema, condensationSummaryEventSchema, contentSchema, contentToString, conversationErrorEventSchema, conversationExecutionStatus, conversationSettingsSchema, conversationStateUpdateEventSchema, createAnthropicClientFromProfile, createClientFromProfile, createGeminiClientFromProfile, createLlmUsageEvent, createMcpTools, createMetricsResetEvent, createOpenAIChatClientFromProfile, createOpenAIResponsesClientFromProfile, criticModeSchema, defaultAgentSettings, defaultToolSpecs, detectProviderFromBaseUrl, disableLogger, discoverAgents, dispatchLlmResponse, displayJson, dumps, endRootSpan, ensureLlmHistoryOrigin, errorClassificationSchema, eventSchema, eventsToMessages, executeCommand, extractActionName, extractRepoName, failureActionSchema, failureKindSchema, fetchExtension, fetchWithResolution, fileEditorActionSchema, fileEditorObservationSchema, finishActionSchema, generatePKCE, getAgentFactory, getCachePath, getChangesInRepo, getClosestGitRepo, getCommitChanges, getCommitFileDiff, getCredentialsDir, getDisplayBaseRef, getEnv, getFactoryInfo, getGitCommits, getGitDiff, getGitRepositoryMetadata, getLlmApiKey, getLogger, getRegisteredAgentDefinitions, getReposContext, getUserPersistenceDir, getValidRef, globActionSchema, globObservationSchema, globalToolRegistry, grepActionSchema, grepMatchSchema, grepObservationSchema, handleDeprecatedModelFields, historyForProfile, hookEventSchema, hookEventTypeSchema, hookExecutionEventSchema, imageContent, imageContentSchema, injectSystemPrefix, inputMetadataSchema, interruptEventSchema, isAbsolutePathSource, isAcpPatchEdit, isContentPolicyViolation, isConversationStateUpdateEvent, isEnabledFor, isGitUrl, isHostAbsolutePath, isLocalPathSource, isMessageEvent, isSecretKey, keywordTriggerSchema, listRegisteredTools, listTasksActionSchema, listUsableTools, llmCompletionLogEventSchema, llmCompletionResponseSchema, llmConvertibleEventSchema, llmHistoryOrigin, llmProfileIdSchema, llmProfileSchema, llmProfileSecretRef, llmProviderIdSchema, llmProviderSecretRef, llmResponseMetadataSchema, llmResponseType, llmUsageSchema, loadAgentsFromDir, loadAgentsFromDirs, loadProjectAgents, loadSkillsFromDir, loadUserAgents, loads, maybeInitLaminar, maybeTruncate, mergeSkillsByName, messageEventSchema, messageSchema, messageToolCallSchema, metricsSnapshot, normalizeGitUrl, oauthCredentialsSchema, observabilityEnvKeys, observabilityMetadataSchema, observabilitySpanNameSchema, observabilityTagsSchema, observationEventSchema, observe, openAiApiModeSchema, openHandsAgentProfileSchema, openHandsAgentSettingsSchema, pageIterator, parseExtensionSource, parseLlmResponseWithMetadata, pathMatchesGlob, pathTriggerSchema, pauseEventSchema, posixPathName, profileVerificationSettingsSchema, promptCacheRetentionSchema, reasoningEffortSchema, reasoningItemSchema, reasoningSummarySchema, redactTextSecrets, redactUrlCredentials, redactUrlCredentialsInText, redactUrlParams, redactedThinkingBlockSchema, reduceTextContent, registerAgent, registerAgentIfAbsent, registerBuiltinResolver, registerTool, registerToolFactory, resetAgentRegistryForTests, resolveLlmApiKeyRef, resolveLlmProfileApiKeyRef, resolveProviderFromProfile, resolveTool, restoreConversationState, resumeTranscriptEventSchema, runGitCommand, sanitizeOpenHandsMentions, sanitizedEnv, scheduleTaskActionSchema, secretRefSchema, sendMediaActionSchema, sendMessageActionSchema, sendMessageObservationSchema, setupLogging, shouldEnableObservability, skillResourcesSchema, skillSchema, skillsToPrompt, sourceTypeSchema, startChildSpan, startRootSpan, statsForEvents, statsSnapshot, streamingDeltaEventSchema, switchLLMActionSchema, switchLLMObservationSchema, systemPromptEventSchema, taskItemSchema, taskMutationActionSchema, taskTrackerActionSchema, taskTrackerObservationSchema, taskTriggerSchema, terminalActionSchema, terminalObservationSchema, textContent, textContentSchema, thinkActionSchema, thinkingBlockSchema, toCamelCase, toLLMMessage, toPosixPath, tokenEventSchema, toolAnnotationsSchema, toolSpecSchema, transformForSubscription, triggerSchema, updateTaskActionSchema, userRejectObservationSchema, utcNow, validateAgentProfile, validateAgentSettings, validateConversationSettings, validateExtensionName, validateGitRepository, workspace };
+export { AGENT_OUTCOME, AGENT_PROFILE_SCHEMA_VERSION, AGENT_SETTINGS_SCHEMA_VERSION, Agent, AgentContext, AgentDefinition, AgentFinishedCritic, AnthropicMessagesClient, AsyncCallbackWrapper, AsyncProcessManager, BROWSER_TOOL_NAME, BUILT_IN_TOOLS, BUILT_IN_TOOL_FACTORIES, BrowserTool, CANCEL_TASK_TOOL_NAME, CLIENT_ID, CODEX_API_ENDPOINT, CONSENT_BANNER, CONTENT_POLICY_NUDGE, CONVERSATION_SETTINGS_SCHEMA_VERSION, CORRECTIVE_NUDGE, CancelTaskTool, CondenserCompletionCallbackError, ConversationState, CredentialStore, CriticBase, CriticResult, DEFAULT_EXEC_TOOL_NAMES, DEFAULT_OAUTH_PORT, DEFAULT_SYSTEM_MESSAGE, DEFAULT_TERMINAL_TIMEOUT_SECONDS, DEFAULT_TEXT_CONTENT_LIMIT, DEFAULT_TRUNCATE_NOTICE, DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST, DEVICE_CODE_TIMEOUT_SECONDS, DuplicateEventError, EVENTS_DIR, EVENT_FILE_PATTERN, EmptyPatchCritic, EventLog, ExtensionFetchError, FULL_STATE_KEY, FileEditorExecutor, FileEditorTool, FinishTool, GIT_EMPTY_TREE_HASH, GeminiClient, GitChangeStatus, GitCommandError, GitError, GitPathError, GitRepositoryError, GlobExecutor, GlobTool, GrepExecutor, GrepTool, HookConfig, HookDecision, HookDefinition, HookExecutor, HookManager, HookMatcher, HookResult, HookEventType as HookTriggerEventType, HookType, ISSUER, InMemoryFileStore, InMemorySecretStore, InstallationInfo, InstallationMetadata, LIST_TASKS_TOOL_NAME, LLMBadRequestError, LLMContentPolicyViolationError, LLMContextWindowExceedError, LLMMalformedConversationHistoryError, LLMResponseError, LLMSummarizingCondenser, LLM_HISTORY_ORIGIN_KEY, LLM_METRICS_RESET_KEY, LLM_PROFILE_ID_PATTERN, LLM_USAGE_KEY, LOCK_FILE_NAME, LOCK_TIMEOUT_SECONDS, ListTasksTool, LocalConversation, LocalFileStore, LocalWorkspace, LogLevel, MAX_FILE_SIZE_FOR_GIT_DIFF, MCPError, MCPTimeoutError, MCPToolAction, MCPToolDefinition, MCPToolExecutor, MCPToolObservation, MacOSKeychainSecretStore, ManipulationIndices, MemoryLRUCache, N_CHAR_PREVIEW, NoCondensationAvailableError, NoOpCondenser, OAUTH_TIMEOUT_SECONDS, OAuthCredentials, OPENAI_CODEX_MODELS, OPENHANDS_KEYRING_SERVICE, OpenAIChatClient, OpenAIResponsesClient, OpenAISubscriptionAuth, PAUSE_TASK_TOOL_NAME, ParallelToolExecutor, PassCritic, PauseTaskTool, PendingActionsQueue, PipelineCondenser, RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED, RESUME_TASK_TOOL_NAME, ROOT_PARENT_ID, RemoteConversation, RemoteWorkspace, RepoSource, ResumeTaskTool, RollingCondenser, RootSpan, SCHEDULE_TASK_TOOL_NAME, SECRET_KEY_PATTERNS, SEND_MESSAGE_TOOL_NAME, SENSITIVE_URL_PARAMS, SUB_AGENT_TOOL_NAME, ScheduleTaskTool, SendMediaTool, SendMessageTool, Skill, StuckDetector, SwitchLLMTool, TASK_SCHEDULER_TOOL_FACTORIES, TaskTrackerExecutor, TaskTrackerTool, TerminalExecutor, TerminalTool, TestLLM, TestLLMExhaustedError, ThinkTool, ToolDefinition, ToolRegistry, UpdateTaskTool, VERIFIED_ANTHROPIC_MODELS, VERIFIED_DEEPSEEK_MODELS, VERIFIED_GEMINI_MODELS, VERIFIED_GLM_MODELS, VERIFIED_MINIMAX_MODELS, VERIFIED_MISTRAL_MODELS, VERIFIED_MODELS, VERIFIED_MOONSHOT_MODELS, VERIFIED_NVIDIA_MODELS, VERIFIED_OPENAI_MODELS, VERIFIED_OPENHANDS_MODELS, VERIFIED_QWEN_MODELS, VERSION, ValueError, View, acpAgentProfileSchema, acpAgentSettingsSchema, acpServerKindSchema, acpToolCallEventSchema, actionEventSchema, actionEventsFromMessage, agentErrorEventSchema, agentProfileSchema, agentSettingsSchema, anthropicCacheTtlSchema, baseObservationSchema, baseToolObservationSchema, browserActionSchema, browserObservationSchema, buildAnthropicMessagesBody, buildAuthorizeUrl, buildChatCompletionsBody, buildCloneUrl, buildGeminiInteractionsBody, buildOpenAIResponsesBody, cancellationToken, checkScheduleValue, classifyError, classifyResponse, clearRawLlmFieldsWhenProfileSelected, condensationRequestSchema, condensationRequirement, condensationSchema, condensationSummaryEventSchema, condenserSettingsSchema, contentSchema, contentToString, conversationErrorEventSchema, conversationExecutionStatus, conversationSettingsSchema, conversationStateUpdateEventSchema, createAnthropicClientFromProfile, createClientFromProfile, createGeminiClientFromProfile, createLlmUsageEvent, createMcpTools, createMetricsResetEvent, createOpenAIChatClientFromProfile, createOpenAIResponsesClientFromProfile, criticModeSchema, defaultAgentSettings, defaultCondenser, defaultToolSpecs, detectProviderFromBaseUrl, disableLogger, discoverAgents, dispatchLlmResponse, displayJson, dumps, endRootSpan, ensureLlmHistoryOrigin, errorClassificationSchema, eventSchema, eventsToMessages, executeCommand, extractActionName, extractRepoName, failureActionSchema, failureKindSchema, fetchExtension, fetchWithResolution, fileEditorActionSchema, fileEditorObservationSchema, finishActionSchema, generatePKCE, getAgentFactory, getCachePath, getChangesInRepo, getClosestGitRepo, getCommitChanges, getCommitFileDiff, getCredentialsDir, getDisplayBaseRef, getEnv, getFactoryInfo, getGitCommits, getGitDiff, getGitRepositoryMetadata, getLlmApiKey, getLogger, getRegisteredAgentDefinitions, getReposContext, getShortestPrefixAboveTokenCount, getSuffixLengthForTokenReduction, getTotalTokenCount, getUserPersistenceDir, getValidRef, globActionSchema, globObservationSchema, globalToolRegistry, grepActionSchema, grepMatchSchema, grepObservationSchema, handleDeprecatedModelFields, historyForProfile, hookEventSchema, hookEventTypeSchema, hookExecutionEventSchema, imageContent, imageContentSchema, injectSystemPrefix, inputMetadataSchema, interruptEventSchema, isAbsolutePathSource, isAcpPatchEdit, isContentPolicyViolation, isContextWindowExceeded, isConversationStateUpdateEvent, isEnabledFor, isGitUrl, isHostAbsolutePath, isLocalPathSource, isMessageEvent, isSecretKey, keywordTriggerSchema, listRegisteredTools, listTasksActionSchema, listUsableTools, llmCompletionLogEventSchema, llmCompletionResponseSchema, llmConvertibleEventSchema, llmHistoryOrigin, llmProfileIdSchema, llmProfileSchema, llmProfileSecretRef, llmProviderIdSchema, llmProviderSecretRef, llmResponseMetadataSchema, llmResponseType, llmSummarizingCondenserSettingsSchema, llmUsageSchema, loadAgentsFromDir, loadAgentsFromDirs, loadProjectAgents, loadSkillsFromDir, loadUserAgents, loads, looksLikeMalformedConversationHistoryError, mapProviderException, materializeCondenser, maybeInitLaminar, maybeTruncate, mergeSkillsByName, messageEventSchema, messageSchema, messageToolCallSchema, metricsSnapshot, noOpCondenserSettingsSchema, normalizeGitUrl, oauthCredentialsSchema, observabilityEnvKeys, observabilityMetadataSchema, observabilitySpanNameSchema, observabilityTagsSchema, observationEventSchema, observe, openAiApiModeSchema, openHandsAgentProfileSchema, openHandsAgentSettingsSchema, pageIterator, parseExtensionSource, parseLlmResponseWithMetadata, pathMatchesGlob, pathTriggerSchema, pauseEventSchema, posixPathName, profileVerificationSettingsSchema, promptCacheRetentionSchema, providerResponseError, reasoningEffortSchema, reasoningItemSchema, reasoningSummarySchema, redactTextSecrets, redactUrlCredentials, redactUrlCredentialsInText, redactUrlParams, redactedThinkingBlockSchema, reduceTextContent, registerAgent, registerAgentIfAbsent, registerBuiltinResolver, registerTool, registerToolFactory, renderCondenserEvent, renderSummarizingPrompt, resetAgentRegistryForTests, resolveLlmApiKeyRef, resolveLlmProfileApiKeyRef, resolveProviderFromProfile, resolveTool, restoreConversationState, resumeTranscriptEventSchema, runGitCommand, sanitizeOpenHandsMentions, sanitizedEnv, scheduleTaskActionSchema, secretRefSchema, sendMediaActionSchema, sendMessageActionSchema, sendMessageObservationSchema, setupLogging, shouldEnableObservability, skillResourcesSchema, skillSchema, skillsToPrompt, sourceTypeSchema, startChildSpan, startRootSpan, statsForEvents, statsSnapshot, streamingDeltaEventSchema, switchLLMActionSchema, switchLLMObservationSchema, systemPromptEventSchema, taskItemSchema, taskMutationActionSchema, taskTrackerActionSchema, taskTrackerObservationSchema, taskTriggerSchema, terminalActionSchema, terminalObservationSchema, textContent, textContentSchema, thinkActionSchema, thinkingBlockSchema, throwProviderErrorWithMetadata, toCamelCase, toLLMMessage, toPosixPath, tokenEventSchema, toolAnnotationsSchema, toolSpecSchema, transformForSubscription, triggerSchema, truncateCondenserEvent, updateTaskActionSchema, userRejectObservationSchema, utcNow, validateAgentProfile, validateAgentSettings, validateConversationSettings, validateExtensionName, validateGitRepository, workspace };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

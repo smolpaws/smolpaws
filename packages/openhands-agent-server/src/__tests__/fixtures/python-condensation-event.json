@@ -1,0 +1,26 @@
+{
+  "upstream_commit": "50080b58d35b4824fda25fca2345d80bcd08aeff",
+  "source_sha256": {
+    "openhands-sdk/openhands/sdk/context/view/view.py": "3d31709f284b40e41bf1d12ef53d34662339757902ce06df3765be272531b45f",
+    "openhands-sdk/openhands/sdk/conversation/event_store.py": "af721391c46a1979c45e0e414c45a82dfc42d8a92d62ac2ccea0242f725450b0",
+    "openhands-sdk/openhands/sdk/event/base.py": "0d90758757329bbd0d1301586b87612e7746e14e6d2bb3e272e2d58f16fbb60d",
+    "openhands-sdk/openhands/sdk/event/condenser.py": "1b172330b5270e29c6bf12a8a61818009b9b252fd497c51ad3eac51a3deb5c1e",
+    "openhands-sdk/openhands/sdk/event/llm_convertible/action.py": "d3a6e8ba116595668ba3cc2bb667d8bdc1d39fdf935f36dbb83894dcbfcdf1d9",
+    "openhands-sdk/openhands/sdk/event/llm_convertible/observation.py": "14eb6d888914a8d6a5ea205b7b4edd95b98c454d20d218256df3f0f26ac7e159"
+  },
+  "generator": "SDK scripts/parity/generate-python-condensation-wire-oracle.py; first Condensation model_dump(mode=json) case",
+  "event": {
+    "id": "00000000-0000-4000-8000-000000000006",
+    "timestamp": "2026-01-01T00:00:00Z",
+    "source": "environment",
+    "parent_id": null,
+    "forgotten_event_ids": [
+      "00000000-0000-4000-8000-000000000001",
+      "00000000-0000-4000-8000-000000000002"
+    ],
+    "summary": "Earlier work",
+    "summary_offset": 1,
+    "llm_response_id": "response-6",
+    "kind": "Condensation"
+  }
+}

@@ -24,6 +24,7 @@ import {
   type StreamingDeltaEvent,
 } from '@smolpaws/openhands-agent';
 
+import { ConversationLeaseHeldError, ConversationLeaseInvalidError, ConversationOwnershipLostError } from './conversationLease.js';
 import { resolvePersistenceRoot } from './conversationMetadata.js';
 import { conversationSecretRef, extractConversationSecretUpdates } from './conversationSecrets.js';
 import { type ConfirmationResponseRequest, type EventPage, type EventSortOrder, textFromContent } from './models.js';
@@ -36,6 +37,8 @@ export interface AgentFactoryContext {
   readonly switchProfile?: (name: string) => Promise<{ model: string }>;
   /** A validated, already prepared initial replacement; never supplied by an HTTP caller. */
   readonly llmClient?: LLMClient;
+  /** Atomically update server-owned configuration under the conversation ownership guard. */
+  readonly updateRequest?: UpdateConversationRequest;
 }
 
 export type AgentFactory = (requestAgent: unknown, context: AgentFactoryContext) => Agent | Promise<Agent>;
@@ -59,6 +62,9 @@ export class EventService {
   private readonly saveConversation: (stored: StoredConversation) => Promise<void>;
   private readonly secretStore: SecretStore | undefined;
   private readonly agentFactory: AgentFactory | undefined;
+  private readonly updateRequest: UpdateConversationRequest;
+  private readonly maintenance = new Set<Promise<void>>();
+  private closing = false;
   private conversationPromise: Promise<LocalConversation> | null = null;
   private readonly publishedEventIds = new Set<string>();
   private runPromise: Promise<void> | null = null;
@@ -74,12 +80,13 @@ export class EventService {
     this.saveConversation = options.saveConversation ?? (async () => undefined);
     this.secretStore = options.secretStore;
     this.agentFactory = options.agentFactory;
+    this.updateRequest = options.updateRequest ?? (async (update) => {
+      const request = update(this.stored.request);
+      await this.saveConversation({ ...this.stored, request });
+      this.stored.request = request;
+    });
     this.profileRuntime = options.profileRuntime === undefined ? undefined : new ConversationProfileRuntime(
-      this.stored, options.profileRuntime, options.updateRequest ?? (async (update) => {
-        const request = update(this.stored.request);
-        await this.saveConversation({ ...this.stored, request });
-        this.stored.request = request;
-      }),
+      this.stored, options.profileRuntime, this.updateRequest,
     );
   }
 
@@ -297,7 +304,32 @@ export class EventService {
   }
 
   async condense(): Promise<void> {
-    throw new Error('condense_not_implemented');
+    if (this.closing) throw new Error('Conversation service is closing.');
+    this.selectionRequested = true;
+    // Register before the first await, including profile preparation and initial construction.
+    // SDK condense serializes with the active step; an ordinary run need not finish first.
+    const operation = Promise.resolve().then(() => this.condenseAndPublish());
+    this.maintenance.add(operation);
+    try { await operation; } finally { this.maintenance.delete(operation); }
+  }
+
+  private async condenseAndPublish(): Promise<void> {
+    const startIndex = this.events().length;
+    const failures: unknown[] = [];
+    try {
+      const conversation = await this.conversation();
+      await conversation.condense();
+    } catch (error) { failures.push(error); }
+    this.touch();
+    try { await this.saveConversation(this.stored); }
+    catch (error) { failures.push(error); }
+    finally {
+      // Failed attempts may already have durable usage/request events. Publish them
+      // once even when metadata saving fails; a maintenance call never becomes a run.
+      for (const event of this.events().slice(startIndex)) await this.publishEventOnce(event);
+      await this.pubSub.publish(this.createStateUpdateEvent());
+    }
+    if (failures.length > 0) throw safeMaintenanceError(failures[0]);
   }
 
   async getAgentFinalResponse(): Promise<string> {
@@ -318,13 +350,16 @@ export class EventService {
   }
 
   async close(): Promise<void> {
+    this.closing = true;
     await this.whenIdle();
     await this.pubSub.close();
   }
 
   /** Wait for execution and its publication/metadata cleanup, without closing subscriptions. */
   async whenIdle(): Promise<void> {
-    while (this.runPromise !== null) await this.runPromise.catch(() => undefined);
+    while (this.runPromise !== null || this.maintenance.size > 0) {
+      await Promise.allSettled([...(this.runPromise === null ? [] : [this.runPromise]), ...this.maintenance]);
+    }
   }
 
   private conversation(): Promise<LocalConversation> {
@@ -345,6 +380,7 @@ export class EventService {
     const llmClient = await this.profileRuntime?.prepareInitial(this.state);
     const agent = this.agentFactory === undefined ? defaultUnconfiguredAgent() : await this.agentFactory(this.stored.request.agent, {
       stored: this.stored,
+      updateRequest: this.updateRequest,
       ...(this.profileRuntime === undefined ? {} : { switchProfile: (name: string) => this.profileRuntime!.switchProfile(name) }),
       ...(llmClient === undefined ? {} : { llmClient }),
     });
@@ -486,6 +522,15 @@ export class EventService {
   private touch(): void {
     this.stored.updated_at = new Date().toISOString();
   }
+}
+
+function safeMaintenanceError(error: unknown): Error {
+  // Preserve ownership HTTP classification; these messages contain no credentials.
+  if (error instanceof ConversationLeaseHeldError || error instanceof ConversationLeaseInvalidError || error instanceof ConversationOwnershipLostError) return error;
+  const sanitized = safeRunError(error);
+  const failure = new Error(sanitized.detail);
+  failure.name = sanitized.code;
+  return failure;
 }
 
 function safeRunError(error: unknown): { code: string; detail: string } {

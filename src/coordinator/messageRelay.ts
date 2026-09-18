@@ -8,6 +8,8 @@
  * Responsibilities that stay OUT of agent-server: external dedup, lane↔conversation directory,
  * per-lane order, claims/retries/backoff, delivery outcome, reconciliation, and audit.
  */
+import { CONDENSE_REQUEST_TIMEOUT_MS, type CommandResult } from './relayCommands.js';
+import type { ClaimedWork } from './types.js';
 import { deterministicConversationId, deterministicEventId } from './ids.js';
 import type { MessageWorkStore } from './store.js';
 import {
@@ -22,6 +24,8 @@ import {
 } from './types.js';
 
 export interface MessageRelayOptions {
+  commandTimeoutMs?: number;
+  onCommandError?: (error: unknown) => void;
   /** Clock in epoch ms (injected for determinism). Defaults to Date.now. */
   now?: () => number;
   /** Derive the agent-server conversation id for a lane. Defaults to a deterministic UUIDv5. */
@@ -155,6 +159,9 @@ function deliveryText(payload: unknown): string | null {
 }
 
 export class MessageRelay {
+  private readonly commands = new Set<Promise<void>>();
+  private readonly commandTimeoutMs: number;
+  private readonly onCommandError: MessageRelayOptions['onCommandError'];
   private readonly store: MessageWorkStore;
   private readonly agent: AgentServerClient;
   private readonly now: () => number;
@@ -168,6 +175,8 @@ export class MessageRelay {
 
   constructor(store: MessageWorkStore, agent: AgentServerClient, options: MessageRelayOptions = {}) {
     this.store = store;
+    this.commandTimeoutMs = options.commandTimeoutMs ?? CONDENSE_REQUEST_TIMEOUT_MS;
+    this.onCommandError = options.onCommandError;
     this.agent = agent;
     this.now = options.now ?? (() => Date.now());
     this.deriveConversationId =
@@ -204,7 +213,7 @@ export class MessageRelay {
     const agentEventId = this.deriveEventId(descriptor.platform, message.sourceMessageId);
     return this.store.acceptIntake(
       binding.laneKey,
-      { sourceKey, agentEventId, payload: message.content },
+      { sourceKey, agentEventId, payload: message.content, ...(message.command === undefined ? {} : { command: message.command }) },
       this.now(),
     );
   }
@@ -221,6 +230,14 @@ export class MessageRelay {
         await this.agent.ensureConversation(lane.conversationId, lane);
         this.store.markLaneConversationReady(lane.laneKey, this.now());
       }
+      if (this.store.getCommand(row.id) !== null) {
+        if (this.store.startCommand(claim, this.now(), this.commandTimeoutMs)) {
+          const operation = this.performCommand(claim, lane.conversationId);
+          this.commands.add(operation);
+          void operation.finally(() => this.commands.delete(operation)).catch(error => this.onCommandError?.(error));
+        }
+        return { kind: 'command_started', workId: row.id };
+      }
       const result = await this.agent.appendEvent(lane.conversationId, {
         eventId: row.agentEventId ?? '',
         role: 'user',
@@ -233,13 +250,43 @@ export class MessageRelay {
       const message = error instanceof Error ? error.message : String(error);
       if (this.isRetryable(error)) {
         const state = this.store.settle(claim, { kind: 'retry', error: message }, this.now());
-        return state === 'failed'
+        return state === 'failed' || state === 'done'
           ? { kind: 'failed', workId: row.id, error: message }
           : { kind: 'retry', workId: row.id, error: message };
       }
-      this.store.settle(claim, { kind: 'fail', error: message }, this.now());
+      if (this.store.getCommand(row.id)?.status === 'pending') {
+        this.store.finishCommand(claim, 'rejected', this.now());
+      } else this.store.settle(claim, { kind: 'fail', error: message }, this.now());
       return { kind: 'failed', workId: row.id, error: message };
     }
+  }
+
+  /** Stop waits for bounded maintenance operations before closing the shared SQLite connection. */
+  async whenCommandsIdle(): Promise<void> {
+    while (this.commands.size) await Promise.allSettled([...this.commands]);
+  }
+
+  private async performCommand(claim: ClaimedWork, conversationId: string): Promise<void> {
+    let result: CommandResult = 'rejected';
+    if (this.agent.condense !== undefined) {
+      const controller = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          this.agent.condense(conversationId, controller.signal),
+          new Promise<never>((_resolve, reject) => { timer = setTimeout(() => {
+            controller.abort(); reject(new Error('Condensation outcome unconfirmed'));
+          }, this.commandTimeoutMs); }),
+        ]);
+        result = 'succeeded';
+      } catch (error) {
+        const status = (error as { status?: unknown } | null)?.status;
+        // A definite rejection can be reported without exposing backend/provider response bodies.
+        // Timeouts/network/5xx cannot prove whether the server applied condensation.
+        result = typeof status === 'number' && status >= 400 && status < 500 && status !== 408 ? 'rejected' : 'unknown';
+      } finally { if (timer) clearTimeout(timer); }
+    }
+    this.store.finishCommand(claim, result, this.now());
   }
 
   /**

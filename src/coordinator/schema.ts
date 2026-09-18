@@ -83,6 +83,11 @@ export function applySchema(db: Database.Database): void {
   db.exec(SCHEMA_SQL);
   enforceLaneOwnership(db);
   migrateProjectionCursorsParkedAt(db);
+  // Apply after the legacy work-table migration, which may replace the referenced table.
+  db.exec(`CREATE TABLE IF NOT EXISTS intake_commands (
+    work_id TEXT PRIMARY KEY REFERENCES work(id), command_json TEXT NOT NULL,
+    status TEXT NOT NULL, attempt_deadline TEXT
+  )`);
 }
 
 function enforceLaneOwnership(db: Database.Database): void {

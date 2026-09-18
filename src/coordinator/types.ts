@@ -1,3 +1,4 @@
+import type { RelayCommand } from './relayCommands.js';
 /**
  * Message Work Coordinator — core types.
  *
@@ -99,6 +100,8 @@ export interface LaneBinding {
 
 /** Input to accept an intake work item. */
 export interface IntakeInput {
+  /** Trusted bridge intent; never inferred from the stored message content. */
+  command?: RelayCommand;
   /** Stable platform message identity used to build the unique intake source_key. */
   sourceKey: string;
   /** Deterministic agent-server event id (e.g. uuidv5(platform + message id)). */
@@ -109,10 +112,10 @@ export interface IntakeInput {
 
 /** Input to insert a delivery work item (produced by the projector). */
 export interface DeliveryInput {
-  /** Unique `{agentEventId}:{destinationLaneKey}` key (ADR §8 projection rule). */
+  /** Unique event/destination key, or a coordinator command receipt identity. */
   sourceKey: string;
   laneKey: string;
-  /** The originating agent event this delivery is derived from. */
+  /** Stable originating identity: an agent event or a coordinator command receipt. */
   agentEventId: string;
   payload: unknown;
 }
@@ -150,9 +153,11 @@ export const DEFAULT_RETRY_POLICY: RetryPolicy = {
 
 /**
  * The narrow agent-server surface the coordinator depends on. Faked in store tests; backed by the real
- * REST client (turnClient-style) in production. Kept upstream-shaped: append + run + event search.
+ * REST client in production. Kept upstream-shaped: append + run + event search + explicit maintenance.
  */
 export interface AgentServerClient {
+  /** Explicit maintenance operation; unlike appendEvent this is not idempotent. */
+  condense?(conversationId: string, signal?: AbortSignal): Promise<void>;
   /**
    * Ensure a conversation with this id exists (idempotent). The lane descriptor lets an implementation
    * choose per-lane creation defaults (for example a per-scope workspace); it may be ignored.
@@ -199,6 +204,8 @@ export type DeliverableExtractor = (event: AgentEvent) => DeliveryIntent | null;
 
 /** Input to `acceptInbound` — a normalized inbound platform message. */
 export interface InboundMessage {
+  /** Set only by the bridge after access checks and exact direct-message parsing. */
+  command?: RelayCommand;
   /** Stable platform message id (drives dedup + deterministic event id). */
   sourceMessageId: string;
   /** LLM message content (string or content array) for the appended user event. */
@@ -209,5 +216,6 @@ export interface InboundMessage {
 export type IntegrationOutcome =
   | { kind: 'idle' }
   | { kind: 'integrated'; workId: string; eventCreated: boolean }
+  | { kind: 'command_started'; workId: string }
   | { kind: 'retry'; workId: string; error: string }
   | { kind: 'failed'; workId: string; error: string };

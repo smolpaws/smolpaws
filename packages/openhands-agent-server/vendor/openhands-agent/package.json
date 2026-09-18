@@ -1,6 +1,6 @@
 {
   "name": "@smolpaws/openhands-agent",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "description": "Idiomatic TypeScript transpilation of the OpenHands Python agent-sdk.",
   "license": "MIT",
   "type": "module",
@@ -19,11 +19,12 @@
     "transpile"
   ],
   "dependencies": {
+    "js-tiktoken": "^1.0.21",
     "zod": "^4.4.3"
   },
   "sideEffects": false,
   "_smolpawsProvenance": {
     "source": "github.com/smolpaws/openhands-agent",
-    "gitCommit": "42125927b8a93da5bd40410be5c86b3d43084325"
+    "gitCommit": "3cc4cc0976e9e56ddc96b2b33ae0b4e0cb9aab9d"
   }
 }
