@@ -8155,7 +8155,9 @@ function toOpenAIResponsesFunctionCallInputItem(toolCall) {
   const callId = normalizeResponsesCallId(toolCall.id);
   return {
     type: "function_call",
-    id: toolCall.responses_item_id ?? callId,
+    // Item IDs are provider-issued fc_* identifiers, distinct from call_id.
+    // Foreign Chat/Anthropic history has no Responses item ID; omit this optional field.
+    ...toolCall.responses_item_id === null ? {} : { id: toolCall.responses_item_id },
     call_id: callId,
     name: toolCall.name,
     arguments: toolCall.arguments
