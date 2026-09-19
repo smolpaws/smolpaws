@@ -6264,6 +6264,14 @@
                               }
                             ]
                           },
+                          "verbosity": {
+                            "type": "string",
+                            "enum": [
+                              "low",
+                              "medium",
+                              "high"
+                            ]
+                          },
                           "cachingPrompt": {
                             "default": true,
                             "type": "boolean"
@@ -6566,6 +6574,14 @@
                       }
                     ]
                   },
+                  "verbosity": {
+                    "type": "string",
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high"
+                    ]
+                  },
                   "cachingPrompt": {
                     "default": true,
                     "type": "boolean"
@@ -6823,6 +6839,14 @@
                         {
                           "type": "null"
                         }
+                      ]
+                    },
+                    "verbosity": {
+                      "type": "string",
+                      "enum": [
+                        "low",
+                        "medium",
+                        "high"
                       ]
                     },
                     "cachingPrompt": {
@@ -7123,6 +7147,14 @@
                         }
                       ]
                     },
+                    "verbosity": {
+                      "type": "string",
+                      "enum": [
+                        "low",
+                        "medium",
+                        "high"
+                      ]
+                    },
                     "cachingPrompt": {
                       "default": true,
                       "type": "boolean"
@@ -7418,6 +7450,14 @@
                       }
                     ]
                   },
+                  "verbosity": {
+                    "type": "string",
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high"
+                    ]
+                  },
                   "cachingPrompt": {
                     "default": true,
                     "type": "boolean"
@@ -7675,6 +7715,14 @@
                         {
                           "type": "null"
                         }
+                      ]
+                    },
+                    "verbosity": {
+                      "type": "string",
+                      "enum": [
+                        "low",
+                        "medium",
+                        "high"
                       ]
                     },
                     "cachingPrompt": {
@@ -8136,6 +8184,14 @@
                           {
                             "type": "null"
                           }
+                        ]
+                      },
+                      "verbosity": {
+                        "type": "string",
+                        "enum": [
+                          "low",
+                          "medium",
+                          "high"
                         ]
                       },
                       "cachingPrompt": {

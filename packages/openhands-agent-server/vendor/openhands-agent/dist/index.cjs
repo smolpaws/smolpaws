@@ -128,6 +128,7 @@ var llmProfileIdSchema = zod.z.string().regex(LLM_PROFILE_ID_PATTERN);
 var llmProviderIdSchema = zod.z.string().min(1).regex(/^[A-Za-z0-9._-]+$/u);
 var openAiApiModeSchema = zod.z.union([zod.z.literal("chat_completions"), zod.z.literal("responses")]);
 var reasoningEffortSchema = zod.z.union([zod.z.literal("low"), zod.z.literal("medium"), zod.z.literal("high")]);
+var verbositySchema = zod.z.enum(["low", "medium", "high"]);
 var reasoningSummarySchema = zod.z.union([zod.z.literal("auto"), zod.z.literal("concise"), zod.z.literal("detailed")]);
 var promptCacheRetentionSchema = zod.z.union([zod.z.literal("24h"), zod.z.literal("disabled")]);
 var anthropicCacheTtlSchema = zod.z.enum(["5m", "1h"]);
@@ -147,6 +148,7 @@ var llmProfileSchema = zod.z.object({
   timeoutSeconds: zod.z.number().positive().nullable().default(null),
   reasoningEffort: reasoningEffortSchema.nullable().default(null),
   reasoningSummary: reasoningSummarySchema.nullable().default(null),
+  verbosity: verbositySchema.optional(),
   cachingPrompt: zod.z.boolean().default(true),
   anthropicCacheTtl: anthropicCacheTtlSchema.optional(),
   promptCacheRetention: promptCacheRetentionSchema.nullable().default(null),
@@ -8064,6 +8066,7 @@ function buildChatCompletionsBody(profile, messages, tools = []) {
     body.reasoning_effort = normalizedProfile.reasoningEffort;
   }
   applyOpenAIPromptCacheOptions(body, normalizedProfile);
+  if (normalizedProfile.verbosity !== void 0) body.verbosity = normalizedProfile.verbosity;
   finalizeAnthropicCacheBreakpoints(normalizedProfile, body);
   return body;
 }
@@ -8098,6 +8101,7 @@ function buildOpenAIResponsesBody(profile, messages, tools = []) {
       ...normalizedProfile.reasoningSummary === null ? {} : { summary: normalizedProfile.reasoningSummary }
     };
   }
+  if (normalizedProfile.verbosity !== void 0) body.text = { verbosity: normalizedProfile.verbosity };
   if (profile.authType === "subscription") {
     const [subscriptionInstructions, input] = transformForSubscription(instructions, body.input.filter((item) => item.type !== "reasoning"));
     body.instructions = subscriptionInstructions;
@@ -11314,6 +11318,7 @@ exports.validateAgentSettings = validateAgentSettings;
 exports.validateConversationSettings = validateConversationSettings;
 exports.validateExtensionName = validateExtensionName;
 exports.validateGitRepository = validateGitRepository;
+exports.verbositySchema = verbositySchema;
 exports.workspace = workspace;
 //# sourceMappingURL=index.cjs.map
 //# sourceMappingURL=index.cjs.map

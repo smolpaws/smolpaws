@@ -128,6 +128,16 @@ This is product policy in `apps/relay-server/src/models.ts`. The shared server
 owns profile resolution and durable activation; the SDK owns the tool and safe
 step boundary. The bridges do not each implement a model-switching mechanism.
 
+## OpenAI output verbosity
+
+Saved profiles accept optional `verbosity: "low" | "medium" | "high"`. Set it only
+for a model and endpoint that support it. Chat Completions sends `verbosity`;
+Responses sends `text.verbosity`. Omission preserves the provider default.
+Verbosity controls output detail independently of `reasoningEffort`.
+
+As with other profile edits, existing conversations retain their snapshot until
+the profile is explicitly reselected. A catalog edit alone does not activate it.
+
 ## Anthropic prompt-cache duration
 
 Cache policy belongs to the saved LLM profile, alongside its model and API options.

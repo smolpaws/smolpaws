@@ -5,6 +5,11 @@ export declare const llmProfileIdSchema: z.ZodString;
 export declare const llmProviderIdSchema: z.ZodString;
 export declare const openAiApiModeSchema: z.ZodUnion<readonly [z.ZodLiteral<"chat_completions">, z.ZodLiteral<"responses">]>;
 export declare const reasoningEffortSchema: z.ZodUnion<readonly [z.ZodLiteral<"low">, z.ZodLiteral<"medium">, z.ZodLiteral<"high">]>;
+export declare const verbositySchema: z.ZodEnum<{
+    low: "low";
+    medium: "medium";
+    high: "high";
+}>;
 export declare const reasoningSummarySchema: z.ZodUnion<readonly [z.ZodLiteral<"auto">, z.ZodLiteral<"concise">, z.ZodLiteral<"detailed">]>;
 export declare const promptCacheRetentionSchema: z.ZodUnion<readonly [z.ZodLiteral<"24h">, z.ZodLiteral<"disabled">]>;
 export declare const anthropicCacheTtlSchema: z.ZodEnum<{
@@ -30,6 +35,11 @@ export declare const llmProfileSchema: z.ZodObject<{
     timeoutSeconds: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
     reasoningEffort: z.ZodDefault<z.ZodNullable<z.ZodUnion<readonly [z.ZodLiteral<"low">, z.ZodLiteral<"medium">, z.ZodLiteral<"high">]>>>;
     reasoningSummary: z.ZodDefault<z.ZodNullable<z.ZodUnion<readonly [z.ZodLiteral<"auto">, z.ZodLiteral<"concise">, z.ZodLiteral<"detailed">]>>>;
+    verbosity: z.ZodOptional<z.ZodEnum<{
+        low: "low";
+        medium: "medium";
+        high: "high";
+    }>>;
     cachingPrompt: z.ZodDefault<z.ZodBoolean>;
     anthropicCacheTtl: z.ZodOptional<z.ZodEnum<{
         "5m": "5m";
@@ -43,6 +53,7 @@ export declare const llmProfileSchema: z.ZodObject<{
 export type LLMProfile = z.infer<typeof llmProfileSchema>;
 export type OpenAiApiMode = z.infer<typeof openAiApiModeSchema>;
 export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>;
+export type Verbosity = z.infer<typeof verbositySchema>;
 export type ReasoningSummary = z.infer<typeof reasoningSummarySchema>;
 export type PromptCacheRetention = z.infer<typeof promptCacheRetentionSchema>;
 export type AnthropicCacheTtl = z.infer<typeof anthropicCacheTtlSchema>;
