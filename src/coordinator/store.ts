@@ -10,7 +10,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { commandReceipt, type CommandRecord, type CommandResult } from './relayCommands.js';
+import { commandReceipt, type CommandRecord, type CommandResult, type CommandRejectionReason } from './relayCommands.js';
 import { deterministicEventId } from './ids.js';
 import { applySchema } from './schema.js';
 import {
@@ -231,7 +231,7 @@ export class MessageWorkStore {
   }
 
   /** Journal outcome, receipt and intake completion form one commit; a stale worker cannot overwrite it. */
-  finishCommand(claim: ClaimedWork, result: CommandResult, now: Date | number): boolean {
+  finishCommand(claim: ClaimedWork, result: CommandResult, now: Date | number, reason?: CommandRejectionReason): boolean {
     return this.db.transaction(() => {
       const row = this.db.prepare("SELECT * FROM work WHERE id=? AND state IN ('claimed', 'failed') AND generation=?")
         .get(claim.row.id, claim.generation) as RawWorkRow | undefined;
@@ -239,16 +239,16 @@ export class MessageWorkStore {
       const status = this.getCommand(row.id)?.status;
       if (status !== 'attempted' && !(status === 'pending' && result === 'rejected')) return false;
       if (row.state === 'failed' && !(status === 'pending' && result === 'rejected')) return false;
-      this.completeCommand(row, result, now);
+      this.completeCommand(row, result, now, reason);
       return true;
     }).immediate();
   }
 
-  private completeCommand(row: RawWorkRow, result: CommandResult, now: Date | number): void {
+  private completeCommand(row: RawWorkRow, result: CommandResult, now: Date | number, reason?: CommandRejectionReason): void {
     this.db.prepare('UPDATE intake_commands SET status=?, attempt_deadline=NULL WHERE work_id=?').run(result, row.id);
     this.insertDelivery({ sourceKey: `command:${row.id}:receipt`, laneKey: row.lane_key,
       agentEventId: deterministicEventId('relay-command', row.source_key),
-      payload: { kind: 'current_thread_message', text: commandReceipt(result) } }, now);
+      payload: { kind: 'current_thread_message', text: commandReceipt(result, reason) } }, now);
     this.db.prepare("UPDATE work SET state='done', generation=generation+1, claim_owner=NULL, claim_until=NULL, updated_at=? WHERE id=?")
       .run(iso(now), row.id);
   }

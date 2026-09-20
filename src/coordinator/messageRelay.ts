@@ -8,7 +8,7 @@
  * Responsibilities that stay OUT of agent-server: external dedup, lane↔conversation directory,
  * per-lane order, claims/retries/backoff, delivery outcome, reconciliation, and audit.
  */
-import { CONDENSE_REQUEST_TIMEOUT_MS, type CommandResult } from './relayCommands.js';
+import { CONDENSE_REQUEST_TIMEOUT_MS, commandRejectionReason, type CommandResult, type CommandRejectionReason } from './relayCommands.js';
 import type { ClaimedWork } from './types.js';
 import { deterministicConversationId, deterministicEventId } from './ids.js';
 import type { MessageWorkStore } from './store.js';
@@ -268,6 +268,7 @@ export class MessageRelay {
 
   private async performCommand(claim: ClaimedWork, conversationId: string): Promise<void> {
     let result: CommandResult = 'rejected';
+    let reason: CommandRejectionReason | undefined;
     if (this.agent.condense !== undefined) {
       const controller = new AbortController();
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -284,9 +285,10 @@ export class MessageRelay {
         // A definite rejection can be reported without exposing backend/provider response bodies.
         // Timeouts/network/5xx cannot prove whether the server applied condensation.
         result = typeof status === 'number' && status >= 400 && status < 500 && status !== 408 ? 'rejected' : 'unknown';
+        if (result === 'rejected') reason = commandRejectionReason(error);
       } finally { if (timer) clearTimeout(timer); }
     }
-    this.store.finishCommand(claim, result, this.now());
+    this.store.finishCommand(claim, result, this.now(), reason);
   }
 
   /**

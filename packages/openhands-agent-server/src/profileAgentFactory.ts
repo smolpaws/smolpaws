@@ -32,6 +32,7 @@ import { publicStartConversationRequestSchema, startConversationRequestSchema, t
 import type { ServerStateService } from './serverState.js';
 import type { ProfileSelectionResolver } from './profileRuntime.js';
 import { materializeProfileCondenser } from './condenserBinding.js';
+import { materializeProfileHardCondenser } from './hardCondenserBinding.js';
 
 export type ProfileLlmClientFactory = (profile: LLMProfile, secretStore: SecretStore) => Promise<LLMClient>;
 
@@ -94,9 +95,15 @@ export function createProfileAgentFactory(options: ProfileAgentFactoryOptions): 
       createClient: (selected) => createLlmClient(selected, options.secretStore),
       ...(options.resolveCondenserProfileSelection === undefined ? {} : { resolveProfileSelection: options.resolveCondenserProfileSelection }),
     });
+    const hardCondenser = await materializeProfileHardCondenser(settings.hard_condenser, context, {
+      agentSettings: settings,
+      getProfile: (name) => options.state.getProfile(name),
+      createClient: (selected) => createLlmClient(selected, options.secretStore),
+    });
     return new Agent({
       llm,
       condenser,
+      hardCondenser,
       tools,
       toolConcurrencyLimit: settings.tool_concurrency_limit,
       ...(agentContext === null ? {} : { context: agentContext }),

@@ -62,7 +62,7 @@ export class ConversationProfileRuntime {
       const { profile, client } = next;
       // Preserve every non-LLM component, including tool instances and host context.
       const replacement = new Agent({ llm: client, tools: agent.tools, context: agent.context,
-        condenser: agent.condenser, systemPrompt: agent.systemPrompt, toolConcurrencyLimit: agent.toolConcurrencyLimit,
+        condenser: agent.condenser, hardCondenser: agent.hardCondenser, systemPrompt: agent.systemPrompt, toolConcurrencyLimit: agent.toolConcurrencyLimit,
         ...(agent.usageId === undefined ? {} : { usageId: agent.usageId }),
       });
       await this.commit(profile);

@@ -3258,7 +3258,7 @@
         "tags": [
           "Conversations"
         ],
-        "summary": "Condense conversation",
+        "summary": "Condense conversation (unsupported in agent-controlled mode)",
         "parameters": [
           {
             "name": "conversation_id",
@@ -3294,6 +3294,30 @@
           },
           "404": {
             "description": "Error"
+          },
+          "409": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string",
+                      "const": "agent_controlled_condensation"
+                    }
+                  },
+                  "required": [
+                    "detail"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
           },
           "500": {
             "description": "Error"

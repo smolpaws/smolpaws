@@ -13,7 +13,8 @@ import type { SlackCheckerPort } from './scheduledAgentTools.js';
 const sdk = createRequire(import.meta.url)('../../../packages/openhands-agent-server/vendor/openhands-agent/dist/index.cjs') as typeof Sdk;
 const call = (name: string, args: unknown) => sdk.messageSchema.parse({ role: 'assistant', content: [], tool_calls: [{ id: `${name}-${Math.random()}`, name, arguments: JSON.stringify(args), origin: 'completion' }] });
 
-for (const activity of [false, true]) test(`isolated checker gets lean context and exact tools; ${activity ? 'handoff reaches full owner and WhatsApp' : 'quiet completion sends nothing'}`, async () => {
+for (const mode of ['disabled', 'llm_summarizing', 'agent_reset'] as const)
+for (const activity of [false, true]) test(`${mode} isolated checker gets lean context and exact tools; ${activity ? 'handoff reaches full owner and WhatsApp' : 'quiet completion sends nothing'}`, async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'slack-checker-integration-'));
   const workspace = path.join(root, 'workspace'); mkdirSync(workspace);
   const configPath = path.join(root, 'scheduled-agents.json');
@@ -35,7 +36,8 @@ for (const activity of [false, true]) test(`isolated checker gets lean context a
     async acknowledge(ids) { assert.deepEqual(ids, sourceIds); pending = []; acknowledgements++; },
   };
   const requests: Array<{ profile: string; system: string; tools: string[] }> = [];
-  let ownerRuns = 0;
+  const condenser = mode === 'disabled' ? { enabled: false } : mode === 'agent_reset'
+    ? { condenser_kind: 'agent_reset' } : { condenser_kind: 'llm_summarizing', llm_profile_ref: 'summary' };
   const server = await createRelayServerApp({
     scheduledAgents: { configPath }, slackCheckerFactory: () => checker,
     context: { configPath: contextConfig }, models: { homeDir: root },
@@ -43,9 +45,9 @@ for (const activity of [false, true]) test(`isolated checker gets lean context a
     secretStore: new sdk.InMemorySecretStore(),
     llmClientFactory: async profile => {
       const helper = profile.profileId === 'cheap-checker';
-      if (!helper) ownerRuns++;
       const llm = sdk.TestLLM.fromMessages(helper ? [call('check_slack', {}), ...(activity ? [call('notify_smolpaws', { message: 'Slack needs attention: https://app.slack.com/archives/CTEST/p100001', source_ids: sourceIds }), call('notify_smolpaws', { message: 'Retry after lost observation: same Slack activity', source_ids: sourceIds })] : []), call('finish', { message: '' })] : [call('finish', { message: 'initial reply' }), call('finish', { message: 'handled Slack activity' })], { profile });
       return { profile, async complete(messages, tools) {
+        assert.notEqual(profile.profileId, 'summary', 'small scheduled runs must not call the summarizer');
         requests.push({ profile: profile.profileId, system: messages.filter(m => m.role === 'system').flatMap(m => m.content).filter(c => c.type === 'text').map(c => c.text).join('\n'), tools: tools?.map(t => t.name) ?? [] });
         return llm.complete(messages);
       } };
@@ -54,7 +56,7 @@ for (const activity of [false, true]) test(`isolated checker gets lean context a
   const address = await server.app.listen({ host: '127.0.0.1', port: 0 });
   const deliveries: Array<{ text?: string }> = [];
   const runtime = new RelayRuntime({ platform: 'whatsapp', logger: pino({ level: 'silent' }), serverUrl: address, dbPath: relayPath, schedulerDbPath: schedulerPath,
-    createConversationDefaults: { workspace: { working_dir: workspace }, tags: { scope: 'openhands' }, agent: { condenser: { enabled: false }, llm_profile_ref: 'full-owner' } },
+    createConversationDefaults: { workspace: { working_dir: workspace }, tags: { scope: 'openhands' }, agent: { condenser, llm_profile_ref: 'full-owner' } },
     target: { validate() {}, async deliver(_lane, payload) { deliveries.push(payload as { text?: string }); return {}; } },
   });
   const until = async (condition: () => boolean) => {
@@ -63,7 +65,7 @@ for (const activity of [false, true]) test(`isolated checker gets lean context a
     assert.fail('relay did not reach expected state');
   };
   try {
-    for (const id of ['full-owner', 'cheap-checker']) assert.equal((await server.app.inject({ method: 'POST', url: '/api/profiles', payload: { profileId: id, providerId: 'openai', model: 'fixture' } })).statusCode, 201);
+    for (const id of ['full-owner', 'cheap-checker', 'summary']) assert.equal((await server.app.inject({ method: 'POST', url: '/api/profiles', payload: { profileId: id, providerId: 'openai', model: 'fixture' } })).statusCode, 201);
     const lane = { laneKey: 'whatsapp:test-openhands', platform: 'whatsapp', accountId: 'account', chatId: 'group', threadId: null };
     await runtime.accept({ lane, message: { sourceMessageId: 'initial', content: 'Initial owner message' } });
     await until(() => deliveries.some(d => d.text === 'initial reply'));
@@ -79,7 +81,7 @@ for (const activity of [false, true]) test(`isolated checker gets lean context a
     assert.equal(checks, 1); assert.equal(acknowledgements, activity ? 2 : 0);
     assert.deepEqual(deliveries.map(d => d.text), activity ? ['initial reply', 'handled Slack activity'] : ['initial reply']);
     const helperRequests = requests.filter(r => r.profile === 'cheap-checker'); assert.equal(helperRequests.length, activity ? 4 : 2);
-    for (const request of helperRequests) { assert.deepEqual(request.tools, expectedTools); assert.match(request.system, /LEAN_SLACK_CHECKER_MARKER/); assert.doesNotMatch(request.system, /FULL_SMOLPAWS_MEMORY_MARKER/); }
+    for (const request of helperRequests) { assert.deepEqual(request.tools, mode === 'agent_reset' ? [...expectedTools, 'condense'] : expectedTools); assert.match(request.system, /LEAN_SLACK_CHECKER_MARKER/); assert.doesNotMatch(request.system, /FULL_SMOLPAWS_MEMORY_MARKER/); }
     for (const request of requests.filter(r => r.profile === 'full-owner')) { assert.match(request.system, /FULL_SMOLPAWS_MEMORY_MARKER/); assert.ok(!request.tools.includes('notify_smolpaws')); }
     if (activity) {
       const events = (await (await server.conversationService.getEventService(owner))!.searchEvents()).items;

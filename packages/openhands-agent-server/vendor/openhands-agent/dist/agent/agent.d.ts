@@ -1,5 +1,6 @@
 import { type Event } from '../event/index.js';
 import { type Condenser } from '../context/index.js';
+import { type HardCondenser } from './context-reset.js';
 import type { AgentContext } from '../context/index.js';
 import { type LLMClient } from '../llm/client.js';
 import type { ToolDefinition } from '../tool/index.js';
@@ -11,6 +12,7 @@ export interface AgentOptions {
     readonly toolConcurrencyLimit?: number;
     readonly context?: AgentContext | null;
     readonly condenser?: Condenser | null;
+    readonly hardCondenser?: HardCondenser | null;
     readonly systemPrompt?: string | null;
     readonly usageId?: string;
 }
@@ -20,11 +22,13 @@ export declare class Agent {
     readonly toolConcurrencyLimit: number;
     readonly context: AgentContext | null;
     readonly condenser: Condenser | null;
+    readonly hardCondenser: HardCondenser | null;
     readonly systemPrompt: string | null;
     readonly usageId: string | undefined;
     constructor(options: AgentOptions);
     step(state: ConversationState): Promise<readonly Event[]>;
     private messagesForState;
+    private condenserContext;
     private renderSystemPrompt;
     private runTool;
 }

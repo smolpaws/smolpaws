@@ -7,6 +7,7 @@ import Database from 'better-sqlite3';
 import { MessageRelay } from './messageRelay.js';
 import { MessageWorkStore } from './store.js';
 import { parseRelayCommand } from './relayCommands.js';
+import { HttpAgentServerError } from './httpAgentServerClient.js';
 import type { AgentServerClient, LaneDescriptor } from './types.js';
 
 const lane: LaneDescriptor = { laneKey: 'slack:T:C', platform: 'slack', accountId: 'T', chatId: 'C' };
@@ -189,5 +190,50 @@ test('reconciliation repairs historical pending-command failed-intake crash stat
     assert.equal(restored.getCommand(row.id)?.status, 'rejected'); assert.equal(receipts(f.db).length, 1);
     await f.relay.acceptInbound(lane, { sourceMessageId: 'after-crash', content: 'continue' });
     assert.equal((await f.relay.integrateNextIntake('worker')).kind, 'integrated'); assert.equal(f.calls(), 0);
+  } finally { f.db.close(); }
+});
+
+const agentControlledReceipt = 'This conversation uses agent-controlled condensation. Ask the agent to save its notes and call condense.';
+
+test('agent-controlled rejection persists one informative receipt without retry and permits continuation', async () => {
+  const error = new HttpAgentServerError('condense failed: 409', 409,
+    JSON.stringify({ code: 'agent_controlled_condensation', detail: 'private backend detail that must never be delivered' }), true);
+  const f = fixture(async () => { throw error; });
+  try {
+    const row = await f.relay.acceptInbound(lane, command());
+    await f.relay.integrateNextIntake('worker'); await f.relay.whenCommandsIdle();
+    assert.equal(f.store.getCommand(row.id)?.status, 'rejected');
+    assert.equal(f.calls(), 1); assert.deepEqual(f.appended, []);
+    assert.deepEqual(receipts(f.db).map(r => JSON.parse(r.payload_json)), [{ kind: 'current_thread_message', text: agentControlledReceipt }]);
+    const restored = new MessageWorkStore(f.db);
+    const relay = new MessageRelay(restored, f.agent);
+    restored.reconcile(2_000);
+    await relay.acceptInbound(lane, command());
+    assert.equal((await relay.integrateNextIntake('restored')).kind, 'idle');
+    assert.equal(f.calls(), 1); assert.equal(receipts(f.db).length, 1);
+    await relay.acceptInbound(lane, { sourceMessageId: 'after-rejection', content: 'Please continue' });
+    assert.equal((await relay.integrateNextIntake('restored')).kind, 'integrated');
+    assert.deepEqual(f.appended, ['Please continue']);
+  } finally { f.db.close(); }
+});
+
+for (const [label, status, body] of [
+  ['ownership conflict', 409, JSON.stringify({ detail: 'Conversation lease held by private owner' })],
+  ['unknown code', 409, JSON.stringify({ code: 'private_unsupported_mode', detail: 'agent_controlled_condensation' })],
+  ['nested code', 409, JSON.stringify({ detail: { code: 'agent_controlled_condensation' } })],
+  ['invalid JSON', 409, '{agent_controlled_condensation private'],
+  ['null body', 409, 'null'],
+  ['array body', 409, JSON.stringify([{ code: 'agent_controlled_condensation' }])],
+  ['wrong status', 500, JSON.stringify({ code: 'agent_controlled_condensation', detail: 'private' })],
+] as const) test(`only the explicit agent-controlled 409 gets the specialized receipt: ${label}`, async () => {
+  const f = fixture(async () => { throw new HttpAgentServerError('private failure', status, body, status === 409); });
+  try {
+    const row = await f.relay.acceptInbound(lane, command());
+    await f.relay.integrateNextIntake('worker'); await f.relay.whenCommandsIdle();
+    assert.equal(f.store.getCommand(row.id)?.status, status === 409 ? 'rejected' : 'unknown');
+    const text = JSON.parse(receipts(f.db)[0].payload_json).text as string;
+    assert.notEqual(text, agentControlledReceipt);
+    assert.doesNotMatch(text, /private|agent_controlled_condensation/);
+    assert.equal(f.calls(), 1);
   } finally { f.db.close(); }
 });

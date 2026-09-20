@@ -248,6 +248,24 @@
       ]
     },
     {
+      "id": "DEV-SDK-012",
+      "kind": "DEVIATION",
+      "target": "sdk",
+      "prefixes": [
+        "openhands-sdk/openhands/sdk/context/condenser/",
+        "openhands-sdk/openhands/sdk/context/view/",
+        "tests/sdk/context/condenser/",
+        "tests/sdk/context/view/"
+      ],
+      "paths": [
+        "openhands-sdk/openhands/sdk/agent/agent.py",
+        "openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py",
+        "openhands-sdk/openhands/sdk/event/condenser.py",
+        "openhands-sdk/openhands/sdk/settings/model.py",
+        "tests/sdk/test_settings.py"
+      ]
+    },
+    {
       "id": "EXC-SDK-001",
       "kind": "EXCLUDED",
       "target": "sdk",
@@ -283,6 +301,13 @@
     },
     {
       "id": "EXT-SDK-003",
+      "kind": "EXTENSION",
+      "target": "sdk",
+      "prefixes": [],
+      "paths": []
+    },
+    {
+      "id": "EXT-SDK-004",
       "kind": "EXTENSION",
       "target": "sdk",
       "prefixes": [],
@@ -407,6 +432,16 @@
       "paths": [
         "openhands-agent-server/openhands/agent_server/event_service.py",
         "openhands-agent-server/openhands/agent_server/conversation_service.py"
+      ]
+    },
+    {
+      "id": "DEV-SERVER-010",
+      "kind": "DEVIATION",
+      "target": "server",
+      "prefixes": [],
+      "paths": [
+        "openhands-agent-server/openhands/agent_server/event_service.py",
+        "openhands-agent-server/openhands/agent_server/conversation_router.py"
       ]
     }
   ]

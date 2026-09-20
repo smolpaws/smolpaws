@@ -438,3 +438,23 @@ EventLog continues to own disk serialization. Summary usage is the SDK's `conden
 with the actual selected profile/model and explicit unknown provider counters. There is no second
 server counter or summary algorithm. See [source and validation evidence](../transpile/condensation.md)
 and the [product configuration and command guide](../../../docs/condensation.md).
+
+## Agent-controlled condensation — 2026-09-20
+
+`profileAgentFactory` materializes the SDK's opt-in `agent_reset` mode without a
+condenser role lookup. The SDK adds exactly one intrinsic `condense` tool and owns
+advisory warnings and durable context reset. The host supplies its ordinary fixed
+context snapshot; note retrieval after reset is an agent action.
+
+A separate `hard_condenser_binding` freezes the explicitly selected emergency
+profile and retry settings. It is internal metadata, stripped from public creation,
+with the same guarded capture and restart/fork guarantees as the ordinary binding.
+`ConversationProfileRuntime` retains both condenser objects while replacing the
+main client. No runtime setting or saved conversation is implicitly migrated.
+
+`EventService.condense` rejects saved reset mode before constructing clients.
+The SDK error also survives maintenance error sanitization for custom factories;
+HTTP maps it to a distinct 409 code. The relay maps that code to a durable fixed
+receipt while keeping the existing rejected command status and outbox transaction.
+See [DEV-SERVER-010](../TRANSPILE_RULES.md#dev-server-010--opt-in-agent-controlled-condensation)
+and the [configuration guide](../../../docs/condensation.md#agent-controlled-mode).

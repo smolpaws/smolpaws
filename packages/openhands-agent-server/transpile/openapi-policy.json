@@ -250,6 +250,10 @@
     "POST /api/conversations/{conversation_id}/security_analyzer": {
       "policy": "DEV-SERVER-002",
       "reason": "The route deliberately returns an unsupported/deviation response instead of executing security analysis."
+    },
+    "POST /api/conversations/{conversation_id}/condense": {
+      "policy": "DEV-SERVER-010",
+      "reason": "Enabled agent_reset rejects host-forced condensation with HTTP 409 and a fixed agent_controlled_condensation code before preparation. Standard summarizer success, missing conversation and unsupported ordinary condenser behavior remain unchanged."
     }
   },
   "extensions": {

@@ -3,7 +3,7 @@ import websocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
-import { MacOSKeychainSecretStore, OpenAISubscriptionAuth, createClientFromProfile, type SecretStore } from '@smolpaws/openhands-agent';
+import { AgentControlledCondensationError, MacOSKeychainSecretStore, OpenAISubscriptionAuth, createClientFromProfile, type SecretStore } from '@smolpaws/openhands-agent';
 
 import { registerAgentProfileRoutes } from './agentProfilesRouter.js';
 import { BashEventService } from './bashService.js';
@@ -176,6 +176,10 @@ function registerErrorHandler(app: FastifyInstance): void {
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof z.ZodError) {
       reply.status(422).send({ detail: error.issues.map((issue) => ({ path: issue.path, message: issue.message })) });
+      return;
+    }
+    if (error instanceof AgentControlledCondensationError) {
+      reply.status(409).send({ code: 'agent_controlled_condensation', detail: error.message });
       return;
     }
     if (error instanceof ConversationLeaseHeldError || error instanceof ConversationLeaseInvalidError || error instanceof ConversationOwnershipLostError) {

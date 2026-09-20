@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { type Message } from '../llm/index.js';
+export * from './condensation-metadata.js';
 export declare const N_CHAR_PREVIEW = 500;
 export declare const FULL_STATE_KEY = "full_state";
 export declare const sourceTypeSchema: z.ZodUnion<readonly [z.ZodLiteral<"agent">, z.ZodLiteral<"user">, z.ZodLiteral<"environment">, z.ZodLiteral<"hook">]>;
@@ -583,6 +584,10 @@ export declare const condensationSchema: z.ZodObject<{
     source: never;
     parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"Condensation">>;
+    reset: z.ZodOptional<z.ZodObject<{
+        version: z.ZodLiteral<1>;
+        request_id: z.ZodString;
+    }, z.core.$strict>>;
     summary: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     summary_offset: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
     forgotten_event_ids: z.ZodPipe<z.ZodUnion<readonly [z.ZodSet<z.ZodString>, z.ZodArray<z.ZodString>]>, z.ZodTransform<Set<string>, string[] | Set<string>>>;
@@ -594,6 +599,18 @@ export declare const condensationRequestSchema: z.ZodObject<{
     source: never;
     parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"CondensationRequest">>;
+    details: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+        trigger: z.ZodLiteral<"agent">;
+        action_id: z.ZodString;
+        observation_id: z.ZodString;
+        version: z.ZodLiteral<1>;
+        input_event_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strict>, z.ZodObject<{
+        trigger: z.ZodLiteral<"provider_context_window">;
+        protected_user_event_ids: z.ZodArray<z.ZodString>;
+        version: z.ZodLiteral<1>;
+        input_event_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strict>], "trigger">>;
 }, z.core.$strict>;
 export declare const condensationSummaryEventSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
@@ -1214,6 +1231,10 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     source: never;
     parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"Condensation">>;
+    reset: z.ZodOptional<z.ZodObject<{
+        version: z.ZodLiteral<1>;
+        request_id: z.ZodString;
+    }, z.core.$strict>>;
     summary: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     summary_offset: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
     forgotten_event_ids: z.ZodPipe<z.ZodUnion<readonly [z.ZodSet<z.ZodString>, z.ZodArray<z.ZodString>]>, z.ZodTransform<Set<string>, string[] | Set<string>>>;
@@ -1224,6 +1245,18 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     source: never;
     parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"CondensationRequest">>;
+    details: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+        trigger: z.ZodLiteral<"agent">;
+        action_id: z.ZodString;
+        observation_id: z.ZodString;
+        version: z.ZodLiteral<1>;
+        input_event_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strict>, z.ZodObject<{
+        trigger: z.ZodLiteral<"provider_context_window">;
+        protected_user_event_ids: z.ZodArray<z.ZodString>;
+        version: z.ZodLiteral<1>;
+        input_event_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strict>], "trigger">>;
 }, z.core.$strict>, z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;

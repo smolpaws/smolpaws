@@ -244,6 +244,41 @@ stay outside this package. REST and both socket families serialize SDK forgotten
 arrays, as Python JSON-mode serialization does, without mutating the stored event or dropping unknown
 accounting values. Source/evidence: [condensation port](transpile/condensation.md).
 
+### DEV-SERVER-010 — opt-in agent-controlled condensation
+
+The server accepts the SDK's `agent_reset` condenser and optional sibling
+`hard_condenser`; SDK EXT-SDK-004 and DEV-SDK-012 own the tool, warnings, reset
+projection, provider-error routing and accounting. No server-side summary algorithm
+or condenser pipeline is introduced. Standard summarizer configuration and its
+1000/2 defaults remain unchanged.
+
+Reset-only mode resolves no auxiliary profile, including the ordinary condenser-role
+resolver. A configured hard fallback requires its own explicit saved profile. Before
+agent execution, capture its secret-free profile and validated settings in a separate
+server-owned `hard_condenser_binding`, under the existing guarded metadata update.
+Preparation must stay outside the lease lock. Omitted/null fallback makes no lookup;
+missing profiles/credentials fail explicitly rather than borrowing the main client.
+Public creation cannot forge the binding. Preserve it across catalog edits, restore,
+fork after capture and main-profile switches. Fork before capture resolves on first
+use. Preserve the SDK condenser and hard fallback when rebuilding an agent for a
+main-profile switch; warning percentages use that new active main profile's input
+limit, never the frozen fallback profile's limit.
+
+Host-forced `POST /api/conversations/{conversation_id}/condense` has no genuine
+agent-authored tool exchange in reset mode. Reject a saved enabled reset configuration
+before client preparation, and preserve the SDK's typed unsupported error for custom
+factories. The response is HTTP 409 with fixed code `agent_controlled_condensation`
+and explanatory `detail`. Authentication/ownership remain enforced. The request
+appends no condensation intent and starts no model call. Standard success, missing
+conversation and unsupported ordinary-condenser behavior remain unchanged.
+The OpenAPI policy records this mode-specific response difference.
+
+Channel receipts remain product-owned. A relay may translate only that allowlisted
+code into fixed user guidance; it must not confuse ownership conflicts with this mode
+or expose arbitrary provider/server bodies. The generic server does not send chat
+messages, reload notes, choose channel scopes, or change running configuration.
+Evidence: [agent-controlled condensation integration](transpile/agent-reset.md).
+
 ## Tests-first rule
 
 For compatibility work:

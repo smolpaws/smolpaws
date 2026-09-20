@@ -102,3 +102,9 @@ Automatic event/token pressure and supported provider overflow recovery run in t
 and forces a serialized maintenance step, returning `{ "success": true }` only on success.
 It does not resume a paused conversation. See the [condensation guide](../../docs/condensation.md)
 for exact triggers, scope selection, command handling and rollout prerequisites.
+
+For agent-controlled condensation, select `condenser_kind: "agent_reset"` and,
+optionally, an explicit independent `hard_condenser` profile. Warnings are advisory;
+only a real provider context-window error invokes that fallback. Manual `/condense`
+is unsupported in this mode: ask the agent to use its tool. See
+[agent-controlled configuration](../../docs/condensation.md#agent-controlled-mode).

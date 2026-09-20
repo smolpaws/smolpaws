@@ -18,8 +18,8 @@ export async function materializeProfileCondenser(
   context: AgentFactoryContext,
   options: BindingOptions,
 ): Promise<Condenser | null> {
-  if (!settings.enabled || settings.condenser_kind === 'no_op') {
-    return materializeCondenser(settings, { resolveClient: () => { throw new Error('Inactive condenser must not resolve a client'); } });
+  if (!settings.enabled || settings.condenser_kind === 'no_op' || settings.condenser_kind === 'agent_reset') {
+    return materializeCondenser(settings, { resolveClient: () => { throw new Error('Profile-free condenser must not resolve a client'); } });
   }
   let binding: CondenserBinding | undefined = context.stored.request.condenser_binding;
   if (binding === undefined) {

@@ -398,6 +398,39 @@ function classifyError(code, detail = "") {
   }
   return failure("unknown");
 }
+var eventIdSchema = zod.z.string().min(1);
+var requestFields = {
+  version: zod.z.literal(1),
+  input_event_id: eventIdSchema.nullable().default(null)
+};
+var condensationRequestDetailsSchema = zod.z.discriminatedUnion("trigger", [
+  zod.z.object({
+    ...requestFields,
+    trigger: zod.z.literal("agent"),
+    action_id: eventIdSchema,
+    observation_id: eventIdSchema
+  }).strict().refine(
+    (details) => details.action_id !== details.observation_id && details.input_event_id !== details.action_id && details.input_event_id !== details.observation_id,
+    "Reset input, action and observation must have distinct event IDs"
+  ),
+  zod.z.object({
+    ...requestFields,
+    trigger: zod.z.literal("provider_context_window"),
+    protected_user_event_ids: zod.z.array(eventIdSchema).refine(
+      (ids) => new Set(ids).size === ids.length,
+      "Protected user event IDs must be unique"
+    )
+  }).strict()
+]);
+var condensationResetSchema = zod.z.object({
+  version: zod.z.literal(1),
+  request_id: eventIdSchema
+}).strict();
+var condensationOperationFailureSchema = zod.z.object({
+  version: zod.z.literal(1),
+  request_id: eventIdSchema,
+  error: zod.z.string()
+}).strict();
 
 // src/event/index.ts
 var N_CHAR_PREVIEW = 500;
@@ -530,6 +563,7 @@ var agentErrorEventSchema = eventObject({
 });
 var condensationSchema = eventObject({
   kind: zod.z.literal("Condensation").default("Condensation"),
+  reset: condensationResetSchema.optional(),
   source: zod.z.literal("environment").default("environment"),
   summary: zod.z.string().nullable().default(null),
   summary_offset: zod.z.number().int().min(0).nullable().default(null),
@@ -538,6 +572,7 @@ var condensationSchema = eventObject({
 });
 var condensationRequestSchema = eventObject({
   kind: zod.z.literal("CondensationRequest").default("CondensationRequest"),
+  details: condensationRequestDetailsSchema.optional(),
   source: zod.z.literal("environment").default("environment")
 });
 var condensationSummaryEventSchema = eventObject({
@@ -1513,6 +1548,265 @@ function mapMaybe(value, map) {
 function isCondensation(result) {
   return "kind" in result && result.kind === "Condensation";
 }
+var LLM_REQUEST_BOUNDARY_KEY = "llm_request_boundary";
+var llmRequestBoundarySchema = zod.z.object({
+  version: zod.z.literal(1),
+  // Event serialization omits nulls, so an omitted ID also means an empty input log.
+  input_event_id: zod.z.string().nullable().default(null),
+  response_event_ids: zod.z.array(zod.z.string()).min(1)
+}).strict();
+function requestBoundaryEvent(inputEventId, responseEvents) {
+  return conversationStateUpdateEventSchema.parse({
+    key: LLM_REQUEST_BOUNDARY_KEY,
+    value: llmRequestBoundarySchema.parse({ version: 1, input_event_id: inputEventId, response_event_ids: responseEvents.map((event) => event.id) })
+  });
+}
+function historyForRequests(view, history) {
+  let ordered = [...view];
+  for (const { inputIndex, responseIds, firstResponseIndex } of completedRequestBoundaries(history)) {
+    const lateIds = new Set(history.slice(inputIndex + 1, firstResponseIndex).filter(
+      (event) => event.kind === "MessageEvent" && event.source === "user" && event.llm_message.role === "user"
+    ).map((event) => event.id));
+    if (lateIds.size === 0) continue;
+    const retainedResponseIndices = ordered.flatMap((event, index) => responseIds.has(event.id) ? [index] : []);
+    if (retainedResponseIndices.length === 0) continue;
+    const firstRetainedResponse = retainedResponseIndices[0];
+    const lastRetainedResponse = retainedResponseIndices.at(-1);
+    let barrier = -1;
+    for (let index = 0; index <= lastRetainedResponse; index += 1) {
+      const event = ordered[index];
+      if (event.kind === "CondensationSummaryEvent" || !responseIds.has(event.id) && (event.kind === "ActionEvent" || event.kind === "MessageEvent" && event.llm_message.role === "assistant")) barrier = index;
+    }
+    const late = ordered.slice(barrier + 1, firstRetainedResponse).filter((event) => lateIds.has(event.id));
+    if (late.length === 0) continue;
+    const movedIds = new Set(late.map((event) => event.id));
+    ordered = [
+      ...ordered.slice(0, lastRetainedResponse + 1).filter((event) => !movedIds.has(event.id)),
+      ...late,
+      ...ordered.slice(lastRetainedResponse + 1)
+    ];
+  }
+  return ordered;
+}
+function unconsumedUserEventIds(view, history) {
+  const indices = new Map(history.map((event, index) => [event.id, index]));
+  let consumedThrough = -1;
+  for (const { inputIndex } of completedRequestBoundaries(history)) consumedThrough = Math.max(consumedThrough, inputIndex);
+  return new Set(view.filter((event) => event.kind === "MessageEvent" && event.source === "user" && event.llm_message.role === "user" && (indices.get(event.id) ?? Infinity) > consumedThrough).map((event) => event.id));
+}
+function hasCompletedLlmRequestAfter(history, eventId) {
+  const index = history.findIndex((event) => event.id === eventId);
+  return index >= 0 && completedRequestBoundaries(history).some((boundary) => boundary.inputIndex >= index);
+}
+function completedRequestBoundaries(history) {
+  const indices = new Map(history.map((event, index) => [event.id, index]));
+  const completed = [];
+  for (const [markerIndex, marker] of history.entries()) {
+    if (marker.kind !== "ConversationStateUpdateEvent" || marker.key !== LLM_REQUEST_BOUNDARY_KEY) continue;
+    const boundary = llmRequestBoundarySchema.parse(marker.value);
+    const inputIndex = boundary.input_event_id === null ? -1 : indices.get(boundary.input_event_id);
+    const responseIds = new Set(boundary.response_event_ids);
+    if (inputIndex === void 0 || inputIndex >= markerIndex || responseIds.size !== boundary.response_event_ids.length) continue;
+    const responseIndices = boundary.response_event_ids.map((id) => indices.get(id));
+    if (responseIndices.some((index) => index === void 0 || index <= markerIndex)) continue;
+    const responses = responseIndices.map((index) => history[index]);
+    if (!responses.some(isMainResponse) || !responses.every((event) => isMainResponse(event) || event.kind === "MessageEvent" && event.source === "environment" && event.llm_message.role === "user")) continue;
+    completed.push({ inputIndex, responseIds, firstResponseIndex: Math.min(...responseIndices) });
+  }
+  return completed;
+}
+function isMainResponse(event) {
+  return event.kind === "ActionEvent" || event.kind === "MessageEvent" && event.source === "agent" && event.llm_message.role === "assistant";
+}
+
+// src/tool/defaults.ts
+var DEFAULT_EXEC_TOOL_NAMES = ["terminal", "file_editor", "task_tracker"];
+var BROWSER_TOOL_NAME = "browser_tool_set";
+var SUB_AGENT_TOOL_NAME = "task_tool_set";
+function defaultToolSpecs(options = {}) {
+  const names = [...DEFAULT_EXEC_TOOL_NAMES];
+  if (options.enableBrowser === true) {
+    names.push(BROWSER_TOOL_NAME);
+  }
+  if (options.enableSubAgents === true) {
+    names.push(SUB_AGENT_TOOL_NAME);
+  }
+  return names;
+}
+
+// src/tool/index.ts
+var toolAnnotationsSchema = zod.z.object({
+  title: zod.z.string().nullable().default(null),
+  readOnlyHint: zod.z.boolean().default(false),
+  destructiveHint: zod.z.boolean().default(true),
+  idempotentHint: zod.z.boolean().default(false),
+  openWorldHint: zod.z.boolean().default(true)
+}).strict();
+var toolSpecSchema = zod.z.object({
+  name: zod.z.string().min(1),
+  params: zod.z.record(zod.z.string(), zod.z.unknown()).default({})
+}).strict();
+var ToolDefinition = class {
+  name;
+  description;
+  inputSchema;
+  outputSchema;
+  executor;
+  annotations;
+  meta;
+  usable;
+  constructor(options) {
+    this.name = options.name;
+    this.description = options.description;
+    this.inputSchema = options.inputSchema;
+    this.outputSchema = options.outputSchema;
+    this.executor = options.executor;
+    this.annotations = options.annotations;
+    this.meta = options.meta;
+    this.usable = options.usable ?? true;
+  }
+  async execute(input, context) {
+    if (this.executor === void 0) {
+      throw new Error(`Tool '${this.name}' has no executor`);
+    }
+    const action = this.inputSchema.parse(input);
+    const result = await this.executor(action, context);
+    if (this.outputSchema === void 0) {
+      return result;
+    }
+    return this.outputSchema.parse(result);
+  }
+  toMcpTool(inputSchema, outputSchema) {
+    const tool = {
+      name: this.name,
+      description: this.description,
+      inputSchema: inputSchema ?? schemaToJsonObject(this.inputSchema)
+    };
+    const derivedOutputSchema = outputSchema ?? (this.outputSchema === void 0 ? void 0 : schemaToJsonObject(this.outputSchema));
+    if (derivedOutputSchema !== void 0) {
+      tool.outputSchema = derivedOutputSchema;
+    }
+    if (this.annotations !== void 0) {
+      tool.annotations = this.annotations;
+    }
+    if (this.meta !== void 0) {
+      tool._meta = this.meta;
+    }
+    return tool;
+  }
+  toResponsesTool() {
+    return {
+      type: "function",
+      name: this.name,
+      description: this.description,
+      strict: false,
+      parameters: schemaToJsonObject(this.inputSchema)
+    };
+  }
+};
+var ToolRegistry = class {
+  registrations = /* @__PURE__ */ new Map();
+  register(name, tool) {
+    this.registrations.set(name, tool);
+  }
+  registerFactory(name, factory) {
+    this.registrations.set(name, factory);
+  }
+  resolve(spec, context) {
+    const parsedSpec = toolSpecSchema.parse(spec);
+    const registration = this.registrations.get(parsedSpec.name);
+    if (registration === void 0) {
+      const builtin = builtinToolResolvers.get(parsedSpec.name);
+      if (builtin !== void 0) {
+        return builtin(parsedSpec.params, context);
+      }
+      throw new Error(`Unknown tool: ${parsedSpec.name}`);
+    }
+    if (registration instanceof ToolDefinition) {
+      if (Object.keys(parsedSpec.params).length > 0) {
+        throw new Error(`Registered tool instance '${parsedSpec.name}' does not accept params`);
+      }
+      return [registration];
+    }
+    return registration(parsedSpec.params, context);
+  }
+  listRegisteredTools() {
+    return [...this.registrations.keys()];
+  }
+  listUsableTools() {
+    return [...this.registrations.entries()].filter(([_name, registration]) => !(registration instanceof ToolDefinition) || registration.usable).map(([name]) => name);
+  }
+};
+var globalToolRegistry = new ToolRegistry();
+function registerTool(name, tool) {
+  globalToolRegistry.register(name, tool);
+}
+function registerToolFactory(name, factory) {
+  globalToolRegistry.registerFactory(name, factory);
+}
+function resolveTool(spec, context) {
+  return globalToolRegistry.resolve(spec, context);
+}
+function listRegisteredTools() {
+  return globalToolRegistry.listRegisteredTools();
+}
+function listUsableTools() {
+  return globalToolRegistry.listUsableTools();
+}
+function schemaToJsonObject(schema) {
+  const jsonSchema = zod.z.toJSONSchema(schema);
+  if (!isJsonObject(jsonSchema)) {
+    throw new Error("Zod schema did not produce a JSON object schema");
+  }
+  return jsonSchema;
+}
+function isJsonObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+var builtinToolResolvers = /* @__PURE__ */ new Map();
+function registerBuiltinResolver(name, resolver) {
+  builtinToolResolvers.set(name, resolver);
+}
+
+// src/tool/condense.ts
+var condenseActionSchema = zod.z.object({
+  message_to_future_self: zod.z.string().max(16384).optional().describe(
+    "Optional message to your future self, preserved exactly. Maximum 16,384 UTF-16 code units."
+  )
+}).strict();
+var condenseObservationSchema = zod.z.object({
+  kind: zod.z.literal("CondenseObservation").default("CondenseObservation"),
+  content: zod.z.array(textContentSchema).default([]),
+  is_error: zod.z.boolean().default(false),
+  request_id: zod.z.string().nullable().default(null),
+  message_to_future_self: zod.z.string().nullable().default(null)
+}).strict();
+var CondenseTool = class {
+  static className = "CondenseTool";
+  static create() {
+    return new ToolDefinition({
+      name: "condense",
+      description: "Request a fresh active context while retaining your message to your future self. You decide when to condense. Save any durable notes you want to recover with your existing tools first; this tool does not write memory files. Make this the only tool call in your response. message_to_future_self is optional and may contain up to 16,384 UTF-16 code units. The agent runtime applies the reset after this tool result is saved.",
+      inputSchema: condenseActionSchema,
+      outputSchema: condenseObservationSchema,
+      meta: { smolpaws_agent_condense: true },
+      usable: true,
+      executor: (action, context) => {
+        if (!isCondenseExecutionContext(context)) {
+          return condenseObservationSchema.parse({
+            content: [textContent("Cannot request context condensation without an active agent-reset context.")],
+            is_error: true,
+            message_to_future_self: action.message_to_future_self ?? null
+          });
+        }
+        return context.requestCondensation(action);
+      }
+    });
+  }
+};
+function isCondenseExecutionContext(context) {
+  return typeof context === "object" && context !== null && !Array.isArray(context) && "requestCondensation" in context && typeof context.requestCondensation === "function";
+}
 
 // src/context/manipulation-indices.ts
 var ManipulationIndices = class _ManipulationIndices extends Set {
@@ -1672,84 +1966,6 @@ function toolLoops(events) {
   return loops;
 }
 
-// src/context/view.ts
-var View = class _View {
-  events;
-  unhandledCondensationRequest;
-  constructor(events = [], unhandledCondensationRequest = false) {
-    this.events = [...events];
-    this.unhandledCondensationRequest = unhandledCondensationRequest;
-  }
-  get length() {
-    return this.events.length;
-  }
-  get manipulationIndices() {
-    const indices = ManipulationIndices.complete(this.events);
-    for (const property of viewProperties) {
-      const allowed = property.manipulationIndices(this.events);
-      for (const index of indices) if (!allowed.has(index)) indices.delete(index);
-    }
-    return indices;
-  }
-  enforceProperties(allEvents) {
-    const sourceEvents = [...allEvents];
-    while (true) {
-      let changed = false;
-      for (const property of viewProperties) {
-        const removed = property.enforce(this.events, sourceEvents);
-        if (removed.size === 0) continue;
-        console.warn(`Property ${property.constructor.name} enforced, ${removed.size} events dropped.`);
-        const retained = this.events.filter((event) => !removed.has(event.id));
-        this.events.length = 0;
-        this.events.push(...retained);
-        changed = true;
-        break;
-      }
-      if (!changed) return;
-    }
-  }
-  appendEvent(event) {
-    switch (event.kind) {
-      case "Condensation":
-        this.applyCondensation(event);
-        this.unhandledCondensationRequest = false;
-        break;
-      case "CondensationRequest":
-        this.unhandledCondensationRequest = true;
-        break;
-      case "SystemPromptEvent":
-      case "MessageEvent":
-      case "ActionEvent":
-      case "ObservationEvent":
-      case "UserRejectObservation":
-      case "AgentErrorEvent":
-      case "CondensationSummaryEvent":
-        this.events.push(event);
-        break;
-    }
-  }
-  static fromEvents(events) {
-    const view = new _View();
-    for (const event of events) {
-      view.appendEvent(event);
-    }
-    view.enforceProperties(events);
-    return view;
-  }
-  applyCondensation(condensation) {
-    const output = this.events.filter((event) => !condensation.forgotten_event_ids.has(event.id));
-    if (condensation.summary !== null && condensation.summary_offset !== null) {
-      output.splice(condensation.summary_offset, 0, condensationSummaryEventSchema.parse({
-        id: `${condensation.id}-summary`,
-        source: condensation.source,
-        summary: condensation.summary
-      }));
-    }
-    this.events.length = 0;
-    this.events.push(...output);
-  }
-};
-
 // src/context/condenser-utils.ts
 async function getTotalTokenCount(events, llm, context) {
   if (!llm.getTokenCount) return null;
@@ -1783,6 +1999,270 @@ async function getSuffixLengthForTokenReduction(events, llm, tokenReduction, bas
   if (tokenReduction <= 0) return events.length;
   const prefix = await getShortestPrefixAboveTokenCount(events, llm, tokenReduction, baseEvents, context);
   return prefix === null ? null : events.length - prefix;
+}
+
+// src/context/context-warnings.ts
+var DEFAULT_CONTEXT_WARNING_THRESHOLDS = Object.freeze([0.75, 0.8, 0.85, 0.9]);
+var thresholdSchema = zod.z.number().positive().max(1);
+var contextWarningThresholdsSchema = zod.z.array(thresholdSchema).min(1).refine(
+  (values) => values.every((value, index) => index === 0 || value > values[index - 1]),
+  "Context warning thresholds must be strictly ascending and unique"
+);
+var WARNING_KEY = "agent_context_warning";
+var warningStateSchema = zod.z.object({
+  version: zod.z.literal(1),
+  // EventLog omits null model fields, so absence also denotes the initial generation.
+  generation: zod.z.string().min(1).nullable().default(null),
+  threshold: thresholdSchema,
+  input_tokens: zod.z.number().finite().nonnegative(),
+  input_limit: zod.z.number().finite().positive()
+}).strict();
+function warningState(event) {
+  if (event.kind !== "ConversationStateUpdateEvent" || event.key !== WARNING_KEY) return null;
+  const result = warningStateSchema.safeParse(event.value);
+  if (!result.success) throw new Error("Invalid agent context warning state", { cause: result.error });
+  return result.data;
+}
+async function contextWarningEvent(history, view, llm, thresholds, context) {
+  const levels = contextWarningThresholdsSchema.parse(thresholds);
+  let generation = null;
+  for (const event of history) if (event.kind === "Condensation") generation = event.id;
+  let highestWarned = 0;
+  for (const event of history) {
+    const state = warningState(event);
+    if (state?.generation === generation) highestWarned = Math.max(highestWarned, state.threshold);
+  }
+  if (llm.profile.maxInputTokens === null) await llm.resolveRuntimeMetadata?.();
+  const inputLimit = llm.profile.maxInputTokens ?? llm.effectiveMaxInputTokens ?? null;
+  if (inputLimit === null) return null;
+  if (!Number.isFinite(inputLimit) || inputLimit <= 0) throw new RangeError("Invalid provider input-token limit");
+  const inputTokens = await getTotalTokenCount(view.events, llm, context);
+  if (inputTokens === null) return null;
+  const highestPassed = levels.filter((threshold) => inputTokens / inputLimit >= threshold).at(-1);
+  if (highestPassed === void 0 || highestPassed <= highestWarned) return null;
+  return conversationStateUpdateEventSchema.parse({
+    key: WARNING_KEY,
+    value: { version: 1, generation, threshold: highestPassed, input_tokens: inputTokens, input_limit: inputLimit }
+  });
+}
+function contextWarningMessage(event) {
+  const state = warningState(event);
+  if (state === null) return null;
+  const thresholdPercent = Math.round(state.threshold * 1e4) / 100;
+  return messageEventSchema.parse({
+    id: `${event.id}-message`,
+    timestamp: event.timestamp,
+    source: "environment",
+    llm_message: {
+      role: "user",
+      content: [textContent(
+        `Context warning: the ${thresholdPercent}% input-budget threshold has been reached (${state.input_tokens} input tokens / ${state.input_limit} input-token budget). This is advisory; you decide when to condense. Save useful state in your notes, then call condense when you are ready, with any message you want your future self to receive.`
+      )]
+    }
+  });
+}
+
+// src/context/reset-notices.ts
+var AGENT_RESET_NOTICE = "The agent triggered context condensation.";
+var HARD_RESET_NOTICE = "The environment triggered emergency context condensation after the model provider returned a context-window error. Earlier active history was replaced by the summary below. Your notes may be incomplete. Take a deep breath, read the summary and your notes, and check unfinished user requests before continuing. The user may not know this happened.";
+var AGENT_RESET_RECOVERY = "You triggered context condensation. Your earlier active history has been cleared; your notes and the stored conversation history remain available. Take a deep breath. Find and read your notes to regain your bearings, then continue the user's work. The user may not know what just happened. Consider whether a brief heads-up or a little joke would help; use your judgment.";
+
+// src/context/view.ts
+var View = class _View {
+  events;
+  unhandledCondensationRequest;
+  history = [];
+  propertyHistory = null;
+  pendingRequests = /* @__PURE__ */ new Set();
+  abortedRequests = /* @__PURE__ */ new Set();
+  committedResets = /* @__PURE__ */ new Set();
+  initialUnhandledRequest;
+  constructor(events = [], unhandledCondensationRequest = false) {
+    this.events = [...events];
+    this.history.push(...events);
+    this.initialUnhandledRequest = unhandledCondensationRequest;
+    this.unhandledCondensationRequest = unhandledCondensationRequest;
+  }
+  get length() {
+    return this.events.length;
+  }
+  get manipulationIndices() {
+    const indices = ManipulationIndices.complete(this.events);
+    for (const property of viewProperties) {
+      const allowed = property.manipulationIndices(this.events);
+      for (const index of indices) if (!allowed.has(index)) indices.delete(index);
+    }
+    return indices;
+  }
+  enforceProperties(allEvents) {
+    const sourceEvents = this.propertyHistory ?? [...allEvents];
+    while (true) {
+      let changed = false;
+      for (const property of viewProperties) {
+        const removed = property.enforce(this.events, sourceEvents);
+        if (removed.size === 0) continue;
+        console.warn(`Property ${property.constructor.name} enforced, ${removed.size} events dropped.`);
+        const retained = this.events.filter((event) => !removed.has(event.id));
+        this.events.length = 0;
+        this.events.push(...retained);
+        changed = true;
+        break;
+      }
+      if (!changed) return;
+    }
+  }
+  appendEvent(event) {
+    this.history.push(event);
+    this.propertyHistory?.push(event);
+    switch (event.kind) {
+      case "Condensation":
+        this.applyCondensation(event);
+        this.pendingRequests.clear();
+        this.initialUnhandledRequest = false;
+        this.unhandledCondensationRequest = false;
+        break;
+      case "ConversationStateUpdateEvent": {
+        if (event.key === "condensation_operation_failure") this.applyRequestFailure(event);
+        const warning = contextWarningMessage(event);
+        if (warning !== null) this.events.push(warning);
+        break;
+      }
+      case "CondensationRequest":
+        this.pendingRequests.add(event.id);
+        this.unhandledCondensationRequest = true;
+        break;
+      case "SystemPromptEvent":
+      case "MessageEvent":
+      case "ActionEvent":
+      case "ObservationEvent":
+      case "UserRejectObservation":
+      case "AgentErrorEvent":
+      case "CondensationSummaryEvent":
+        this.events.push(event);
+        break;
+    }
+  }
+  static fromEvents(events) {
+    const view = new _View();
+    for (const event of events) {
+      view.appendEvent(event);
+    }
+    view.enforceProperties(events);
+    return view;
+  }
+  applyCondensation(condensation) {
+    if (condensation.reset !== void 0) {
+      const output2 = this.applyReset(condensation);
+      this.events.splice(0, this.events.length, ...output2);
+      this.propertyHistory = [...output2];
+      return;
+    }
+    const output = this.events.filter((event) => !condensation.forgotten_event_ids.has(event.id));
+    if (condensation.summary !== null && condensation.summary_offset !== null) {
+      output.splice(condensation.summary_offset, 0, condensationSummaryEventSchema.parse({
+        id: `${condensation.id}-summary`,
+        source: condensation.source,
+        summary: condensation.summary
+      }));
+    }
+    this.events.length = 0;
+    this.events.push(...output);
+  }
+  applyReset(commit) {
+    const reset = condensationResetSchema.parse(commit.reset);
+    if (this.committedResets.has(reset.request_id)) throw new Error("Reset request was already committed");
+    if (this.abortedRequests.has(reset.request_id)) throw new Error("Reset request was aborted after an operation failure");
+    const request = this.history.find((event) => event.id === reset.request_id);
+    if (request?.kind !== "CondensationRequest" || request.details === void 0) throw new Error("Reset commit has no correlated request");
+    const details = condensationRequestDetailsSchema.parse(request.details);
+    const inputIndex = details.input_event_id === null ? -1 : this.history.findIndex((event) => event.id === details.input_event_id);
+    const requestIndex = this.history.indexOf(request);
+    if (details.input_event_id !== null && inputIndex < 0 || inputIndex >= requestIndex) throw new Error("Invalid reset input boundary");
+    const positions = new Map(this.history.map((event, index) => [event.id, index]));
+    const retained = this.events.filter((event) => !commit.forgotten_event_ids.has(event.id));
+    const fixed = retained.filter((event) => event.kind === "SystemPromptEvent");
+    const protectedIds = details.trigger === "provider_context_window" ? this.protectedInput(details, inputIndex) : /* @__PURE__ */ new Set();
+    const pair = details.trigger === "agent" ? this.resetToolPair(commit, request, details, inputIndex) : [];
+    if (details.trigger === "provider_context_window" && (commit.summary === null || !commit.summary.trim() || commit.summary_offset !== 0)) {
+      throw new Error("Hard reset commit requires a usable full-view summary");
+    }
+    const pairIds = new Set(pair.map((event) => event.id));
+    const pending = retained.filter((event) => event.kind !== "SystemPromptEvent" && !pairIds.has(event.id));
+    if (pending.some((event) => !genuineUser(event) || !protectedIds.has(event.id) && (positions.get(event.id) ?? -1) <= inputIndex)) throw new Error("Reset retained unexpected old history");
+    for (const event of this.events) {
+      if (event.kind === "SystemPromptEvent" && commit.forgotten_event_ids.has(event.id) || genuineUser(event) && (protectedIds.has(event.id) || (positions.get(event.id) ?? -1) > inputIndex) && commit.forgotten_event_ids.has(event.id)) {
+        throw new Error("Reset would discard fixed context or pending input");
+      }
+    }
+    const notice = messageEventSchema.parse({
+      id: `${commit.id}-notice`,
+      timestamp: commit.timestamp,
+      source: "environment",
+      llm_message: { role: "user", content: details.trigger === "agent" ? AGENT_RESET_NOTICE : HARD_RESET_NOTICE }
+    });
+    const summary = details.trigger === "agent" ? [] : [condensationSummaryEventSchema.parse({
+      id: `${commit.id}-summary`,
+      timestamp: commit.timestamp,
+      source: "environment",
+      summary: commit.summary
+    })];
+    this.committedResets.add(request.id);
+    return [...fixed, notice, ...pair, ...summary, ...pending];
+  }
+  resetToolPair(commit, request, details, inputIndex) {
+    const action = this.events.find((event) => event.id === details.action_id);
+    const observation2 = this.events.find((event) => event.id === details.observation_id);
+    if (action?.kind !== "ActionEvent" || action.tool_name !== "condense" || action.tool_call.name !== action.tool_name || action.tool_call.id !== action.tool_call_id || observation2?.kind !== "ObservationEvent" || observation2.action_id !== action.id || observation2.tool_call_id !== action.tool_call_id || observation2.tool_name !== "condense" || observation2.observation["kind"] !== "CondenseObservation" || commit.summary !== null || commit.summary_offset !== null || commit.forgotten_event_ids.has(action.id) || commit.forgotten_event_ids.has(observation2.id)) {
+      throw new Error("Reset commit does not preserve a successful genuine condense exchange");
+    }
+    const args = condenseActionSchema.parse(action.action);
+    const wireArgs = condenseActionSchema.parse(JSON.parse(action.tool_call.arguments));
+    const result = condenseObservationSchema.parse(observation2.observation);
+    if (result.is_error || result.request_id !== request.id || wireArgs.message_to_future_self !== args.message_to_future_self || result.message_to_future_self !== (args.message_to_future_self ?? null)) {
+      throw new Error("Reset tool exchange has inconsistent arguments or observation");
+    }
+    const actionIndex = this.history.indexOf(action);
+    const requestIndex = this.history.indexOf(request);
+    if (actionIndex <= inputIndex || actionIndex >= requestIndex || this.history.indexOf(observation2) <= requestIndex) throw new Error("Invalid reset tool ordering");
+    if (this.history.slice(inputIndex + 1, requestIndex).filter((event) => event.kind === "ActionEvent").length !== 1) throw new Error("Reset requires a sole tool response");
+    this.validateAuthoringBoundary(action, details.input_event_id, inputIndex, actionIndex);
+    return [action, observation2];
+  }
+  validateAuthoringBoundary(action, inputId, inputIndex, actionIndex) {
+    const candidates = this.history.flatMap((event, index) => {
+      if (event.kind !== "ConversationStateUpdateEvent" || event.key !== LLM_REQUEST_BOUNDARY_KEY) return [];
+      const boundary = llmRequestBoundarySchema.parse(event.value);
+      return boundary.response_event_ids.includes(action.id) ? [{ boundary, index }] : [];
+    });
+    const origin = candidates[0];
+    if (candidates.length !== 1 || origin === void 0 || origin.boundary.input_event_id !== inputId || origin.boundary.response_event_ids.length !== 1 || origin.index <= inputIndex || origin.index >= actionIndex) {
+      throw new Error("Reset input boundary does not match the sole authoring response provenance");
+    }
+  }
+  protectedInput(details, inputIndex) {
+    const protectedIds = new Set(details.protected_user_event_ids);
+    const activeUsers = new Set(this.events.filter(genuineUser).map((event) => event.id));
+    if ([...protectedIds].some((id) => !activeUsers.has(id))) throw new Error("Reset protected input must reference genuine active user events");
+    const inputHistory = this.history.slice(0, inputIndex + 1);
+    const inputIds = new Set(inputHistory.map((event) => event.id));
+    const inputView = this.events.filter((event) => inputIds.has(event.id));
+    for (const id of unconsumedUserEventIds(inputView, inputHistory)) {
+      if (!protectedIds.has(id)) throw new Error("Reset request omitted protected pending user input");
+    }
+    return protectedIds;
+  }
+  applyRequestFailure(event) {
+    const failure2 = condensationOperationFailureSchema.parse(event.value);
+    const request = this.history.find((candidate) => candidate.id === failure2.request_id);
+    if (request?.kind !== "CondensationRequest" || request.details === void 0) throw new Error("Condensation operation failure has no correlated typed request");
+    if (this.committedResets.has(request.id)) throw new Error("Cannot abort an already committed reset request");
+    this.abortedRequests.add(request.id);
+    this.pendingRequests.delete(request.id);
+    this.unhandledCondensationRequest = this.initialUnhandledRequest || this.pendingRequests.size > 0;
+  }
+};
+function genuineUser(event) {
+  return event.kind === "MessageEvent" && event.source === "user" && event.llm_message.role === "user";
 }
 var INITIAL_CWD = process.cwd();
 function getUserPersistenceDir(defaultDir) {
@@ -2326,6 +2806,163 @@ var LLMSummarizingCondenser = class extends RollingCondenser {
 function defaultCondenser(llm) {
   return new LLMSummarizingCondenser({ llm });
 }
+
+// src/context/agent-reset-condenser.ts
+var AgentResetCondenser = class {
+  warningThresholds;
+  constructor(options = {}) {
+    this.warningThresholds = contextWarningThresholdsSchema.parse(options.warningThresholds ?? DEFAULT_CONTEXT_WARNING_THRESHOLDS);
+  }
+  condense(view) {
+    return view;
+  }
+  handlesCondensationRequests() {
+    return false;
+  }
+};
+var AgentControlledCondensationError = class extends Error {
+  constructor() {
+    super("Agent-controlled condensation requires the agent to call its condense tool; host condensation is not supported in this mode.");
+    this.name = "AgentControlledCondensationError";
+  }
+};
+
+// src/agent/context-reset.ts
+var CONDENSATION_FAILURE_KEY = "condensation_operation_failure";
+async function executeCondenseTool(tool, action, state, inputEventId, soleCall) {
+  const observation2 = observationEventSchema.parse({
+    action_id: action.id,
+    tool_name: action.tool_name,
+    tool_call_id: action.tool_call_id,
+    observation: {}
+  });
+  const context = {
+    requestCondensation: async (args) => {
+      if (!soleCall) return condenseObservationSchema.parse({
+        is_error: true,
+        content: [textContent("Call condense as the only tool in a response. No history was cleared; finish your other tools first.")],
+        message_to_future_self: args.message_to_future_self ?? null
+      });
+      const request = condensationRequestSchema.parse({ details: {
+        version: 1,
+        trigger: "agent",
+        input_event_id: inputEventId,
+        action_id: action.id,
+        observation_id: observation2.id
+      } });
+      await state.appendEventAsync(request);
+      return condenseObservationSchema.parse({
+        request_id: request.id,
+        message_to_future_self: args.message_to_future_self ?? null,
+        content: [textContent(AGENT_RESET_RECOVERY + (args.message_to_future_self === void 0 ? "" : `
+
+Message from your past self:
+${args.message_to_future_self}`))]
+      });
+    }
+  };
+  return [observationEventSchema.parse({ ...observation2, observation: await tool.execute(action.action, context) })];
+}
+async function finishPendingContextReset(state) {
+  const request = pendingRequest(state.events);
+  if (request === null) return null;
+  const details = request.details;
+  if (details.trigger === "provider_context_window") {
+    const message = "Hard condensation was interrupted before its commit. History is intact; another automatic recovery requires a successful main-model response.";
+    await recordFailure(state, request, message);
+    throw new Error(message);
+  }
+  const observation2 = state.events.find((event) => event.id === details.observation_id);
+  if (observation2?.kind !== "ObservationEvent" || observation2.observation["is_error"] !== false) {
+    const message = "Condense was interrupted before its result was durable. No history was cleared; the agent can request it again.";
+    const emitted = [];
+    const action = state.pendingActions().find((event) => event.id === details.action_id);
+    if (action !== void 0) emitted.push(await state.appendEventAsync(agentErrorEventSchema.parse({
+      tool_name: action.tool_name,
+      tool_call_id: action.tool_call_id,
+      error: message,
+      classification: { kind: "internal", retryable: false }
+    })));
+    emitted.push(await recordFailure(state, request, message));
+    return emitted;
+  }
+  const activeEvents = activeEventsBeforeEnforcement(state.events);
+  const inputIndex = inputBoundary(state.events, details.input_event_id);
+  const retain = /* @__PURE__ */ new Set([details.action_id, details.observation_id]);
+  const positions = new Map(state.events.map((event, index) => [event.id, index]));
+  const forgotten = activeEvents.filter((event) => event.kind !== "SystemPromptEvent" && !retain.has(event.id) && !(genuineUser2(event) && (positions.get(event.id) ?? -1) > inputIndex));
+  const commit = condensationSchema.parse({
+    forgotten_event_ids: forgotten.map((event) => event.id),
+    reset: { version: 1, request_id: request.id }
+  });
+  View.fromEvents([...state.events, commit]);
+  return [await state.appendEventAsync(commit)];
+}
+async function recoverContextWindow(state, history, inputEventId, main, hardCondenser, context) {
+  let previousRecovery;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const event = history[index];
+    if (event.kind === "CondensationRequest" && event.details?.trigger === "provider_context_window") {
+      previousRecovery = event;
+      break;
+    }
+  }
+  if (previousRecovery !== void 0 && !hasCompletedLlmRequestAfter(history, previousRecovery.id)) {
+    throw new Error("Provider rejected context again after a hard-condensation attempt; recovery stopped without another summarizer call. A successful main-model response is required before automatic recovery can run again.");
+  }
+  const view = View.fromEvents(history);
+  const protectedIds = unconsumedUserEventIds(view.events, history);
+  const request = condensationRequestSchema.parse({ details: {
+    version: 1,
+    trigger: "provider_context_window",
+    input_event_id: inputEventId,
+    protected_user_event_ids: [...protectedIds]
+  } });
+  const emitted = [await state.appendEventAsync(request)];
+  let commit;
+  try {
+    const eligible = new View(view.events.filter((event) => event.kind !== "SystemPromptEvent" && !protectedIds.has(event.id)));
+    if (eligible.length === 0) throw new Error("No consumed history is available for hard condensation; pending user input was preserved.");
+    const summary = await hardCondenser.hardContextReset(eligible, main, context);
+    if (summary === null || summary.summary === null || !summary.summary.trim()) throw new Error("Hard condensation did not produce a usable summary; history is intact.");
+    const forgotten = activeEventsBeforeEnforcement(history).filter((event) => event.kind !== "SystemPromptEvent" && !protectedIds.has(event.id));
+    commit = condensationSchema.parse({
+      ...summary,
+      forgotten_event_ids: forgotten.map((event) => event.id),
+      reset: { version: 1, request_id: request.id }
+    });
+    View.fromEvents([...state.events, commit]);
+  } catch (error) {
+    const cause = error instanceof CondenserCompletionCallbackError ? error.cause : error;
+    await recordFailure(state, request, "Hard condensation failed before commit. History is intact; automatic recovery will not repeat until a main-model request succeeds.");
+    throw cause;
+  }
+  emitted.push(await state.appendEventAsync(commit));
+  return emitted;
+}
+function pendingRequest(history) {
+  const done = new Set(history.flatMap((event) => event.kind === "Condensation" && event.reset !== void 0 ? [event.reset.request_id] : event.kind === "ConversationStateUpdateEvent" && event.key === CONDENSATION_FAILURE_KEY ? [condensationOperationFailureSchema.parse(event.value).request_id] : []));
+  return history.find((event) => event.kind === "CondensationRequest" && event.details !== void 0 && !done.has(event.id)) ?? null;
+}
+async function recordFailure(state, request, error) {
+  return state.appendEventAsync(conversationStateUpdateEventSchema.parse({
+    key: CONDENSATION_FAILURE_KEY,
+    value: condensationOperationFailureSchema.parse({ version: 1, request_id: request.id, error })
+  }));
+}
+function genuineUser2(event) {
+  return event.kind === "MessageEvent" && event.source === "user" && event.llm_message.role === "user";
+}
+function inputBoundary(history, id) {
+  const index = id === null ? -1 : history.findIndex((event) => event.id === id);
+  if (id !== null && index < 0) throw new Error("Reset input boundary is missing from history");
+  return index;
+}
+function activeEventsBeforeEnforcement(history) {
+  const view = new View();
+  for (const event of history) view.appendEvent(event);
+  return view.events;
+}
 var llmUsageSchema = zod.z.object({
   promptTokens: zod.z.number().int().min(0).optional(),
   completionTokens: zod.z.number().int().min(0).optional(),
@@ -2746,56 +3383,6 @@ function legacyOrigin(events) {
 }
 function record(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-var LLM_REQUEST_BOUNDARY_KEY = "llm_request_boundary";
-var boundarySchema = zod.z.object({
-  version: zod.z.literal(1),
-  // Event serialization omits nulls, so an omitted ID also means an empty input log.
-  input_event_id: zod.z.string().nullable().default(null),
-  response_event_ids: zod.z.array(zod.z.string()).min(1)
-}).strict();
-function requestBoundaryEvent(inputEventId, responseEvents) {
-  return conversationStateUpdateEventSchema.parse({
-    key: LLM_REQUEST_BOUNDARY_KEY,
-    value: boundarySchema.parse({ version: 1, input_event_id: inputEventId, response_event_ids: responseEvents.map((event) => event.id) })
-  });
-}
-function historyForRequests(view, history) {
-  let ordered = [...view];
-  const indices = new Map(history.map((event, index) => [event.id, index]));
-  for (const marker of history) {
-    if (marker.kind !== "ConversationStateUpdateEvent" || marker.key !== LLM_REQUEST_BOUNDARY_KEY) continue;
-    const boundary = boundarySchema.parse(marker.value);
-    const inputIndex = boundary.input_event_id === null ? -1 : indices.get(boundary.input_event_id);
-    const responseIds = new Set(boundary.response_event_ids);
-    const responseIndices = boundary.response_event_ids.map((id) => indices.get(id));
-    if (inputIndex === void 0 || responseIds.size !== responseIndices.length || responseIndices.some((index) => index === void 0 || index <= inputIndex)) continue;
-    const firstResponseIndex = Math.min(...responseIndices);
-    const markerIndex = indices.get(marker.id);
-    if (inputIndex >= markerIndex || firstResponseIndex <= markerIndex) continue;
-    const lateIds = new Set(history.slice(inputIndex + 1, firstResponseIndex).filter(
-      (event) => event.kind === "MessageEvent" && event.source === "user" && event.llm_message.role === "user"
-    ).map((event) => event.id));
-    if (lateIds.size === 0) continue;
-    const retainedResponseIndices = ordered.flatMap((event, index) => responseIds.has(event.id) ? [index] : []);
-    if (retainedResponseIndices.length === 0) continue;
-    const firstRetainedResponse = retainedResponseIndices[0];
-    const lastRetainedResponse = retainedResponseIndices.at(-1);
-    let barrier = -1;
-    for (let index = 0; index <= lastRetainedResponse; index += 1) {
-      const event = ordered[index];
-      if (event.kind === "CondensationSummaryEvent" || !responseIds.has(event.id) && (event.kind === "ActionEvent" || event.kind === "MessageEvent" && event.llm_message.role === "assistant")) barrier = index;
-    }
-    const late = ordered.slice(barrier + 1, firstRetainedResponse).filter((event) => lateIds.has(event.id));
-    if (late.length === 0) continue;
-    const movedIds = new Set(late.map((event) => event.id));
-    ordered = [
-      ...ordered.slice(0, lastRetainedResponse + 1).filter((event) => !movedIds.has(event.id)),
-      ...late,
-      ...ordered.slice(lastRetainedResponse + 1)
-    ];
-  }
-  return ordered;
 }
 
 // src/llm/exceptions.ts
@@ -4115,6 +4702,7 @@ var LocalConversation = class {
   /** Force one condensation step after the currently executing step, without resuming a run. */
   async condense() {
     await this.withStepLock(async () => {
+      if (this.agent.condenser instanceof AgentResetCondenser) throw new AgentControlledCondensationError();
       if (this.agent.condenser?.handlesCondensationRequests?.() !== true) {
         throw new Error("Cannot condense conversation: configure a condenser that handles condensation requests.");
       }
@@ -4569,11 +5157,22 @@ var Agent = class {
   toolConcurrencyLimit;
   context;
   condenser;
+  hardCondenser;
   systemPrompt;
   usageId;
   constructor(options) {
     this.llm = options.llm;
-    this.tools = [...options.tools ?? []];
+    const tools = (options.tools ?? []).filter((tool) => tool.meta?.smolpaws_agent_condense !== true);
+    if (options.condenser instanceof AgentResetCondenser) {
+      if (tools.some((tool) => tool.name === "condense")) throw new Error("The condense tool name is reserved in agent-reset mode.");
+      this.tools = [...tools, CondenseTool.create()];
+    } else {
+      this.tools = tools;
+    }
+    this.hardCondenser = options.hardCondenser ?? null;
+    if (this.hardCondenser !== null && !(options.condenser instanceof AgentResetCondenser)) {
+      throw new Error("A hard condenser requires agent-reset mode.");
+    }
     this.toolConcurrencyLimit = Math.max(1, options.toolConcurrencyLimit ?? 1);
     this.context = options.context ?? null;
     this.condenser = options.condenser ?? null;
@@ -4581,11 +5180,23 @@ var Agent = class {
     this.usageId = options.usageId;
   }
   async step(state) {
+    if (this.condenser instanceof AgentResetCondenser) {
+      const recovered = await finishPendingContextReset(state);
+      if (recovered !== null) return recovered;
+    }
     const history = [...state.events];
     const inputEventId = history.at(-1)?.id ?? null;
     const system = this.renderSystemPrompt();
     await this.llm.resolveRuntimeMetadata?.();
-    const messages = await this.messagesForState(state, history, system);
+    const context = this.condenserContext(state, history, system);
+    if (this.condenser instanceof AgentResetCondenser) {
+      const warning = await contextWarningEvent(history, View.fromEvents(history), this.llm, this.condenser.warningThresholds, context);
+      if (warning !== null) {
+        await state.appendEventAsync(warning);
+        history.push(warning);
+      }
+    }
+    const messages = await this.messagesForState(state, history, context);
     if (!Array.isArray(messages)) return [messages];
     let response;
     const startedAt = Date.now();
@@ -4600,6 +5211,9 @@ var Agent = class {
         }));
       }
       const cause = error instanceof LLMResponseError ? error.cause : error;
+      if (this.condenser instanceof AgentResetCondenser && cause instanceof LLMContextWindowExceedError && this.hardCondenser !== null) {
+        return recoverContextWindow(state, history, inputEventId, this.llm, this.hardCondenser, context);
+      }
       if ((cause instanceof LLMContextWindowExceedError || cause instanceof LLMMalformedConversationHistoryError) && this.condenser?.handlesCondensationRequests?.() === true) {
         return [await state.appendEventAsync(condensationRequestSchema.parse({}))];
       }
@@ -4624,22 +5238,37 @@ var Agent = class {
       ...this.usageId === void 0 ? {} : { usageId: this.usageId }
     });
     await state.appendEventAsync(accounting);
-    return dispatchLlmResponse(response, state, (action) => this.runTool(action), {
+    const emitted = await dispatchLlmResponse(response, state, (action) => {
+      const tool = this.tools.find((candidate) => candidate.name === action.tool_name);
+      if (this.condenser instanceof AgentResetCondenser && tool?.meta?.smolpaws_agent_condense === true) {
+        return executeCondenseTool(tool, action, state, inputEventId, response.message.tool_calls?.length === 1);
+      }
+      return this.runTool(action);
+    }, {
       llmResponseId: response.responseId ?? accounting.id,
       maxConcurrency: this.toolConcurrencyLimit,
       inputEventId
     });
+    const reset = this.condenser instanceof AgentResetCondenser ? await finishPendingContextReset(state) : null;
+    return reset === null ? emitted : [...emitted, ...reset];
   }
-  async messagesForState(state, history, system) {
+  async messagesForState(state, history, context) {
     const view = View.fromEvents(history);
+    const condensed = await (this.condenser?.condense(view, this.llm, context) ?? view);
+    if (!(condensed instanceof View)) {
+      await state.appendEventAsync(condensed);
+      return condensed;
+    }
+    return [...context.messagesForEvents(condensed.events.filter(isLlmConvertibleEvent))];
+  }
+  condenserContext(state, history, system) {
     const projectEvents = (events, profile) => historyForProfile(historyForRequests(events, history), history, profile, this.llm.profile);
-    const messagesForEvents = (events) => {
-      const messages = eventsToMessages(projectEvents(events, this.llm.profile));
-      return system === null ? messages : [systemMessage(system), ...messages];
-    };
-    const condensed = await (this.condenser?.condense(view, this.llm, {
+    return {
       tools: this.tools.filter((tool) => tool.usable),
-      messagesForEvents,
+      messagesForEvents: (events) => {
+        const messages = eventsToMessages(projectEvents(events, this.llm.profile));
+        return system === null ? messages : [systemMessage(system), ...messages];
+      },
       projectEvents,
       onCompletion: async (attempt) => {
         const metadata = attempt.response ?? (attempt.error instanceof LLMResponseError ? attempt.error.metadata : { usage: null });
@@ -4649,12 +5278,7 @@ var Agent = class {
           usageId: "condenser"
         }));
       }
-    }) ?? view);
-    if (!(condensed instanceof View)) {
-      await state.appendEventAsync(condensed);
-      return condensed;
-    }
-    return messagesForEvents(condensed.events.filter(isLlmConvertibleEvent));
+    };
   }
   renderSystemPrompt() {
     const suffix = this.context?.getSystemMessageSuffix() ?? null;
@@ -6753,157 +7377,6 @@ var MODEL_INPUT_LIMITS = {
   "zai/glm-5": { "provider": "zai", "maxInputTokens": 2e5 },
   "zai/glm-5-code": { "provider": "zai", "maxInputTokens": 2e5 }
 };
-
-// src/tool/defaults.ts
-var DEFAULT_EXEC_TOOL_NAMES = ["terminal", "file_editor", "task_tracker"];
-var BROWSER_TOOL_NAME = "browser_tool_set";
-var SUB_AGENT_TOOL_NAME = "task_tool_set";
-function defaultToolSpecs(options = {}) {
-  const names = [...DEFAULT_EXEC_TOOL_NAMES];
-  if (options.enableBrowser === true) {
-    names.push(BROWSER_TOOL_NAME);
-  }
-  if (options.enableSubAgents === true) {
-    names.push(SUB_AGENT_TOOL_NAME);
-  }
-  return names;
-}
-
-// src/tool/index.ts
-var toolAnnotationsSchema = zod.z.object({
-  title: zod.z.string().nullable().default(null),
-  readOnlyHint: zod.z.boolean().default(false),
-  destructiveHint: zod.z.boolean().default(true),
-  idempotentHint: zod.z.boolean().default(false),
-  openWorldHint: zod.z.boolean().default(true)
-}).strict();
-var toolSpecSchema = zod.z.object({
-  name: zod.z.string().min(1),
-  params: zod.z.record(zod.z.string(), zod.z.unknown()).default({})
-}).strict();
-var ToolDefinition = class {
-  name;
-  description;
-  inputSchema;
-  outputSchema;
-  executor;
-  annotations;
-  meta;
-  usable;
-  constructor(options) {
-    this.name = options.name;
-    this.description = options.description;
-    this.inputSchema = options.inputSchema;
-    this.outputSchema = options.outputSchema;
-    this.executor = options.executor;
-    this.annotations = options.annotations;
-    this.meta = options.meta;
-    this.usable = options.usable ?? true;
-  }
-  async execute(input, context) {
-    if (this.executor === void 0) {
-      throw new Error(`Tool '${this.name}' has no executor`);
-    }
-    const action = this.inputSchema.parse(input);
-    const result = await this.executor(action, context);
-    if (this.outputSchema === void 0) {
-      return result;
-    }
-    return this.outputSchema.parse(result);
-  }
-  toMcpTool(inputSchema, outputSchema) {
-    const tool = {
-      name: this.name,
-      description: this.description,
-      inputSchema: inputSchema ?? schemaToJsonObject(this.inputSchema)
-    };
-    const derivedOutputSchema = outputSchema ?? (this.outputSchema === void 0 ? void 0 : schemaToJsonObject(this.outputSchema));
-    if (derivedOutputSchema !== void 0) {
-      tool.outputSchema = derivedOutputSchema;
-    }
-    if (this.annotations !== void 0) {
-      tool.annotations = this.annotations;
-    }
-    if (this.meta !== void 0) {
-      tool._meta = this.meta;
-    }
-    return tool;
-  }
-  toResponsesTool() {
-    return {
-      type: "function",
-      name: this.name,
-      description: this.description,
-      strict: false,
-      parameters: schemaToJsonObject(this.inputSchema)
-    };
-  }
-};
-var ToolRegistry = class {
-  registrations = /* @__PURE__ */ new Map();
-  register(name, tool) {
-    this.registrations.set(name, tool);
-  }
-  registerFactory(name, factory) {
-    this.registrations.set(name, factory);
-  }
-  resolve(spec, context) {
-    const parsedSpec = toolSpecSchema.parse(spec);
-    const registration = this.registrations.get(parsedSpec.name);
-    if (registration === void 0) {
-      const builtin = builtinToolResolvers.get(parsedSpec.name);
-      if (builtin !== void 0) {
-        return builtin(parsedSpec.params, context);
-      }
-      throw new Error(`Unknown tool: ${parsedSpec.name}`);
-    }
-    if (registration instanceof ToolDefinition) {
-      if (Object.keys(parsedSpec.params).length > 0) {
-        throw new Error(`Registered tool instance '${parsedSpec.name}' does not accept params`);
-      }
-      return [registration];
-    }
-    return registration(parsedSpec.params, context);
-  }
-  listRegisteredTools() {
-    return [...this.registrations.keys()];
-  }
-  listUsableTools() {
-    return [...this.registrations.entries()].filter(([_name, registration]) => !(registration instanceof ToolDefinition) || registration.usable).map(([name]) => name);
-  }
-};
-var globalToolRegistry = new ToolRegistry();
-function registerTool(name, tool) {
-  globalToolRegistry.register(name, tool);
-}
-function registerToolFactory(name, factory) {
-  globalToolRegistry.registerFactory(name, factory);
-}
-function resolveTool(spec, context) {
-  return globalToolRegistry.resolve(spec, context);
-}
-function listRegisteredTools() {
-  return globalToolRegistry.listRegisteredTools();
-}
-function listUsableTools() {
-  return globalToolRegistry.listUsableTools();
-}
-function schemaToJsonObject(schema) {
-  const jsonSchema = zod.z.toJSONSchema(schema);
-  if (!isJsonObject(jsonSchema)) {
-    throw new Error("Zod schema did not produce a JSON object schema");
-  }
-  return jsonSchema;
-}
-function isJsonObject(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-var builtinToolResolvers = /* @__PURE__ */ new Map();
-function registerBuiltinResolver(name, resolver) {
-  builtinToolResolvers.set(name, resolver);
-}
-
-// src/llm/token-count.ts
 var encodings = /* @__PURE__ */ new Map();
 function encoder(model) {
   const name = /^(?:openai\/)?(?:gpt-(?:4o|4\.1|[5-9])|o[134](?:-|$))/u.test(model) ? "o200k_base" : "cl100k_base";
@@ -8977,16 +9450,28 @@ var noOpCondenserSettingsSchema = zod.z.object({
   condenser_kind: zod.z.literal("no_op"),
   enabled: zod.z.boolean().default(true)
 }).strict();
+var agentResetCondenserSettingsSchema = zod.z.object({
+  condenser_kind: zod.z.literal("agent_reset"),
+  enabled: zod.z.boolean().default(true),
+  warning_thresholds: contextWarningThresholdsSchema.default(() => [...DEFAULT_CONTEXT_WARNING_THRESHOLDS])
+}).strict();
+var hardCondenserSettingsSchema = zod.z.object({
+  condenser_kind: zod.z.literal("llm_summarizing"),
+  llm_profile_ref: profileReferenceSchema,
+  hard_context_reset_max_retries: zod.z.number().int().positive().default(5),
+  hard_context_reset_context_scaling: zod.z.number().gt(0).lt(1).default(0.8)
+}).strict();
 var condenserSettingsSchema = zod.z.preprocess((value) => {
   if (typeof value === "object" && value !== null && !Array.isArray(value) && "condenser_kind" in value && value.condenser_kind === "noop") {
     return { ...value, condenser_kind: "no_op" };
   }
   return value;
-}, zod.z.union([llmSummarizingCondenserSettingsSchema, noOpCondenserSettingsSchema]));
+}, zod.z.union([llmSummarizingCondenserSettingsSchema, noOpCondenserSettingsSchema, agentResetCondenserSettingsSchema]));
 async function materializeCondenser(data, options) {
   const settings = condenserSettingsSchema.parse(data);
   if (!settings.enabled) return null;
   if (settings.condenser_kind === "no_op") return new NoOpCondenser();
+  if (settings.condenser_kind === "agent_reset") return new AgentResetCondenser({ warningThresholds: settings.warning_thresholds });
   if (Math.floor(settings.max_size / 2) - settings.keep_first - 1 <= 0) {
     throw new RangeError("keep_first must be less than max_size // 2 to leave room for condensation");
   }
@@ -9007,6 +9492,18 @@ async function materializeCondenser(data, options) {
     maxTokens,
     keepFirst: settings.keep_first,
     minimumProgress: settings.minimum_progress,
+    hardContextResetMaxRetries: settings.hard_context_reset_max_retries,
+    hardContextResetContextScaling: settings.hard_context_reset_context_scaling
+  });
+}
+async function materializeHardCondenser(data, options) {
+  if (data === void 0 || data === null) return null;
+  const settings = hardCondenserSettingsSchema.parse(data);
+  const llm = await options.resolveClient(settings.llm_profile_ref);
+  return new LLMSummarizingCondenser({
+    llm,
+    // The fallback never inherits a proactive main-model token trigger.
+    maxTokens: null,
     hardContextResetMaxRetries: settings.hard_context_reset_max_retries,
     hardContextResetContextScaling: settings.hard_context_reset_context_scaling
   });
@@ -9062,8 +9559,17 @@ var openHandsAgentSettingsSchema = zod.z.object({
   enable_switch_llm_tool: zod.z.boolean().default(true),
   tool_concurrency_limit: zod.z.number().int().min(1).default(1),
   condenser: condenserSettingsSchema.prefault({}),
+  hard_condenser: hardCondenserSettingsSchema.nullable().optional(),
   verification: profileVerificationSettingsSchema.default(defaultVerificationSettings)
-}).strict();
+}).strict().superRefine((settings, context) => {
+  if (settings.hard_condenser !== void 0 && settings.hard_condenser !== null && (settings.condenser.condenser_kind !== "agent_reset" || !settings.condenser.enabled)) {
+    context.addIssue({
+      code: "custom",
+      path: ["hard_condenser"],
+      message: "hard_condenser requires an enabled agent_reset condenser"
+    });
+  }
+});
 var acpAgentSettingsSchema = zod.z.object({
   ...agentSettingsBaseFields,
   agent_kind: zod.z.literal("acp").default("acp"),
@@ -10917,8 +11423,10 @@ exports.AGENT_PROFILE_SCHEMA_VERSION = AGENT_PROFILE_SCHEMA_VERSION;
 exports.AGENT_SETTINGS_SCHEMA_VERSION = AGENT_SETTINGS_SCHEMA_VERSION;
 exports.Agent = Agent;
 exports.AgentContext = AgentContext;
+exports.AgentControlledCondensationError = AgentControlledCondensationError;
 exports.AgentDefinition = AgentDefinition;
 exports.AgentFinishedCritic = AgentFinishedCritic;
+exports.AgentResetCondenser = AgentResetCondenser;
 exports.AnthropicMessagesClient = AnthropicMessagesClient;
 exports.AsyncCallbackWrapper = AsyncCallbackWrapper;
 exports.AsyncProcessManager = AsyncProcessManager;
@@ -10934,11 +11442,13 @@ exports.CONTENT_POLICY_NUDGE = CONTENT_POLICY_NUDGE;
 exports.CONVERSATION_SETTINGS_SCHEMA_VERSION = CONVERSATION_SETTINGS_SCHEMA_VERSION;
 exports.CORRECTIVE_NUDGE = CORRECTIVE_NUDGE;
 exports.CancelTaskTool = CancelTaskTool;
+exports.CondenseTool = CondenseTool;
 exports.CondenserCompletionCallbackError = CondenserCompletionCallbackError;
 exports.ConversationState = ConversationState;
 exports.CredentialStore = CredentialStore;
 exports.CriticBase = CriticBase;
 exports.CriticResult = CriticResult;
+exports.DEFAULT_CONTEXT_WARNING_THRESHOLDS = DEFAULT_CONTEXT_WARNING_THRESHOLDS;
 exports.DEFAULT_EXEC_TOOL_NAMES = DEFAULT_EXEC_TOOL_NAMES;
 exports.DEFAULT_OAUTH_PORT = DEFAULT_OAUTH_PORT;
 exports.DEFAULT_SYSTEM_MESSAGE = DEFAULT_SYSTEM_MESSAGE;
@@ -11080,6 +11590,7 @@ exports.actionEventSchema = actionEventSchema;
 exports.actionEventsFromMessage = actionEventsFromMessage;
 exports.agentErrorEventSchema = agentErrorEventSchema;
 exports.agentProfileSchema = agentProfileSchema;
+exports.agentResetCondenserSettingsSchema = agentResetCondenserSettingsSchema;
 exports.agentSettingsSchema = agentSettingsSchema;
 exports.anthropicCacheTtlSchema = anthropicCacheTtlSchema;
 exports.baseObservationSchema = baseObservationSchema;
@@ -11097,13 +11608,19 @@ exports.checkScheduleValue = checkScheduleValue;
 exports.classifyError = classifyError;
 exports.classifyResponse = classifyResponse;
 exports.clearRawLlmFieldsWhenProfileSelected = clearRawLlmFieldsWhenProfileSelected;
+exports.condensationOperationFailureSchema = condensationOperationFailureSchema;
+exports.condensationRequestDetailsSchema = condensationRequestDetailsSchema;
 exports.condensationRequestSchema = condensationRequestSchema;
 exports.condensationRequirement = condensationRequirement;
+exports.condensationResetSchema = condensationResetSchema;
 exports.condensationSchema = condensationSchema;
 exports.condensationSummaryEventSchema = condensationSummaryEventSchema;
+exports.condenseActionSchema = condenseActionSchema;
+exports.condenseObservationSchema = condenseObservationSchema;
 exports.condenserSettingsSchema = condenserSettingsSchema;
 exports.contentSchema = contentSchema;
 exports.contentToString = contentToString;
+exports.contextWarningThresholdsSchema = contextWarningThresholdsSchema;
 exports.conversationErrorEventSchema = conversationErrorEventSchema;
 exports.conversationExecutionStatus = conversationExecutionStatus;
 exports.conversationSettingsSchema = conversationSettingsSchema;
@@ -11171,6 +11688,7 @@ exports.grepActionSchema = grepActionSchema;
 exports.grepMatchSchema = grepMatchSchema;
 exports.grepObservationSchema = grepObservationSchema;
 exports.handleDeprecatedModelFields = handleDeprecatedModelFields;
+exports.hardCondenserSettingsSchema = hardCondenserSettingsSchema;
 exports.historyForProfile = historyForProfile;
 exports.hookEventSchema = hookEventSchema;
 exports.hookEventTypeSchema = hookEventTypeSchema;
@@ -11217,6 +11735,7 @@ exports.loads = loads;
 exports.looksLikeMalformedConversationHistoryError = looksLikeMalformedConversationHistoryError;
 exports.mapProviderException = mapProviderException;
 exports.materializeCondenser = materializeCondenser;
+exports.materializeHardCondenser = materializeHardCondenser;
 exports.maybeInitLaminar = maybeInitLaminar;
 exports.maybeTruncate = maybeTruncate;
 exports.mergeSkillsByName = mergeSkillsByName;

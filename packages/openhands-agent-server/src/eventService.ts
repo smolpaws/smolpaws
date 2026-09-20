@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 
 import {
   Agent,
+  AgentControlledCondensationError,
+  openHandsAgentSettingsSchema,
   type SecretStore,
   conversationExecutionStatus,
   ConversationState,
@@ -305,6 +307,10 @@ export class EventService {
 
   async condense(): Promise<void> {
     if (this.closing) throw new Error('Conversation service is closing.');
+    const configured = openHandsAgentSettingsSchema.safeParse(this.stored.request.agent);
+    if (configured.success && configured.data.condenser.enabled && configured.data.condenser.condenser_kind === 'agent_reset') {
+      throw new AgentControlledCondensationError();
+    }
     this.selectionRequested = true;
     // Register before the first await, including profile preparation and initial construction.
     // SDK condense serializes with the active step; an ordinary run need not finish first.
@@ -530,8 +536,8 @@ function isOwnershipError(error: unknown): error is ConversationLeaseHeldError |
 }
 
 function safeMaintenanceError(error: unknown): Error {
-  // Preserve ownership HTTP classification; these messages contain no credentials.
-  if (isOwnershipError(error)) return error;
+  // Preserve known maintenance HTTP classifications; these messages contain no credentials.
+  if (isOwnershipError(error) || error instanceof AgentControlledCondensationError) return error;
   const sanitized = safeRunError(error);
   const failure = new Error(sanitized.detail);
   failure.name = sanitized.code;

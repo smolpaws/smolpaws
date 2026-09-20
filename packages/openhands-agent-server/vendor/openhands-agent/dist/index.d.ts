@@ -31,6 +31,7 @@ export * from './subagent/index.js';
 export * from './testing/index.js';
 export * from './tool/index.js';
 export * from './tool/builtins.js';
+export * from './tool/condense.js';
 export * from './tool/ext/index.js';
 export * from './tools/index.js';
 export * from './utils/index.js';

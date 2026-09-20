@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  Agent, FinishTool, InMemorySecretStore, LLMSummarizingCondenser, NoOpCondenser, ToolDefinition, View,
+  Agent, AgentResetCondenser, FinishTool, InMemorySecretStore, LLMSummarizingCondenser, NoOpCondenser, ToolDefinition, View,
   actionEventsFromMessage, conversationExecutionStatus, eventSchema, llmProfileSchema, messageSchema, metricsSnapshot,
   type Event, type LLMCompletionResponse,
 } from '@smolpaws/openhands-agent';
@@ -41,7 +41,8 @@ const summaryResponse = (): LLMCompletionResponse => ({ responseId: 'summary-pro
 const finishResponse = (): LLMCompletionResponse => ({ responseId: 'agent-provider-id', usage: { promptTokens: 10, completionTokens: 3, totalTokens: 13 },
   message: messageSchema.parse({ role: 'assistant', tool_calls: [{ id: 'finish-call', name: 'finish', arguments: '{"message":"done"}', origin: 'completion' }] }) });
 interface FixtureOptions {
-  readonly kind?: 'none' | 'noop';
+  readonly kind?: 'none' | 'noop' | 'agent_reset';
+  readonly requestAgent?: unknown;
   readonly summary?: () => Promise<LLMCompletionResponse>;
   readonly main?: () => Promise<LLMCompletionResponse>;
   readonly beforeCreate?: (context: AgentFactoryContext) => Promise<void>;
@@ -57,7 +58,7 @@ async function fixture(input: FixtureOptions = {}) {
   const factory = vi.fn(async (_request: unknown, context: AgentFactoryContext) => {
     await input.beforeCreate?.(context);
     return new Agent({ llm: { profile, complete: main }, tools: input.tools ?? [FinishTool.create()],
-      ...(input.kind === 'none' ? {} : { condenser: input.kind === 'noop' ? new NoOpCondenser()
+      ...(input.kind === 'none' ? {} : { condenser: input.kind === 'agent_reset' ? new AgentResetCondenser() : input.kind === 'noop' ? new NoOpCondenser()
         : new LLMSummarizingCondenser({ llm: { profile: summaryProfile, complete: summary }, maxSize: 100, keepFirst: 0, hardContextResetMaxRetries: 1 }) }),
     });
   });
@@ -68,7 +69,7 @@ async function fixture(input: FixtureOptions = {}) {
   const server = await createAgentServerApp(options);
   servers.push(server);
   const headers = input.sessionApiKey === undefined ? {} : { 'x-session-api-key': input.sessionApiKey };
-  const created = await server.app.inject({ method: 'POST', url: '/api/conversations', headers, payload: {} });
+  const created = await server.app.inject({ method: 'POST', url: '/api/conversations', headers, payload: input.requestAgent === undefined ? {} : { agent: input.requestAgent } });
   expect(created.statusCode).toBe(201);
   const id = created.json<{ id: string }>().id;
   for (const text of ['Public task one.', 'Public task two.']) {
@@ -111,6 +112,32 @@ test.each(['none', 'noop'] as const)('a %s condenser fails with Python-compatibl
   expect(response.json().detail).toContain('Cannot condense conversation');
   expect(f.service.state.events).toEqual(before);
   expect(f.main).not.toHaveBeenCalled();
+});
+
+test('agent-controlled SDK maintenance rejection retains its typed HTTP response', async () => {
+  const f = await fixture({ kind: 'agent_reset', sessionApiKey: 'test-session-key' });
+  const before = [...f.service.state.events];
+  const response = await condense(f);
+  expect(response.statusCode).toBe(409);
+  expect(response.json()).toMatchObject({ code: 'agent_controlled_condensation', detail: expect.stringMatching(/agent.*condense/i) });
+  expect(f.service.state.events).toEqual(before);
+  expect(f.main).not.toHaveBeenCalled();
+  expect(f.summary).not.toHaveBeenCalled();
+});
+
+test('stored agent-reset configuration rejects maintenance before client or fallback preparation', async () => {
+  const f = await fixture({ requestAgent: {
+    llm_profile_ref: 'missing-main', condenser: { condenser_kind: 'agent_reset' },
+    hard_condenser: { condenser_kind: 'llm_summarizing', llm_profile_ref: 'missing-fallback' },
+  } });
+  const before = [...f.service.state.events];
+  const response = await condense(f);
+  expect(response.statusCode).toBe(409);
+  expect(response.json()).toHaveProperty('code', 'agent_controlled_condensation');
+  expect(f.factory).not.toHaveBeenCalled();
+  expect(f.service.state.events).toEqual(before);
+  expect(f.main).not.toHaveBeenCalled();
+  expect(f.summary).not.toHaveBeenCalled();
 });
 
 test('manual condensation persists and publishes every event once over real WebSocket while preserving pause', async () => {

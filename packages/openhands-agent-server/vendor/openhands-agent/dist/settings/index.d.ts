@@ -41,7 +41,17 @@ export declare const openHandsAgentSettingsSchema: z.ZodObject<{
     }, z.core.$strict>, z.ZodObject<{
         condenser_kind: z.ZodLiteral<"no_op">;
         enabled: z.ZodDefault<z.ZodBoolean>;
+    }, z.core.$strict>, z.ZodObject<{
+        condenser_kind: z.ZodLiteral<"agent_reset">;
+        enabled: z.ZodDefault<z.ZodBoolean>;
+        warning_thresholds: z.ZodDefault<z.ZodArray<z.ZodNumber>>;
     }, z.core.$strict>]>>>;
+    hard_condenser: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        condenser_kind: z.ZodLiteral<"llm_summarizing">;
+        llm_profile_ref: z.ZodString;
+        hard_context_reset_max_retries: z.ZodDefault<z.ZodNumber>;
+        hard_context_reset_context_scaling: z.ZodDefault<z.ZodNumber>;
+    }, z.core.$strict>>>;
     verification: z.ZodDefault<z.ZodObject<{
         critic_enabled: z.ZodDefault<z.ZodBoolean>;
         critic_mode: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"finish_and_message">, z.ZodLiteral<"all_actions">]>>;
@@ -87,7 +97,17 @@ export declare const agentSettingsSchema: z.ZodUnion<readonly [z.ZodObject<{
     }, z.core.$strict>, z.ZodObject<{
         condenser_kind: z.ZodLiteral<"no_op">;
         enabled: z.ZodDefault<z.ZodBoolean>;
+    }, z.core.$strict>, z.ZodObject<{
+        condenser_kind: z.ZodLiteral<"agent_reset">;
+        enabled: z.ZodDefault<z.ZodBoolean>;
+        warning_thresholds: z.ZodDefault<z.ZodArray<z.ZodNumber>>;
     }, z.core.$strict>]>>>;
+    hard_condenser: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        condenser_kind: z.ZodLiteral<"llm_summarizing">;
+        llm_profile_ref: z.ZodString;
+        hard_context_reset_max_retries: z.ZodDefault<z.ZodNumber>;
+        hard_context_reset_context_scaling: z.ZodDefault<z.ZodNumber>;
+    }, z.core.$strict>>>;
     verification: z.ZodDefault<z.ZodObject<{
         critic_enabled: z.ZodDefault<z.ZodBoolean>;
         critic_mode: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"finish_and_message">, z.ZodLiteral<"all_actions">]>>;
