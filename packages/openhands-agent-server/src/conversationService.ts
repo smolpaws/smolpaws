@@ -23,6 +23,7 @@ import {
 
 export interface ConversationServiceOptions {
   readonly agentFactory?: AgentFactory;
+  readonly getDefaultAgentSettings?: EventServiceOptions['getDefaultAgentSettings'];
   readonly persistenceDir?: string;
   readonly secretStore?: SecretStore;
   readonly ownerInstanceId?: string;
@@ -362,6 +363,7 @@ export class ConversationService {
       updateRequest: (update) => this.updateOwnedRequest(stored, update),
       ...(this.options.profileRuntime === undefined ? {} : { profileRuntime: this.options.profileRuntime }),
       ...(this.options.agentFactory === undefined ? {} : { agentFactory: this.options.agentFactory }),
+      ...(this.options.getDefaultAgentSettings === undefined ? {} : { getDefaultAgentSettings: this.options.getDefaultAgentSettings }),
       ...(events === undefined ? {} : { events }),
       ...(this.options.secretStore === undefined ? {} : { secretStore: this.options.secretStore }),
     };

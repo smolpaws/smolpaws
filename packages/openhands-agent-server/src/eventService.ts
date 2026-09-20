@@ -48,6 +48,8 @@ export type AgentFactory = (requestAgent: unknown, context: AgentFactoryContext)
 export interface EventServiceOptions {
   readonly stored: StoredConversation;
   readonly agentFactory?: AgentFactory;
+  /** Match the factory fallback for legacy requests that omit agent settings; no client preparation. */
+  readonly getDefaultAgentSettings?: () => unknown;
   readonly events?: readonly Event[];
   readonly eventLog?: EventLog;
   readonly saveConversation?: (stored: StoredConversation) => Promise<void>;
@@ -64,6 +66,7 @@ export class EventService {
   private readonly saveConversation: (stored: StoredConversation) => Promise<void>;
   private readonly secretStore: SecretStore | undefined;
   private readonly agentFactory: AgentFactory | undefined;
+  private readonly getDefaultAgentSettings: EventServiceOptions['getDefaultAgentSettings'];
   private readonly updateRequest: UpdateConversationRequest;
   private readonly maintenance = new Set<Promise<void>>();
   private closing = false;
@@ -82,6 +85,7 @@ export class EventService {
     this.saveConversation = options.saveConversation ?? (async () => undefined);
     this.secretStore = options.secretStore;
     this.agentFactory = options.agentFactory;
+    this.getDefaultAgentSettings = options.getDefaultAgentSettings;
     this.updateRequest = options.updateRequest ?? (async (update) => {
       const request = update(this.stored.request);
       await this.saveConversation({ ...this.stored, request });
@@ -307,16 +311,29 @@ export class EventService {
 
   async condense(): Promise<void> {
     if (this.closing) throw new Error('Conversation service is closing.');
-    const configured = openHandsAgentSettingsSchema.safeParse(this.stored.request.agent);
+    // Register before the first await, including default-setting reads and preparation.
+    // SDK condense serializes with the active step; an ordinary run need not finish first.
+    const operation = Promise.resolve().then(async () => {
+      try { await this.rejectAgentControlledMaintenance(); } catch (error) { throw safeMaintenanceError(error); }
+      this.selectionRequested = true;
+      return this.condenseAndPublish();
+    });
+    this.maintenance.add(operation);
+    try { await operation; } finally { this.maintenance.delete(operation); }
+  }
+
+  private async rejectAgentControlledMaintenance(): Promise<void> {
+    let settings = this.stored.request.agent;
+    if ((settings === undefined || settings === null) && this.conversationPromise === null) {
+      const defaults = await this.getDefaultAgentSettings?.();
+      // Another run can construct a legacy agent while defaults are loading. Its
+      // cached SDK conversation, rather than later defaults, owns the active mode.
+      settings = this.stored.request.agent ?? (this.conversationPromise === null ? defaults : undefined);
+    }
+    const configured = openHandsAgentSettingsSchema.safeParse(settings);
     if (configured.success && configured.data.condenser.enabled && configured.data.condenser.condenser_kind === 'agent_reset') {
       throw new AgentControlledCondensationError();
     }
-    this.selectionRequested = true;
-    // Register before the first await, including profile preparation and initial construction.
-    // SDK condense serializes with the active step; an ordinary run need not finish first.
-    const operation = Promise.resolve().then(() => this.condenseAndPublish());
-    this.maintenance.add(operation);
-    try { await operation; } finally { this.maintenance.delete(operation); }
   }
 
   private async condenseAndPublish(): Promise<void> {

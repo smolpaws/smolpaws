@@ -60,6 +60,12 @@ export class ServerStateService {
     void this.readyPromise.catch(() => undefined);
   }
 
+  /** Read current agent defaults without accessing credential availability. */
+  async agentSettings(): Promise<SettingsResponse['agent_settings']> {
+    const state = await this.load();
+    return structuredClone(state.settings.agent_settings);
+  }
+
   async settings(): Promise<SettingsResponse> {
     const state = await this.load();
     return { ...state.settings, llm_api_key_set: await this.hasLlmApiKey(state.settings.active_profile_id) };

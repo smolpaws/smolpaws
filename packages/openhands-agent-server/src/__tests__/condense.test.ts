@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -43,6 +43,7 @@ const finishResponse = (): LLMCompletionResponse => ({ responseId: 'agent-provid
 interface FixtureOptions {
   readonly kind?: 'none' | 'noop' | 'agent_reset';
   readonly requestAgent?: unknown;
+  readonly getDefaultAgentSettings?: AgentServerAppOptions['getDefaultAgentSettings'];
   readonly summary?: () => Promise<LLMCompletionResponse>;
   readonly main?: () => Promise<LLMCompletionResponse>;
   readonly beforeCreate?: (context: AgentFactoryContext) => Promise<void>;
@@ -62,7 +63,8 @@ async function fixture(input: FixtureOptions = {}) {
         : new LLMSummarizingCondenser({ llm: { profile: summaryProfile, complete: summary }, maxSize: 100, keepFirst: 0, hardContextResetMaxRetries: 1 }) }),
     });
   });
-  const options: AgentServerAppOptions = { agentFactory: factory, secretStore: new InMemorySecretStore(), config: {
+  const options: AgentServerAppOptions = { agentFactory: factory, secretStore: new InMemorySecretStore(),
+    ...(input.getDefaultAgentSettings === undefined ? {} : { getDefaultAgentSettings: input.getDefaultAgentSettings }), config: {
     conversationsPath: path.join(root, 'conversations'), statePath: path.join(root, 'state'), bashEventsPath: path.join(root, 'bash'), workspaceRoot: root,
     ...(input.sessionApiKey === undefined ? {} : { sessionApiKey: input.sessionApiKey }),
   } };
@@ -137,6 +139,127 @@ test('stored agent-reset configuration rejects maintenance before client or fall
   expect(f.factory).not.toHaveBeenCalled();
   expect(f.service.state.events).toEqual(before);
   expect(f.main).not.toHaveBeenCalled();
+  expect(f.summary).not.toHaveBeenCalled();
+});
+
+test.each(['omitted', 'null'] as const)('restored %s agent inherits current reset defaults and rejects maintenance before preparation', async missing => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'condense-legacy-defaults-')); roots.push(root);
+  const createClient = vi.fn(async () => { throw new Error('Main and fallback credentials are unavailable'); });
+  const configureContext = vi.fn(() => { throw new Error('Context preparation must not run'); });
+  const options: AgentServerAppOptions = {
+    config: { conversationsPath: path.join(root, 'conversations'), statePath: path.join(root, 'state'),
+      workspaceRoot: root, bashEventsPath: path.join(root, 'bash') },
+    secretStore: new InMemorySecretStore(), llmClientFactory: createClient, configureContext,
+  };
+  const first = await createAgentServerApp(options); servers.push(first);
+  await first.serverStateService.saveProfile(profile);
+  const created = await first.app.inject({ method: 'POST', url: '/api/conversations', payload: {
+    agent: { llm_profile_ref: profile.profileId, condenser: { enabled: false } },
+  } });
+  expect(created.statusCode).toBe(201);
+  const id = created.json<{ id: string }>().id;
+  await first.app.close();
+  const metadataPath = path.join(root, 'conversations', id, 'meta.json');
+  const metadata = JSON.parse(await readFile(metadataPath, 'utf8'));
+  if (missing === 'omitted') delete metadata.request.agent;
+  else metadata.request.agent = null;
+  await writeFile(metadataPath, JSON.stringify(metadata));
+  const restored = await createAgentServerApp(options); servers.push(restored);
+  // Read defaults when maintenance is requested, not once when the app starts.
+  await restored.serverStateService.updateSettings({ agent_settings: {
+    llm_profile_ref: profile.profileId, condenser: { condenser_kind: 'agent_reset' },
+    hard_condenser: { condenser_kind: 'llm_summarizing', llm_profile_ref: 'missing-fallback' },
+  } });
+  const lookup = vi.spyOn(restored.serverStateService, 'getProfile');
+  const service = (await restored.conversationService.getEventService(id))!;
+  const before = [...service.state.events];
+  const hasSecret = vi.spyOn(options.secretStore!, 'has').mockRejectedValue(new Error('Credential store is unavailable'));
+  const response = await restored.app.inject({ method: 'POST', url: `/api/conversations/${id}/condense` });
+  expect(response.statusCode, response.body).toBe(409);
+  expect(response.json()).toHaveProperty('code', 'agent_controlled_condensation');
+  expect(configureContext).not.toHaveBeenCalled();
+  expect(createClient).not.toHaveBeenCalled();
+  expect(lookup).not.toHaveBeenCalled();
+  expect(hasSecret).not.toHaveBeenCalled();
+  expect(service.state.events).toEqual(before);
+  expect(JSON.parse(await readFile(metadataPath, 'utf8')).request).toEqual(metadata.request);
+});
+
+test('manual maintenance sanitizes a failure while resolving default settings', async () => {
+  const secret = 'default-settings-fixture-secret';
+  const f = await fixture({ getDefaultAgentSettings: async () => {
+    throw Object.assign(new Error(`Settings failed api_key=${secret}; Authorization: Bearer ${secret}`), { request: { token: secret } });
+  } });
+  const before = [...f.service.state.events];
+  const log = vi.spyOn(f.server.app.log, 'error');
+  const response = await condense(f);
+  expect(response.statusCode).toBe(500);
+  expect(response.json().detail).toContain('Settings failed');
+  expect(response.body).not.toContain(secret);
+  expect(JSON.stringify(log.mock.calls)).not.toContain(secret);
+  expect(await pathContainsPlaintext(f.root, secret)).toBe(false);
+  expect(f.service.state.events).toEqual(before);
+  expect(f.factory).not.toHaveBeenCalled();
+});
+
+test('custom factories do not inherit unrelated profile-factory reset defaults for maintenance', async () => {
+  const f = await fixture();
+  await f.server.serverStateService.saveProfile(profile);
+  await f.server.serverStateService.updateSettings({ agent_settings: {
+    llm_profile_ref: profile.profileId, condenser: { condenser_kind: 'agent_reset' },
+    hard_condenser: { condenser_kind: 'llm_summarizing', llm_profile_ref: 'missing-fallback' },
+  } });
+  expect((await condense(f)).statusCode).toBe(200);
+  expect(f.factory).toHaveBeenCalledOnce();
+  expect(f.summary).toHaveBeenCalledOnce();
+});
+
+test('changed defaults do not override a cached legacy conversation condenser', async () => {
+  const defaults = vi.fn<NonNullable<AgentServerAppOptions['getDefaultAgentSettings']>>(() => undefined);
+  const f = await fixture({ getDefaultAgentSettings: defaults });
+  expect((await condense(f)).statusCode).toBe(200);
+  expect(f.service.stored.request.agent).toBeUndefined();
+  defaults.mockReturnValue({ llm_profile_ref: profile.profileId, condenser: { condenser_kind: 'agent_reset' } });
+  expect((await condense(f)).statusCode).toBe(200);
+  expect(defaults).toHaveBeenCalledOnce();
+  expect(f.factory).toHaveBeenCalledOnce();
+  expect(f.summary).toHaveBeenCalledTimes(2);
+});
+
+test('a legacy conversation constructed during the defaults lookup keeps its actual condenser', async () => {
+  const entered = deferred(), release = deferred();
+  const f = await fixture({ getDefaultAgentSettings: async () => {
+    entered.resolve(); await release.promise;
+    return { llm_profile_ref: profile.profileId, condenser: { condenser_kind: 'agent_reset' } };
+  } });
+  const pending = condense(f);
+  await entered.promise;
+  await f.service.run();
+  await expect.poll(() => f.service.state.executionStatus).toBe('finished');
+  release.resolve();
+  expect((await pending).statusCode).toBe(200);
+  expect(f.factory).toHaveBeenCalledOnce();
+  expect(f.main).toHaveBeenCalledOnce();
+  expect(f.summary).toHaveBeenCalledOnce();
+});
+
+test('close drains an asynchronous defaults check even when it rejects manual maintenance', async () => {
+  const entered = deferred(), release = deferred();
+  const f = await fixture({ getDefaultAgentSettings: async () => {
+    entered.resolve(); await release.promise;
+    return { llm_profile_ref: profile.profileId, condenser: { condenser_kind: 'agent_reset' } };
+  } });
+  const pending = condense(f);
+  await entered.promise;
+  let closed = false;
+  const closing = f.service.close().then(() => { closed = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  expect(closed).toBe(false);
+  release.resolve();
+  expect((await pending).statusCode).toBe(409);
+  await closing;
+  expect(closed).toBe(true);
+  expect(f.factory).not.toHaveBeenCalled();
   expect(f.summary).not.toHaveBeenCalled();
 });
 

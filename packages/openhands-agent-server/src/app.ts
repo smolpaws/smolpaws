@@ -51,6 +51,7 @@ export interface AgentServerApp {
 export async function createAgentServerApp(options: AgentServerAppOptions = {}): Promise<AgentServerApp> {
   if (options.conversationService !== undefined && (
     options.agentFactory !== undefined
+    || options.getDefaultAgentSettings !== undefined
     || options.persistenceDir !== undefined
     || options.ownerInstanceId !== undefined
     || options.leaseTtlMs !== undefined
@@ -100,6 +101,9 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
     persistenceDir: config.conversationsPath,
     secretStore,
     agentFactory,
+    ...(usesProfileAgentFactory
+      ? { getDefaultAgentSettings: () => serverStateService.agentSettings() }
+      : options.getDefaultAgentSettings === undefined ? {} : { getDefaultAgentSettings: options.getDefaultAgentSettings }),
     ...(usesProfileAgentFactory ? { profileRuntime: {
       getProfile: (name: string) => serverStateService.getProfile(name),
       createClient: (profile: Parameters<ProfileLlmClientFactory>[0]) => llmClientFactory(profile, secretStore),

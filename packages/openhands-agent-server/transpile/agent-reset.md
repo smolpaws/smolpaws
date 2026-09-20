@@ -1,6 +1,7 @@
 # Agent-controlled condensation integration
 
-Date: 2026-09-20. Local server integration verification and independent review are complete; PR review and merge remain the next gate.
+Date: 2026-09-20. Server integration, verification and review are recorded in
+[server PR #217](https://github.com/smolpaws/smolpaws/pull/217).
 
 The vendored SDK comes from reviewed/merged
 [SDK PR #51](https://github.com/smolpaws/openhands-agent/pull/51), exact source commit
@@ -39,9 +40,18 @@ RED tests reproduced the old generic 500 for the new SDK error, unwanted summary
 preparation for stored reset mode, auxiliary role lookup in profile-free mode, and
 public acceptance of forged hard bindings. The corresponding GREEN tests now pass.
 
+GitHub review also exposed legacy metadata with omitted/null agent settings: the
+manual guard must resolve the same current defaults as the profile factory before
+preparation. Regression coverage includes those restored requests, custom-factory
+isolation, an already loaded condenser, concurrent construction during lookup and
+shutdown draining the lookup. Existing conversation instances retain their actual
+condenser even when defaults change. The preflight reads persisted agent settings
+without the settings API's credential-status lookup, and errors retain the existing
+maintenance sanitizer.
+
 ## Verification on 2026-09-20
 
-- Complete server `npm run ci` passes: 218 tests (also under coverage), provenance,
+- Complete server `npm run ci` passes: 225 tests (also under coverage), provenance,
   all interval review records, generated OpenAPI parity, credential-free local
   endpoint smoke, source/example typechecks, lint, builds and packed-consumer smoke.
 - Root and relay-server typechecks pass. All 110 coordinator tests and 62 product
@@ -56,5 +66,6 @@ public acceptance of forged hard bindings. The corresponding GREEN tests now pas
   blocking issue. The rollout instructions distinguish reset-only verification
   from summary-mode verification; no auxiliary profile is required for reset-only.
 
-PR review and current-commit CI remain merge gates. No live LLM charge, service
-restart, runtime configuration update or deployment is claimed here.
+The linked PR records GitHub review, current-commit CI and the merge outcome.
+No live LLM charge, service restart, runtime configuration update or deployment
+is claimed here.
