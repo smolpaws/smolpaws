@@ -5,6 +5,7 @@ Current docs:
 - [`smolpaws/SOUL.md`](smolpaws/SOUL.md) - canonical SmolPaws personality, voice, and behavioral design
 - [`smolpaws/README.md`](smolpaws/README.md) - OpenClaw-style SmolPaws context-file set and which pieces are live today
 - [`context-files.md`](context-files.md) - server-owned identity and memory files, scope configuration, and immutable conversation snapshots
+- [`jev.md`](jev.md) - typed Jev evaluation client, manual CLI, credentials and offline verification
 - [`models.md`](models.md) - shared role and channel profile selections, safe runtime switching, and `switch_llm`
 - [`condensation.md`](condensation.md) - standard condensation, separate profiles, manual commands and rollout prerequisites
 - [`scheduled-agents.md`](scheduled-agents.md) - small scheduled helpers with explicit context, profiles and tools; Chrome Slack checking and durable handoff
