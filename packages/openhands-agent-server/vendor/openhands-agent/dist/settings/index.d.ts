@@ -8,7 +8,7 @@ export type ProfileSelectedLlmSettings = {
 } & {
     readonly [K in RawLlmFieldIgnoredWhenProfileSelected]?: unknown;
 };
-export declare const AGENT_SETTINGS_SCHEMA_VERSION = 5;
+export declare const AGENT_SETTINGS_SCHEMA_VERSION = 6;
 export declare const CONVERSATION_SETTINGS_SCHEMA_VERSION = 1;
 export declare const observabilityMetadataSchema: z.ZodRecord<z.ZodString, z.ZodUnknown>;
 export declare const observabilityTagsSchema: z.ZodArray<z.ZodString>;

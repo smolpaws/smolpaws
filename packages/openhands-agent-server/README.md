@@ -104,7 +104,10 @@ It does not resume a paused conversation. See the [condensation guide](../../doc
 for exact triggers, scope selection, command handling and rollout prerequisites.
 
 For agent-controlled condensation, select `condenser_kind: "agent_reset"` and,
-optionally, an explicit independent `hard_condenser` profile. Warnings are advisory;
+optionally, an explicit independent `hard_condenser` profile. Warnings use the latest successful main response's reported input usage and the saved
+main profile budget. Each crossed stage is delivered once per committed reset, including
+after restart or fork; failed requests leave delivery pending. First requests may use a
+local estimate, and omitted usage remains unknown. Warnings are advisory;
 only a real provider context-window error invokes that fallback. Manual `/condense`
 is unsupported in this mode: ask the agent to use its tool. See
 [agent-controlled configuration](../../docs/condensation.md#agent-controlled-mode).

@@ -78,6 +78,7 @@ export interface RouteSpec {
   readonly requestBodyRequired?: boolean;
   readonly requestBodyContentType?: string;
   readonly query?: readonly QueryParameterSpec[];
+  readonly responseContentType?: string;
   readonly responses: Readonly<Record<number, Schema | null>>;
 }
 
@@ -260,9 +261,9 @@ export const routeSpecs = [
   { method: 'get', path: '/api/git/diff/{path}', tags: ['Git'], summary: 'Get git diff for path', responses: { 200: gitDiffSchema, 400: null } },
 
   { method: 'post', path: '/api/file/upload', tags: ['File'], summary: 'Upload file', query: pathQuery, requestBody: z.unknown(), requestBodyRequired: true, requestBodyContentType: 'multipart/form-data', responses: { 200: successSchema, 400: null, 403: null } },
-  { method: 'get', path: '/api/file/download', tags: ['File'], summary: 'Download file', query: pathQuery, responses: { 200: z.unknown(), 400: null, 403: null, 404: null } },
+  { method: 'get', path: '/api/file/download', tags: ['File'], summary: 'Download file', responseContentType: 'application/octet-stream', query: pathQuery, responses: { 200: z.unknown(), 400: null, 403: null, 404: null } },
   { method: 'post', path: '/api/file/upload/{path}', tags: ['File'], summary: 'Upload file by path', responses: { 200: successSchema, 400: null, 403: null } },
-  { method: 'get', path: '/api/file/download/{path}', tags: ['File'], summary: 'Download file by path', responses: { 200: z.unknown(), 400: null, 403: null, 404: null } },
+  { method: 'get', path: '/api/file/download/{path}', tags: ['File'], summary: 'Download file by path', responseContentType: 'application/octet-stream', responses: { 200: z.unknown(), 400: null, 403: null, 404: null } },
   { method: 'get', path: '/api/file/home', tags: ['File'], summary: 'Get home and favorite directories', query: includeHiddenQuery, responses: { 200: homeResponseSchema } },
   { method: 'get', path: '/api/file/search_subdirs', tags: ['File'], summary: 'Search subdirectories', query: fileSearchSubdirsQuery, responses: { 200: subdirectoryPageSchema, 400: null, 403: null, 404: null } },
   { method: 'post', path: '/api/file/create_directory', tags: ['File'], summary: 'Create Directory', query: pathQuery, responses: { 200: successSchema, 422: null } },
@@ -303,7 +304,7 @@ function operationForRoute(route: RouteSpec): Record<string, unknown> {
     parameters: [...pathParameters(route.path), ...queryParameters(route.query ?? [])],
     ...(route.requestBody === undefined ? {} : { requestBody: requestBodyObject(route) }),
     responses: Object.fromEntries(
-      Object.entries(route.responses).map(([status, schema]) => [status, responseObject(schema)]),
+      Object.entries(route.responses).map(([status, schema]) => [status, responseObject(schema, route.responseContentType)]),
     ),
   };
 }
@@ -340,16 +341,13 @@ function requestBodyObject(route: RouteSpec): Record<string, unknown> {
   };
 }
 
-function responseObject(schema: Schema | null): Record<string, unknown> {
+function responseObject(schema: Schema | null, contentType = 'application/json'): Record<string, unknown> {
   if (schema === null) {
     return { description: 'Error' };
   }
   return {
     description: 'Successful Response',
-    content: {
-      'application/json': {
-        schema: z.toJSONSchema(schema),
-      },
-    },
+    content: Object.fromEntries([...new Set(['application/json', contentType])].map(mediaType =>
+      [mediaType, { schema: z.toJSONSchema(schema) }])),
   };
 }

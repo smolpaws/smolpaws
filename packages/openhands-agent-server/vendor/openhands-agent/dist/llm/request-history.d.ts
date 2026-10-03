@@ -18,3 +18,11 @@ export declare function historyForRequests(view: readonly LLMConvertibleEvent[],
 export declare function unconsumedUserEventIds(view: readonly LLMConvertibleEvent[], history: readonly Event[]): Set<string>;
 /** A successful subsequent main request, not new user input, rearms paid recovery. */
 export declare function hasCompletedLlmRequestAfter(history: readonly Event[], eventId: string): boolean;
+interface CompletedRequestBoundary {
+    readonly markerId: string;
+    readonly inputIndex: number;
+    readonly responseIds: ReadonlySet<string>;
+    readonly firstResponseIndex: number;
+}
+export declare function completedRequestBoundaries(history: readonly Event[]): CompletedRequestBoundary[];
+export {};

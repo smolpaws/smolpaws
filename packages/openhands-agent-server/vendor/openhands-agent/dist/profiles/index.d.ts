@@ -36,6 +36,7 @@ export declare const openHandsAgentProfileSchema: z.ZodObject<{
     name: z.ZodString;
     revision: z.ZodDefault<z.ZodNumber>;
     mcp_server_refs: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+    secret_refs: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
 }, z.core.$strict>;
 export declare const acpAgentProfileSchema: z.ZodObject<{
     agent_kind: z.ZodDefault<z.ZodLiteral<"acp">>;
@@ -51,6 +52,7 @@ export declare const acpAgentProfileSchema: z.ZodObject<{
     name: z.ZodString;
     revision: z.ZodDefault<z.ZodNumber>;
     mcp_server_refs: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+    secret_refs: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
 }, z.core.$strict>;
 export declare const agentProfileSchema: z.ZodUnion<readonly [z.ZodObject<{
     agent_kind: z.ZodDefault<z.ZodLiteral<"openhands">>;
@@ -77,6 +79,7 @@ export declare const agentProfileSchema: z.ZodUnion<readonly [z.ZodObject<{
     name: z.ZodString;
     revision: z.ZodDefault<z.ZodNumber>;
     mcp_server_refs: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+    secret_refs: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
 }, z.core.$strict>, z.ZodObject<{
     agent_kind: z.ZodDefault<z.ZodLiteral<"acp">>;
     acp_server: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"claude-code">, z.ZodLiteral<"codex">, z.ZodLiteral<"gemini-cli">, z.ZodLiteral<"custom">]>>;
@@ -91,6 +94,7 @@ export declare const agentProfileSchema: z.ZodUnion<readonly [z.ZodObject<{
     name: z.ZodString;
     revision: z.ZodDefault<z.ZodNumber>;
     mcp_server_refs: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+    secret_refs: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
 }, z.core.$strict>]>;
 export type ACPServerKind = z.infer<typeof acpServerKindSchema>;
 export type CriticMode = z.infer<typeof criticModeSchema>;

@@ -1,5 +1,5 @@
 {
-  "upstream_commit": "50080b58d35b4824fda25fca2345d80bcd08aeff",
+  "upstream_commit": "d128a786ee2ee570eb23ff5862ec148b43cfad0b",
   "source_sha256": {
     "openhands-sdk/openhands/sdk/context/view/view.py": "3d31709f284b40e41bf1d12ef53d34662339757902ce06df3765be272531b45f",
     "openhands-sdk/openhands/sdk/conversation/event_store.py": "af721391c46a1979c45e0e414c45a82dfc42d8a92d62ac2ccea0242f725450b0",

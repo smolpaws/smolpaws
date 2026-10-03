@@ -4,6 +4,10 @@
     "OPENAPI-DEFERRED-001": {
       "path": "transpile/deferred-operations.md",
       "description": "Pinned upstream operations that remain compatibility debt rather than permanent product policy."
+    },
+    "smolpaws-09ou": {
+      "path": "transpile/deferred-operations.md",
+      "description": "Bounded SDK pin advance runtime/profile/search compatibility debt in Bead smolpaws-09ou."
     }
   },
   "missingOperations": {
@@ -31,11 +35,6 @@
       "disposition": "DEFERRED",
       "tracking": "OPENAPI-DEFERRED-001",
       "reason": "Conversation workspace file browsing awaits the upstream-compatible workspace API surface."
-    },
-    "GET /api/desktop/url": {
-      "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Desktop integration is deployment-specific and has not yet been ported."
     },
     "GET /api/file/archive": {
       "disposition": "DEFERRED",
@@ -121,11 +120,6 @@
       "disposition": "DEFERRED",
       "tracking": "OPENAPI-DEFERRED-001",
       "reason": "Sub-agent catalog discovery is not yet ported to the TypeScript server package."
-    },
-    "GET /api/tools": {
-      "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "The server tool-catalog endpoint awaits an upstream-compatible registry exposure design."
     },
     "GET /api/vscode/status": {
       "disposition": "DEFERRED",
@@ -236,6 +230,106 @@
       "disposition": "DEFERRED",
       "tracking": "OPENAPI-DEFERRED-001",
       "reason": "Workspace-parent lifecycle management is not yet implemented in this server package."
+    },
+    "DELETE /api/conversations/{runtime_conversation_id}/bash/bash_events": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "GET /api/conversations/{conversation_id}/runtime": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/bash/bash_events": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/bash/bash_events/search": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/bash/bash_events/{event_id}": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/file/archive": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/file/download": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/file/download-trajectory/{conversation_id}": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/git/changes": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/git/commits": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/git/commits/{sha}/changes": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/git/diff": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/vscode/status": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/vscode/url": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "GET /api/tools": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "POST /api/conversations/{conversation_id}/runtime/reprovision": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "POST /api/conversations/{runtime_conversation_id}/bash/execute_bash_command": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "POST /api/conversations/{runtime_conversation_id}/bash/start_bash_command": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "POST /api/conversations/{runtime_conversation_id}/file/create_directory": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "POST /api/conversations/{runtime_conversation_id}/file/upload": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     }
   },
   "contractExemptions": {
@@ -254,6 +348,11 @@
     "POST /api/conversations/{conversation_id}/condense": {
       "policy": "DEV-SERVER-010",
       "reason": "Enabled agent_reset rejects host-forced condensation with HTTP 409 and a fixed agent_controlled_condensation code before preparation. Standard summarizer success, missing conversation and unsupported ordinary condenser behavior remain unchanged."
+    },
+    "GET /api/settings/secrets": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "agent_profile_id query filtering and unknown-profile404 are missing. Keep existing unfiltered metadata lookup while authorization is separately ported; no claim of scoped lookup parity."
     }
   },
   "extensions": {

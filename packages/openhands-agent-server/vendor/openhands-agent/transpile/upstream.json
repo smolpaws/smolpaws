@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "OpenHands/software-agent-sdk",
-  "commit": "50080b58d35b4824fda25fca2345d80bcd08aeff",
+  "commit": "d128a786ee2ee570eb23ff5862ec148b43cfad0b",
   "targets": {
     "sdk": {
       "sourcePrefixes": [
