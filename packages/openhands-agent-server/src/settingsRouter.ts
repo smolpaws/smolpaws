@@ -9,7 +9,7 @@ import {
   secretCreateRequestSchema,
   settingsUpdateRequestSchema,
 } from './models.js';
-import { parseBody, param } from './routeUtils.js';
+import { param, parseBody, queryRecord, stringQuery } from './routeUtils.js';
 import { McpServerAlreadyExistsError, type ServerStateService } from './serverState.js';
 
 export function registerSettingsRoutes(app: FastifyInstance, state: ServerStateService): void {
@@ -35,7 +35,24 @@ export function registerSettingsRoutes(app: FastifyInstance, state: ServerStateS
   app.patch('/api/settings/mcp/:settings_key', async (request) => state.patchMcpServer(param(request, 'settings_key'), parseBody(mcpServerPatchSchema, request.body)));
   app.delete('/api/settings/mcp/:settings_key', async (request) => state.deleteMcpServer(param(request, 'settings_key')));
 
-  app.get('/api/settings/secrets', async () => ({ secrets: await state.listSecrets() }));
+  app.get('/api/settings/secrets', async (request, reply) => {
+    const secrets = await state.listSecrets();
+    const profileId = stringQuery(queryRecord(request).agent_profile_id);
+    if (profileId === null) {
+      return { secrets };
+    }
+    const profile = await state.getAgentProfileById(profileId);
+    if (profile === null) {
+      reply.status(404).send({ detail: 'Agent profile not found' });
+      return undefined;
+    }
+    const allowed = profile.secret_refs;
+    if (allowed === null) {
+      return { secrets };
+    }
+    const allowedNames = new Set(allowed);
+    return { secrets: secrets.filter((secret) => allowedNames.has(secret.name)) };
+  });
   app.put('/api/settings/secrets', async (request) => state.setSecret(...secretArgs(parseBody(secretCreateRequestSchema, request.body))));
   app.get('/api/settings/secrets/:name', async (request, reply) => {
     const item = await state.getSecretMetadata(param(request, 'name'));

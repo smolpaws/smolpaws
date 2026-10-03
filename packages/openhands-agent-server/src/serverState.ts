@@ -221,6 +221,11 @@ export class ServerStateService {
     return state.agentProfiles[name] ?? null;
   }
 
+  async getAgentProfileById(id: string): Promise<AgentProfile | null> {
+    const state = await this.load();
+    return Object.values(state.agentProfiles).find((profile) => profile.id === id) ?? null;
+  }
+
   async saveAgentProfile(payload: unknown): Promise<AgentProfile> {
     const profile = validateAgentProfile(payload);
     return this.serializeMutation(async () => {
