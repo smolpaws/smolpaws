@@ -32,11 +32,6 @@
       "tracking": "OPENAPI-DEFERRED-001",
       "reason": "Conversation workspace file browsing awaits the upstream-compatible workspace API surface."
     },
-    "GET /api/desktop/url": {
-      "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Desktop integration is deployment-specific and has not yet been ported."
-    },
     "GET /api/file/archive": {
       "disposition": "DEFERRED",
       "tracking": "OPENAPI-DEFERRED-001",
@@ -236,6 +231,101 @@
       "disposition": "DEFERRED",
       "tracking": "OPENAPI-DEFERRED-001",
       "reason": "Workspace-parent lifecycle management is not yet implemented in this server package."
+    },
+    "DELETE /api/conversations/{runtime_conversation_id}/bash/bash_events": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+    },
+    "GET /api/conversations/{conversation_id}/runtime": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/bash/bash_events": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/bash/bash_events/search": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/bash/bash_events/{event_id}": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/file/archive": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/file/download": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/file/download-trajectory/{conversation_id}": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/git/changes": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/git/commits": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/git/commits/{sha}/changes": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/git/diff": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/vscode/status": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+    },
+    "GET /api/conversations/{runtime_conversation_id}/vscode/url": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+    },
+    "POST /api/conversations/{conversation_id}/runtime/reprovision": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+    },
+    "POST /api/conversations/{runtime_conversation_id}/bash/execute_bash_command": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+    },
+    "POST /api/conversations/{runtime_conversation_id}/bash/start_bash_command": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+    },
+    "POST /api/conversations/{runtime_conversation_id}/file/create_directory": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+    },
+    "POST /api/conversations/{runtime_conversation_id}/file/upload": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
     }
   },
   "contractExemptions": {

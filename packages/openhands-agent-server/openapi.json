@@ -5874,7 +5874,17 @@
           "Settings"
         ],
         "summary": "List secret metadata",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "agent_profile_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -10033,6 +10043,12 @@
               "application/json": {
                 "schema": {
                   "$schema": "https://json-schema.org/draft/2020-12/schema"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
                 }
               }
             }

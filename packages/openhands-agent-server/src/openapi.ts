@@ -78,6 +78,7 @@ export interface RouteSpec {
   readonly requestBodyRequired?: boolean;
   readonly requestBodyContentType?: string;
   readonly query?: readonly QueryParameterSpec[];
+  readonly binaryResponses?: readonly number[];
   readonly responses: Readonly<Record<number, Schema | null>>;
 }
 
@@ -218,7 +219,7 @@ export const routeSpecs = [
   { method: 'post', path: '/api/settings/mcp/{settings_key}', tags: ['Settings'], summary: 'Create Mcp Server', requestBody: mcpServerSchema, responses: { 201: settingsResponseSchema, 422: null } },
   { method: 'patch', path: '/api/settings/mcp/{settings_key}', tags: ['Settings'], summary: 'Patch Mcp Server', requestBody: mcpServerPatchSchema, responses: { 200: settingsResponseSchema, 422: null } },
   { method: 'delete', path: '/api/settings/mcp/{settings_key}', tags: ['Settings'], summary: 'Delete Mcp Server', responses: { 200: settingsResponseSchema, 422: null } },
-  { method: 'get', path: '/api/settings/secrets', tags: ['Settings'], summary: 'List secret metadata', responses: { 200: secretsListResponseSchema } },
+  { method: 'get', path: '/api/settings/secrets', tags: ['Settings'], summary: 'List secret metadata', query: [{ name: 'agent_profile_id', schema: { type: 'string', nullable: true } }], responses: { 200: secretsListResponseSchema } },
   { method: 'put', path: '/api/settings/secrets', tags: ['Settings'], summary: 'Create or update a keychain-backed secret', requestBody: secretCreateRequestSchema, responses: { 200: secretItemResponseSchema, 422: null } },
   { method: 'get', path: '/api/settings/secrets/{name}', tags: ['Settings'], summary: 'Get redacted secret metadata', responses: { 200: secretItemResponseSchema, 404: null } },
   { method: 'delete', path: '/api/settings/secrets/{name}', tags: ['Settings'], summary: 'Delete a keychain-backed secret', responses: { 200: successSchema, 404: null } },
@@ -260,7 +261,7 @@ export const routeSpecs = [
   { method: 'get', path: '/api/git/diff/{path}', tags: ['Git'], summary: 'Get git diff for path', responses: { 200: gitDiffSchema, 400: null } },
 
   { method: 'post', path: '/api/file/upload', tags: ['File'], summary: 'Upload file', query: pathQuery, requestBody: z.unknown(), requestBodyRequired: true, requestBodyContentType: 'multipart/form-data', responses: { 200: successSchema, 400: null, 403: null } },
-  { method: 'get', path: '/api/file/download', tags: ['File'], summary: 'Download file', query: pathQuery, responses: { 200: z.unknown(), 400: null, 403: null, 404: null } },
+  { method: 'get', path: '/api/file/download', tags: ['File'], summary: 'Download file', query: pathQuery, binaryResponses: [200], responses: { 200: z.unknown(), 400: null, 403: null, 404: null } },
   { method: 'post', path: '/api/file/upload/{path}', tags: ['File'], summary: 'Upload file by path', responses: { 200: successSchema, 400: null, 403: null } },
   { method: 'get', path: '/api/file/download/{path}', tags: ['File'], summary: 'Download file by path', responses: { 200: z.unknown(), 400: null, 403: null, 404: null } },
   { method: 'get', path: '/api/file/home', tags: ['File'], summary: 'Get home and favorite directories', query: includeHiddenQuery, responses: { 200: homeResponseSchema } },
@@ -303,7 +304,10 @@ function operationForRoute(route: RouteSpec): Record<string, unknown> {
     parameters: [...pathParameters(route.path), ...queryParameters(route.query ?? [])],
     ...(route.requestBody === undefined ? {} : { requestBody: requestBodyObject(route) }),
     responses: Object.fromEntries(
-      Object.entries(route.responses).map(([status, schema]) => [status, responseObject(schema)]),
+      Object.entries(route.responses).map(([status, schema]) => [
+        status,
+        responseObject(schema, route.binaryResponses?.includes(Number(status)) ?? false),
+      ]),
     ),
   };
 }
@@ -340,16 +344,18 @@ function requestBodyObject(route: RouteSpec): Record<string, unknown> {
   };
 }
 
-function responseObject(schema: Schema | null): Record<string, unknown> {
+function responseObject(schema: Schema | null, binary = false): Record<string, unknown> {
   if (schema === null) {
     return { description: 'Error' };
   }
+  const content: Record<string, unknown> = {
+    'application/json': { schema: z.toJSONSchema(schema) },
+  };
+  if (binary) {
+    content['application/octet-stream'] = { schema: { type: 'string', format: 'binary' } };
+  }
   return {
     description: 'Successful Response',
-    content: {
-      'application/json': {
-        schema: z.toJSONSchema(schema),
-      },
-    },
+    content,
   };
 }

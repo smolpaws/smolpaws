@@ -762,7 +762,7 @@
             "title": "Description"
           },
           "model_id": {
-            "description": "Server-assigned model identifier. May be concrete (e.g. ``\"gpt-5.5\"``) or an opaque alias (e.g. ``\"default\"``, ``\"auto\"``). This is the value to pass back to the server to switch to this model.",
+            "description": "Server-assigned model identifier. May be concrete (e.g. ``\"gpt-5.6\"``) or an opaque alias (e.g. ``\"default\"``, ``\"auto\"``). This is the value to pass back to the server to switch to this model.",
             "title": "Model Id",
             "type": "string"
           },
@@ -1287,7 +1287,7 @@
         "type": "object"
       },
       "Agent-Input": {
-        "description": "Main agent implementation for OpenHands.\n\nThe Agent class provides the core functionality for running AI agents that can\ninteract with tools, process messages, and execute actions. It inherits from\nAgentBase and implements the agent execution logic. Critic-related functionality\nis provided by CriticMixin.\n\nAttributes:\n    llm: The language model instance used for reasoning.\n    tools: List of tools available to the agent.\n    system_prompt: Inline system prompt string. When provided the agent\n        uses this text verbatim instead of rendering from a template.\n        Mutually exclusive with a non-default ``system_prompt_filename``.\n        **Not recommended** unless you know what you are doing (e.g.\n        customising agent behaviour for a completely different task) —\n        this will override OpenHands' built-in system instructions.\n    system_prompt_filename: Jinja2 template filename resolved relative to\n        the agent's prompts directory, or an absolute path. Defaults to\n        ``\"system_prompt.j2\"``.\n    system_prompt_kwargs: Extra kwargs forwarded to the Jinja2 template.\n\nExample:\n    ```python\n    from openhands.sdk import LLM, Agent, Tool\n    from pydantic import SecretStr\n\n    llm = LLM(model=\"gpt-5.5\", api_key=SecretStr(\"key\"))\n    tools = [Tool(name=\"TerminalTool\"), Tool(name=\"FileEditorTool\")]\n    agent = Agent(llm=llm, tools=tools)\n    ```\n\n    To override the system prompt entirely::\n\n        agent = Agent(\n            llm=llm,\n            tools=tools,\n            system_prompt=\"You are a helpful coding assistant.\",\n        )",
+        "description": "Main agent implementation for OpenHands.\n\nThe Agent class provides the core functionality for running AI agents that can\ninteract with tools, process messages, and execute actions. It inherits from\nAgentBase and implements the agent execution logic. Critic-related functionality\nis provided by CriticMixin.\n\nAttributes:\n    llm: The language model instance used for reasoning.\n    tools: List of tools available to the agent.\n    system_prompt: Inline system prompt string. When provided the agent\n        uses this text verbatim instead of rendering from a template.\n        Mutually exclusive with a non-default ``system_prompt_filename``.\n        **Not recommended** unless you know what you are doing (e.g.\n        customising agent behaviour for a completely different task) —\n        this will override OpenHands' built-in system instructions.\n    system_prompt_filename: Jinja2 template filename resolved relative to\n        the agent's prompts directory, or an absolute path. Defaults to\n        ``\"system_prompt.j2\"``.\n    system_prompt_kwargs: Extra kwargs forwarded to the Jinja2 template.\n\nExample:\n    ```python\n    from openhands.sdk import LLM, Agent, Tool\n    from pydantic import SecretStr\n\n    llm = LLM(model=\"gpt-5.6\", api_key=SecretStr(\"key\"))\n    tools = [Tool(name=\"TerminalTool\"), Tool(name=\"FileEditorTool\")]\n    agent = Agent(llm=llm, tools=tools)\n    ```\n\n    To override the system prompt entirely::\n\n        agent = Agent(\n            llm=llm,\n            tools=tools,\n            system_prompt=\"You are a helpful coding assistant.\",\n        )",
         "properties": {
           "agent_context": {
             "anyOf": [
@@ -1501,7 +1501,7 @@
         "type": "object"
       },
       "Agent-Output": {
-        "description": "Main agent implementation for OpenHands.\n\nThe Agent class provides the core functionality for running AI agents that can\ninteract with tools, process messages, and execute actions. It inherits from\nAgentBase and implements the agent execution logic. Critic-related functionality\nis provided by CriticMixin.\n\nAttributes:\n    llm: The language model instance used for reasoning.\n    tools: List of tools available to the agent.\n    system_prompt: Inline system prompt string. When provided the agent\n        uses this text verbatim instead of rendering from a template.\n        Mutually exclusive with a non-default ``system_prompt_filename``.\n        **Not recommended** unless you know what you are doing (e.g.\n        customising agent behaviour for a completely different task) —\n        this will override OpenHands' built-in system instructions.\n    system_prompt_filename: Jinja2 template filename resolved relative to\n        the agent's prompts directory, or an absolute path. Defaults to\n        ``\"system_prompt.j2\"``.\n    system_prompt_kwargs: Extra kwargs forwarded to the Jinja2 template.\n\nExample:\n    ```python\n    from openhands.sdk import LLM, Agent, Tool\n    from pydantic import SecretStr\n\n    llm = LLM(model=\"gpt-5.5\", api_key=SecretStr(\"key\"))\n    tools = [Tool(name=\"TerminalTool\"), Tool(name=\"FileEditorTool\")]\n    agent = Agent(llm=llm, tools=tools)\n    ```\n\n    To override the system prompt entirely::\n\n        agent = Agent(\n            llm=llm,\n            tools=tools,\n            system_prompt=\"You are a helpful coding assistant.\",\n        )",
+        "description": "Main agent implementation for OpenHands.\n\nThe Agent class provides the core functionality for running AI agents that can\ninteract with tools, process messages, and execute actions. It inherits from\nAgentBase and implements the agent execution logic. Critic-related functionality\nis provided by CriticMixin.\n\nAttributes:\n    llm: The language model instance used for reasoning.\n    tools: List of tools available to the agent.\n    system_prompt: Inline system prompt string. When provided the agent\n        uses this text verbatim instead of rendering from a template.\n        Mutually exclusive with a non-default ``system_prompt_filename``.\n        **Not recommended** unless you know what you are doing (e.g.\n        customising agent behaviour for a completely different task) —\n        this will override OpenHands' built-in system instructions.\n    system_prompt_filename: Jinja2 template filename resolved relative to\n        the agent's prompts directory, or an absolute path. Defaults to\n        ``\"system_prompt.j2\"``.\n    system_prompt_kwargs: Extra kwargs forwarded to the Jinja2 template.\n\nExample:\n    ```python\n    from openhands.sdk import LLM, Agent, Tool\n    from pydantic import SecretStr\n\n    llm = LLM(model=\"gpt-5.6\", api_key=SecretStr(\"key\"))\n    tools = [Tool(name=\"TerminalTool\"), Tool(name=\"FileEditorTool\")]\n    agent = Agent(llm=llm, tools=tools)\n    ```\n\n    To override the system prompt entirely::\n\n        agent = Agent(\n            llm=llm,\n            tools=tools,\n            system_prompt=\"You are a helpful coding assistant.\",\n        )",
         "properties": {
           "agent_context": {
             "anyOf": [
@@ -2557,6 +2557,20 @@
             "title": "Resolved Skills",
             "type": "array"
           },
+          "secret_refs": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secret Refs"
+          },
           "valid": {
             "default": false,
             "title": "Valid",
@@ -3552,6 +3566,20 @@
           "profile_name"
         ],
         "title": "Body_switch_conversation_profile_api_conversations__conversation_id__switch_profile_post",
+        "type": "object"
+      },
+      "Body_upload_file_query_api_conversations__runtime_conversation_id__file_upload_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_file_query_api_conversations__runtime_conversation_id__file_upload_post",
         "type": "object"
       },
       "Body_upload_file_query_api_file_upload_post": {
@@ -5909,6 +5937,17 @@
             "description": "Directory for persisting conversation state and events. If None, conversation will not be persisted.",
             "title": "Persistence Dir"
           },
+          "runtime_info": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConversationRuntimeInfo"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Availability of the execution runtime. Catalog responses populate this when the hosting server manages runtime lifecycle."
+          },
           "secret_registry": {
             "$ref": "#/components/schemas/SecretRegistry",
             "description": "Registry for handling secrets and sensitive data"
@@ -6013,6 +6052,65 @@
         ],
         "title": "ConversationPage",
         "type": "object"
+      },
+      "ConversationRuntimeError": {
+        "description": "Structured details for the latest runtime lifecycle failure.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ConversationRuntimeError",
+        "type": "object"
+      },
+      "ConversationRuntimeInfo": {
+        "description": "Runtime availability and recovery information for a conversation.",
+        "properties": {
+          "can_resume": {
+            "title": "Can Resume",
+            "type": "boolean"
+          },
+          "runtime_error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConversationRuntimeError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runtime_status": {
+            "$ref": "#/components/schemas/ConversationRuntimeStatus"
+          }
+        },
+        "required": [
+          "runtime_status",
+          "can_resume"
+        ],
+        "title": "ConversationRuntimeInfo",
+        "type": "object"
+      },
+      "ConversationRuntimeStatus": {
+        "description": "Availability of the runtime that executes a conversation.",
+        "enum": [
+          "available",
+          "starting",
+          "missing",
+          "ownership_lost",
+          "error"
+        ],
+        "title": "ConversationRuntimeStatus",
+        "type": "string"
       },
       "ConversationSortOrder": {
         "description": "Enum for conversation sorting options.",
@@ -6307,27 +6405,6 @@
           }
         },
         "title": "DeleteResponse",
-        "type": "object"
-      },
-      "DesktopUrlResponse": {
-        "description": "Response model for Desktop URL.",
-        "properties": {
-          "url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Url"
-          }
-        },
-        "required": [
-          "url"
-        ],
-        "title": "DesktopUrlResponse",
         "type": "object"
       },
       "EditAction": {
@@ -9465,6 +9542,21 @@
             "minimum": 0,
             "title": "Revision",
             "type": "integer"
+          },
+          "secret_refs": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Secret allow-list captured at launch, also enforced on resume. null preserves unrestricted behavior for older conversations.",
+            "title": "Secret Refs"
           }
         },
         "required": [
@@ -9636,7 +9728,7 @@
         "type": "object"
       },
       "LLM-Input": {
-        "description": "Language model interface for OpenHands agents.\n\nThe LLM class provides a unified interface for interacting with various\nlanguage models through the litellm library. It handles model configuration,\nAPI authentication, retry logic, and tool calling capabilities.\n\nAttributes:\n    model: Model name (e.g., \"gpt-5.5\").\n    api_key: API key for authentication.\n    base_url: Custom API base URL.\n    num_retries: Number of retry attempts for failed requests.\n    timeout: Request timeout in seconds.\n\nExample:\n    ```python\n    from openhands.sdk import LLM\n    from pydantic import SecretStr\n\n    llm = LLM(\n        model=\"gpt-5.5\",\n        api_key=SecretStr(\"your-api-key\"),\n        usage_id=\"my-agent\"\n    )\n    # Use with agent or conversation\n    ```",
+        "description": "Language model interface for OpenHands agents.\n\nThe LLM class provides a unified interface for interacting with various\nlanguage models through the litellm library. It handles model configuration,\nAPI authentication, retry logic, and tool calling capabilities.\n\nAttributes:\n    model: Model name (e.g., \"gpt-5.6\").\n    api_key: API key for authentication.\n    base_url: Custom API base URL.\n    num_retries: Number of retry attempts for failed requests.\n    timeout: Request timeout in seconds.\n\nExample:\n    ```python\n    from openhands.sdk import LLM\n    from pydantic import SecretStr\n\n    llm = LLM(\n        model=\"gpt-5.6\",\n        api_key=SecretStr(\"your-api-key\"),\n        usage_id=\"my-agent\"\n    )\n    # Use with agent or conversation\n    ```",
         "properties": {
           "api_key": {
             "anyOf": [
@@ -10126,7 +10218,7 @@
             "title": "Max Output Tokens"
           },
           "model": {
-            "default": "gpt-5.5",
+            "default": "gpt-5.6",
             "description": "Model name.",
             "openhands_settings": {
               "depends_on": [],
@@ -10150,17 +10242,6 @@
               "prominence": "minor"
             },
             "title": "Model Canonical Name"
-          },
-          "modify_params": {
-            "default": true,
-            "deprecated": true,
-            "description": "Compatibility field. LiteLLM parameter modification is enabled process-wide so concurrent LLM calls do not mutate shared global state.",
-            "openhands_settings": {
-              "depends_on": [],
-              "prominence": "minor"
-            },
-            "title": "Modify Params",
-            "type": "boolean"
           },
           "native_tool_calling": {
             "default": true,
@@ -10470,7 +10551,7 @@
         "type": "object"
       },
       "LLM-Output": {
-        "description": "Language model interface for OpenHands agents.\n\nThe LLM class provides a unified interface for interacting with various\nlanguage models through the litellm library. It handles model configuration,\nAPI authentication, retry logic, and tool calling capabilities.\n\nAttributes:\n    model: Model name (e.g., \"gpt-5.5\").\n    api_key: API key for authentication.\n    base_url: Custom API base URL.\n    num_retries: Number of retry attempts for failed requests.\n    timeout: Request timeout in seconds.\n\nExample:\n    ```python\n    from openhands.sdk import LLM\n    from pydantic import SecretStr\n\n    llm = LLM(\n        model=\"gpt-5.5\",\n        api_key=SecretStr(\"your-api-key\"),\n        usage_id=\"my-agent\"\n    )\n    # Use with agent or conversation\n    ```",
+        "description": "Language model interface for OpenHands agents.\n\nThe LLM class provides a unified interface for interacting with various\nlanguage models through the litellm library. It handles model configuration,\nAPI authentication, retry logic, and tool calling capabilities.\n\nAttributes:\n    model: Model name (e.g., \"gpt-5.6\").\n    api_key: API key for authentication.\n    base_url: Custom API base URL.\n    num_retries: Number of retry attempts for failed requests.\n    timeout: Request timeout in seconds.\n\nExample:\n    ```python\n    from openhands.sdk import LLM\n    from pydantic import SecretStr\n\n    llm = LLM(\n        model=\"gpt-5.6\",\n        api_key=SecretStr(\"your-api-key\"),\n        usage_id=\"my-agent\"\n    )\n    # Use with agent or conversation\n    ```",
         "properties": {
           "api_key": {
             "anyOf": [
@@ -10955,7 +11036,7 @@
             "title": "Max Output Tokens"
           },
           "model": {
-            "default": "gpt-5.5",
+            "default": "gpt-5.6",
             "description": "Model name.",
             "openhands_settings": {
               "depends_on": [],
@@ -10979,17 +11060,6 @@
               "prominence": "minor"
             },
             "title": "Model Canonical Name"
-          },
-          "modify_params": {
-            "default": true,
-            "deprecated": true,
-            "description": "Compatibility field. LiteLLM parameter modification is enabled process-wide so concurrent LLM calls do not mutate shared global state.",
-            "openhands_settings": {
-              "depends_on": [],
-              "prominence": "minor"
-            },
-            "title": "Modify Params",
-            "type": "boolean"
           },
           "native_tool_calling": {
             "default": true,
@@ -16502,6 +16572,19 @@
             "title": "Read Timeout",
             "type": "number"
           },
+          "runtime_conversation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Conversation runtime scope; None uses the host workspace.",
+            "title": "Runtime Conversation Id"
+          },
           "working_dir": {
             "description": "The working directory for agent operations and tool execution.",
             "title": "Working Dir",
@@ -21665,7 +21748,7 @@
   "info": {
     "description": "OpenHands Agent Server - REST/WebSocket interface for OpenHands AI Agent",
     "title": "OpenHands Agent Server",
-    "version": "1.47.0"
+    "version": "1.49.2"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -22330,7 +22413,7 @@
             "schema": {
               "default": 100,
               "exclusiveMinimum": 0,
-              "lte": 100,
+              "maximum": 100,
               "title": "The max number of results in the page",
               "type": "integer"
             }
@@ -23766,7 +23849,7 @@
             "schema": {
               "default": 100,
               "exclusiveMinimum": 0,
-              "lte": 100,
+              "maximum": 100,
               "title": "The max number of results in the page",
               "type": "integer"
             }
@@ -24443,6 +24526,104 @@
         ]
       }
     },
+    "/api/conversations/{conversation_id}/runtime": {
+      "get": {
+        "description": "Inspect the always-available in-process runtime.",
+        "operationId": "get_local_conversation_runtime_api_conversations__conversation_id__runtime_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationRuntimeInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Local Conversation Runtime",
+        "tags": [
+          "Conversations"
+        ]
+      }
+    },
+    "/api/conversations/{conversation_id}/runtime/reprovision": {
+      "post": {
+        "description": "Return local runtime state; local mode has no infrastructure to provision.",
+        "operationId": "reprovision_local_conversation_runtime_api_conversations__conversation_id__runtime_reprovision_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationRuntimeInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Reprovision Local Conversation Runtime",
+        "tags": [
+          "Conversations"
+        ]
+      }
+    },
     "/api/conversations/{conversation_id}/secrets": {
       "post": {
         "description": "Update secrets for a conversation.",
@@ -24877,6 +25058,1329 @@
         ]
       }
     },
+    "/api/conversations/{runtime_conversation_id}/bash/bash_events": {
+      "delete": {
+        "description": "Clear all bash events from storage",
+        "operationId": "clear_all_bash_events_api_conversations__runtime_conversation_id__bash_bash_events_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runtime_conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Runtime Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response Clear All Bash Events Api Conversations  Runtime Conversation Id  Bash Bash Events Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Clear All Bash Events",
+        "tags": [
+          "Bash"
+        ]
+      }
+    },
+    "/api/conversations/{runtime_conversation_id}/bash/bash_events/": {
+      "get": {
+        "description": "Get a batch of bash event events given their ids, returning null for any\nmissing item.",
+        "operationId": "batch_get_bash_events_api_conversations__runtime_conversation_id__bash_bash_events__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runtime_conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Runtime Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Event Ids",
+                "type": "array"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/BashEventBase"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "title": "Response Batch Get Bash Events Api Conversations  Runtime Conversation Id  Bash Bash Events  Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Batch Get Bash Events",
+        "tags": [
+          "Bash"
+        ]
+      }
+    },
+    "/api/conversations/{runtime_conversation_id}/bash/bash_events/{event_id}": {
+      "get": {
+        "description": "Get a bash event event given an id",
+        "operationId": "get_bash_event_api_conversations__runtime_conversation_id__bash_bash_events__event_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "runtime_conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Runtime Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BashEventBase"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Item not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Bash Event",
+        "tags": [
+          "Bash"
+        ]
+      }
+    },
+    "/api/conversations/{runtime_conversation_id}/bash/bash_events/search": {
+      "get": {
+        "description": "Search / List bash event events",
+        "operationId": "search_bash_events_api_conversations__runtime_conversation_id__bash_bash_events_search_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runtime_conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Runtime Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind__eq",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "BashCommand",
+                    "BashOutput"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind  Eq"
+            }
+          },
+          {
+            "in": "query",
+            "name": "command_id__eq",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Command Id  Eq"
+            }
+          },
+          {
+            "in": "query",
+            "name": "timestamp__gte",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Timestamp  Gte"
+            }
+          },
+          {
+            "in": "query",
+            "name": "timestamp__lt",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Timestamp  Lt"
+            }
+          },
+          {
+            "description": "Only returns BashOutput events with order > this value. Useful for polling to fetch only new events since the last poll.",
+            "in": "query",
+            "name": "order__gt",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only returns BashOutput events with order > this value. Useful for polling to fetch only new events since the last poll.",
+              "title": "Filter to events with order greater than this value"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_order",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/BashEventSortOrder",
+              "default": "TIMESTAMP"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Optional next_page_id from the previously returned page"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "exclusiveMinimum": 0,
+              "maximum": 100,
+              "title": "The max number of results in the page",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BashEventPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Search Bash Events",
+        "tags": [
+          "Bash"
+        ]
+      }
+    },
+    "/api/conversations/{runtime_conversation_id}/bash/execute_bash_command": {
+      "post": {
+        "description": "Execute a bash command and wait for a result",
+        "operationId": "execute_bash_command_api_conversations__runtime_conversation_id__bash_execute_bash_command_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runtime_conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Runtime Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecuteBashRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BashOutput"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Execute Bash Command",
+        "tags": [
+          "Bash"
+        ]
+      }
+    },
+    "/api/conversations/{runtime_conversation_id}/bash/start_bash_command": {
+      "post": {
+        "description": "Execute a bash command in the background",
+        "operationId": "start_bash_command_api_conversations__runtime_conversation_id__bash_start_bash_command_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runtime_conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Runtime Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecuteBashRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BashCommand"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Start Bash Command",
+        "tags": [
+          "Bash"
+        ]
+      }
+    },
+    "/api/conversations/{runtime_conversation_id}/file/archive": {
+      "get": {
+        "description": "Archive a workspace directory for persistence before runtime deletion.\n\nProduces a downloadable archive of ``path``. Symlinks are never followed\nout of the requested directory, so the archive cannot include files from\noutside it. The temporary archive is created outside ``path`` and removed\nafter the response is sent.",
+        "operationId": "archive_directory_api_conversations__runtime_conversation_id__file_archive_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runtime_conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Runtime Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Absolute path of the directory to archive",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "Absolute path of the directory to archive",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Archive format: 'git-delta' for a git patch of the working-tree changes against a base ref (requires a git repository); 'tar.gz' for a full gzip tarball of the entire directory (works on non-git directories too).",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "git-delta",
+              "description": "Archive format: 'git-delta' for a git patch of the working-tree changes against a base ref (requires a git repository); 'tar.gz' for a full gzip tarball of the entire directory (works on non-git directories too).",
+              "enum": [
+                "git-delta",
+                "tar.gz"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only for format='git-delta': base ref to diff against. Defaults to the auto-detected comparison ref (origin branch, merge-base, or the empty tree for a fresh repo). Ignored for format='tar.gz'.",
+            "in": "query",
+            "name": "base_ref",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only for format='git-delta': base ref to diff against. Defaults to the auto-detected comparison ref (origin branch, merge-base, or the empty tree for a fresh repo). Ignored for format='tar.gz'.",
+              "title": "Base Ref"
+            }
+          },
+          {
+            "description": "Whether to apply the built-in default exclude patterns (node_modules/, .venv/, caches, build outputs, etc.). Defaults to true for compact archives; set false to allow a full workspace capture, including fat directories.",
+            "in": "query",
+            "name": "use_default_excludes",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Whether to apply the built-in default exclude patterns (node_modules/, .venv/, caches, build outputs, etc.). Defaults to true for compact archives; set false to allow a full workspace capture, including fat directories.",
+              "title": "Use Default Excludes",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Additional glob patterns to exclude (repeatable, e.g. ?exclude=foo&exclude=*.bin). Combined with the built-in default excludes when use_default_excludes=true; used by itself when use_default_excludes=false.",
+            "in": "query",
+            "name": "exclude",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Additional glob patterns to exclude (repeatable, e.g. ?exclude=foo&exclude=*.bin). Combined with the built-in default excludes when use_default_excludes=true; used by itself when use_default_excludes=false.",
+              "title": "Exclude"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Archive Directory",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/conversations/{runtime_conversation_id}/file/create_directory": {
+      "post": {
+        "description": "Create a directory in the workspace, including any missing parents.\n\nIdempotent: an existing directory succeeds and its contents are left\nuntouched. Creating over an existing file, or under a path whose parent is\na file, is a client error (400) rather than a server fault.",
+        "operationId": "create_directory_api_conversations__runtime_conversation_id__file_create_directory_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runtime_conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Runtime Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Absolute directory path to create",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "Absolute directory path to create",
+              "title": "Path",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Create Directory",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/conversations/{runtime_conversation_id}/file/download": {
+      "get": {
+        "description": "Download a file from the workspace using query parameter (preferred method).",
+        "operationId": "download_file_query_api_conversations__runtime_conversation_id__file_download_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runtime_conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Runtime Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Absolute file path",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "Absolute file path",
+              "title": "Path",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Download File Query",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/conversations/{runtime_conversation_id}/file/download-trajectory/{conversation_id}": {
+      "get": {
+        "description": "Download a zip archive of a conversation trajectory.",
+        "operationId": "download_trajectory_api_conversations__runtime_conversation_id__file_download_trajectory__conversation_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "runtime_conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Runtime Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Download Trajectory",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/conversations/{runtime_conversation_id}/file/upload": {
+      "post": {
+        "description": "Upload a file to the workspace using query parameter (preferred method).",
+        "operationId": "upload_file_query_api_conversations__runtime_conversation_id__file_upload_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runtime_conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Runtime Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Absolute file path",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "Absolute file path",
+              "title": "Path",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_file_query_api_conversations__runtime_conversation_id__file_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Upload File Query",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/conversations/{runtime_conversation_id}/git/changes": {
+      "get": {
+        "description": "Get git changes using query parameter (preferred method).",
+        "operationId": "git_changes_query_api_conversations__runtime_conversation_id__git_changes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runtime_conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Runtime Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The git repository path",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "The git repository path",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional git ref to diff against (e.g. 'HEAD' for git status-style changes, or a commit hash). When omitted, the upstream/default branch is auto-detected.",
+            "in": "query",
+            "name": "ref",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional git ref to diff against (e.g. 'HEAD' for git status-style changes, or a commit hash). When omitted, the upstream/default branch is auto-detected.",
+              "title": "Ref"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GitChange"
+                  },
+                  "title": "Response Git Changes Query Api Conversations  Runtime Conversation Id  Git Changes Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Git Changes Query",
+        "tags": [
+          "Git"
+        ]
+      }
+    },
+    "/api/conversations/{runtime_conversation_id}/git/commits": {
+      "get": {
+        "description": "List the repository's most recent commits, newest first.",
+        "operationId": "git_commits_query_api_conversations__runtime_conversation_id__git_commits_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runtime_conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Runtime Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The git repository path",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "The git repository path",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum commits to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Maximum commits to return",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitCommitsPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Git Commits Query",
+        "tags": [
+          "Git"
+        ]
+      }
+    },
+    "/api/conversations/{runtime_conversation_id}/git/commits/{sha}/changes": {
+      "get": {
+        "description": "Get the files changed by a single commit (vs its first parent).",
+        "operationId": "git_commit_changes_query_api_conversations__runtime_conversation_id__git_commits__sha__changes_get",
+        "parameters": [
+          {
+            "description": "Commit SHA",
+            "in": "path",
+            "name": "sha",
+            "required": true,
+            "schema": {
+              "description": "Commit SHA",
+              "pattern": "^[0-9a-fA-F]{4,64}$",
+              "title": "Sha",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "runtime_conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Runtime Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The git repository path",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "The git repository path",
+              "title": "Path",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GitChange"
+                  },
+                  "title": "Response Git Commit Changes Query Api Conversations  Runtime Conversation Id  Git Commits  Sha  Changes Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Git Commit Changes Query",
+        "tags": [
+          "Git"
+        ]
+      }
+    },
+    "/api/conversations/{runtime_conversation_id}/git/diff": {
+      "get": {
+        "description": "Get git diff using query parameter (preferred method).",
+        "operationId": "git_diff_query_api_conversations__runtime_conversation_id__git_diff_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runtime_conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Runtime Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The file path to get diff for",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "The file path to get diff for",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional git ref to diff against (e.g. 'HEAD' for git status-style changes, or a commit hash). When omitted, the upstream/default branch is auto-detected.",
+            "in": "query",
+            "name": "ref",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional git ref to diff against (e.g. 'HEAD' for git status-style changes, or a commit hash). When omitted, the upstream/default branch is auto-detected.",
+              "title": "Ref"
+            }
+          },
+          {
+            "description": "Optional commit SHA. When set, the diff is the change that commit introduced (vs its first parent), read entirely from git objects so deleted files still render. Mutually exclusive with 'ref'.",
+            "in": "query",
+            "name": "commit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9a-fA-F]{4,64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional commit SHA. When set, the diff is the change that commit introduced (vs its first parent), read entirely from git objects so deleted files still render. Mutually exclusive with 'ref'.",
+              "title": "Commit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitDiff"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Git Diff Query",
+        "tags": [
+          "Git"
+        ]
+      }
+    },
+    "/api/conversations/{runtime_conversation_id}/vscode/status": {
+      "get": {
+        "description": "Get the VSCode server status.\n\nReturns:\n    Dictionary with running status and enabled status",
+        "operationId": "get_vscode_status_api_conversations__runtime_conversation_id__vscode_status_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runtime_conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Runtime Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "title": "Response Get Vscode Status Api Conversations  Runtime Conversation Id  Vscode Status Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Vscode Status"
+      }
+    },
+    "/api/conversations/{runtime_conversation_id}/vscode/url": {
+      "get": {
+        "operationId": "get_runtime_vscode_url_api_conversations__runtime_conversation_id__vscode_url_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runtime_conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Runtime Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "base_url",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Base Url"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace_dir",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace Dir"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VSCodeUrlResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Runtime Vscode Url"
+      }
+    },
     "/api/conversations/count": {
       "get": {
         "description": "Count conversations matching the given filters",
@@ -24961,7 +26465,7 @@
             "schema": {
               "default": 100,
               "exclusiveMinimum": 0,
-              "lte": 100,
+              "maximum": 100,
               "title": "The max number of results in the page",
               "type": "integer"
             }
@@ -25033,56 +26537,6 @@
         "summary": "Search Conversations",
         "tags": [
           "Conversations"
-        ]
-      }
-    },
-    "/api/desktop/url": {
-      "get": {
-        "deprecated": true,
-        "description": "Deprecated since v1.44.1 and scheduled for removal in v1.49.0.\n\nThe VNC/desktop stack has been removed; this always returns 503, the\nsame response every deployment has always gotten since VNC defaults off.",
-        "operationId": "get_desktop_url_api_desktop_url_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "base_url",
-            "required": false,
-            "schema": {
-              "default": "http://localhost:8002",
-              "title": "Base Url",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DesktopUrlResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Get Desktop Url",
-        "tags": [
-          "Desktop"
         ]
       }
     },
@@ -25175,6 +26629,12 @@
             "content": {
               "application/json": {
                 "schema": {}
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
               }
             },
             "description": "Successful Response"
@@ -25273,6 +26733,12 @@
             "content": {
               "application/json": {
                 "schema": {}
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
               }
             },
             "description": "Successful Response"
@@ -25320,6 +26786,12 @@
             "content": {
               "application/json": {
                 "schema": {}
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
               }
             },
             "description": "Successful Response"
@@ -25436,7 +26908,7 @@
             "schema": {
               "default": 100,
               "exclusiveMinimum": 0,
-              "lte": 100,
+              "maximum": 100,
               "title": "The max number of results in the page",
               "type": "integer"
             }
@@ -27627,8 +29099,26 @@
     },
     "/api/settings/secrets": {
       "get": {
-        "description": "List all available secrets (names and descriptions only, no values).",
+        "description": "List available secret names, optionally scoped by an agent profile.",
         "operationId": "list_secrets_api_settings_secrets_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "agent_profile_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent Profile Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -27639,6 +29129,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [
