@@ -1605,7 +1605,7 @@ function completedRequestBoundaries(history) {
     if (responseIndices.some((index) => index === void 0 || index <= markerIndex)) continue;
     const responses = responseIndices.map((index) => history[index]);
     if (!responses.some(isMainResponse) || !responses.every((event) => isMainResponse(event) || event.kind === "MessageEvent" && event.source === "environment" && event.llm_message.role === "user")) continue;
-    completed.push({ inputIndex, responseIds, firstResponseIndex: Math.min(...responseIndices) });
+    completed.push({ markerId: marker.id, inputIndex, responseIds, firstResponseIndex: Math.min(...responseIndices) });
   }
   return completed;
 }
@@ -2030,7 +2030,7 @@ async function contextWarningEvent(history, view, llm, thresholds, context) {
   const inputLimit = llm.profile.maxInputTokens ?? llm.effectiveMaxInputTokens ?? null;
   if (inputLimit === null) return null;
   if (!Number.isFinite(inputLimit) || inputLimit <= 0) throw new RangeError("Invalid provider input-token limit");
-  const inputTokens = await getTotalTokenCount(view.events, llm, context);
+  const inputTokens = context?.reportedInputTokens === void 0 ? await getTotalTokenCount(view.events, llm, context) : context.reportedInputTokens;
   if (inputTokens === null) return null;
   const highestPassed = levels.filter((threshold) => inputTokens / inputLimit >= threshold).at(-1);
   if (highestPassed === void 0 || highestPassed <= highestWarned) return null;
@@ -2054,6 +2054,380 @@ function contextWarningMessage(event) {
       )]
     }
   });
+}
+var llmUsageSchema = z.object({
+  promptTokens: z.number().int().min(0).optional(),
+  completionTokens: z.number().int().min(0).optional(),
+  totalTokens: z.number().int().min(0).optional(),
+  cacheReadTokens: z.number().int().min(0).optional(),
+  cacheWriteTokens: z.number().int().min(0).optional(),
+  cacheMissTokens: z.number().int().min(0).optional(),
+  reasoningTokens: z.number().int().min(0).optional(),
+  toolUsePromptTokens: z.number().int().min(0).optional(),
+  providerUsage: z.record(z.string(), z.unknown()).optional(),
+  reportedCost: z.object({ amount: z.number().finite().nonnegative(), currency: z.string().min(1) }).strict().optional()
+}).strict();
+var llmResponseMetadataSchema = z.object({
+  usage: llmUsageSchema.nullable().default(null),
+  responseId: z.string().optional(),
+  model: z.string().optional()
+}).strict();
+var llmCompletionResponseSchema = llmResponseMetadataSchema.extend({
+  message: messageSchema,
+  raw: z.unknown().optional()
+}).strict();
+var LLMResponseError = class extends Error {
+  constructor(metadata, cause) {
+    super("Provider returned an invalid or incomplete LLM response", { cause });
+    this.metadata = metadata;
+    this.name = "LLMResponseError";
+  }
+  metadata;
+};
+function parseLlmResponseWithMetadata(raw, parseMetadata, parseContent) {
+  const object = typeof raw === "object" && raw !== null && !Array.isArray(raw) ? raw : {};
+  const nativeUsage = object.usage;
+  let metadata = {
+    usage: typeof nativeUsage === "object" && nativeUsage !== null && !Array.isArray(nativeUsage) ? { providerUsage: nativeUsage } : null,
+    ...typeof object.id === "string" ? { responseId: object.id } : {},
+    ...typeof object.model === "string" ? { model: object.model } : {}
+  };
+  try {
+    metadata = parseMetadata(raw);
+    return parseContent(raw, metadata);
+  } catch (cause) {
+    throw new LLMResponseError(metadata, cause);
+  }
+}
+function throwProviderErrorWithMetadata(body, error, parseMetadata) {
+  let raw = body;
+  if (typeof body === "string") {
+    try {
+      raw = JSON.parse(body);
+    } catch {
+      throw error;
+    }
+  }
+  if (typeof raw === "object" && raw !== null && !Array.isArray(raw) && ("usage" in raw || "id" in raw || "model" in raw)) {
+    try {
+      parseLlmResponseWithMetadata(raw, parseMetadata, () => {
+        throw error;
+      });
+    } catch (failure2) {
+      if (failure2 instanceof LLMResponseError) throw new LLMResponseError(failure2.metadata, error);
+    }
+  }
+  throw error;
+}
+
+// src/llm/pricing.ts
+var DEEPSEEK_FLASH_MODELS = /* @__PURE__ */ new Set([
+  "deepseek-flash",
+  "deepseek-v4-flash",
+  "deepseek-v4-flash-vision-exp"
+]);
+var DEEPSEEK_FLASH_RESPONSE_MODELS = /* @__PURE__ */ new Set([
+  ...DEEPSEEK_FLASH_MODELS,
+  "DeepSeek-V4.1-Flash",
+  "deepseek-v4.1-flash"
+]);
+var DAY_MS = 864e5;
+var HOUR_MS = 36e5;
+function estimateUsageCost(profile, usage, startedAtMs, completedAtMs, servedModel) {
+  if (!isDirectDeepSeekFlash(profile) || usage === null) return null;
+  if (servedModel !== void 0 && !DEEPSEEK_FLASH_RESPONSE_MODELS.has(servedModel)) return null;
+  const tokens = priceableDeepSeekTokens(usage);
+  const band = requestPriceBand(startedAtMs, completedAtMs);
+  if (tokens === null || band === null) return null;
+  const rates = band === "peak" ? { cachedInputPerMillion: 6e-3, uncachedInputPerMillion: 0.3, outputPerMillion: 1.2 } : { cachedInputPerMillion: 3e-3, uncachedInputPerMillion: 0.15, outputPerMillion: 0.6 };
+  return {
+    amount: (tokens.hit * rates.cachedInputPerMillion + tokens.miss * rates.uncachedInputPerMillion + tokens.output * rates.outputPerMillion) / 1e6,
+    currency: "USD",
+    source: "calculated",
+    pricing: {
+      sourceUrl: "https://api-docs.deepseek.com/quick_start/pricing/",
+      checkedAt: "2026-09-15",
+      model: "DeepSeek-V4.1-Flash",
+      band,
+      rates
+    }
+  };
+}
+function isDirectDeepSeekFlash(profile) {
+  if (profile.authType === "subscription" || !DEEPSEEK_FLASH_MODELS.has(profile.model) || !profile.baseUrl) return false;
+  try {
+    const url = new URL(profile.baseUrl);
+    return url.protocol === "https:" && url.hostname === "api.deepseek.com" && url.port === "" && url.username === "" && url.password === "" && url.search === "" && url.hash === "" && ["", "/v1", "/anthropic"].includes(url.pathname.replace(/\/+$/u, ""));
+  } catch {
+    return false;
+  }
+}
+function isTokenCount(value) {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+function isPresent(value) {
+  return value !== void 0 && value !== null;
+}
+function priceableDeepSeekTokens(usage) {
+  const counts = [
+    usage.promptTokens,
+    usage.completionTokens,
+    usage.totalTokens,
+    usage.cacheReadTokens,
+    usage.cacheMissTokens,
+    usage.cacheWriteTokens,
+    usage.reasoningTokens
+  ];
+  if (counts.some((value) => isPresent(value) && !isTokenCount(value))) return null;
+  const hit = usage.cacheReadTokens;
+  const output = usage.completionTokens;
+  if (!isPresent(hit) || !isPresent(output)) return null;
+  const miss = usage.cacheMissTokens ?? (isPresent(usage.promptTokens) ? usage.promptTokens - hit : null);
+  if (miss === null || !isTokenCount(miss)) return null;
+  const prompt = hit + miss;
+  if (!isTokenCount(prompt) || !isTokenCount(prompt + output)) return null;
+  if (isPresent(usage.promptTokens) && usage.promptTokens !== prompt) return null;
+  if (isPresent(usage.totalTokens) && usage.totalTokens !== prompt + output) return null;
+  if (isPresent(usage.cacheWriteTokens) && usage.cacheWriteTokens !== 0) return null;
+  if (isPresent(usage.reasoningTokens) && usage.reasoningTokens > output) return null;
+  return { hit, miss, output };
+}
+function requestPriceBand(start, end) {
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start || !Number.isFinite(new Date(start).getTime()) || !Number.isFinite(new Date(end).getTime())) return null;
+  if (end - start >= 7 * DAY_MS) return null;
+  for (let day = Math.floor(start / DAY_MS) * DAY_MS; day <= end; day += DAY_MS) {
+    const weekday2 = new Date(day).getUTCDay();
+    if (weekday2 === 0 || weekday2 === 6) continue;
+    for (const hour2 of [1, 4, 6, 10]) {
+      const boundary = day + hour2 * HOUR_MS;
+      if (boundary > start && boundary <= end) return null;
+    }
+  }
+  const date = new Date(start);
+  const weekday = date.getUTCDay();
+  const hour = date.getUTCHours();
+  return weekday >= 1 && weekday <= 5 && (hour >= 1 && hour < 4 || hour >= 6 && hour < 10) ? "peak" : "off_peak";
+}
+
+// src/llm/metrics.ts
+var LLM_USAGE_KEY = "llm_usage";
+var LLM_METRICS_RESET_KEY = "llm_metrics_reset";
+var costSchema = z.object({
+  amount: z.number().finite().nonnegative(),
+  currency: z.string().min(1),
+  source: z.enum(["provider", "calculated"]),
+  pricing: z.record(z.string(), z.unknown()).optional()
+}).strict();
+var usageRecordSchema = z.object({
+  version: z.literal(1),
+  record_id: z.string().min(1),
+  response_id: z.string().nullable(),
+  usage_id: z.string().min(1),
+  profile_id: z.string(),
+  provider_id: z.string(),
+  history_origin: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
+  model: z.string(),
+  requested_model: z.string(),
+  timestamp: z.string().datetime(),
+  latency: z.number().finite().nonnegative(),
+  usage: llmUsageSchema.nullable(),
+  cost: costSchema.nullable(),
+  // Present on main-agent requests. Persist delivery with successful accounting
+  // so a crash during response dispatch cannot replay a consumed warning.
+  request_succeeded: z.boolean().optional(),
+  context_warning_ids: z.array(z.string().min(1)).optional()
+}).strict();
+function readLlmUsageEvent(event) {
+  if (event.kind !== "ConversationStateUpdateEvent" || event.key !== LLM_USAGE_KEY) return null;
+  const result = usageRecordSchema.safeParse(event.value);
+  return result.success ? result.data : null;
+}
+function llmHistoryOrigin(profile) {
+  const endpoint = profile.baseUrl === null ? null : new URL(profile.baseUrl);
+  return createHash("sha256").update(JSON.stringify([
+    profile.profileId,
+    profile.providerId,
+    profile.model,
+    // URL userinfo/query and custom headers may contain credentials. They never enter this digest.
+    endpoint === null ? null : `${endpoint.origin}${endpoint.pathname}`,
+    profile.openAiApiMode,
+    profile.authType,
+    profile.subscriptionVendor,
+    profile.useProfileKeyOverride
+  ])).digest("hex");
+}
+var fields = {
+  prompt_tokens: "promptTokens",
+  completion_tokens: "completionTokens",
+  total_tokens: "totalTokens",
+  cache_read_tokens: "cacheReadTokens",
+  cache_write_tokens: "cacheWriteTokens",
+  cache_miss_tokens: "cacheMissTokens",
+  reasoning_tokens: "reasoningTokens",
+  tool_use_prompt_tokens: "toolUsePromptTokens"
+};
+function createLlmUsageEvent(profile, response, timing) {
+  const recordId = randomUUID();
+  const reported = response.usage?.reportedCost;
+  const cost = reported === void 0 ? estimateUsageCost(profile, response.usage, timing.startedAt, timing.completedAt, response.model) : { ...reported, source: "provider" };
+  const record4 = usageRecordSchema.parse({
+    version: 1,
+    record_id: recordId,
+    response_id: response.responseId ?? null,
+    usage_id: timing.usageId ?? `profile:${profile.profileId}`,
+    profile_id: profile.profileId,
+    history_origin: llmHistoryOrigin(profile),
+    provider_id: profile.providerId,
+    model: response.model ?? profile.model,
+    requested_model: profile.model,
+    timestamp: new Date(timing.completedAt).toISOString(),
+    latency: Math.max(0, timing.completedAt - timing.startedAt) / 1e3,
+    usage: structuredClone(response.usage),
+    cost,
+    ...timing.requestSucceeded === void 0 ? {} : { request_succeeded: timing.requestSucceeded },
+    ...timing.contextWarningIds === void 0 ? {} : { context_warning_ids: [...timing.contextWarningIds] }
+  });
+  return conversationStateUpdateEventSchema.parse({ id: recordId, key: LLM_USAGE_KEY, value: record4 });
+}
+function createMetricsResetEvent() {
+  return conversationStateUpdateEventSchema.parse({ key: LLM_METRICS_RESET_KEY, value: { version: 1 } });
+}
+function statsForEvents(events) {
+  let records = [];
+  const seen = /* @__PURE__ */ new Map();
+  const resets = /* @__PURE__ */ new Set();
+  const responseIds = /* @__PURE__ */ new Set();
+  let unmeasured = false;
+  let invalid = 0;
+  for (const event of events) {
+    if (event.kind === "ConversationStateUpdateEvent" && event.key === LLM_METRICS_RESET_KEY) {
+      if (resets.has(event.id)) continue;
+      resets.add(event.id);
+      if (!z.object({ version: z.literal(1) }).strict().safeParse(event.value).success) {
+        invalid += 1;
+        unmeasured = true;
+        continue;
+      }
+      records = [];
+      responseIds.clear();
+      unmeasured = false;
+      invalid = 0;
+    } else if (event.kind === "ConversationStateUpdateEvent" && event.key === LLM_USAGE_KEY) {
+      const parsed = usageRecordSchema.safeParse(structuredClone(event.value));
+      if (!parsed.success) {
+        invalid += 1;
+        unmeasured = true;
+        continue;
+      }
+      const record4 = parsed.data;
+      const fingerprint = JSON.stringify(record4);
+      if (seen.has(record4.record_id)) {
+        if (seen.get(record4.record_id) !== fingerprint) {
+          invalid += 1;
+          unmeasured = true;
+        }
+        continue;
+      }
+      seen.set(record4.record_id, fingerprint);
+      responseIds.add(record4.response_id ?? record4.record_id);
+      records.push(record4);
+    } else if (event.kind === "ActionEvent" || event.kind === "MessageEvent" && event.source === "agent") {
+      if (event.llm_response_id === null || !responseIds.has(event.llm_response_id)) unmeasured = true;
+    }
+  }
+  const grouped = /* @__PURE__ */ new Map();
+  for (const record4 of records) {
+    const bucket = grouped.get(record4.usage_id) ?? [];
+    bucket.push(record4);
+    grouped.set(record4.usage_id, bucket);
+  }
+  return {
+    usage_to_metrics: Object.fromEntries([...grouped].map(([id, bucket]) => [id, metricsForRecords(bucket, unmeasured)])),
+    coverage: { unmeasured_history: unmeasured, invalid_record_count: invalid, first_recorded_at: records[0]?.timestamp ?? null }
+  };
+}
+function metricsSnapshot(stats) {
+  const records = Object.values(stats.usage_to_metrics).flatMap((metrics) => metrics.records).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  return compactMetrics(metricsForRecords(records, stats.coverage.unmeasured_history));
+}
+function statsSnapshot(stats) {
+  return structuredClone({ usage_to_metrics: Object.fromEntries(Object.entries(stats.usage_to_metrics).map(([id, metrics]) => {
+    return [id, compactMetrics(metrics)];
+  })), coverage: stats.coverage });
+}
+function compactMetrics(metrics) {
+  return {
+    model_name: metrics.model_name,
+    accumulated_cost: metrics.accumulated_cost,
+    max_budget_per_task: metrics.max_budget_per_task,
+    accumulated_token_usage: metrics.accumulated_token_usage,
+    known_token_usage: metrics.known_token_usage,
+    known_costs: metrics.known_costs,
+    cost_sources: metrics.cost_sources,
+    cache_hit_rate: metrics.cache_hit_rate,
+    coverage: metrics.coverage
+  };
+}
+function tokenUsage(record4) {
+  const usage = record4.usage;
+  const counts = Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, usage?.[field] ?? null]));
+  return {
+    ...counts,
+    model: record4.model,
+    response_id: record4.response_id,
+    context_window: null,
+    per_turn_token: usage?.promptTokens !== void 0 && usage.completionTokens !== void 0 ? usage.promptTokens + usage.completionTokens : null
+  };
+}
+function metricsForRecords(records, unmeasured) {
+  const models = new Set(records.map((record4) => record4.model));
+  const model = models.size === 1 ? records[0].model : models.size === 0 ? "default" : "mixed";
+  const tokens = records.map(tokenUsage);
+  const known = { model, response_id: null, context_window: null, per_turn_token: tokens.length === 0 ? 0 : tokens.at(-1).per_turn_token };
+  const totals = { ...known };
+  const missing = {};
+  for (const field of Object.keys(fields)) {
+    missing[field] = tokens.filter((record4) => record4[field] === null).length;
+    known[field] = tokens.reduce((sum, record4) => sum + (record4[field] ?? 0), 0);
+    totals[field] = unmeasured || missing[field] > 0 ? null : known[field];
+  }
+  if (unmeasured && records.length === 0) totals.per_turn_token = null;
+  const knownCosts = /* @__PURE__ */ Object.create(null);
+  const costSources = /* @__PURE__ */ Object.create(null);
+  for (const record4 of records) if (record4.cost !== null) {
+    knownCosts[record4.cost.currency] = (knownCosts[record4.cost.currency] ?? 0) + record4.cost.amount;
+    costSources[record4.cost.source] = (costSources[record4.cost.source] ?? 0) + 1;
+  }
+  const missingCost = records.filter((record4) => record4.cost === null).length;
+  return {
+    model_name: model,
+    accumulated_cost: !unmeasured && missingCost === 0 && records.every((r) => r.cost?.currency === "USD") ? knownCosts.USD ?? 0 : null,
+    max_budget_per_task: null,
+    accumulated_token_usage: totals,
+    known_token_usage: known,
+    known_costs: knownCosts,
+    cost_sources: costSources,
+    cache_hit_rate: totals.prompt_tokens !== null && totals.prompt_tokens > 0 && totals.cache_read_tokens !== null && totals.cache_read_tokens <= totals.prompt_tokens ? totals.cache_read_tokens / totals.prompt_tokens : null,
+    coverage: {
+      completion_count: records.length,
+      missing_usage_count: records.filter((r) => r.usage === null).length,
+      missing_cost_count: missingCost,
+      missing_fields: missing,
+      unmeasured_history: unmeasured
+    },
+    records,
+    token_usages: tokens,
+    costs: records.map((r) => ({
+      model: r.model,
+      cost: r.cost?.amount ?? null,
+      timestamp: Date.parse(r.timestamp) / 1e3,
+      source: r.cost?.source ?? null,
+      currency: r.cost?.currency ?? null,
+      response_id: r.response_id,
+      record_id: r.record_id
+    })),
+    response_latencies: records.map((r) => ({ model: r.model, latency: r.latency, response_id: r.response_id, record_id: r.record_id }))
+  };
 }
 
 // src/context/reset-notices.ts
@@ -2117,6 +2491,13 @@ var View = class _View {
         break;
       case "ConversationStateUpdateEvent": {
         if (event.key === "condensation_operation_failure") this.applyRequestFailure(event);
+        const usage = readLlmUsageEvent(event);
+        if (usage?.request_succeeded === true && usage.context_warning_ids !== void 0) {
+          const consumed = new Set(usage.context_warning_ids.map((id) => `${id}-message`));
+          const retained = this.events.filter((candidate) => !consumed.has(candidate.id));
+          this.events.length = 0;
+          this.events.push(...retained);
+        }
         const warning = contextWarningMessage(event);
         if (warning !== null) this.events.push(warning);
         break;
@@ -2704,7 +3085,7 @@ var LLMSummarizingCondenser = class extends RollingCondenser {
     if (view.unhandledCondensationRequest) reasons.add("request");
     const maxTokens = this.effectiveMaxTokens(agentLlm);
     if (maxTokens !== null && agentLlm) {
-      const total = await getTotalTokenCount(view.events, agentLlm, context);
+      const total = context?.reportedInputTokens === void 0 ? await getTotalTokenCount(view.events, agentLlm, context) : context.reportedInputTokens;
       if (total !== null && total > maxTokens) reasons.add("tokens");
     }
     if (view.length > this.maxSize) reasons.add("events");
@@ -2957,369 +3338,6 @@ function activeEventsBeforeEnforcement(history) {
   for (const event of history) view.appendEvent(event);
   return view.events;
 }
-var llmUsageSchema = z.object({
-  promptTokens: z.number().int().min(0).optional(),
-  completionTokens: z.number().int().min(0).optional(),
-  totalTokens: z.number().int().min(0).optional(),
-  cacheReadTokens: z.number().int().min(0).optional(),
-  cacheWriteTokens: z.number().int().min(0).optional(),
-  cacheMissTokens: z.number().int().min(0).optional(),
-  reasoningTokens: z.number().int().min(0).optional(),
-  toolUsePromptTokens: z.number().int().min(0).optional(),
-  providerUsage: z.record(z.string(), z.unknown()).optional(),
-  reportedCost: z.object({ amount: z.number().finite().nonnegative(), currency: z.string().min(1) }).strict().optional()
-}).strict();
-var llmResponseMetadataSchema = z.object({
-  usage: llmUsageSchema.nullable().default(null),
-  responseId: z.string().optional(),
-  model: z.string().optional()
-}).strict();
-var llmCompletionResponseSchema = llmResponseMetadataSchema.extend({
-  message: messageSchema,
-  raw: z.unknown().optional()
-}).strict();
-var LLMResponseError = class extends Error {
-  constructor(metadata, cause) {
-    super("Provider returned an invalid or incomplete LLM response", { cause });
-    this.metadata = metadata;
-    this.name = "LLMResponseError";
-  }
-  metadata;
-};
-function parseLlmResponseWithMetadata(raw, parseMetadata, parseContent) {
-  const object = typeof raw === "object" && raw !== null && !Array.isArray(raw) ? raw : {};
-  const nativeUsage = object.usage;
-  let metadata = {
-    usage: typeof nativeUsage === "object" && nativeUsage !== null && !Array.isArray(nativeUsage) ? { providerUsage: nativeUsage } : null,
-    ...typeof object.id === "string" ? { responseId: object.id } : {},
-    ...typeof object.model === "string" ? { model: object.model } : {}
-  };
-  try {
-    metadata = parseMetadata(raw);
-    return parseContent(raw, metadata);
-  } catch (cause) {
-    throw new LLMResponseError(metadata, cause);
-  }
-}
-function throwProviderErrorWithMetadata(body, error, parseMetadata) {
-  let raw = body;
-  if (typeof body === "string") {
-    try {
-      raw = JSON.parse(body);
-    } catch {
-      throw error;
-    }
-  }
-  if (typeof raw === "object" && raw !== null && !Array.isArray(raw) && ("usage" in raw || "id" in raw || "model" in raw)) {
-    try {
-      parseLlmResponseWithMetadata(raw, parseMetadata, () => {
-        throw error;
-      });
-    } catch (failure2) {
-      if (failure2 instanceof LLMResponseError) throw new LLMResponseError(failure2.metadata, error);
-    }
-  }
-  throw error;
-}
-
-// src/llm/pricing.ts
-var DEEPSEEK_FLASH_MODELS = /* @__PURE__ */ new Set([
-  "deepseek-flash",
-  "deepseek-v4-flash",
-  "deepseek-v4-flash-vision-exp"
-]);
-var DEEPSEEK_FLASH_RESPONSE_MODELS = /* @__PURE__ */ new Set([
-  ...DEEPSEEK_FLASH_MODELS,
-  "DeepSeek-V4.1-Flash",
-  "deepseek-v4.1-flash"
-]);
-var DAY_MS = 864e5;
-var HOUR_MS = 36e5;
-function estimateUsageCost(profile, usage, startedAtMs, completedAtMs, servedModel) {
-  if (!isDirectDeepSeekFlash(profile) || usage === null) return null;
-  if (servedModel !== void 0 && !DEEPSEEK_FLASH_RESPONSE_MODELS.has(servedModel)) return null;
-  const tokens = priceableDeepSeekTokens(usage);
-  const band = requestPriceBand(startedAtMs, completedAtMs);
-  if (tokens === null || band === null) return null;
-  const rates = band === "peak" ? { cachedInputPerMillion: 6e-3, uncachedInputPerMillion: 0.3, outputPerMillion: 1.2 } : { cachedInputPerMillion: 3e-3, uncachedInputPerMillion: 0.15, outputPerMillion: 0.6 };
-  return {
-    amount: (tokens.hit * rates.cachedInputPerMillion + tokens.miss * rates.uncachedInputPerMillion + tokens.output * rates.outputPerMillion) / 1e6,
-    currency: "USD",
-    source: "calculated",
-    pricing: {
-      sourceUrl: "https://api-docs.deepseek.com/quick_start/pricing/",
-      checkedAt: "2026-09-15",
-      model: "DeepSeek-V4.1-Flash",
-      band,
-      rates
-    }
-  };
-}
-function isDirectDeepSeekFlash(profile) {
-  if (profile.authType === "subscription" || !DEEPSEEK_FLASH_MODELS.has(profile.model) || !profile.baseUrl) return false;
-  try {
-    const url = new URL(profile.baseUrl);
-    return url.protocol === "https:" && url.hostname === "api.deepseek.com" && url.port === "" && url.username === "" && url.password === "" && url.search === "" && url.hash === "" && ["", "/v1", "/anthropic"].includes(url.pathname.replace(/\/+$/u, ""));
-  } catch {
-    return false;
-  }
-}
-function isTokenCount(value) {
-  return Number.isSafeInteger(value) && value >= 0;
-}
-function isPresent(value) {
-  return value !== void 0 && value !== null;
-}
-function priceableDeepSeekTokens(usage) {
-  const counts = [
-    usage.promptTokens,
-    usage.completionTokens,
-    usage.totalTokens,
-    usage.cacheReadTokens,
-    usage.cacheMissTokens,
-    usage.cacheWriteTokens,
-    usage.reasoningTokens
-  ];
-  if (counts.some((value) => isPresent(value) && !isTokenCount(value))) return null;
-  const hit = usage.cacheReadTokens;
-  const output = usage.completionTokens;
-  if (!isPresent(hit) || !isPresent(output)) return null;
-  const miss = usage.cacheMissTokens ?? (isPresent(usage.promptTokens) ? usage.promptTokens - hit : null);
-  if (miss === null || !isTokenCount(miss)) return null;
-  const prompt = hit + miss;
-  if (!isTokenCount(prompt) || !isTokenCount(prompt + output)) return null;
-  if (isPresent(usage.promptTokens) && usage.promptTokens !== prompt) return null;
-  if (isPresent(usage.totalTokens) && usage.totalTokens !== prompt + output) return null;
-  if (isPresent(usage.cacheWriteTokens) && usage.cacheWriteTokens !== 0) return null;
-  if (isPresent(usage.reasoningTokens) && usage.reasoningTokens > output) return null;
-  return { hit, miss, output };
-}
-function requestPriceBand(start, end) {
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start || !Number.isFinite(new Date(start).getTime()) || !Number.isFinite(new Date(end).getTime())) return null;
-  if (end - start >= 7 * DAY_MS) return null;
-  for (let day = Math.floor(start / DAY_MS) * DAY_MS; day <= end; day += DAY_MS) {
-    const weekday2 = new Date(day).getUTCDay();
-    if (weekday2 === 0 || weekday2 === 6) continue;
-    for (const hour2 of [1, 4, 6, 10]) {
-      const boundary = day + hour2 * HOUR_MS;
-      if (boundary > start && boundary <= end) return null;
-    }
-  }
-  const date = new Date(start);
-  const weekday = date.getUTCDay();
-  const hour = date.getUTCHours();
-  return weekday >= 1 && weekday <= 5 && (hour >= 1 && hour < 4 || hour >= 6 && hour < 10) ? "peak" : "off_peak";
-}
-
-// src/llm/metrics.ts
-var LLM_USAGE_KEY = "llm_usage";
-var LLM_METRICS_RESET_KEY = "llm_metrics_reset";
-var costSchema = z.object({
-  amount: z.number().finite().nonnegative(),
-  currency: z.string().min(1),
-  source: z.enum(["provider", "calculated"]),
-  pricing: z.record(z.string(), z.unknown()).optional()
-}).strict();
-var usageRecordSchema = z.object({
-  version: z.literal(1),
-  record_id: z.string().min(1),
-  response_id: z.string().nullable(),
-  usage_id: z.string().min(1),
-  profile_id: z.string(),
-  provider_id: z.string(),
-  history_origin: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
-  model: z.string(),
-  requested_model: z.string(),
-  timestamp: z.string().datetime(),
-  latency: z.number().finite().nonnegative(),
-  usage: llmUsageSchema.nullable(),
-  cost: costSchema.nullable()
-}).strict();
-function llmHistoryOrigin(profile) {
-  const endpoint = profile.baseUrl === null ? null : new URL(profile.baseUrl);
-  return createHash("sha256").update(JSON.stringify([
-    profile.profileId,
-    profile.providerId,
-    profile.model,
-    // URL userinfo/query and custom headers may contain credentials. They never enter this digest.
-    endpoint === null ? null : `${endpoint.origin}${endpoint.pathname}`,
-    profile.openAiApiMode,
-    profile.authType,
-    profile.subscriptionVendor,
-    profile.useProfileKeyOverride
-  ])).digest("hex");
-}
-var fields = {
-  prompt_tokens: "promptTokens",
-  completion_tokens: "completionTokens",
-  total_tokens: "totalTokens",
-  cache_read_tokens: "cacheReadTokens",
-  cache_write_tokens: "cacheWriteTokens",
-  cache_miss_tokens: "cacheMissTokens",
-  reasoning_tokens: "reasoningTokens",
-  tool_use_prompt_tokens: "toolUsePromptTokens"
-};
-function createLlmUsageEvent(profile, response, timing) {
-  const recordId = randomUUID();
-  const reported = response.usage?.reportedCost;
-  const cost = reported === void 0 ? estimateUsageCost(profile, response.usage, timing.startedAt, timing.completedAt, response.model) : { ...reported, source: "provider" };
-  const record4 = usageRecordSchema.parse({
-    version: 1,
-    record_id: recordId,
-    response_id: response.responseId ?? null,
-    usage_id: timing.usageId ?? `profile:${profile.profileId}`,
-    profile_id: profile.profileId,
-    history_origin: llmHistoryOrigin(profile),
-    provider_id: profile.providerId,
-    model: response.model ?? profile.model,
-    requested_model: profile.model,
-    timestamp: new Date(timing.completedAt).toISOString(),
-    latency: Math.max(0, timing.completedAt - timing.startedAt) / 1e3,
-    usage: structuredClone(response.usage),
-    cost
-  });
-  return conversationStateUpdateEventSchema.parse({ id: recordId, key: LLM_USAGE_KEY, value: record4 });
-}
-function createMetricsResetEvent() {
-  return conversationStateUpdateEventSchema.parse({ key: LLM_METRICS_RESET_KEY, value: { version: 1 } });
-}
-function statsForEvents(events) {
-  let records = [];
-  const seen = /* @__PURE__ */ new Map();
-  const resets = /* @__PURE__ */ new Set();
-  const responseIds = /* @__PURE__ */ new Set();
-  let unmeasured = false;
-  let invalid = 0;
-  for (const event of events) {
-    if (event.kind === "ConversationStateUpdateEvent" && event.key === LLM_METRICS_RESET_KEY) {
-      if (resets.has(event.id)) continue;
-      resets.add(event.id);
-      if (!z.object({ version: z.literal(1) }).strict().safeParse(event.value).success) {
-        invalid += 1;
-        unmeasured = true;
-        continue;
-      }
-      records = [];
-      responseIds.clear();
-      unmeasured = false;
-      invalid = 0;
-    } else if (event.kind === "ConversationStateUpdateEvent" && event.key === LLM_USAGE_KEY) {
-      const parsed = usageRecordSchema.safeParse(structuredClone(event.value));
-      if (!parsed.success) {
-        invalid += 1;
-        unmeasured = true;
-        continue;
-      }
-      const record4 = parsed.data;
-      const fingerprint = JSON.stringify(record4);
-      if (seen.has(record4.record_id)) {
-        if (seen.get(record4.record_id) !== fingerprint) {
-          invalid += 1;
-          unmeasured = true;
-        }
-        continue;
-      }
-      seen.set(record4.record_id, fingerprint);
-      responseIds.add(record4.response_id ?? record4.record_id);
-      records.push(record4);
-    } else if (event.kind === "ActionEvent" || event.kind === "MessageEvent" && event.source === "agent") {
-      if (event.llm_response_id === null || !responseIds.has(event.llm_response_id)) unmeasured = true;
-    }
-  }
-  const grouped = /* @__PURE__ */ new Map();
-  for (const record4 of records) {
-    const bucket = grouped.get(record4.usage_id) ?? [];
-    bucket.push(record4);
-    grouped.set(record4.usage_id, bucket);
-  }
-  return {
-    usage_to_metrics: Object.fromEntries([...grouped].map(([id, bucket]) => [id, metricsForRecords(bucket, unmeasured)])),
-    coverage: { unmeasured_history: unmeasured, invalid_record_count: invalid, first_recorded_at: records[0]?.timestamp ?? null }
-  };
-}
-function metricsSnapshot(stats) {
-  const records = Object.values(stats.usage_to_metrics).flatMap((metrics) => metrics.records).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-  return compactMetrics(metricsForRecords(records, stats.coverage.unmeasured_history));
-}
-function statsSnapshot(stats) {
-  return structuredClone({ usage_to_metrics: Object.fromEntries(Object.entries(stats.usage_to_metrics).map(([id, metrics]) => {
-    return [id, compactMetrics(metrics)];
-  })), coverage: stats.coverage });
-}
-function compactMetrics(metrics) {
-  return {
-    model_name: metrics.model_name,
-    accumulated_cost: metrics.accumulated_cost,
-    max_budget_per_task: metrics.max_budget_per_task,
-    accumulated_token_usage: metrics.accumulated_token_usage,
-    known_token_usage: metrics.known_token_usage,
-    known_costs: metrics.known_costs,
-    cost_sources: metrics.cost_sources,
-    cache_hit_rate: metrics.cache_hit_rate,
-    coverage: metrics.coverage
-  };
-}
-function tokenUsage(record4) {
-  const usage = record4.usage;
-  const counts = Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, usage?.[field] ?? null]));
-  return {
-    ...counts,
-    model: record4.model,
-    response_id: record4.response_id,
-    context_window: null,
-    per_turn_token: usage?.promptTokens !== void 0 && usage.completionTokens !== void 0 ? usage.promptTokens + usage.completionTokens : null
-  };
-}
-function metricsForRecords(records, unmeasured) {
-  const models = new Set(records.map((record4) => record4.model));
-  const model = models.size === 1 ? records[0].model : models.size === 0 ? "default" : "mixed";
-  const tokens = records.map(tokenUsage);
-  const known = { model, response_id: null, context_window: null, per_turn_token: tokens.length === 0 ? 0 : tokens.at(-1).per_turn_token };
-  const totals = { ...known };
-  const missing = {};
-  for (const field of Object.keys(fields)) {
-    missing[field] = tokens.filter((record4) => record4[field] === null).length;
-    known[field] = tokens.reduce((sum, record4) => sum + (record4[field] ?? 0), 0);
-    totals[field] = unmeasured || missing[field] > 0 ? null : known[field];
-  }
-  if (unmeasured && records.length === 0) totals.per_turn_token = null;
-  const knownCosts = /* @__PURE__ */ Object.create(null);
-  const costSources = /* @__PURE__ */ Object.create(null);
-  for (const record4 of records) if (record4.cost !== null) {
-    knownCosts[record4.cost.currency] = (knownCosts[record4.cost.currency] ?? 0) + record4.cost.amount;
-    costSources[record4.cost.source] = (costSources[record4.cost.source] ?? 0) + 1;
-  }
-  const missingCost = records.filter((record4) => record4.cost === null).length;
-  return {
-    model_name: model,
-    accumulated_cost: !unmeasured && missingCost === 0 && records.every((r) => r.cost?.currency === "USD") ? knownCosts.USD ?? 0 : null,
-    max_budget_per_task: null,
-    accumulated_token_usage: totals,
-    known_token_usage: known,
-    known_costs: knownCosts,
-    cost_sources: costSources,
-    cache_hit_rate: totals.prompt_tokens !== null && totals.prompt_tokens > 0 && totals.cache_read_tokens !== null && totals.cache_read_tokens <= totals.prompt_tokens ? totals.cache_read_tokens / totals.prompt_tokens : null,
-    coverage: {
-      completion_count: records.length,
-      missing_usage_count: records.filter((r) => r.usage === null).length,
-      missing_cost_count: missingCost,
-      missing_fields: missing,
-      unmeasured_history: unmeasured
-    },
-    records,
-    token_usages: tokens,
-    costs: records.map((r) => ({
-      model: r.model,
-      cost: r.cost?.amount ?? null,
-      timestamp: Date.parse(r.timestamp) / 1e3,
-      source: r.cost?.source ?? null,
-      currency: r.cost?.currency ?? null,
-      response_id: r.response_id,
-      record_id: r.record_id
-    })),
-    response_latencies: records.map((r) => ({ model: r.model, latency: r.latency, response_id: r.response_id, record_id: r.record_id }))
-  };
-}
 
 // src/llm/history.ts
 var LLM_HISTORY_ORIGIN_KEY = "llm_history_origin";
@@ -3377,6 +3395,36 @@ function legacyOrigin(events) {
 }
 function record(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// src/llm/reported-input.ts
+function latestReportedInputTokens(history, profile, usageId) {
+  const origin = llmHistoryOrigin(profile);
+  const legacyMatches = (legacyOrigin(history) ?? origin) === origin;
+  let anchored = false;
+  const mainUsageId = usageId ?? `profile:${profile.profileId}`;
+  let latest;
+  let legacy = null;
+  const completed = new Set(completedRequestBoundaries(history).map((boundary) => boundary.markerId));
+  for (const event of history) {
+    if (event.kind === "ConversationStateUpdateEvent" && event.key === LLM_HISTORY_ORIGIN_KEY) anchored = true;
+    if (event.kind === "Condensation") {
+      latest = void 0;
+      legacy = null;
+      continue;
+    }
+    const record4 = readLlmUsageEvent(event);
+    if (record4 !== null) {
+      legacy = null;
+      if (record4.usage_id !== mainUsageId || record4.profile_id !== profile.profileId || record4.provider_id !== profile.providerId || record4.requested_model !== profile.model || (record4.history_origin !== void 0 ? record4.history_origin !== origin : !legacyMatches || anchored)) continue;
+      if (record4.request_succeeded === true) latest = record4.usage?.promptTokens ?? null;
+      else if (record4.request_succeeded === void 0) legacy = record4;
+    } else if (event.kind === "ConversationStateUpdateEvent" && event.key === LLM_REQUEST_BOUNDARY_KEY && legacy !== null && completed.has(event.id)) {
+      latest = legacy.usage?.promptTokens ?? null;
+      legacy = null;
+    }
+  }
+  return latest;
 }
 
 // src/llm/exceptions.ts
@@ -4883,7 +4931,7 @@ function cancelledError(action) {
 }
 
 // src/conversation/remote-conversation.ts
-var RemoteConversation = class {
+var RemoteConversation = class _RemoteConversation {
   host;
   id;
   state;
@@ -4895,6 +4943,24 @@ var RemoteConversation = class {
     this.state = options.state ?? new ConversationState();
     this.fetcher = options.fetch ?? globalRemoteFetch();
     this.apiKey = options.apiKey ?? null;
+  }
+  static async create(options) {
+    const host = options.host.replace(/\/+$/, "");
+    const fetcher = options.fetch ?? globalRemoteFetch();
+    const apiKey = options.apiKey ?? null;
+    const info = await sendRemoteRequest(fetcher, apiKey, "POST", `${host}/api/conversations`, serializeCreateRequest(options.request));
+    return _RemoteConversation.fromInfo(host, fetcher, apiKey, options.state, info);
+  }
+  static async attach(options) {
+    const host = options.host.replace(/\/+$/, "");
+    const fetcher = options.fetch ?? globalRemoteFetch();
+    const apiKey = options.apiKey ?? null;
+    const info = await sendRemoteRequest(fetcher, apiKey, "GET", `${host}/api/conversations/${encodeURIComponent(options.conversationId)}`);
+    return _RemoteConversation.fromInfo(host, fetcher, apiKey, options.state, info);
+  }
+  static fromInfo(host, fetcher, apiKey, state, info) {
+    const id = extractConversationId(info);
+    return new _RemoteConversation({ host, conversationId: id, fetch: fetcher, apiKey, state: restoreExecutionStatus(info, state ?? new ConversationState()) });
   }
   async sendMessage(message, sender) {
     const parsed = typeof message === "string" ? userMessage(message) : messageSchema.parse(message);
@@ -4928,6 +4994,9 @@ var RemoteConversation = class {
     await this.request("POST", `${this.actionBasePath}/interrupt`);
     this.state.executionStatus = conversationExecutionStatus.PAUSED;
   }
+  async setTitle(title) {
+    await this.request("PATCH", this.infoPath, { title });
+  }
   async waitForRunCompletion(pollIntervalMs, timeoutMs) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() <= deadline) {
@@ -4956,21 +5025,7 @@ var RemoteConversation = class {
     return null;
   }
   async request(method, url, payload, acceptableStatusCodes) {
-    const headers = {};
-    if (payload !== void 0) {
-      headers["content-type"] = "application/json";
-    }
-    if (this.apiKey !== null) {
-      headers["x-session-api-key"] = this.apiKey;
-    }
-    const response = await this.fetcher.request(url, payload === void 0 ? { method, headers } : { method, headers, body: JSON.stringify(payload) });
-    if (!(acceptableStatusCodes?.has(response.status) ?? response.ok)) {
-      throw new Error(`Remote conversation request failed with HTTP ${response.status}: ${await response.text()}`);
-    }
-    if (response.status === 204) {
-      return null;
-    }
-    return response.json();
+    return sendRemoteRequest(this.fetcher, this.apiKey, method, url, payload, acceptableStatusCodes);
   }
   get actionBasePath() {
     return `${this.host}/api/conversations/${encodeURIComponent(this.id)}`;
@@ -4981,6 +5036,58 @@ var RemoteConversation = class {
 };
 function userMessage(text) {
   return messageSchema.parse({ role: "user", content: [textContent(text)] });
+}
+async function sendRemoteRequest(fetcher, apiKey, method, url, payload, acceptableStatusCodes) {
+  const headers = {};
+  if (payload !== void 0) {
+    headers["content-type"] = "application/json";
+  }
+  if (apiKey !== null) {
+    headers["x-session-api-key"] = apiKey;
+  }
+  const response = await fetcher.request(url, payload === void 0 ? { method, headers } : { method, headers, body: JSON.stringify(payload) });
+  if (!(acceptableStatusCodes?.has(response.status) ?? response.ok)) {
+    throw new Error(`Remote conversation request failed with HTTP ${response.status}: ${await response.text()}`);
+  }
+  if (response.status === 204) {
+    return null;
+  }
+  return response.json();
+}
+function serializeCreateRequest(request) {
+  const payload = {};
+  if (request.agentProfileId !== void 0 && request.agentProfileId !== null) {
+    payload.agent_profile_id = request.agentProfileId;
+  }
+  if (request.agentSettings !== void 0 && request.agentSettings !== null) {
+    payload.agent_settings = request.agentSettings;
+  }
+  if (request.conversationId !== void 0 && request.conversationId !== null) {
+    payload.conversation_id = request.conversationId;
+  }
+  if (request.maxIterations !== void 0 && request.maxIterations !== null) {
+    payload.max_iterations = request.maxIterations;
+  }
+  if (request.tags !== void 0 && request.tags !== null) {
+    payload.tags = request.tags;
+  }
+  return payload;
+}
+function extractConversationId(info) {
+  if (!isRecord2(info)) {
+    throw new Error("Invalid response from server: missing conversation id");
+  }
+  const id = info.id ?? info.conversation_id;
+  if (typeof id !== "string" || id.length === 0) {
+    throw new Error("Invalid response from server: missing conversation id");
+  }
+  return id;
+}
+function restoreExecutionStatus(info, state) {
+  if (isRecord2(info) && typeof info.execution_status === "string" && isExecutionStatus(info.execution_status)) {
+    state.executionStatus = info.execution_status;
+  }
+  return state;
 }
 function isExecutionStatus(status) {
   return Object.values(conversationExecutionStatus).includes(status);
@@ -5192,6 +5299,8 @@ var Agent = class {
     }
     const messages = await this.messagesForState(state, history, context);
     if (!Array.isArray(messages)) return [messages];
+    const visibleIds = new Set(View.fromEvents(history).events.map((event) => event.id));
+    const warningIds = history.filter((event) => event.kind === "ConversationStateUpdateEvent" && event.key === "agent_context_warning" && visibleIds.has(`${event.id}-message`)).map((event) => event.id);
     let response;
     const startedAt = Date.now();
     try {
@@ -5201,7 +5310,8 @@ var Agent = class {
         await state.appendEventAsync(createLlmUsageEvent(this.llm.profile, error.metadata, {
           startedAt,
           completedAt: Date.now(),
-          ...this.usageId === void 0 ? {} : { usageId: this.usageId }
+          ...this.usageId === void 0 ? {} : { usageId: this.usageId },
+          requestSucceeded: false
         }));
       }
       const cause = error instanceof LLMResponseError ? error.cause : error;
@@ -5229,7 +5339,9 @@ var Agent = class {
     const accounting = createLlmUsageEvent(this.llm.profile, response, {
       startedAt,
       completedAt: Date.now(),
-      ...this.usageId === void 0 ? {} : { usageId: this.usageId }
+      ...this.usageId === void 0 ? {} : { usageId: this.usageId },
+      requestSucceeded: true,
+      contextWarningIds: warningIds
     });
     await state.appendEventAsync(accounting);
     const emitted = await dispatchLlmResponse(response, state, (action) => {
@@ -5257,7 +5369,9 @@ var Agent = class {
   }
   condenserContext(state, history, system) {
     const projectEvents = (events, profile) => historyForProfile(historyForRequests(events, history), history, profile, this.llm.profile);
+    const reportedTokens = this.condenser === null ? void 0 : latestReportedInputTokens(history, this.llm.profile, this.usageId);
     return {
+      ...reportedTokens === void 0 ? {} : { reportedInputTokens: reportedTokens },
       tools: this.tools.filter((tool) => tool.usable),
       messagesForEvents: (events) => {
         const messages = eventsToMessages(projectEvents(events, this.llm.profile));
@@ -9248,7 +9362,8 @@ var agentProfileBaseFields = {
   id: z.string().uuid().default(() => randomUUID()),
   name: z.string().min(1),
   revision: z.number().int().min(0).default(0),
-  mcp_server_refs: z.array(z.string()).nullable().default(null)
+  mcp_server_refs: z.array(z.string()).nullable().default(null),
+  secret_refs: z.array(z.string()).nullable().default(null)
 };
 var openHandsAgentProfileSchema = z.object({
   ...agentProfileBaseFields,
@@ -9523,7 +9638,7 @@ var RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED = [
   "inputCostPerToken",
   "outputCostPerToken"
 ];
-var AGENT_SETTINGS_SCHEMA_VERSION = 5;
+var AGENT_SETTINGS_SCHEMA_VERSION = 6;
 var CONVERSATION_SETTINGS_SCHEMA_VERSION = 1;
 var settingsSchemaVersion = (version) => z.literal(version).default(version);
 var observabilityMetadataSchema = z.record(z.string().min(1), z.unknown());
@@ -10720,11 +10835,13 @@ var RemoteWorkspace = class {
   apiKey;
   workingDir;
   readTimeoutSeconds;
+  runtimeConversationId;
   constructor(options) {
     this.host = options.host.replace(/\/+$/u, "");
     this.apiKey = options.apiKey ?? options.api_key ?? null;
     this.workingDir = remotePath(options.workingDir ?? options.working_dir ?? "workspace/project");
     this.readTimeoutSeconds = options.readTimeoutSeconds ?? options.read_timeout ?? 600;
+    this.runtimeConversationId = normalizeRuntimeConversationId(options.runtimeConversationId ?? options.runtime_conversation_id ?? null);
   }
   async alive() {
     try {
@@ -10744,16 +10861,13 @@ var RemoteWorkspace = class {
     const payload = { command, timeout: Math.trunc(timeoutSeconds) };
     payload.cwd = options.cwd === void 0 || options.cwd === null ? this.workingDir : joinRemotePath(this.workingDir, options.cwd);
     try {
-      const start = await this.request("/api/bash/start_bash_command", {
+      const start = await this.request(`${this.apiPrefix}/bash/start_bash_command`, {
         method: "POST",
         body: JSON.stringify(payload),
         headers: { "content-type": "application/json" },
         timeoutMs: (timeoutSeconds + 5) * 1e3
       });
-      const started = await start.json();
-      if (started.id === void 0) {
-        throw new Error("agent-server did not return a bash command id");
-      }
+      const commandId = this.parseCommandId(await start.json());
       const stdoutParts = [];
       const stderrParts = [];
       const seen = /* @__PURE__ */ new Set();
@@ -10761,11 +10875,11 @@ var RemoteWorkspace = class {
       let lastOrder = -1;
       const deadline = Date.now() + timeoutSeconds * 1e3;
       while (Date.now() < deadline) {
-        const params = new URLSearchParams({ command_id__eq: started.id, sort_order: "TIMESTAMP", limit: "100", kind__eq: "BashOutput" });
+        const params = new URLSearchParams({ command_id__eq: commandId, sort_order: "TIMESTAMP", limit: "100", kind__eq: "BashOutput" });
         if (lastOrder >= 0) {
           params.set("order__gt", String(lastOrder));
         }
-        const response = await this.request(`/api/bash/bash_events/search?${params.toString()}`, { timeoutMs: this.readTimeoutSeconds * 1e3 });
+        const response = await this.request(`${this.apiPrefix}/bash/bash_events/search?${params.toString()}`, { timeoutMs: this.readTimeoutSeconds * 1e3 });
         const result = await response.json();
         for (const event of result.items ?? []) {
           if (event.kind !== "BashOutput") {
@@ -10805,15 +10919,59 @@ var RemoteWorkspace = class {
       return { command, exitCode: -1, stdout: "", stderr: `Remote execution error: ${error instanceof Error ? error.message : String(error)}`, timeoutOccurred: false };
     }
   }
+  async startCommand(command, options = {}) {
+    const timeoutSeconds = options.timeoutSeconds ?? 30;
+    const payload = { command, timeout: Math.trunc(timeoutSeconds) };
+    if (options.cwd !== void 0 && options.cwd !== null) {
+      payload.cwd = joinRemotePath(this.workingDir, options.cwd);
+    }
+    const start = await this.request(`${this.apiPrefix}/bash/start_bash_command`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "content-type": "application/json" },
+      timeoutMs: (timeoutSeconds + 5) * 1e3
+    });
+    return this.parseCommandId(await start.json());
+  }
+  async getCommandOutput(commandId) {
+    const params = new URLSearchParams({ kind__eq: "BashOutput", sort_order: "TIMESTAMP_DESC", limit: "1" });
+    if (commandId !== void 0 && commandId !== null) {
+      params.set("command_id__eq", commandId);
+    }
+    const response = await this.request(`${this.apiPrefix}/bash/bash_events/search?${params.toString()}`, { timeoutMs: 6e4 });
+    const page = await response.json();
+    return page.items?.[0] ?? null;
+  }
+  async getRuntimeSessionKey() {
+    this.requireRuntimeScope();
+    const response = await this.request(`${this.apiPrefix}/runtime/credentials`, { method: "POST", timeoutMs: 6e4 });
+    const data = await response.json();
+    if (typeof data.session_api_key !== "string" || data.session_api_key.length === 0) {
+      throw new Error("agent-server returned an empty session credential");
+    }
+    return data.session_api_key;
+  }
+  async releaseRuntime() {
+    this.requireRuntimeScope();
+    await this.request(`${this.apiPrefix}/runtime`, { method: "DELETE", timeoutMs: 6e4 }, /* @__PURE__ */ new Set([404]));
+  }
   async fileUpload(sourcePath, destinationPath) {
-    const source = resolve(sourcePath);
+    const source = sourcePath instanceof Uint8Array ? "upload" : resolve(sourcePath);
     const destination = joinRemotePath(this.workingDir, destinationPath);
     try {
-      const content = await readFile(source);
+      let content;
+      let filename;
+      if (sourcePath instanceof Uint8Array) {
+        content = Buffer.from(sourcePath);
+        filename = "upload";
+      } else {
+        content = await readFile(source);
+        filename = source.split(/[\\/]/u).at(-1) ?? "file";
+      }
       const form = new FormData();
-      form.set("file", new Blob([content]), source.split(/[\\/]/u).at(-1) ?? "file");
+      form.set("file", new Blob([content]), filename);
       const params = new URLSearchParams({ path: destination });
-      const response = await this.request(`/api/file/upload?${params.toString()}`, { method: "POST", body: form, timeoutMs: 6e4 });
+      const response = await this.request(`${this.apiPrefix}/file/upload?${params.toString()}`, { method: "POST", body: form, timeoutMs: 6e4 });
       const data = await response.json().catch(() => ({}));
       const result = { success: data.success !== false, sourcePath: source, destinationPath: destination, fileSize: typeof data.file_size === "number" ? data.file_size : content.length };
       if (typeof data.error === "string") {
@@ -10829,7 +10987,7 @@ var RemoteWorkspace = class {
     const destination = resolve(destinationPath);
     try {
       const params = new URLSearchParams({ path: source });
-      const response = await this.request(`/api/file/download?${params.toString()}`, { timeoutMs: 6e4 });
+      const response = await this.request(`${this.apiPrefix}/file/download?${params.toString()}`, { timeoutMs: 6e4 });
       const content = Buffer.from(await response.arrayBuffer());
       await mkdir(dirname(destination), { recursive: true });
       await writeFile(destination, content);
@@ -10840,12 +10998,12 @@ var RemoteWorkspace = class {
   }
   async gitChanges(path3) {
     const params = new URLSearchParams({ path: joinRemotePath(this.workingDir, path3), ref: "HEAD" });
-    const response = await this.request(`/api/git/changes?${params.toString()}`, { timeoutMs: 6e4 });
+    const response = await this.request(`${this.apiPrefix}/git/changes?${params.toString()}`, { timeoutMs: 6e4 });
     return (await response.json()).sort((left, right) => left.path.localeCompare(right.path));
   }
   async gitDiff(path3) {
     const params = new URLSearchParams({ path: joinRemotePath(this.workingDir, path3), ref: "HEAD" });
-    const response = await this.request(`/api/git/diff?${params.toString()}`, { timeoutMs: 6e4 });
+    const response = await this.request(`${this.apiPrefix}/git/diff?${params.toString()}`, { timeoutMs: 6e4 });
     return await response.json();
   }
   async pause() {
@@ -10854,7 +11012,25 @@ var RemoteWorkspace = class {
   async resume() {
     return Promise.resolve();
   }
-  async request(path3, init = {}) {
+  get apiPrefix() {
+    if (this.runtimeConversationId === null) {
+      return "/api";
+    }
+    return `/api/conversations/${encodeURIComponent(this.runtimeConversationId)}`;
+  }
+  requireRuntimeScope() {
+    if (this.runtimeConversationId === null) {
+      throw new Error("Runtime lifecycle requires a conversation scope");
+    }
+  }
+  parseCommandId(data) {
+    const id = isRecord9(data) ? data.id : void 0;
+    if (typeof id !== "string" || id.length === 0) {
+      throw new Error("agent-server did not return a bash command id");
+    }
+    return id;
+  }
+  async request(path3, init = {}, acceptableStatusCodes = /* @__PURE__ */ new Set()) {
     const headers = new Headers(init.headers);
     if (this.apiKey !== null) {
       headers.set("X-Session-API-Key", this.apiKey);
@@ -10864,7 +11040,7 @@ var RemoteWorkspace = class {
       headers,
       signal: init.signal ?? AbortSignal.timeout(init.timeoutMs ?? this.readTimeoutSeconds * 1e3)
     });
-    if (!response.ok) {
+    if (!response.ok && !acceptableStatusCodes.has(response.status)) {
       throw new Error(`agent-server request failed: ${response.status} ${response.statusText} ${await response.text().catch(() => "")}`.trim());
     }
     return response;
@@ -11008,6 +11184,16 @@ async function delay2(ms) {
 }
 function isRecord9(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+var UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+function normalizeRuntimeConversationId(value) {
+  if (value === null) {
+    return null;
+  }
+  if (!UUID_PATTERN.test(value)) {
+    throw new Error(`runtimeConversationId must be a valid UUID or null, got ${JSON.stringify(value)}`);
+  }
+  return value;
 }
 function isExecError3(error) {
   return typeof error === "object" && error !== null && ("stdout" in error || "stderr" in error || "code" in error);
@@ -11412,6 +11598,6 @@ var VERIFIED_MODELS = {
 // src/index.ts
 var VERSION = "0.4.0";
 
-export { AGENT_OUTCOME, AGENT_PROFILE_SCHEMA_VERSION, AGENT_SETTINGS_SCHEMA_VERSION, Agent, AgentContext, AgentControlledCondensationError, AgentDefinition, AgentFinishedCritic, AgentResetCondenser, AnthropicMessagesClient, AsyncCallbackWrapper, AsyncProcessManager, BROWSER_TOOL_NAME, BUILT_IN_TOOLS, BUILT_IN_TOOL_FACTORIES, BrowserTool, CANCEL_TASK_TOOL_NAME, CLIENT_ID, CODEX_API_ENDPOINT, CONSENT_BANNER, CONTENT_POLICY_NUDGE, CONVERSATION_SETTINGS_SCHEMA_VERSION, CORRECTIVE_NUDGE, CancelTaskTool, CondenseTool, CondenserCompletionCallbackError, ConversationState, CredentialStore, CriticBase, CriticResult, DEFAULT_CONTEXT_WARNING_THRESHOLDS, DEFAULT_EXEC_TOOL_NAMES, DEFAULT_OAUTH_PORT, DEFAULT_SYSTEM_MESSAGE, DEFAULT_TERMINAL_TIMEOUT_SECONDS, DEFAULT_TEXT_CONTENT_LIMIT, DEFAULT_TRUNCATE_NOTICE, DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST, DEVICE_CODE_TIMEOUT_SECONDS, DuplicateEventError, EVENTS_DIR, EVENT_FILE_PATTERN, EmptyPatchCritic, EventLog, ExtensionFetchError, FULL_STATE_KEY, FileEditorExecutor, FileEditorTool, FinishTool, GIT_EMPTY_TREE_HASH, GeminiClient, GitChangeStatus, GitCommandError, GitError, GitPathError, GitRepositoryError, GlobExecutor, GlobTool, GrepExecutor, GrepTool, HookConfig, HookDecision, HookDefinition, HookExecutor, HookManager, HookMatcher, HookResult, HookEventType as HookTriggerEventType, HookType, ISSUER, InMemoryFileStore, InMemorySecretStore, InstallationInfo, InstallationMetadata, LIST_TASKS_TOOL_NAME, LLMBadRequestError, LLMContentPolicyViolationError, LLMContextWindowExceedError, LLMMalformedConversationHistoryError, LLMResponseError, LLMSummarizingCondenser, LLM_HISTORY_ORIGIN_KEY, LLM_METRICS_RESET_KEY, LLM_PROFILE_ID_PATTERN, LLM_USAGE_KEY, LOCK_FILE_NAME, LOCK_TIMEOUT_SECONDS, ListTasksTool, LocalConversation, LocalFileStore, LocalWorkspace, LogLevel, MAX_FILE_SIZE_FOR_GIT_DIFF, MCPError, MCPTimeoutError, MCPToolAction, MCPToolDefinition, MCPToolExecutor, MCPToolObservation, MacOSKeychainSecretStore, ManipulationIndices, MemoryLRUCache, N_CHAR_PREVIEW, NoCondensationAvailableError, NoOpCondenser, OAUTH_TIMEOUT_SECONDS, OAuthCredentials, OPENAI_CODEX_MODELS, OPENHANDS_KEYRING_SERVICE, OpenAIChatClient, OpenAIResponsesClient, OpenAISubscriptionAuth, PAUSE_TASK_TOOL_NAME, ParallelToolExecutor, PassCritic, PauseTaskTool, PendingActionsQueue, PipelineCondenser, RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED, RESUME_TASK_TOOL_NAME, ROOT_PARENT_ID, RemoteConversation, RemoteWorkspace, RepoSource, ResumeTaskTool, RollingCondenser, RootSpan, SCHEDULE_TASK_TOOL_NAME, SECRET_KEY_PATTERNS, SEND_MESSAGE_TOOL_NAME, SENSITIVE_URL_PARAMS, SUB_AGENT_TOOL_NAME, ScheduleTaskTool, SendMediaTool, SendMessageTool, Skill, StuckDetector, SwitchLLMTool, TASK_SCHEDULER_TOOL_FACTORIES, TaskTrackerExecutor, TaskTrackerTool, TerminalExecutor, TerminalTool, TestLLM, TestLLMExhaustedError, ThinkTool, ToolDefinition, ToolRegistry, UpdateTaskTool, VERIFIED_ANTHROPIC_MODELS, VERIFIED_DEEPSEEK_MODELS, VERIFIED_GEMINI_MODELS, VERIFIED_GLM_MODELS, VERIFIED_MINIMAX_MODELS, VERIFIED_MISTRAL_MODELS, VERIFIED_MODELS, VERIFIED_MOONSHOT_MODELS, VERIFIED_NVIDIA_MODELS, VERIFIED_OPENAI_MODELS, VERIFIED_OPENHANDS_MODELS, VERIFIED_QWEN_MODELS, VERSION, ValueError, View, acpAgentProfileSchema, acpAgentSettingsSchema, acpServerKindSchema, acpToolCallEventSchema, actionEventSchema, actionEventsFromMessage, agentErrorEventSchema, agentProfileSchema, agentResetCondenserSettingsSchema, agentSettingsSchema, anthropicCacheTtlSchema, baseObservationSchema, baseToolObservationSchema, browserActionSchema, browserObservationSchema, buildAnthropicMessagesBody, buildAuthorizeUrl, buildChatCompletionsBody, buildCloneUrl, buildGeminiInteractionsBody, buildOpenAIResponsesBody, cancellationToken, checkScheduleValue, classifyError, classifyResponse, clearRawLlmFieldsWhenProfileSelected, condensationOperationFailureSchema, condensationRequestDetailsSchema, condensationRequestSchema, condensationRequirement, condensationResetSchema, condensationSchema, condensationSummaryEventSchema, condenseActionSchema, condenseObservationSchema, condenserSettingsSchema, contentSchema, contentToString, contextWarningThresholdsSchema, conversationErrorEventSchema, conversationExecutionStatus, conversationSettingsSchema, conversationStateUpdateEventSchema, createAnthropicClientFromProfile, createClientFromProfile, createGeminiClientFromProfile, createLlmUsageEvent, createMcpTools, createMetricsResetEvent, createOpenAIChatClientFromProfile, createOpenAIResponsesClientFromProfile, criticModeSchema, defaultAgentSettings, defaultCondenser, defaultToolSpecs, detectProviderFromBaseUrl, disableLogger, discoverAgents, dispatchLlmResponse, displayJson, dumps, endRootSpan, ensureLlmHistoryOrigin, errorClassificationSchema, eventSchema, eventsToMessages, executeCommand, extractActionName, extractRepoName, failureActionSchema, failureKindSchema, fetchExtension, fetchWithResolution, fileEditorActionSchema, fileEditorObservationSchema, finishActionSchema, generatePKCE, getAgentFactory, getCachePath, getChangesInRepo, getClosestGitRepo, getCommitChanges, getCommitFileDiff, getCredentialsDir, getDisplayBaseRef, getEnv, getFactoryInfo, getGitCommits, getGitDiff, getGitRepositoryMetadata, getLlmApiKey, getLogger, getRegisteredAgentDefinitions, getReposContext, getShortestPrefixAboveTokenCount, getSuffixLengthForTokenReduction, getTotalTokenCount, getUserPersistenceDir, getValidRef, globActionSchema, globObservationSchema, globalToolRegistry, grepActionSchema, grepMatchSchema, grepObservationSchema, handleDeprecatedModelFields, hardCondenserSettingsSchema, historyForProfile, hookEventSchema, hookEventTypeSchema, hookExecutionEventSchema, imageContent, imageContentSchema, injectSystemPrefix, inputMetadataSchema, interruptEventSchema, isAbsolutePathSource, isAcpPatchEdit, isContentPolicyViolation, isContextWindowExceeded, isConversationStateUpdateEvent, isEnabledFor, isGitUrl, isHostAbsolutePath, isLocalPathSource, isMessageEvent, isSecretKey, keywordTriggerSchema, listRegisteredTools, listTasksActionSchema, listUsableTools, llmCompletionLogEventSchema, llmCompletionResponseSchema, llmConvertibleEventSchema, llmHistoryOrigin, llmProfileIdSchema, llmProfileSchema, llmProfileSecretRef, llmProviderIdSchema, llmProviderSecretRef, llmResponseMetadataSchema, llmResponseType, llmSummarizingCondenserSettingsSchema, llmUsageSchema, loadAgentsFromDir, loadAgentsFromDirs, loadProjectAgents, loadSkillsFromDir, loadUserAgents, loads, looksLikeMalformedConversationHistoryError, mapProviderException, materializeCondenser, materializeHardCondenser, maybeInitLaminar, maybeTruncate, mergeSkillsByName, messageEventSchema, messageSchema, messageToolCallSchema, metricsSnapshot, noOpCondenserSettingsSchema, normalizeGitUrl, oauthCredentialsSchema, observabilityEnvKeys, observabilityMetadataSchema, observabilitySpanNameSchema, observabilityTagsSchema, observationEventSchema, observe, openAiApiModeSchema, openHandsAgentProfileSchema, openHandsAgentSettingsSchema, pageIterator, parseExtensionSource, parseLlmResponseWithMetadata, pathMatchesGlob, pathTriggerSchema, pauseEventSchema, posixPathName, profileVerificationSettingsSchema, promptCacheRetentionSchema, providerResponseError, reasoningEffortSchema, reasoningItemSchema, reasoningSummarySchema, redactTextSecrets, redactUrlCredentials, redactUrlCredentialsInText, redactUrlParams, redactedThinkingBlockSchema, reduceTextContent, registerAgent, registerAgentIfAbsent, registerBuiltinResolver, registerTool, registerToolFactory, renderCondenserEvent, renderSummarizingPrompt, resetAgentRegistryForTests, resolveLlmApiKeyRef, resolveLlmProfileApiKeyRef, resolveProviderFromProfile, resolveTool, restoreConversationState, resumeTranscriptEventSchema, runGitCommand, sanitizeOpenHandsMentions, sanitizedEnv, scheduleTaskActionSchema, secretRefSchema, sendMediaActionSchema, sendMessageActionSchema, sendMessageObservationSchema, setupLogging, shouldEnableObservability, skillResourcesSchema, skillSchema, skillsToPrompt, sourceTypeSchema, startChildSpan, startRootSpan, statsForEvents, statsSnapshot, streamingDeltaEventSchema, switchLLMActionSchema, switchLLMObservationSchema, systemPromptEventSchema, taskItemSchema, taskMutationActionSchema, taskTrackerActionSchema, taskTrackerObservationSchema, taskTriggerSchema, terminalActionSchema, terminalObservationSchema, textContent, textContentSchema, thinkActionSchema, thinkingBlockSchema, throwProviderErrorWithMetadata, toCamelCase, toLLMMessage, toPosixPath, tokenEventSchema, toolAnnotationsSchema, toolSpecSchema, transformForSubscription, triggerSchema, truncateCondenserEvent, updateTaskActionSchema, userRejectObservationSchema, utcNow, validateAgentProfile, validateAgentSettings, validateConversationSettings, validateExtensionName, validateGitRepository, verbositySchema, workspace };
+export { AGENT_OUTCOME, AGENT_PROFILE_SCHEMA_VERSION, AGENT_SETTINGS_SCHEMA_VERSION, Agent, AgentContext, AgentControlledCondensationError, AgentDefinition, AgentFinishedCritic, AgentResetCondenser, AnthropicMessagesClient, AsyncCallbackWrapper, AsyncProcessManager, BROWSER_TOOL_NAME, BUILT_IN_TOOLS, BUILT_IN_TOOL_FACTORIES, BrowserTool, CANCEL_TASK_TOOL_NAME, CLIENT_ID, CODEX_API_ENDPOINT, CONSENT_BANNER, CONTENT_POLICY_NUDGE, CONVERSATION_SETTINGS_SCHEMA_VERSION, CORRECTIVE_NUDGE, CancelTaskTool, CondenseTool, CondenserCompletionCallbackError, ConversationState, CredentialStore, CriticBase, CriticResult, DEFAULT_CONTEXT_WARNING_THRESHOLDS, DEFAULT_EXEC_TOOL_NAMES, DEFAULT_OAUTH_PORT, DEFAULT_SYSTEM_MESSAGE, DEFAULT_TERMINAL_TIMEOUT_SECONDS, DEFAULT_TEXT_CONTENT_LIMIT, DEFAULT_TRUNCATE_NOTICE, DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST, DEVICE_CODE_TIMEOUT_SECONDS, DuplicateEventError, EVENTS_DIR, EVENT_FILE_PATTERN, EmptyPatchCritic, EventLog, ExtensionFetchError, FULL_STATE_KEY, FileEditorExecutor, FileEditorTool, FinishTool, GIT_EMPTY_TREE_HASH, GeminiClient, GitChangeStatus, GitCommandError, GitError, GitPathError, GitRepositoryError, GlobExecutor, GlobTool, GrepExecutor, GrepTool, HookConfig, HookDecision, HookDefinition, HookExecutor, HookManager, HookMatcher, HookResult, HookEventType as HookTriggerEventType, HookType, ISSUER, InMemoryFileStore, InMemorySecretStore, InstallationInfo, InstallationMetadata, LIST_TASKS_TOOL_NAME, LLMBadRequestError, LLMContentPolicyViolationError, LLMContextWindowExceedError, LLMMalformedConversationHistoryError, LLMResponseError, LLMSummarizingCondenser, LLM_HISTORY_ORIGIN_KEY, LLM_METRICS_RESET_KEY, LLM_PROFILE_ID_PATTERN, LLM_USAGE_KEY, LOCK_FILE_NAME, LOCK_TIMEOUT_SECONDS, ListTasksTool, LocalConversation, LocalFileStore, LocalWorkspace, LogLevel, MAX_FILE_SIZE_FOR_GIT_DIFF, MCPError, MCPTimeoutError, MCPToolAction, MCPToolDefinition, MCPToolExecutor, MCPToolObservation, MacOSKeychainSecretStore, ManipulationIndices, MemoryLRUCache, N_CHAR_PREVIEW, NoCondensationAvailableError, NoOpCondenser, OAUTH_TIMEOUT_SECONDS, OAuthCredentials, OPENAI_CODEX_MODELS, OPENHANDS_KEYRING_SERVICE, OpenAIChatClient, OpenAIResponsesClient, OpenAISubscriptionAuth, PAUSE_TASK_TOOL_NAME, ParallelToolExecutor, PassCritic, PauseTaskTool, PendingActionsQueue, PipelineCondenser, RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED, RESUME_TASK_TOOL_NAME, ROOT_PARENT_ID, RemoteConversation, RemoteWorkspace, RepoSource, ResumeTaskTool, RollingCondenser, RootSpan, SCHEDULE_TASK_TOOL_NAME, SECRET_KEY_PATTERNS, SEND_MESSAGE_TOOL_NAME, SENSITIVE_URL_PARAMS, SUB_AGENT_TOOL_NAME, ScheduleTaskTool, SendMediaTool, SendMessageTool, Skill, StuckDetector, SwitchLLMTool, TASK_SCHEDULER_TOOL_FACTORIES, TaskTrackerExecutor, TaskTrackerTool, TerminalExecutor, TerminalTool, TestLLM, TestLLMExhaustedError, ThinkTool, ToolDefinition, ToolRegistry, UpdateTaskTool, VERIFIED_ANTHROPIC_MODELS, VERIFIED_DEEPSEEK_MODELS, VERIFIED_GEMINI_MODELS, VERIFIED_GLM_MODELS, VERIFIED_MINIMAX_MODELS, VERIFIED_MISTRAL_MODELS, VERIFIED_MODELS, VERIFIED_MOONSHOT_MODELS, VERIFIED_NVIDIA_MODELS, VERIFIED_OPENAI_MODELS, VERIFIED_OPENHANDS_MODELS, VERIFIED_QWEN_MODELS, VERSION, ValueError, View, acpAgentProfileSchema, acpAgentSettingsSchema, acpServerKindSchema, acpToolCallEventSchema, actionEventSchema, actionEventsFromMessage, agentErrorEventSchema, agentProfileSchema, agentResetCondenserSettingsSchema, agentSettingsSchema, anthropicCacheTtlSchema, baseObservationSchema, baseToolObservationSchema, browserActionSchema, browserObservationSchema, buildAnthropicMessagesBody, buildAuthorizeUrl, buildChatCompletionsBody, buildCloneUrl, buildGeminiInteractionsBody, buildOpenAIResponsesBody, cancellationToken, checkScheduleValue, classifyError, classifyResponse, clearRawLlmFieldsWhenProfileSelected, condensationOperationFailureSchema, condensationRequestDetailsSchema, condensationRequestSchema, condensationRequirement, condensationResetSchema, condensationSchema, condensationSummaryEventSchema, condenseActionSchema, condenseObservationSchema, condenserSettingsSchema, contentSchema, contentToString, contextWarningThresholdsSchema, conversationErrorEventSchema, conversationExecutionStatus, conversationSettingsSchema, conversationStateUpdateEventSchema, createAnthropicClientFromProfile, createClientFromProfile, createGeminiClientFromProfile, createLlmUsageEvent, createMcpTools, createMetricsResetEvent, createOpenAIChatClientFromProfile, createOpenAIResponsesClientFromProfile, criticModeSchema, defaultAgentSettings, defaultCondenser, defaultToolSpecs, detectProviderFromBaseUrl, disableLogger, discoverAgents, dispatchLlmResponse, displayJson, dumps, endRootSpan, ensureLlmHistoryOrigin, errorClassificationSchema, eventSchema, eventsToMessages, executeCommand, extractActionName, extractRepoName, failureActionSchema, failureKindSchema, fetchExtension, fetchWithResolution, fileEditorActionSchema, fileEditorObservationSchema, finishActionSchema, generatePKCE, getAgentFactory, getCachePath, getChangesInRepo, getClosestGitRepo, getCommitChanges, getCommitFileDiff, getCredentialsDir, getDisplayBaseRef, getEnv, getFactoryInfo, getGitCommits, getGitDiff, getGitRepositoryMetadata, getLlmApiKey, getLogger, getRegisteredAgentDefinitions, getReposContext, getShortestPrefixAboveTokenCount, getSuffixLengthForTokenReduction, getTotalTokenCount, getUserPersistenceDir, getValidRef, globActionSchema, globObservationSchema, globalToolRegistry, grepActionSchema, grepMatchSchema, grepObservationSchema, handleDeprecatedModelFields, hardCondenserSettingsSchema, historyForProfile, hookEventSchema, hookEventTypeSchema, hookExecutionEventSchema, imageContent, imageContentSchema, injectSystemPrefix, inputMetadataSchema, interruptEventSchema, isAbsolutePathSource, isAcpPatchEdit, isContentPolicyViolation, isContextWindowExceeded, isConversationStateUpdateEvent, isEnabledFor, isGitUrl, isHostAbsolutePath, isLocalPathSource, isMessageEvent, isSecretKey, keywordTriggerSchema, legacyOrigin, listRegisteredTools, listTasksActionSchema, listUsableTools, llmCompletionLogEventSchema, llmCompletionResponseSchema, llmConvertibleEventSchema, llmHistoryOrigin, llmProfileIdSchema, llmProfileSchema, llmProfileSecretRef, llmProviderIdSchema, llmProviderSecretRef, llmResponseMetadataSchema, llmResponseType, llmSummarizingCondenserSettingsSchema, llmUsageSchema, loadAgentsFromDir, loadAgentsFromDirs, loadProjectAgents, loadSkillsFromDir, loadUserAgents, loads, looksLikeMalformedConversationHistoryError, mapProviderException, materializeCondenser, materializeHardCondenser, maybeInitLaminar, maybeTruncate, mergeSkillsByName, messageEventSchema, messageSchema, messageToolCallSchema, metricsSnapshot, noOpCondenserSettingsSchema, normalizeGitUrl, oauthCredentialsSchema, observabilityEnvKeys, observabilityMetadataSchema, observabilitySpanNameSchema, observabilityTagsSchema, observationEventSchema, observe, openAiApiModeSchema, openHandsAgentProfileSchema, openHandsAgentSettingsSchema, pageIterator, parseExtensionSource, parseLlmResponseWithMetadata, pathMatchesGlob, pathTriggerSchema, pauseEventSchema, posixPathName, profileVerificationSettingsSchema, promptCacheRetentionSchema, providerResponseError, readLlmUsageEvent, reasoningEffortSchema, reasoningItemSchema, reasoningSummarySchema, redactTextSecrets, redactUrlCredentials, redactUrlCredentialsInText, redactUrlParams, redactedThinkingBlockSchema, reduceTextContent, registerAgent, registerAgentIfAbsent, registerBuiltinResolver, registerTool, registerToolFactory, renderCondenserEvent, renderSummarizingPrompt, resetAgentRegistryForTests, resolveLlmApiKeyRef, resolveLlmProfileApiKeyRef, resolveProviderFromProfile, resolveTool, restoreConversationState, resumeTranscriptEventSchema, runGitCommand, sanitizeOpenHandsMentions, sanitizedEnv, scheduleTaskActionSchema, secretRefSchema, sendMediaActionSchema, sendMessageActionSchema, sendMessageObservationSchema, setupLogging, shouldEnableObservability, skillResourcesSchema, skillSchema, skillsToPrompt, sourceTypeSchema, startChildSpan, startRootSpan, statsForEvents, statsSnapshot, streamingDeltaEventSchema, switchLLMActionSchema, switchLLMObservationSchema, systemPromptEventSchema, taskItemSchema, taskMutationActionSchema, taskTrackerActionSchema, taskTrackerObservationSchema, taskTriggerSchema, terminalActionSchema, terminalObservationSchema, textContent, textContentSchema, thinkActionSchema, thinkingBlockSchema, throwProviderErrorWithMetadata, toCamelCase, toLLMMessage, toPosixPath, tokenEventSchema, toolAnnotationsSchema, toolSpecSchema, transformForSubscription, triggerSchema, truncateCondenserEvent, updateTaskActionSchema, userRejectObservationSchema, utcNow, validateAgentProfile, validateAgentSettings, validateConversationSettings, validateExtensionName, validateGitRepository, verbositySchema, workspace };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

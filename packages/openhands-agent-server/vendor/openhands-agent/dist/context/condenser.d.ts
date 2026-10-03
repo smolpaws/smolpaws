@@ -16,6 +16,8 @@ export interface CondenserCompletionAttempt {
 }
 /** Explicit per-operation host state; a condenser never owns a conversation or global metrics. */
 export interface CondenserContext {
+    /** Latest successful main-response input usage; undefined permits first-request estimation. */
+    readonly reportedInputTokens?: number | null;
     readonly tools?: readonly ToolDefinition[];
     readonly messagesForEvents?: (events: readonly LLMConvertibleEvent[]) => readonly Message[];
     readonly projectEvents?: (events: readonly LLMConvertibleEvent[], profile: LLMProfile) => readonly LLMConvertibleEvent[];

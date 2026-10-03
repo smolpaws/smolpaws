@@ -55,12 +55,15 @@ export interface RemoteWorkspaceOptions extends LocalWorkspaceOptions {
     readonly api_key?: string | null;
     readonly readTimeoutSeconds?: number;
     readonly read_timeout?: number;
+    readonly runtimeConversationId?: string | null;
+    readonly runtime_conversation_id?: string | null;
 }
 export declare class RemoteWorkspace implements BaseWorkspace {
     readonly host: string;
     readonly apiKey: string | null;
     readonly workingDir: string;
     readonly readTimeoutSeconds: number;
+    readonly runtimeConversationId: string | null;
     constructor(options: RemoteWorkspaceOptions);
     alive(): Promise<boolean>;
     getServerInfo(): Promise<Record<string, unknown>>;
@@ -68,12 +71,22 @@ export declare class RemoteWorkspace implements BaseWorkspace {
         readonly cwd?: string | null;
         readonly timeoutSeconds?: number;
     }): Promise<WorkspaceCommandResult>;
-    fileUpload(sourcePath: string, destinationPath: string): Promise<FileOperationResult>;
+    startCommand(command: string, options?: {
+        readonly cwd?: string | null;
+        readonly timeoutSeconds?: number;
+    }): Promise<string>;
+    getCommandOutput(commandId?: string | null): Promise<Record<string, unknown> | null>;
+    getRuntimeSessionKey(): Promise<string>;
+    releaseRuntime(): Promise<void>;
+    fileUpload(sourcePath: string | Uint8Array, destinationPath: string): Promise<FileOperationResult>;
     fileDownload(sourcePath: string, destinationPath: string): Promise<FileOperationResult>;
     gitChanges(path: string): Promise<GitChange[]>;
     gitDiff(path: string): Promise<GitDiff>;
     pause(): Promise<void>;
     resume(): Promise<void>;
+    private get apiPrefix();
+    private requireRuntimeScope;
+    private parseCommandId;
     private request;
 }
 export interface WorkspaceOptions extends LocalWorkspaceOptions {
@@ -82,6 +95,8 @@ export interface WorkspaceOptions extends LocalWorkspaceOptions {
     readonly api_key?: string | null;
     readonly readTimeoutSeconds?: number;
     readonly read_timeout?: number;
+    readonly runtimeConversationId?: string | null;
+    readonly runtime_conversation_id?: string | null;
 }
 export declare function workspace(options?: WorkspaceOptions): BaseWorkspace;
 export interface RepoSourceOptions {

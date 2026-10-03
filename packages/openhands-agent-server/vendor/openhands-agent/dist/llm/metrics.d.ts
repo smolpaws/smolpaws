@@ -40,8 +40,11 @@ declare const usageRecordSchema: z.ZodObject<{
         }>;
         pricing: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
     }, z.core.$strict>>;
+    request_succeeded: z.ZodOptional<z.ZodBoolean>;
+    context_warning_ids: z.ZodOptional<z.ZodArray<z.ZodString>>;
 }, z.core.$strict>;
 export type UsageRecord = z.infer<typeof usageRecordSchema>;
+export declare function readLlmUsageEvent(event: Event): UsageRecord | null;
 /** Bind opaque provider continuation to its originating profile without persisting credentials. */
 export declare function llmHistoryOrigin(profile: LLMProfile): string;
 declare const fields: {
@@ -110,6 +113,8 @@ export declare function createLlmUsageEvent(profile: LLMProfile, response: LLMRe
     startedAt: number;
     completedAt: number;
     usageId?: string;
+    requestSucceeded?: boolean;
+    contextWarningIds?: readonly string[];
 }): {
     id: string;
     timestamp: string;
