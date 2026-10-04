@@ -4931,7 +4931,7 @@ function cancelledError(action) {
 }
 
 // src/conversation/remote-conversation.ts
-var RemoteConversation = class {
+var RemoteConversation = class _RemoteConversation {
   host;
   id;
   state;
@@ -4943,6 +4943,24 @@ var RemoteConversation = class {
     this.state = options.state ?? new ConversationState();
     this.fetcher = options.fetch ?? globalRemoteFetch();
     this.apiKey = options.apiKey ?? null;
+  }
+  static async create(options) {
+    const host = options.host.replace(/\/+$/, "");
+    const fetcher = options.fetch ?? globalRemoteFetch();
+    const apiKey = options.apiKey ?? null;
+    const info = await sendRemoteRequest(fetcher, apiKey, "POST", `${host}/api/conversations`, serializeCreateRequest(options.request));
+    return _RemoteConversation.fromInfo(host, fetcher, apiKey, options.state, info);
+  }
+  static async attach(options) {
+    const host = options.host.replace(/\/+$/, "");
+    const fetcher = options.fetch ?? globalRemoteFetch();
+    const apiKey = options.apiKey ?? null;
+    const info = await sendRemoteRequest(fetcher, apiKey, "GET", `${host}/api/conversations/${encodeURIComponent(options.conversationId)}`);
+    return _RemoteConversation.fromInfo(host, fetcher, apiKey, options.state, info);
+  }
+  static fromInfo(host, fetcher, apiKey, state, info) {
+    const id = extractConversationId(info);
+    return new _RemoteConversation({ host, conversationId: id, fetch: fetcher, apiKey, state: restoreExecutionStatus(info, state ?? new ConversationState()) });
   }
   async sendMessage(message, sender) {
     const parsed = typeof message === "string" ? userMessage(message) : messageSchema.parse(message);
@@ -4976,6 +4994,9 @@ var RemoteConversation = class {
     await this.request("POST", `${this.actionBasePath}/interrupt`);
     this.state.executionStatus = conversationExecutionStatus.PAUSED;
   }
+  async setTitle(title) {
+    await this.request("PATCH", this.infoPath, { title });
+  }
   async waitForRunCompletion(pollIntervalMs, timeoutMs) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() <= deadline) {
@@ -5004,21 +5025,7 @@ var RemoteConversation = class {
     return null;
   }
   async request(method, url, payload, acceptableStatusCodes) {
-    const headers = {};
-    if (payload !== void 0) {
-      headers["content-type"] = "application/json";
-    }
-    if (this.apiKey !== null) {
-      headers["x-session-api-key"] = this.apiKey;
-    }
-    const response = await this.fetcher.request(url, payload === void 0 ? { method, headers } : { method, headers, body: JSON.stringify(payload) });
-    if (!(acceptableStatusCodes?.has(response.status) ?? response.ok)) {
-      throw new Error(`Remote conversation request failed with HTTP ${response.status}: ${await response.text()}`);
-    }
-    if (response.status === 204) {
-      return null;
-    }
-    return response.json();
+    return sendRemoteRequest(this.fetcher, this.apiKey, method, url, payload, acceptableStatusCodes);
   }
   get actionBasePath() {
     return `${this.host}/api/conversations/${encodeURIComponent(this.id)}`;
@@ -5029,6 +5036,58 @@ var RemoteConversation = class {
 };
 function userMessage(text) {
   return messageSchema.parse({ role: "user", content: [textContent(text)] });
+}
+async function sendRemoteRequest(fetcher, apiKey, method, url, payload, acceptableStatusCodes) {
+  const headers = {};
+  if (payload !== void 0) {
+    headers["content-type"] = "application/json";
+  }
+  if (apiKey !== null) {
+    headers["x-session-api-key"] = apiKey;
+  }
+  const response = await fetcher.request(url, payload === void 0 ? { method, headers } : { method, headers, body: JSON.stringify(payload) });
+  if (!(acceptableStatusCodes?.has(response.status) ?? response.ok)) {
+    throw new Error(`Remote conversation request failed with HTTP ${response.status}: ${await response.text()}`);
+  }
+  if (response.status === 204) {
+    return null;
+  }
+  return response.json();
+}
+function serializeCreateRequest(request) {
+  const payload = {};
+  if (request.agentProfileId !== void 0 && request.agentProfileId !== null) {
+    payload.agent_profile_id = request.agentProfileId;
+  }
+  if (request.agentSettings !== void 0 && request.agentSettings !== null) {
+    payload.agent_settings = request.agentSettings;
+  }
+  if (request.conversationId !== void 0 && request.conversationId !== null) {
+    payload.conversation_id = request.conversationId;
+  }
+  if (request.maxIterations !== void 0 && request.maxIterations !== null) {
+    payload.max_iterations = request.maxIterations;
+  }
+  if (request.tags !== void 0 && request.tags !== null) {
+    payload.tags = request.tags;
+  }
+  return payload;
+}
+function extractConversationId(info) {
+  if (!isRecord2(info)) {
+    throw new Error("Invalid response from server: missing conversation id");
+  }
+  const id = info.id ?? info.conversation_id;
+  if (typeof id !== "string" || id.length === 0) {
+    throw new Error("Invalid response from server: missing conversation id");
+  }
+  return id;
+}
+function restoreExecutionStatus(info, state) {
+  if (isRecord2(info) && typeof info.execution_status === "string" && isExecutionStatus(info.execution_status)) {
+    state.executionStatus = info.execution_status;
+  }
+  return state;
 }
 function isExecutionStatus(status) {
   return Object.values(conversationExecutionStatus).includes(status);
@@ -6871,6 +6930,7 @@ var OAUTH_TIMEOUT_SECONDS = 300;
 var DEFAULT_OAUTH_PORT = 1455;
 var OPENAI_CODEX_MODELS = [
   "gpt-6-astra",
+  "gpt-6.1-sol",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
@@ -8632,7 +8692,6 @@ function buildOpenAIResponsesBody(profile, messages, tools = []) {
     delete body.temperature;
     delete body.max_output_tokens;
     delete body.include;
-    delete body.reasoning;
   }
   applyOpenAIPromptCacheOptions(body, normalizedProfile);
   return body;
@@ -10776,11 +10835,13 @@ var RemoteWorkspace = class {
   apiKey;
   workingDir;
   readTimeoutSeconds;
+  runtimeConversationId;
   constructor(options) {
     this.host = options.host.replace(/\/+$/u, "");
     this.apiKey = options.apiKey ?? options.api_key ?? null;
     this.workingDir = remotePath(options.workingDir ?? options.working_dir ?? "workspace/project");
     this.readTimeoutSeconds = options.readTimeoutSeconds ?? options.read_timeout ?? 600;
+    this.runtimeConversationId = normalizeRuntimeConversationId(options.runtimeConversationId ?? options.runtime_conversation_id ?? null);
   }
   async alive() {
     try {
@@ -10800,16 +10861,13 @@ var RemoteWorkspace = class {
     const payload = { command, timeout: Math.trunc(timeoutSeconds) };
     payload.cwd = options.cwd === void 0 || options.cwd === null ? this.workingDir : joinRemotePath(this.workingDir, options.cwd);
     try {
-      const start = await this.request("/api/bash/start_bash_command", {
+      const start = await this.request(`${this.apiPrefix}/bash/start_bash_command`, {
         method: "POST",
         body: JSON.stringify(payload),
         headers: { "content-type": "application/json" },
         timeoutMs: (timeoutSeconds + 5) * 1e3
       });
-      const started = await start.json();
-      if (started.id === void 0) {
-        throw new Error("agent-server did not return a bash command id");
-      }
+      const commandId = this.parseCommandId(await start.json());
       const stdoutParts = [];
       const stderrParts = [];
       const seen = /* @__PURE__ */ new Set();
@@ -10817,11 +10875,11 @@ var RemoteWorkspace = class {
       let lastOrder = -1;
       const deadline = Date.now() + timeoutSeconds * 1e3;
       while (Date.now() < deadline) {
-        const params = new URLSearchParams({ command_id__eq: started.id, sort_order: "TIMESTAMP", limit: "100", kind__eq: "BashOutput" });
+        const params = new URLSearchParams({ command_id__eq: commandId, sort_order: "TIMESTAMP", limit: "100", kind__eq: "BashOutput" });
         if (lastOrder >= 0) {
           params.set("order__gt", String(lastOrder));
         }
-        const response = await this.request(`/api/bash/bash_events/search?${params.toString()}`, { timeoutMs: this.readTimeoutSeconds * 1e3 });
+        const response = await this.request(`${this.apiPrefix}/bash/bash_events/search?${params.toString()}`, { timeoutMs: this.readTimeoutSeconds * 1e3 });
         const result = await response.json();
         for (const event of result.items ?? []) {
           if (event.kind !== "BashOutput") {
@@ -10861,15 +10919,59 @@ var RemoteWorkspace = class {
       return { command, exitCode: -1, stdout: "", stderr: `Remote execution error: ${error instanceof Error ? error.message : String(error)}`, timeoutOccurred: false };
     }
   }
+  async startCommand(command, options = {}) {
+    const timeoutSeconds = options.timeoutSeconds ?? 30;
+    const payload = { command, timeout: Math.trunc(timeoutSeconds) };
+    if (options.cwd !== void 0 && options.cwd !== null) {
+      payload.cwd = joinRemotePath(this.workingDir, options.cwd);
+    }
+    const start = await this.request(`${this.apiPrefix}/bash/start_bash_command`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "content-type": "application/json" },
+      timeoutMs: (timeoutSeconds + 5) * 1e3
+    });
+    return this.parseCommandId(await start.json());
+  }
+  async getCommandOutput(commandId) {
+    const params = new URLSearchParams({ kind__eq: "BashOutput", sort_order: "TIMESTAMP_DESC", limit: "1" });
+    if (commandId !== void 0 && commandId !== null) {
+      params.set("command_id__eq", commandId);
+    }
+    const response = await this.request(`${this.apiPrefix}/bash/bash_events/search?${params.toString()}`, { timeoutMs: 6e4 });
+    const page = await response.json();
+    return page.items?.[0] ?? null;
+  }
+  async getRuntimeSessionKey() {
+    this.requireRuntimeScope();
+    const response = await this.request(`${this.apiPrefix}/runtime/credentials`, { method: "POST", timeoutMs: 6e4 });
+    const data = await response.json();
+    if (typeof data.session_api_key !== "string" || data.session_api_key.length === 0) {
+      throw new Error("agent-server returned an empty session credential");
+    }
+    return data.session_api_key;
+  }
+  async releaseRuntime() {
+    this.requireRuntimeScope();
+    await this.request(`${this.apiPrefix}/runtime`, { method: "DELETE", timeoutMs: 6e4 }, /* @__PURE__ */ new Set([404]));
+  }
   async fileUpload(sourcePath, destinationPath) {
-    const source = resolve(sourcePath);
+    const source = sourcePath instanceof Uint8Array ? "upload" : resolve(sourcePath);
     const destination = joinRemotePath(this.workingDir, destinationPath);
     try {
-      const content = await readFile(source);
+      let content;
+      let filename;
+      if (sourcePath instanceof Uint8Array) {
+        content = Buffer.from(sourcePath);
+        filename = "upload";
+      } else {
+        content = await readFile(source);
+        filename = source.split(/[\\/]/u).at(-1) ?? "file";
+      }
       const form = new FormData();
-      form.set("file", new Blob([content]), source.split(/[\\/]/u).at(-1) ?? "file");
+      form.set("file", new Blob([content]), filename);
       const params = new URLSearchParams({ path: destination });
-      const response = await this.request(`/api/file/upload?${params.toString()}`, { method: "POST", body: form, timeoutMs: 6e4 });
+      const response = await this.request(`${this.apiPrefix}/file/upload?${params.toString()}`, { method: "POST", body: form, timeoutMs: 6e4 });
       const data = await response.json().catch(() => ({}));
       const result = { success: data.success !== false, sourcePath: source, destinationPath: destination, fileSize: typeof data.file_size === "number" ? data.file_size : content.length };
       if (typeof data.error === "string") {
@@ -10885,7 +10987,7 @@ var RemoteWorkspace = class {
     const destination = resolve(destinationPath);
     try {
       const params = new URLSearchParams({ path: source });
-      const response = await this.request(`/api/file/download?${params.toString()}`, { timeoutMs: 6e4 });
+      const response = await this.request(`${this.apiPrefix}/file/download?${params.toString()}`, { timeoutMs: 6e4 });
       const content = Buffer.from(await response.arrayBuffer());
       await mkdir(dirname(destination), { recursive: true });
       await writeFile(destination, content);
@@ -10896,12 +10998,12 @@ var RemoteWorkspace = class {
   }
   async gitChanges(path3) {
     const params = new URLSearchParams({ path: joinRemotePath(this.workingDir, path3), ref: "HEAD" });
-    const response = await this.request(`/api/git/changes?${params.toString()}`, { timeoutMs: 6e4 });
+    const response = await this.request(`${this.apiPrefix}/git/changes?${params.toString()}`, { timeoutMs: 6e4 });
     return (await response.json()).sort((left, right) => left.path.localeCompare(right.path));
   }
   async gitDiff(path3) {
     const params = new URLSearchParams({ path: joinRemotePath(this.workingDir, path3), ref: "HEAD" });
-    const response = await this.request(`/api/git/diff?${params.toString()}`, { timeoutMs: 6e4 });
+    const response = await this.request(`${this.apiPrefix}/git/diff?${params.toString()}`, { timeoutMs: 6e4 });
     return await response.json();
   }
   async pause() {
@@ -10910,7 +11012,25 @@ var RemoteWorkspace = class {
   async resume() {
     return Promise.resolve();
   }
-  async request(path3, init = {}) {
+  get apiPrefix() {
+    if (this.runtimeConversationId === null) {
+      return "/api";
+    }
+    return `/api/conversations/${encodeURIComponent(this.runtimeConversationId)}`;
+  }
+  requireRuntimeScope() {
+    if (this.runtimeConversationId === null) {
+      throw new Error("Runtime lifecycle requires a conversation scope");
+    }
+  }
+  parseCommandId(data) {
+    const id = isRecord9(data) ? data.id : void 0;
+    if (typeof id !== "string" || id.length === 0) {
+      throw new Error("agent-server did not return a bash command id");
+    }
+    return id;
+  }
+  async request(path3, init = {}, acceptableStatusCodes = /* @__PURE__ */ new Set()) {
     const headers = new Headers(init.headers);
     if (this.apiKey !== null) {
       headers.set("X-Session-API-Key", this.apiKey);
@@ -10920,7 +11040,7 @@ var RemoteWorkspace = class {
       headers,
       signal: init.signal ?? AbortSignal.timeout(init.timeoutMs ?? this.readTimeoutSeconds * 1e3)
     });
-    if (!response.ok) {
+    if (!response.ok && !acceptableStatusCodes.has(response.status)) {
       throw new Error(`agent-server request failed: ${response.status} ${response.statusText} ${await response.text().catch(() => "")}`.trim());
     }
     return response;
@@ -11064,6 +11184,16 @@ async function delay2(ms) {
 }
 function isRecord9(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+var UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+function normalizeRuntimeConversationId(value) {
+  if (value === null) {
+    return null;
+  }
+  if (!UUID_PATTERN.test(value)) {
+    throw new Error(`runtimeConversationId must be a valid UUID or null, got ${JSON.stringify(value)}`);
+  }
+  return value;
 }
 function isExecError3(error) {
   return typeof error === "object" && error !== null && ("stdout" in error || "stderr" in error || "code" in error);

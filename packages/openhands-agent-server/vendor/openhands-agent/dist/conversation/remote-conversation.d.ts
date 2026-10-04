@@ -1,4 +1,5 @@
 import { type Message } from '../llm/index.js';
+import type { AgentSettings } from '../settings/index.js';
 import { ConversationState } from './state.js';
 export interface RemoteFetchResponseLike {
     readonly ok: boolean;
@@ -20,6 +21,27 @@ export interface RemoteConversationOptions {
     readonly apiKey?: string | null;
     readonly state?: ConversationState;
 }
+export interface RemoteConversationCreateRequest {
+    readonly agentProfileId?: string | null;
+    readonly agentSettings?: AgentSettings | null;
+    readonly conversationId?: string | null;
+    readonly maxIterations?: number | null;
+    readonly tags?: Readonly<Record<string, string>> | null;
+}
+export interface RemoteConversationCreateOptions {
+    readonly host: string;
+    readonly request: RemoteConversationCreateRequest;
+    readonly fetch?: RemoteFetchLike;
+    readonly apiKey?: string | null;
+    readonly state?: ConversationState;
+}
+export interface RemoteConversationAttachOptions {
+    readonly host: string;
+    readonly conversationId: string;
+    readonly fetch?: RemoteFetchLike;
+    readonly apiKey?: string | null;
+    readonly state?: ConversationState;
+}
 export interface RemoteRunOptions {
     readonly blocking?: boolean;
     readonly pollIntervalMs?: number;
@@ -32,11 +54,15 @@ export declare class RemoteConversation {
     private readonly fetcher;
     private readonly apiKey;
     constructor(options: RemoteConversationOptions);
+    static create(options: RemoteConversationCreateOptions): Promise<RemoteConversation>;
+    static attach(options: RemoteConversationAttachOptions): Promise<RemoteConversation>;
+    private static fromInfo;
     sendMessage(message: string | Message, sender?: string): Promise<void>;
     run(options?: RemoteRunOptions): Promise<void>;
     condense(): Promise<void>;
     pause(): Promise<void>;
     interrupt(): Promise<void>;
+    setTitle(title: string): Promise<void>;
     private waitForRunCompletion;
     private pollStatus;
     private request;
