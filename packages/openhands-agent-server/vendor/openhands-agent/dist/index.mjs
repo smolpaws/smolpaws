@@ -6930,6 +6930,7 @@ var OAUTH_TIMEOUT_SECONDS = 300;
 var DEFAULT_OAUTH_PORT = 1455;
 var OPENAI_CODEX_MODELS = [
   "gpt-6-astra",
+  "gpt-6.1-sol",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
@@ -8691,7 +8692,6 @@ function buildOpenAIResponsesBody(profile, messages, tools = []) {
     delete body.temperature;
     delete body.max_output_tokens;
     delete body.include;
-    delete body.reasoning;
   }
   applyOpenAIPromptCacheOptions(body, normalizedProfile);
   return body;

@@ -6,116 +6,118 @@
   "inventorySha256": "22d084fa1a1865d6563b852d0807d7d642ce348f7b62a1633c2eb54eef13a153",
   "items": {
     "8224a0abb2f2f4c545ea724d6cec307d6d7e7fc5:server": {
-      "disposition": "NO_TARGET_CHANGE",
+      "disposition": "DEFERRED",
       "policy": null,
-      "reason": "Docker image publishing (python-minimal); Python packaging only.",
-      "tracking": [],
+      "reason": "Per-conversation Docker runtime/image provisioning, registry/proxy/secret mediation, lifecycle and catalog refresh/workspace/delete guards are not implemented. Existing local server execution is unchanged and does not claim Docker parity. Track smolpaws-09ou.",
+      "tracking": [
+        "smolpaws-09ou"
+      ],
       "evidence": []
     },
     "bd88f050259276978dc31541d8099d98e4994428:server": {
-      "disposition": "PORT",
+      "disposition": "DEFERRED",
       "policy": null,
-      "reason": "GET /api/settings/secrets gains optional agent_profile_id scoping: filter to the profile's secret_refs, keep unscoped profiles unbound, and 404 on a missing profile.",
-      "tracking": [],
-      "evidence": [
-        "src/__tests__/secretScoping.test.ts"
-      ]
+      "reason": "Saved secret-name lookup ignores agent_profile_id and does not enforce profile secret_refs authorization or unknown-profile404. Track smolpaws-09ou.",
+      "tracking": [
+        "smolpaws-09ou"
+      ],
+      "evidence": []
     },
     "3ff6924d8564b3d47a22a6c7e71377a701ae014f:server": {
       "disposition": "DEFERRED",
       "policy": null,
-      "reason": "Docker runtime mode for per-conversation containers (#3403) is a new subsystem (conversation_registry, docker_runtime/*, routing refactor) outside the current TS slice.",
+      "reason": "Per-conversation Docker runtime/image provisioning, registry/proxy/secret mediation, lifecycle and catalog refresh/workspace/delete guards are not implemented. Existing local server execution is unchanged and does not claim Docker parity. Track smolpaws-09ou.",
       "tracking": [
-        "OPENAPI-DEFERRED-001"
+        "smolpaws-09ou"
       ],
       "evidence": []
     },
     "733861a2b7a67d877b3580fd71be0455b6f1e8e7:server": {
       "disposition": "NO_TARGET_CHANGE",
       "policy": null,
-      "reason": "Removes the deprecated desktop URL endpoint; the TS server never implemented it. OpenAPI policy reconciled in the parity step.",
+      "reason": "Removed desktop routes were never implemented. Refreshing Python oracle removes stale operation deferrals; no active TS behavior to remove.",
       "tracking": [],
       "evidence": []
     },
     "97dbce5c37865dd7a3020d2b9662f4a76d11fa71:server": {
       "disposition": "NO_TARGET_CHANGE",
       "policy": null,
-      "reason": "Docstring-only cleanup removing desktop references; no behavior change.",
+      "reason": "Server comments remove desktop references and release metadata; no runtime behavior change.",
       "tracking": [],
       "evidence": []
     },
     "7ae26ccb7f13304f826d32a66d5a2a2f97784747:server": {
       "disposition": "DEFERRED",
       "policy": null,
-      "reason": "Docker conversation metadata route fix; part of the unported docker runtime subsystem.",
+      "reason": "Per-conversation Docker runtime/image provisioning, registry/proxy/secret mediation, lifecycle and catalog refresh/workspace/delete guards are not implemented. Existing local server execution is unchanged and does not claim Docker parity. Track smolpaws-09ou.",
       "tracking": [
-        "OPENAPI-DEFERRED-001"
+        "smolpaws-09ou"
       ],
       "evidence": []
     },
     "632894b716ef3f4b44932bdfadb61b414c64c8d9:server": {
       "disposition": "NO_TARGET_CHANGE",
       "policy": null,
-      "reason": "Release version bump only.",
+      "reason": "Python packaging/dependency/release metadata only; no native TS server behavior change.",
       "tracking": [],
       "evidence": []
     },
     "365ceb3a77f6dbe7b993041ddf04b9484c002e95:server": {
       "disposition": "DEFERRED",
       "policy": null,
-      "reason": "Legacy conversation preservation in Docker catalogs touches the unported conversation_registry/docker runtime; no separable TS contract to port yet.",
+      "reason": "Docker catalogs/legacy unavailable runtime handling and persisted-history reads without runtime leases are not implemented. Local ConversationInfo.runtime_info is also missing; track smolpaws-09ou. Cipher implementation remains DEV-SERVER-003.",
       "tracking": [
-        "OPENAPI-DEFERRED-001"
+        "smolpaws-09ou"
       ],
       "evidence": []
     },
     "c00f26a0c602fa0c3c486689c27acdead8554407:server": {
       "disposition": "DEFERRED",
       "policy": null,
-      "reason": "Docker conversation rescan fix; part of the unported docker runtime subsystem.",
+      "reason": "Per-conversation Docker runtime/image provisioning, registry/proxy/secret mediation, lifecycle and catalog refresh/workspace/delete guards are not implemented. Existing local server execution is unchanged and does not claim Docker parity. Track smolpaws-09ou.",
       "tracking": [
-        "OPENAPI-DEFERRED-001"
+        "smolpaws-09ou"
       ],
       "evidence": []
     },
     "f5772ed119b00d7f6d19b07034baf0d7002a2686:server": {
       "disposition": "DEFERRED",
       "policy": null,
-      "reason": "Docker proxy root-path preservation; part of the unported docker runtime subsystem.",
+      "reason": "Per-conversation Docker runtime/image provisioning, registry/proxy/secret mediation, lifecycle and catalog refresh/workspace/delete guards are not implemented. Existing local server execution is unchanged and does not claim Docker parity. Track smolpaws-09ou.",
       "tracking": [
-        "OPENAPI-DEFERRED-001"
+        "smolpaws-09ou"
       ],
       "evidence": []
     },
     "938fbb8df31e3210e53527fefb017fa094b339fc:server": {
       "disposition": "NO_TARGET_CHANGE",
       "policy": null,
-      "reason": "Dependency pin (fastmcp < 4) in uv.lock only.",
+      "reason": "Python packaging/dependency/release metadata only; no native TS server behavior change.",
       "tracking": [],
       "evidence": []
     },
     "e45ab8096a70e964f70b8760d7f1902ec297a3df:server": {
       "disposition": "DEFERRED",
       "policy": null,
-      "reason": "Docker conversation workspace creation; part of the unported docker runtime subsystem.",
+      "reason": "Per-conversation Docker runtime/image provisioning, registry/proxy/secret mediation, lifecycle and catalog refresh/workspace/delete guards are not implemented. Existing local server execution is unchanged and does not claim Docker parity. Track smolpaws-09ou.",
       "tracking": [
-        "OPENAPI-DEFERRED-001"
+        "smolpaws-09ou"
       ],
       "evidence": []
     },
     "c8ee6b8a267c64e894099df7698d530b54cabbae:server": {
       "disposition": "DEFERRED",
       "policy": null,
-      "reason": "Blocks Docker restarts during deletion; part of the unported docker runtime subsystem.",
+      "reason": "Per-conversation Docker runtime/image provisioning, registry/proxy/secret mediation, lifecycle and catalog refresh/workspace/delete guards are not implemented. Existing local server execution is unchanged and does not claim Docker parity. Track smolpaws-09ou.",
       "tracking": [
-        "OPENAPI-DEFERRED-001"
+        "smolpaws-09ou"
       ],
       "evidence": []
     },
     "d128a786ee2ee570eb23ff5862ec148b43cfad0b:server": {
       "disposition": "NO_TARGET_CHANGE",
       "policy": null,
-      "reason": "Release version bump only.",
+      "reason": "Python packaging/dependency/release metadata only; no native TS server behavior change.",
       "tracking": [],
       "evidence": []
     }

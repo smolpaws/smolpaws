@@ -6,137 +6,143 @@
   "inventorySha256": "3aa6022ef1d7ab119f652f143bf78be46b273d0e4d356c58c018e0ddda43e519",
   "items": {
     "9bc73b48bda5d345049e44df0199d04939ac0aba:server": {
-      "disposition": "NO_TARGET_CHANGE",
-      "policy": null,
-      "reason": "Python persistence schema version bump and telemetry migration test; no route or behavior change.",
+      "disposition": "DEVIATION",
+      "policy": "DEV-SERVER-004",
+      "reason": "Python-only raw LLM.modify_params migration and persistence version; TS profile-first settings never contained that field.",
       "tracking": [],
       "evidence": []
     },
     "9df0ca59bb8110c5294a508fb6761d91d043e6a3:server": {
       "disposition": "NO_TARGET_CHANGE",
       "policy": null,
-      "reason": "Dependency bump (cryptography) in uv.lock only.",
+      "reason": "Python dependency/version packaging or Python CI/static-attribute/API-breakage test changes; no TS server runtime route behavior changes.",
       "tracking": [],
       "evidence": []
     },
     "2da2e9b342f4b89ba02a21285cdc4b202b4904b1:server": {
       "disposition": "NO_TARGET_CHANGE",
       "policy": null,
-      "reason": "CI lint test forbidding Python getattr/setattr; test-infrastructure only.",
+      "reason": "Python dependency/version packaging or Python CI/static-attribute/API-breakage test changes; no TS server runtime route behavior changes.",
       "tracking": [],
       "evidence": []
     },
     "9c3571a694547734002518bd94b3cb41a187f9b6:server": {
       "disposition": "NO_TARGET_CHANGE",
       "policy": null,
-      "reason": "CI test for Python API breakage on release PRs; test-infrastructure only.",
+      "reason": "Python dependency/version packaging or Python CI/static-attribute/API-breakage test changes; no TS server runtime route behavior changes.",
       "tracking": [],
       "evidence": []
     },
     "76e9e25078ed0ff7970f2c75e451274d3ed32bf2:server": {
       "disposition": "NO_TARGET_CHANGE",
       "policy": null,
-      "reason": "SDK title-generation dispatch change (Responses/subscription streaming); no server REST/WebSocket contract change.",
+      "reason": "Server source comment changes only; native profile validation/subscription factory already calls complete. Existing subscriptionProfile.test.ts exercises it.",
       "tracking": [],
       "evidence": []
     },
     "15a9b8609c12635abacefa1f91beacedd7798296:server": {
-      "disposition": "DEVIATION",
-      "policy": "DEV-SERVER-003",
-      "reason": "Python injects a scoped secret set into the agent at start. TS delegates secret scoping to the SDK SecretStore model (DEV-SERVER-003); raw secrets are never persisted server-side.",
-      "tracking": [],
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Profile secret_refs authorization on launch/resume/update and its capability are not implemented. Keyring storage does not replace authorization; track smolpaws-09ou.",
+      "tracking": [
+        "smolpaws-09ou"
+      ],
       "evidence": []
     },
     "b5c8ab950401996f171b29c076900fa22fc80e21:server": {
       "disposition": "DEFERRED",
       "policy": null,
-      "reason": "Conversation-scoped runtime APIs (#4966) add a runtime_router and client surface not yet implemented in TS.",
+      "reason": "Conversation runtime lifecycle/models, scoped bash/file/git/desktop/VSCode routes and workspace guards/history/cancellation are missing; existing global routes remain. New operations are individually tracked in OpenAPI policy. Follow up smolpaws-09ou.",
       "tracking": [
-        "OPENAPI-DEFERRED-001"
+        "smolpaws-09ou"
       ],
       "evidence": []
     },
     "ccde94913e4f95bdb6df196853a8c09f8b1ab834:server": {
       "disposition": "NO_TARGET_CHANGE",
       "policy": null,
-      "reason": "Dependency bump (pip) in uv.lock only.",
+      "reason": "Python dependency/version packaging or Python CI/static-attribute/API-breakage test changes; no TS server runtime route behavior changes.",
       "tracking": [],
       "evidence": []
     },
     "08cd9e1390628e6dcb4d61e3b7a334de8b39181f:server": {
       "disposition": "NO_TARGET_CHANGE",
       "policy": null,
-      "reason": "Dependency bump (setuptools) in pyproject.toml only.",
+      "reason": "Python dependency/version packaging or Python CI/static-attribute/API-breakage test changes; no TS server runtime route behavior changes.",
       "tracking": [],
       "evidence": []
     },
     "0c46d6f8f29f62c972b4c126155a18e28258c5fb:server": {
-      "disposition": "NO_TARGET_CHANGE",
+      "disposition": "DEFERRED",
       "policy": null,
-      "reason": "MCP OAuth callback is delegated to FastMCP; TS does not fork the OAuth callback path, so no server surface to port.",
-      "tracking": [],
+      "reason": "MCP OAuth probe/callback remains existing OPENAPI-DEFERRED-001 debt; upstream FastMCP delegation must accompany that eventual port.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
       "evidence": []
     },
     "47cc483742863d381ecaef8c7b131219d348d15c:server": {
       "disposition": "NO_TARGET_CHANGE",
       "policy": null,
-      "reason": "AgentSandboxWorkspace is an SDK workspace implementation plus examples and a uv.lock dependency; no server REST contract change.",
+      "reason": "Kubernetes agent-sandbox deployment examples and Python dependency lock; no TS server route changes.",
       "tracking": [],
       "evidence": []
     },
     "be485a64f37827905a5ae4a31123dfd519a52b62:server": {
       "disposition": "NO_TARGET_CHANGE",
       "policy": null,
-      "reason": "Dependency bump (cachetools) in uv.lock only.",
+      "reason": "Python dependency/version packaging or Python CI/static-attribute/API-breakage test changes; no TS server runtime route behavior changes.",
       "tracking": [],
       "evidence": []
     },
     "d67feaa6346000b512f92caf46ef7fa485d63987:server": {
       "disposition": "NO_TARGET_CHANGE",
       "policy": null,
-      "reason": "CI test accepting the existing search-limit schema; test-infrastructure only.",
+      "reason": "Python dependency/version packaging or Python CI/static-attribute/API-breakage test changes; no TS server runtime route behavior changes.",
       "tracking": [],
       "evidence": []
     },
     "8850d20537fdfdcc95b56060fd2aaaa085c1096d:server": {
       "disposition": "NO_TARGET_CHANGE",
       "policy": null,
-      "reason": "Dependency bump (griffe) in pyproject.toml and uv.lock only.",
+      "reason": "Python dependency/version packaging or Python CI/static-attribute/API-breakage test changes; no TS server runtime route behavior changes.",
       "tracking": [],
       "evidence": []
     },
     "b8360267021085a906831ca8cdac6c6bb7d13a8c:server": {
       "disposition": "NO_TARGET_CHANGE",
       "policy": null,
-      "reason": "Dependency bump (packaging) in pyproject.toml and uv.lock only.",
+      "reason": "Python dependency/version packaging or Python CI/static-attribute/API-breakage test changes; no TS server runtime route behavior changes.",
       "tracking": [],
       "evidence": []
     },
     "14fd5841e3f3164580b39d8c6c7a2ac46b28461b:server": {
       "disposition": "NO_TARGET_CHANGE",
       "policy": null,
-      "reason": "Dependency bump (uvicorn) in pyproject.toml and uv.lock only.",
+      "reason": "Python dependency/version packaging or Python CI/static-attribute/API-breakage test changes; no TS server runtime route behavior changes.",
       "tracking": [],
       "evidence": []
     },
     "b054a2fe99173baee47897e4f3af7a910d3aab1e:server": {
-      "disposition": "NO_TARGET_CHANGE",
+      "disposition": "DEFERRED",
       "policy": null,
-      "reason": "Python switches assert to FastAPI 422 validation and lte to le for the 100-result cap; TS intQuery already clamps limit to 100 and requires >0, so the cap is already enforced.",
-      "tracking": [],
+      "reason": "Implemented search limits still clamp/fallback instead of rejecting values outside1..100 with422. File search already validates its limit with422; conversation/event/bash validation remains deferred. Explicit compatibility consequence tracked by smolpaws-09ou.",
+      "tracking": [
+        "smolpaws-09ou"
+      ],
       "evidence": []
     },
     "4c89b6899d4a98e9ce8329490d54e1b2263cd517:server": {
       "disposition": "NO_TARGET_CHANGE",
       "policy": null,
-      "reason": "Docker build/runtime image change (minimal Debian); Python packaging only.",
+      "reason": "Python Debian image/build metadata and packaging tests do not change the native TS server runtime contract.",
       "tracking": [],
       "evidence": []
     },
     "481dfb3d7adf6355fc157390d293559092739089:server": {
       "disposition": "NO_TARGET_CHANGE",
       "policy": null,
-      "reason": "Release version bump in pyproject.toml and uv.lock only.",
+      "reason": "Python dependency/version packaging or Python CI/static-attribute/API-breakage test changes; no TS server runtime route behavior changes.",
       "tracking": [],
       "evidence": []
     }

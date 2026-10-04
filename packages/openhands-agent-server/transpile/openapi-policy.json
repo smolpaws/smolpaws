@@ -4,6 +4,10 @@
     "OPENAPI-DEFERRED-001": {
       "path": "transpile/deferred-operations.md",
       "description": "Pinned upstream operations that remain compatibility debt rather than permanent product policy."
+    },
+    "smolpaws-09ou": {
+      "path": "transpile/deferred-operations.md",
+      "description": "Bounded SDK pin advance runtime/profile/search compatibility debt in Bead smolpaws-09ou."
     }
   },
   "missingOperations": {
@@ -117,11 +121,6 @@
       "tracking": "OPENAPI-DEFERRED-001",
       "reason": "Sub-agent catalog discovery is not yet ported to the TypeScript server package."
     },
-    "GET /api/tools": {
-      "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "The server tool-catalog endpoint awaits an upstream-compatible registry exposure design."
-    },
     "GET /api/vscode/status": {
       "disposition": "DEFERRED",
       "tracking": "OPENAPI-DEFERRED-001",
@@ -234,98 +233,103 @@
     },
     "DELETE /api/conversations/{runtime_conversation_id}/bash/bash_events": {
       "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     },
     "GET /api/conversations/{conversation_id}/runtime": {
       "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     },
     "GET /api/conversations/{runtime_conversation_id}/bash/bash_events": {
       "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     },
     "GET /api/conversations/{runtime_conversation_id}/bash/bash_events/search": {
       "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     },
     "GET /api/conversations/{runtime_conversation_id}/bash/bash_events/{event_id}": {
       "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     },
     "GET /api/conversations/{runtime_conversation_id}/file/archive": {
       "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     },
     "GET /api/conversations/{runtime_conversation_id}/file/download": {
       "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     },
     "GET /api/conversations/{runtime_conversation_id}/file/download-trajectory/{conversation_id}": {
       "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     },
     "GET /api/conversations/{runtime_conversation_id}/git/changes": {
       "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     },
     "GET /api/conversations/{runtime_conversation_id}/git/commits": {
       "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     },
     "GET /api/conversations/{runtime_conversation_id}/git/commits/{sha}/changes": {
       "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     },
     "GET /api/conversations/{runtime_conversation_id}/git/diff": {
       "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     },
     "GET /api/conversations/{runtime_conversation_id}/vscode/status": {
       "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     },
     "GET /api/conversations/{runtime_conversation_id}/vscode/url": {
       "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "GET /api/tools": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     },
     "POST /api/conversations/{conversation_id}/runtime/reprovision": {
       "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     },
     "POST /api/conversations/{runtime_conversation_id}/bash/execute_bash_command": {
       "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     },
     "POST /api/conversations/{runtime_conversation_id}/bash/start_bash_command": {
       "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     },
     "POST /api/conversations/{runtime_conversation_id}/file/create_directory": {
       "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     },
     "POST /api/conversations/{runtime_conversation_id}/file/upload": {
       "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Conversation-scoped runtime API (per-conversation docker runtime mode) is a new subsystem not yet implemented by the TypeScript server."
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     }
   },
   "contractExemptions": {

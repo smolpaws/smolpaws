@@ -78,10 +78,12 @@ const missingOperationSchema = z.discriminatedUnion('disposition', [
   excludedOperationSchema,
 ]);
 
-const contractExemptionSchema = z.object({
+const permanentContractExemptionSchema = z.object({
   policy: z.string().regex(/^DEV-/),
   reason: z.string().min(1),
 });
+
+const contractExemptionSchema = z.union([permanentContractExemptionSchema, deferredOperationSchema]);
 
 const policySchema = z.object({
   schemaVersion: z.literal(1),
@@ -172,7 +174,9 @@ for (const [operation, entry] of Object.entries(policy.missingOperations)) {
 }
 
 for (const [operation, entry] of Object.entries(policy.contractExemptions)) {
-  validatePolicyReference(operation, entry.policy, 'DEVIATION');
+  if ('disposition' in entry) {
+    if (policy.tracking[entry.tracking] === undefined) problems.push(`${operation} references unknown tracking ${entry.tracking}.`);
+  } else validatePolicyReference(operation, entry.policy, 'DEVIATION');
 }
 
 for (const [operation, entry] of Object.entries(policy.extensions)) {

@@ -5925,6 +5925,9 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Error"
           }
         }
       },
@@ -10047,8 +10050,7 @@
               },
               "application/octet-stream": {
                 "schema": {
-                  "type": "string",
-                  "format": "binary"
+                  "$schema": "https://json-schema.org/draft/2020-12/schema"
                 }
               }
             }
@@ -10133,6 +10135,11 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema"
+                }
+              },
+              "application/octet-stream": {
                 "schema": {
                   "$schema": "https://json-schema.org/draft/2020-12/schema"
                 }

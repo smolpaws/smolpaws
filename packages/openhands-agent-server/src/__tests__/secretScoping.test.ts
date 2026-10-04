@@ -54,6 +54,18 @@ describe('GET /api/settings/secrets agent_profile_id scoping', () => {
       const unboundList = (await app.inject({ method: 'GET', url: `/api/settings/secrets?agent_profile_id=${unboundId}` })).json<{ secrets: Array<{ name: string }> }>();
       expect(unboundList.secrets.map((secret) => secret.name)).toEqual(['FIRST', 'SECOND']);
 
+      for (const secretRefs of [[], ['NOT_SAVED']]) {
+        const restricted = await app.inject({
+          method: 'POST', url: '/api/agent-profiles',
+          payload: { name: `restricted-${secretRefs.length}`, llm_profile_ref: 'unused', secret_refs: secretRefs },
+        });
+        expect(restricted.statusCode).toBe(201);
+        const restrictedId = restricted.json<{ id: string }>().id;
+        const response = await app.inject({ method: 'GET', url: `/api/settings/secrets?agent_profile_id=${restrictedId}` });
+        expect(response.statusCode).toBe(200);
+        expect(response.json<{ secrets: unknown[] }>().secrets).toEqual([]);
+      }
+
       const missing = await app.inject({ method: 'GET', url: '/api/settings/secrets?agent_profile_id=does-not-exist' });
       expect(missing.statusCode).toBe(404);
       expect(missing.json<{ detail: string }>().detail).toBe('Agent profile not found');

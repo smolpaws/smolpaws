@@ -13,3 +13,7 @@ For each deferred operation, eventually do one of:
 3. remove the exception when a later pinned upstream version removes the operation.
 
 A deferred operation must remain visible in generated parity output. This file is not permission to broaden the deferral to newly discovered routes.
+
+## Bounded runtime expansion
+
+Bead `smolpaws-09ou` explicitly tracks new conversation-scoped runtime, file/git/bash and VSCode operations in the reviewed intervals. Each has its own policy entry; this is an explicit expansion. Profile secret metadata filtering is now ported; see [secret scoping correction](secret-scoping.md). Local runtime_info/persisted reads, Docker lifecycle and search-limit422 validation remain documented in the interval records.

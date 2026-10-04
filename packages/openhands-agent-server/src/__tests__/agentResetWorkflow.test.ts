@@ -272,3 +272,22 @@ test('restart closes an interrupted condense call once and continues without rep
   expect(resetEvents(restored.state.events).map(event => event.kind)).toEqual(['CondensationRequest']);
   expect(View.fromEvents(restored.state.events).unhandledCondensationRequest).toBe(false);
 });
+
+
+test('reported input warning is delivered once across public fork and restart', async () => {
+  const f = await fixture();
+  f.setMain(async () => ({ ...answer(), usage: { promptTokens: 750, completionTokens: 2, totalTokens: 752 } }));
+  const id = await start(f.server);
+  await send(f.server, id, 'First response reports the input count.'); await settled(f.server, id);
+  await send(f.server, id, 'Deliver the crossed stage.'); await settled(f.server, id);
+  expect(JSON.stringify(f.observed[1]!.messages)).toContain('Context warning:');
+  const fork = await f.server.app.inject({ method: 'POST', url: `/api/conversations/${id}/fork`, headers, payload: {} });
+  expect(fork.statusCode).toBe(201);
+  const child = fork.json<{ id: string }>().id;
+  const restarted = await f.restart();
+  for (const conversationId of [id, child]) {
+    await send(restarted, conversationId, 'Continue after restore.'); await settled(restarted, conversationId);
+    expect(JSON.stringify(f.observed.at(-1)!.messages)).not.toContain('Context warning:');
+    expect((await savedEvents(restarted, conversationId)).filter(event => event.kind === 'ConversationStateUpdateEvent' && event.key === 'agent_context_warning')).toHaveLength(1);
+  }
+});
