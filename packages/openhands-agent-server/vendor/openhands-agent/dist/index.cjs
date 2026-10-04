@@ -4,10 +4,10 @@ var crypto = require('crypto');
 var zod = require('zod');
 var child_process = require('child_process');
 var util = require('util');
-var promises = require('fs/promises');
-var path2 = require('path');
 var fs = require('fs');
 var os = require('os');
+var path2 = require('path');
+var promises = require('fs/promises');
 var http = require('http');
 var promises$1 = require('timers/promises');
 var jsTiktoken = require('js-tiktoken');
@@ -431,6 +431,415 @@ var condensationOperationFailureSchema = zod.z.object({
   request_id: eventIdSchema,
   error: zod.z.string()
 }).strict();
+var INITIAL_CWD = process.cwd();
+function getUserPersistenceDir(defaultDir) {
+  const envDir = process.env.OH_PERSISTENCE_DIR?.trim();
+  if (envDir !== void 0 && envDir !== "") {
+    const expanded = envDir.startsWith("~/") ? path2__default.default.join(os.homedir(), envDir.slice(2)) : envDir;
+    return path2__default.default.isAbsolute(expanded) ? expanded : path2__default.default.resolve(INITIAL_CWD, expanded);
+  }
+  return defaultDir ?? path2__default.default.join(os.homedir(), ".openhands");
+}
+var AsyncCallbackWrapper = class {
+  callback;
+  asyncCallback;
+  pending = /* @__PURE__ */ new Set();
+  constructor(asyncCallback) {
+    this.asyncCallback = asyncCallback;
+    this.callback = (event) => this.call(event);
+  }
+  get pendingCount() {
+    return this.pending.size;
+  }
+  call(event) {
+    const pending = Promise.resolve().then(() => this.asyncCallback(event)).catch(() => void 0).finally(() => this.pending.delete(pending));
+    this.pending.add(pending);
+  }
+  async waitForPending(timeoutMs) {
+    const current = [...this.pending];
+    if (current.length === 0) {
+      return;
+    }
+    const waitForAll = Promise.allSettled(current).then(() => void 0);
+    if (timeoutMs === void 0 || timeoutMs === null) {
+      await waitForAll;
+      return;
+    }
+    let timeout;
+    try {
+      await Promise.race([
+        waitForAll,
+        new Promise((_resolve, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error(`Timed out waiting for async callbacks after ${timeoutMs}ms`)),
+            timeoutMs
+          );
+        })
+      ]);
+    } finally {
+      if (timeout !== void 0) {
+        clearTimeout(timeout);
+      }
+    }
+  }
+};
+var DEFAULT_TEXT_CONTENT_LIMIT = 5e4;
+var DEFAULT_TRUNCATE_NOTICE = "<response clipped><NOTE>Due to the max output limit, only part of the full response has been shown to you.</NOTE>";
+var DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST = "<response clipped><NOTE>Due to the max output limit, only part of the full response has been shown to you. The complete output has been saved to {filePath} - you can use other tools to view the full content (truncated part starts around line {lineNum}).</NOTE>";
+function maybeTruncate(content, options = {}) {
+  const truncateAfter = options.truncateAfter;
+  const truncateNotice = options.truncateNotice ?? DEFAULT_TRUNCATE_NOTICE;
+  if (truncateAfter === void 0 || truncateAfter === null || truncateAfter <= 0 || content.length <= truncateAfter) {
+    return content;
+  }
+  const characters2 = /[\u{10000}-\u{10FFFF}]/u.test(content) ? Array.from(content) : content;
+  if (characters2.length <= truncateAfter) return content;
+  const noticeCharacters = Array.from(truncateNotice);
+  if (noticeCharacters.length >= truncateAfter) {
+    return noticeCharacters.slice(0, truncateAfter).join("");
+  }
+  const availableChars = truncateAfter - noticeCharacters.length;
+  const proposedHead = Math.floor(availableChars / 2) + availableChars % 2;
+  let finalNotice = truncateNotice;
+  if (options.saveDir !== void 0 && options.saveDir !== null && options.saveDir !== "") {
+    const savedFilePath = saveFullContent(content, options.saveDir, options.toolPrefix ?? "output");
+    if (savedFilePath !== null) {
+      const head = sliceCharacters(characters2, 0, proposedHead);
+      const headContentLines = head.split(/\r?\n/u).length;
+      finalNotice = DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST.replace("{filePath}", savedFilePath).replace(
+        "{lineNum}",
+        String(headContentLines + 1)
+      );
+    }
+  }
+  const finalNoticeCharacters = Array.from(finalNotice);
+  if (finalNoticeCharacters.length >= truncateAfter) {
+    return finalNoticeCharacters.slice(0, truncateAfter).join("");
+  }
+  const remaining = truncateAfter - finalNoticeCharacters.length;
+  const headChars = Math.min(proposedHead, remaining);
+  const tailChars = remaining - headChars;
+  return sliceCharacters(characters2, 0, headChars) + finalNotice + (tailChars > 0 ? sliceCharacters(characters2, -tailChars) : "");
+}
+function sliceCharacters(characters2, start, end) {
+  const slice = characters2.slice(start, end);
+  return typeof slice === "string" ? slice : slice.join("");
+}
+function saveFullContent(content, saveDir, toolPrefix) {
+  try {
+    fs.mkdirSync(saveDir, { recursive: true });
+    const contentHash = crypto.createHash("sha256").update(content, "utf8").digest("hex").slice(0, 8);
+    const filePath = path2__default.default.join(saveDir, `${toolPrefix}_output_${contentHash}.txt`);
+    if (!fs.existsSync(filePath)) {
+      fs.writeFileSync(filePath, content, "utf8");
+    }
+    return filePath;
+  } catch {
+    return null;
+  }
+}
+function toPosixPath(inputPath) {
+  return inputPath.toString().replace(/\\/gu, "/");
+}
+function posixPathName(inputPath) {
+  const normalized = toPosixPath(inputPath).replace(/\/+$/u, "");
+  if (normalized.length === 0) {
+    return "";
+  }
+  return normalized.split("/").at(-1) ?? "";
+}
+var urlSchemePattern = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//u;
+var windowsDriveAbsolutePattern = /^[A-Za-z]:[\\/]/u;
+function isAbsolutePathSource(inputPath) {
+  const value = inputPath.toString().trim();
+  if (value.length === 0) {
+    return false;
+  }
+  return value.startsWith("/") || value.startsWith("\\") || path2__default.default.isAbsolute(value) || windowsDriveAbsolutePattern.test(value);
+}
+function isHostAbsolutePath(inputPath) {
+  const value = inputPath.toString().trim();
+  return value.length > 0 && path2__default.default.isAbsolute(value);
+}
+function isLocalPathSource(source) {
+  const value = source.trim();
+  if (value.length === 0) {
+    return false;
+  }
+  if (value.startsWith("file://") || value.startsWith("~") || value.startsWith(".")) {
+    return true;
+  }
+  if (isAbsolutePathSource(value)) {
+    return true;
+  }
+  return value.includes("\\") && !urlSchemePattern.test(value);
+}
+var ZWJ = "\u200D";
+function sanitizeOpenHandsMentions(text) {
+  return text.replace(/@(OpenHands)\b/giu, `@${ZWJ}$1`);
+}
+async function* pageIterator(searchFunc, params) {
+  let pageId = typeof params.pageId === "string" ? params.pageId : void 0;
+  const rest = { ...params };
+  delete rest.pageId;
+  while (true) {
+    const pageParams = pageId === void 0 ? rest : { ...rest, pageId };
+    const page = await searchFunc(pageParams);
+    for (const item of page.items) {
+      yield item;
+    }
+    pageId = page.nextPageId ?? void 0;
+    if (pageId === void 0 || pageId === "") {
+      break;
+    }
+  }
+}
+var SENSITIVE_ENV_VARS = /* @__PURE__ */ new Set(["SESSION_API_KEY", "OH_SECRET_KEY"]);
+var SENSITIVE_ENV_PREFIXES = ["OH_SESSION_API_KEYS_"];
+function sanitizedEnv(env = process.env) {
+  const result = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (value !== void 0) {
+      result[key] = value;
+    }
+  }
+  for (const key of SENSITIVE_ENV_VARS) {
+    delete result[key];
+  }
+  for (const key of Object.keys(result)) {
+    if (SENSITIVE_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      delete result[key];
+    }
+  }
+  if (Object.hasOwn(result, "LD_LIBRARY_PATH_ORIG")) {
+    const original = result.LD_LIBRARY_PATH_ORIG;
+    if (original === void 0 || original === "") {
+      delete result.LD_LIBRARY_PATH;
+    } else {
+      result.LD_LIBRARY_PATH = original;
+    }
+  }
+  return result;
+}
+function executeCommand(command, options = {}) {
+  const shell = typeof command === "string";
+  const executable = shell ? command : command[0];
+  if (executable === void 0) {
+    throw new Error("Command must not be empty");
+  }
+  const args = shell ? [] : command.slice(1);
+  const result = child_process.spawnSync(executable, args, {
+    cwd: options.cwd,
+    env: sanitizedEnv(options.env),
+    shell,
+    timeout: options.timeoutMs,
+    encoding: "utf8"
+  });
+  const stdout = result.stdout ?? "";
+  const stderr = result.stderr ?? "";
+  if (options.printOutput ?? true) {
+    process.stdout.write(stdout);
+    process.stderr.write(stderr);
+  }
+  return {
+    command,
+    status: result.error?.name === "ETIMEDOUT" ? -1 : result.status,
+    stdout,
+    stderr
+  };
+}
+var SECRET_KEY_PATTERNS = /* @__PURE__ */ new Set([
+  "AUTHORIZATION",
+  "COOKIE",
+  "CREDENTIAL",
+  "KEY",
+  "PASSWORD",
+  "SECRET",
+  "SESSION",
+  "TOKEN"
+]);
+var SENSITIVE_URL_PARAMS = /* @__PURE__ */ new Set(["tavilyapikey", "apikey", "api_key", "token", "access_token", "secret", "key"]);
+function isSecretKey(key) {
+  const upper = key.toUpperCase();
+  return [...SECRET_KEY_PATTERNS].some((pattern) => upper.includes(pattern));
+}
+function redactUrlCredentials(url, options = {}) {
+  const match = /^(https?:\/\/)([^@/]+)@(.+)$/u.exec(url);
+  if (match === null) {
+    return url;
+  }
+  if (options.preservePlaceholders === true && match[2]?.includes("${")) {
+    return url;
+  }
+  return `${match[1]}****@${match[3]}`;
+}
+var embeddedUrlCredentialsPattern = /(https?:\/\/)[^/@\s]+@/giu;
+function redactUrlCredentialsInText(text) {
+  return text.replace(embeddedUrlCredentialsPattern, "$1****@");
+}
+function redactUrlParams(url) {
+  if (url.length === 0 || !url.includes("?")) {
+    return url;
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.search.length === 0) {
+      return url;
+    }
+    for (const key of [...parsed.searchParams.keys()]) {
+      if (SENSITIVE_URL_PARAMS.has(key.toLowerCase()) || isSecretKey(key)) {
+        const values = parsed.searchParams.getAll(key);
+        parsed.searchParams.delete(key);
+        for (let index = 0; index < Math.max(1, values.length); index += 1) {
+          parsed.searchParams.append(key, "<redacted>");
+        }
+      }
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+var keyValueSecretPattern = /\b([A-Za-z0-9_.-]*(?:api[_-]?key|authorization|cookie|credential|password|secret|session|token|key)[A-Za-z0-9_.-]*)\s*=\s*("[^"]*"|'[^']*'|[^\s]+)/giu;
+var anthropicKeyPattern = /sk-ant-api\d{2}-[A-Za-z0-9_-]{20,}/gu;
+var singleQuotedDictSecretPattern = /('[A-Za-z_]*(?:KEY|SECRET|TOKEN|PASSWORD)[A-Za-z_]*':\s*')[^']*(')/giu;
+var doubleQuotedDictSecretPattern = /("[A-Za-z_]*(?:KEY|SECRET|TOKEN|PASSWORD)[A-Za-z_]*":\s*")[^"]*(")/giu;
+function redactTextSecrets(text) {
+  return redactUrlCredentialsInText(text).replace(anthropicKeyPattern, "<redacted>").replace(keyValueSecretPattern, (_match, key) => `${key}=<redacted>`).replace(singleQuotedDictSecretPattern, "$1<redacted>$2").replace(doubleQuotedDictSecretPattern, "$1<redacted>$2");
+}
+function utcNow() {
+  return /* @__PURE__ */ new Date();
+}
+function dumps(value, space) {
+  return JSON.stringify(value, (_key, item) => item, space);
+}
+function loads(text) {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`No valid JSON object found in response.`, { cause: error });
+  }
+}
+function handleDeprecatedModelFields(data, deprecatedFields) {
+  if (data === null || typeof data !== "object" || Array.isArray(data)) {
+    return data;
+  }
+  const result = { ...data };
+  for (const field of deprecatedFields) {
+    delete result[field];
+  }
+  return result;
+}
+function displayJson(value) {
+  if (Array.isArray(value)) {
+    return [`[List with ${value.length} items]`, ...value.map((item, index) => `  [${index}]: ${formatDisplayValue(item)}`)].join("\n");
+  }
+  if (value !== null && typeof value === "object") {
+    const lines = [];
+    for (const [key, item] of Object.entries(value)) {
+      if (item === null || item === void 0) {
+        continue;
+      }
+      lines.push(`
+  ${key}: ${formatDisplayValue(item)}`);
+    }
+    return lines.join("");
+  }
+  if (typeof value === "string" && value.includes("\n")) {
+    return `String:
+${value.split("\n").map((line) => `  ${line}`).join("\n")}`;
+  }
+  return formatDisplayValue(value);
+}
+function formatDisplayValue(value) {
+  if (typeof value === "string") {
+    return value.includes("\n") ? `
+${value.split("\n").map((line) => `    ${line}`).join("\n")}` : `"${value}"`;
+  }
+  if (typeof value === "boolean") {
+    return value ? "True" : "False";
+  }
+  if (value === null) {
+    return "null";
+  }
+  if (typeof value === "number" || typeof value === "bigint" || typeof value === "symbol") {
+    return String(value);
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  if (typeof value === "undefined") {
+    return "undefined";
+  }
+  if (typeof value === "function") {
+    return `[Function ${value.name || "anonymous"}]`;
+  }
+  return JSON.stringify(value);
+}
+
+// src/tools/terminal-observation.ts
+var MAX_CMD_OUTPUT_SIZE = 3e4;
+var ERROR_HEADER = "[An error occurred during execution.]\n";
+var terminalMetadataSchema = zod.z.object({
+  exit_code: zod.z.number().int().default(-1),
+  pid: zod.z.number().int().default(-1),
+  username: zod.z.string().nullable().default(null),
+  hostname: zod.z.string().nullable().default(null),
+  working_dir: zod.z.string().nullable().default(null),
+  py_interpreter_path: zod.z.string().nullable().default(null),
+  prefix: zod.z.string().default(""),
+  suffix: zod.z.string().default("")
+}).strict();
+function terminalObservationContent(observation2) {
+  if (Array.isArray(observation2.to_llm_content)) {
+    return clipRenderedContent(zod.z.array(contentSchema).parse(observation2.to_llm_content));
+  }
+  const text = typeof observation2.text === "string" ? observation2.text : Array.isArray(observation2.content) ? zod.z.array(contentSchema).parse(observation2.content).map((part) => part.type === "text" ? part.text : "").join("") : null;
+  if (text === null) return null;
+  const metadata = terminalMetadataSchema.parse(observation2.metadata ?? {
+    exit_code: typeof observation2.exit_code === "number" ? observation2.exit_code : -1
+  });
+  let output = `${metadata.prefix}${text}${metadata.suffix}`;
+  if (metadata.working_dir) output += `
+[Current working directory: ${metadata.working_dir}]`;
+  if (metadata.py_interpreter_path) output += `
+[Python interpreter: ${metadata.py_interpreter_path}]`;
+  if (metadata.exit_code !== -1) output += `
+[Command finished with exit code ${metadata.exit_code}]`;
+  const content = [];
+  if (observation2.is_error === true) content.push(textContent(ERROR_HEADER));
+  content.push(textContent(maybeTruncate(output, {
+    truncateAfter: MAX_CMD_OUTPUT_SIZE,
+    saveDir: typeof observation2.full_output_save_dir === "string" ? observation2.full_output_save_dir : null,
+    toolPrefix: "terminal"
+  })));
+  return content;
+}
+function clipRenderedContent(content) {
+  const characters2 = content.map((part, index) => part.type !== "text" || index === 0 && part.text === ERROR_HEADER ? null : /[\u{10000}-\u{10FFFF}]/u.test(part.text) ? Array.from(part.text) : part.text);
+  const length = characters2.reduce((total, part) => total + (part?.length ?? 0), 0);
+  if (length <= MAX_CMD_OUTPUT_SIZE) return content;
+  const available = MAX_CMD_OUTPUT_SIZE - Array.from(DEFAULT_TRUNCATE_NOTICE).length;
+  const headEnd = Math.ceil(available / 2);
+  const tailStart = length - Math.floor(available / 2);
+  let offset = 0;
+  let noticeInserted = false;
+  return content.flatMap((part, index) => {
+    const text = characters2[index];
+    if (part.type !== "text" || text === null || text === void 0) return [part];
+    const start = offset;
+    offset += text.length;
+    const head = text.slice(0, Math.max(0, headEnd - start));
+    let clipped = typeof head === "string" ? head : head.join("");
+    if (!noticeInserted && offset > headEnd) {
+      clipped += DEFAULT_TRUNCATE_NOTICE;
+      noticeInserted = true;
+    }
+    const tail = text.slice(Math.max(0, tailStart - start));
+    clipped += typeof tail === "string" ? tail : tail.join("");
+    return clipped.length === 0 && text.length > 0 ? [] : [{ ...part, text: clipped }];
+  });
+}
 
 // src/event/index.ts
 var N_CHAR_PREVIEW = 500;
@@ -721,7 +1130,7 @@ function toLLMMessage(event) {
         responses_reasoning_item: event.responses_reasoning_item
       };
     case "ObservationEvent":
-      return toolMessage(event.tool_name, event.tool_call_id, [...observationContent(event.observation), ...event.extended_content]);
+      return toolMessage(event.tool_name, event.tool_call_id, [...observationContent(event.observation, event.tool_name), ...event.extended_content]);
     case "UserRejectObservation":
       return toolMessage(event.tool_name, event.tool_call_id, [textContent(`Action rejected: ${event.rejection_reason}`)]);
     case "AgentErrorEvent":
@@ -808,7 +1217,11 @@ function toolMessage(name, toolCallId, content) {
     responses_reasoning_item: null
   };
 }
-function observationContent(observation2) {
+function observationContent(observation2, toolName) {
+  if (toolName === "terminal") {
+    const terminalContent = terminalObservationContent(observation2);
+    if (terminalContent !== null) return terminalContent;
+  }
   const toLlmContent = observation2.to_llm_content;
   if (Array.isArray(toLlmContent)) {
     return zod.z.array(contentSchema).parse(toLlmContent);
@@ -2644,342 +3057,6 @@ var View = class _View {
 };
 function genuineUser(event) {
   return event.kind === "MessageEvent" && event.source === "user" && event.llm_message.role === "user";
-}
-var INITIAL_CWD = process.cwd();
-function getUserPersistenceDir(defaultDir) {
-  const envDir = process.env.OH_PERSISTENCE_DIR?.trim();
-  if (envDir !== void 0 && envDir !== "") {
-    const expanded = envDir.startsWith("~/") ? path2__default.default.join(os.homedir(), envDir.slice(2)) : envDir;
-    return path2__default.default.isAbsolute(expanded) ? expanded : path2__default.default.resolve(INITIAL_CWD, expanded);
-  }
-  return defaultDir ?? path2__default.default.join(os.homedir(), ".openhands");
-}
-var AsyncCallbackWrapper = class {
-  callback;
-  asyncCallback;
-  pending = /* @__PURE__ */ new Set();
-  constructor(asyncCallback) {
-    this.asyncCallback = asyncCallback;
-    this.callback = (event) => this.call(event);
-  }
-  get pendingCount() {
-    return this.pending.size;
-  }
-  call(event) {
-    const pending = Promise.resolve().then(() => this.asyncCallback(event)).catch(() => void 0).finally(() => this.pending.delete(pending));
-    this.pending.add(pending);
-  }
-  async waitForPending(timeoutMs) {
-    const current = [...this.pending];
-    if (current.length === 0) {
-      return;
-    }
-    const waitForAll = Promise.allSettled(current).then(() => void 0);
-    if (timeoutMs === void 0 || timeoutMs === null) {
-      await waitForAll;
-      return;
-    }
-    let timeout;
-    try {
-      await Promise.race([
-        waitForAll,
-        new Promise((_resolve, reject) => {
-          timeout = setTimeout(
-            () => reject(new Error(`Timed out waiting for async callbacks after ${timeoutMs}ms`)),
-            timeoutMs
-          );
-        })
-      ]);
-    } finally {
-      if (timeout !== void 0) {
-        clearTimeout(timeout);
-      }
-    }
-  }
-};
-var DEFAULT_TEXT_CONTENT_LIMIT = 5e4;
-var DEFAULT_TRUNCATE_NOTICE = "<response clipped><NOTE>Due to the max output limit, only part of the full response has been shown to you.</NOTE>";
-var DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST = "<response clipped><NOTE>Due to the max output limit, only part of the full response has been shown to you. The complete output has been saved to {filePath} - you can use other tools to view the full content (truncated part starts around line {lineNum}).</NOTE>";
-function maybeTruncate(content, options = {}) {
-  const truncateAfter = options.truncateAfter;
-  const truncateNotice = options.truncateNotice ?? DEFAULT_TRUNCATE_NOTICE;
-  if (truncateAfter === void 0 || truncateAfter === null || truncateAfter <= 0 || content.length <= truncateAfter) {
-    return content;
-  }
-  if (truncateNotice.length >= truncateAfter) {
-    return truncateNotice.slice(0, truncateAfter);
-  }
-  const availableChars = truncateAfter - truncateNotice.length;
-  const proposedHead = Math.floor(availableChars / 2) + availableChars % 2;
-  let finalNotice = truncateNotice;
-  if (options.saveDir !== void 0 && options.saveDir !== null && options.saveDir !== "") {
-    const savedFilePath = saveFullContent(content, options.saveDir, options.toolPrefix ?? "output");
-    if (savedFilePath !== null) {
-      const headContentLines = content.slice(0, proposedHead).split(/\r?\n/u).length;
-      finalNotice = DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST.replace("{filePath}", savedFilePath).replace(
-        "{lineNum}",
-        String(headContentLines + 1)
-      );
-    }
-  }
-  if (finalNotice.length >= truncateAfter) {
-    return finalNotice.slice(0, truncateAfter);
-  }
-  const remaining = truncateAfter - finalNotice.length;
-  const headChars = Math.min(proposedHead, remaining);
-  const tailChars = remaining - headChars;
-  return content.slice(0, headChars) + finalNotice + (tailChars > 0 ? content.slice(-tailChars) : "");
-}
-function saveFullContent(content, saveDir, toolPrefix) {
-  try {
-    fs.mkdirSync(saveDir, { recursive: true });
-    const contentHash = crypto.createHash("sha256").update(content, "utf8").digest("hex").slice(0, 8);
-    const filePath = path2__default.default.join(saveDir, `${toolPrefix}_output_${contentHash}.txt`);
-    if (!fs.existsSync(filePath)) {
-      fs.writeFileSync(filePath, content, "utf8");
-    }
-    return filePath;
-  } catch {
-    return null;
-  }
-}
-function toPosixPath(inputPath) {
-  return inputPath.toString().replace(/\\/gu, "/");
-}
-function posixPathName(inputPath) {
-  const normalized = toPosixPath(inputPath).replace(/\/+$/u, "");
-  if (normalized.length === 0) {
-    return "";
-  }
-  return normalized.split("/").at(-1) ?? "";
-}
-var urlSchemePattern = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//u;
-var windowsDriveAbsolutePattern = /^[A-Za-z]:[\\/]/u;
-function isAbsolutePathSource(inputPath) {
-  const value = inputPath.toString().trim();
-  if (value.length === 0) {
-    return false;
-  }
-  return value.startsWith("/") || value.startsWith("\\") || path2__default.default.isAbsolute(value) || windowsDriveAbsolutePattern.test(value);
-}
-function isHostAbsolutePath(inputPath) {
-  const value = inputPath.toString().trim();
-  return value.length > 0 && path2__default.default.isAbsolute(value);
-}
-function isLocalPathSource(source) {
-  const value = source.trim();
-  if (value.length === 0) {
-    return false;
-  }
-  if (value.startsWith("file://") || value.startsWith("~") || value.startsWith(".")) {
-    return true;
-  }
-  if (isAbsolutePathSource(value)) {
-    return true;
-  }
-  return value.includes("\\") && !urlSchemePattern.test(value);
-}
-var ZWJ = "\u200D";
-function sanitizeOpenHandsMentions(text) {
-  return text.replace(/@(OpenHands)\b/giu, `@${ZWJ}$1`);
-}
-async function* pageIterator(searchFunc, params) {
-  let pageId = typeof params.pageId === "string" ? params.pageId : void 0;
-  const rest = { ...params };
-  delete rest.pageId;
-  while (true) {
-    const pageParams = pageId === void 0 ? rest : { ...rest, pageId };
-    const page = await searchFunc(pageParams);
-    for (const item of page.items) {
-      yield item;
-    }
-    pageId = page.nextPageId ?? void 0;
-    if (pageId === void 0 || pageId === "") {
-      break;
-    }
-  }
-}
-var SENSITIVE_ENV_VARS = /* @__PURE__ */ new Set(["SESSION_API_KEY", "OH_SECRET_KEY"]);
-var SENSITIVE_ENV_PREFIXES = ["OH_SESSION_API_KEYS_"];
-function sanitizedEnv(env = process.env) {
-  const result = {};
-  for (const [key, value] of Object.entries(env)) {
-    if (value !== void 0) {
-      result[key] = value;
-    }
-  }
-  for (const key of SENSITIVE_ENV_VARS) {
-    delete result[key];
-  }
-  for (const key of Object.keys(result)) {
-    if (SENSITIVE_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) {
-      delete result[key];
-    }
-  }
-  if (Object.hasOwn(result, "LD_LIBRARY_PATH_ORIG")) {
-    const original = result.LD_LIBRARY_PATH_ORIG;
-    if (original === void 0 || original === "") {
-      delete result.LD_LIBRARY_PATH;
-    } else {
-      result.LD_LIBRARY_PATH = original;
-    }
-  }
-  return result;
-}
-function executeCommand(command, options = {}) {
-  const shell = typeof command === "string";
-  const executable = shell ? command : command[0];
-  if (executable === void 0) {
-    throw new Error("Command must not be empty");
-  }
-  const args = shell ? [] : command.slice(1);
-  const result = child_process.spawnSync(executable, args, {
-    cwd: options.cwd,
-    env: sanitizedEnv(options.env),
-    shell,
-    timeout: options.timeoutMs,
-    encoding: "utf8"
-  });
-  const stdout = result.stdout ?? "";
-  const stderr = result.stderr ?? "";
-  if (options.printOutput ?? true) {
-    process.stdout.write(stdout);
-    process.stderr.write(stderr);
-  }
-  return {
-    command,
-    status: result.error?.name === "ETIMEDOUT" ? -1 : result.status,
-    stdout,
-    stderr
-  };
-}
-var SECRET_KEY_PATTERNS = /* @__PURE__ */ new Set([
-  "AUTHORIZATION",
-  "COOKIE",
-  "CREDENTIAL",
-  "KEY",
-  "PASSWORD",
-  "SECRET",
-  "SESSION",
-  "TOKEN"
-]);
-var SENSITIVE_URL_PARAMS = /* @__PURE__ */ new Set(["tavilyapikey", "apikey", "api_key", "token", "access_token", "secret", "key"]);
-function isSecretKey(key) {
-  const upper = key.toUpperCase();
-  return [...SECRET_KEY_PATTERNS].some((pattern) => upper.includes(pattern));
-}
-function redactUrlCredentials(url, options = {}) {
-  const match = /^(https?:\/\/)([^@/]+)@(.+)$/u.exec(url);
-  if (match === null) {
-    return url;
-  }
-  if (options.preservePlaceholders === true && match[2]?.includes("${")) {
-    return url;
-  }
-  return `${match[1]}****@${match[3]}`;
-}
-var embeddedUrlCredentialsPattern = /(https?:\/\/)[^/@\s]+@/giu;
-function redactUrlCredentialsInText(text) {
-  return text.replace(embeddedUrlCredentialsPattern, "$1****@");
-}
-function redactUrlParams(url) {
-  if (url.length === 0 || !url.includes("?")) {
-    return url;
-  }
-  try {
-    const parsed = new URL(url);
-    if (parsed.search.length === 0) {
-      return url;
-    }
-    for (const key of [...parsed.searchParams.keys()]) {
-      if (SENSITIVE_URL_PARAMS.has(key.toLowerCase()) || isSecretKey(key)) {
-        const values = parsed.searchParams.getAll(key);
-        parsed.searchParams.delete(key);
-        for (let index = 0; index < Math.max(1, values.length); index += 1) {
-          parsed.searchParams.append(key, "<redacted>");
-        }
-      }
-    }
-    return parsed.toString();
-  } catch {
-    return url;
-  }
-}
-var keyValueSecretPattern = /\b([A-Za-z0-9_.-]*(?:api[_-]?key|authorization|cookie|credential|password|secret|session|token|key)[A-Za-z0-9_.-]*)\s*=\s*("[^"]*"|'[^']*'|[^\s]+)/giu;
-var anthropicKeyPattern = /sk-ant-api\d{2}-[A-Za-z0-9_-]{20,}/gu;
-var singleQuotedDictSecretPattern = /('[A-Za-z_]*(?:KEY|SECRET|TOKEN|PASSWORD)[A-Za-z_]*':\s*')[^']*(')/giu;
-var doubleQuotedDictSecretPattern = /("[A-Za-z_]*(?:KEY|SECRET|TOKEN|PASSWORD)[A-Za-z_]*":\s*")[^"]*(")/giu;
-function redactTextSecrets(text) {
-  return redactUrlCredentialsInText(text).replace(anthropicKeyPattern, "<redacted>").replace(keyValueSecretPattern, (_match, key) => `${key}=<redacted>`).replace(singleQuotedDictSecretPattern, "$1<redacted>$2").replace(doubleQuotedDictSecretPattern, "$1<redacted>$2");
-}
-function utcNow() {
-  return /* @__PURE__ */ new Date();
-}
-function dumps(value, space) {
-  return JSON.stringify(value, (_key, item) => item, space);
-}
-function loads(text) {
-  try {
-    return JSON.parse(text);
-  } catch (error) {
-    throw new Error(`No valid JSON object found in response.`, { cause: error });
-  }
-}
-function handleDeprecatedModelFields(data, deprecatedFields) {
-  if (data === null || typeof data !== "object" || Array.isArray(data)) {
-    return data;
-  }
-  const result = { ...data };
-  for (const field of deprecatedFields) {
-    delete result[field];
-  }
-  return result;
-}
-function displayJson(value) {
-  if (Array.isArray(value)) {
-    return [`[List with ${value.length} items]`, ...value.map((item, index) => `  [${index}]: ${formatDisplayValue(item)}`)].join("\n");
-  }
-  if (value !== null && typeof value === "object") {
-    const lines = [];
-    for (const [key, item] of Object.entries(value)) {
-      if (item === null || item === void 0) {
-        continue;
-      }
-      lines.push(`
-  ${key}: ${formatDisplayValue(item)}`);
-    }
-    return lines.join("");
-  }
-  if (typeof value === "string" && value.includes("\n")) {
-    return `String:
-${value.split("\n").map((line) => `  ${line}`).join("\n")}`;
-  }
-  return formatDisplayValue(value);
-}
-function formatDisplayValue(value) {
-  if (typeof value === "string") {
-    return value.includes("\n") ? `
-${value.split("\n").map((line) => `    ${line}`).join("\n")}` : `"${value}"`;
-  }
-  if (typeof value === "boolean") {
-    return value ? "True" : "False";
-  }
-  if (value === null) {
-    return "null";
-  }
-  if (typeof value === "number" || typeof value === "bigint" || typeof value === "symbol") {
-    return String(value);
-  }
-  if (typeof value === "object") {
-    return JSON.stringify(value);
-  }
-  if (typeof value === "undefined") {
-    return "undefined";
-  }
-  if (typeof value === "function") {
-    return `[Function ${value.name || "anonymous"}]`;
-  }
-  return JSON.stringify(value);
 }
 
 // src/context/condenser-prompt.ts
@@ -4935,6 +5012,336 @@ function cancelledError(action) {
     classification: AGENT_OUTCOME
   });
 }
+var profileReferenceSchema = zod.z.string().trim().min(1);
+var llmSummarizingCondenserSettingsSchema = zod.z.object({
+  condenser_kind: zod.z.literal("llm_summarizing").default("llm_summarizing"),
+  enabled: zod.z.boolean().default(true),
+  llm_profile_ref: profileReferenceSchema.optional(),
+  // DEV-SDK-011: align omitted settings with the class and standard factory.
+  max_size: zod.z.number().int().min(20).default(1e3),
+  // Absence inherits the agent limit at materialization; explicit null does not.
+  max_tokens: zod.z.number().int().positive().nullable().optional(),
+  keep_first: zod.z.number().int().nonnegative().default(2),
+  minimum_progress: zod.z.number().gt(0).lt(1).default(0.1),
+  hard_context_reset_max_retries: zod.z.number().int().positive().default(5),
+  hard_context_reset_context_scaling: zod.z.number().gt(0).lt(1).default(0.8)
+}).strict();
+var noOpCondenserSettingsSchema = zod.z.object({
+  condenser_kind: zod.z.literal("no_op"),
+  enabled: zod.z.boolean().default(true)
+}).strict();
+var agentResetCondenserSettingsSchema = zod.z.object({
+  condenser_kind: zod.z.literal("agent_reset"),
+  enabled: zod.z.boolean().default(true),
+  warning_thresholds: contextWarningThresholdsSchema.default(() => [...DEFAULT_CONTEXT_WARNING_THRESHOLDS])
+}).strict();
+var hardCondenserSettingsSchema = zod.z.object({
+  condenser_kind: zod.z.literal("llm_summarizing"),
+  llm_profile_ref: profileReferenceSchema,
+  hard_context_reset_max_retries: zod.z.number().int().positive().default(5),
+  hard_context_reset_context_scaling: zod.z.number().gt(0).lt(1).default(0.8)
+}).strict();
+var condenserSettingsSchema = zod.z.preprocess((value) => {
+  if (typeof value === "object" && value !== null && !Array.isArray(value) && "condenser_kind" in value && value.condenser_kind === "noop") {
+    return { ...value, condenser_kind: "no_op" };
+  }
+  return value;
+}, zod.z.union([llmSummarizingCondenserSettingsSchema, noOpCondenserSettingsSchema, agentResetCondenserSettingsSchema]));
+async function materializeCondenser(data, options) {
+  const settings = condenserSettingsSchema.parse(data);
+  if (!settings.enabled) return null;
+  if (settings.condenser_kind === "no_op") return new NoOpCondenser();
+  if (settings.condenser_kind === "agent_reset") return new AgentResetCondenser({ warningThresholds: settings.warning_thresholds });
+  if (Math.floor(settings.max_size / 2) - settings.keep_first - 1 <= 0) {
+    throw new RangeError("keep_first must be less than max_size // 2 to leave room for condensation");
+  }
+  const selectedRef = settings.llm_profile_ref ?? options.defaultProfileRef;
+  if (selectedRef === void 0) {
+    throw new Error("Enabled LLM condenser requires llm_profile_ref or an explicit host defaultProfileRef.");
+  }
+  const profileRef = profileReferenceSchema.parse(selectedRef);
+  const llm = await options.resolveClient(profileRef);
+  let maxTokens = settings.max_tokens;
+  if (maxTokens === void 0) {
+    await options.agentLlm?.resolveRuntimeMetadata?.();
+    maxTokens = options.agentLlm?.effectiveMaxInputTokens ?? null;
+  }
+  return new LLMSummarizingCondenser({
+    llm,
+    maxSize: settings.max_size,
+    maxTokens,
+    keepFirst: settings.keep_first,
+    minimumProgress: settings.minimum_progress,
+    hardContextResetMaxRetries: settings.hard_context_reset_max_retries,
+    hardContextResetContextScaling: settings.hard_context_reset_context_scaling
+  });
+}
+async function materializeHardCondenser(data, options) {
+  if (data === void 0 || data === null) return null;
+  const settings = hardCondenserSettingsSchema.parse(data);
+  const llm = await options.resolveClient(settings.llm_profile_ref);
+  return new LLMSummarizingCondenser({
+    llm,
+    // The fallback never inherits a proactive main-model token trigger.
+    maxTokens: null,
+    hardContextResetMaxRetries: settings.hard_context_reset_max_retries,
+    hardContextResetContextScaling: settings.hard_context_reset_context_scaling
+  });
+}
+var AGENT_PROFILE_SCHEMA_VERSION = 2;
+var acpServerKindSchema = zod.z.union([
+  zod.z.literal("claude-code"),
+  zod.z.literal("codex"),
+  zod.z.literal("gemini-cli"),
+  zod.z.literal("custom")
+]);
+var criticModeSchema = zod.z.union([zod.z.literal("finish_and_message"), zod.z.literal("all_actions")]);
+var profileVerificationSettingsSchema = zod.z.object({
+  critic_enabled: zod.z.boolean().default(false),
+  critic_mode: criticModeSchema.default("finish_and_message"),
+  enable_iterative_refinement: zod.z.boolean().default(false),
+  critic_threshold: zod.z.number().min(0).max(1).default(0.6),
+  max_refinement_iterations: zod.z.number().int().min(1).default(3),
+  critic_server_url: zod.z.string().nullable().default(null),
+  critic_model_name: zod.z.string().nullable().default(null)
+});
+var defaultProfileVerificationSettings = profileVerificationSettingsSchema.parse({});
+var agentProfileBaseFields = {
+  schema_version: zod.z.literal(AGENT_PROFILE_SCHEMA_VERSION).default(AGENT_PROFILE_SCHEMA_VERSION),
+  id: zod.z.string().uuid().default(() => crypto.randomUUID()),
+  name: zod.z.string().min(1),
+  revision: zod.z.number().int().min(0).default(0),
+  mcp_server_refs: zod.z.array(zod.z.string()).nullable().default(null),
+  secret_refs: zod.z.array(zod.z.string()).nullable().default(null)
+};
+var openHandsAgentProfileSchema = zod.z.object({
+  ...agentProfileBaseFields,
+  agent_kind: zod.z.literal("openhands").default("openhands"),
+  llm_profile_ref: zod.z.string().min(1),
+  agent: zod.z.string().default("CodeActAgent"),
+  tools: zod.z.array(zod.z.unknown()).nullable().default(null),
+  system_message_suffix: zod.z.string().nullable().default(null),
+  disabled_skills: zod.z.array(zod.z.string()).default([]),
+  condenser: zod.z.unknown().default({ condenser_kind: "llm_summarizing", enabled: true }),
+  verification: profileVerificationSettingsSchema.default(defaultProfileVerificationSettings),
+  enable_sub_agents: zod.z.boolean().default(false),
+  enable_switch_llm_tool: zod.z.boolean().default(true),
+  tool_concurrency_limit: zod.z.number().int().min(1).default(1)
+}).strict();
+var acpAgentProfileSchema = zod.z.object({
+  ...agentProfileBaseFields,
+  agent_kind: zod.z.literal("acp").default("acp"),
+  acp_server: acpServerKindSchema.default("claude-code"),
+  acp_model: zod.z.string().nullable().default(null),
+  acp_session_mode: zod.z.string().nullable().default(null),
+  acp_prompt_timeout: zod.z.number().positive().default(1800),
+  acp_startup_timeout: zod.z.number().positive().default(90),
+  acp_command: zod.z.string().nullable().default(null),
+  acp_args: zod.z.array(zod.z.string()).nullable().default(null)
+}).strict();
+var agentProfileSchema = zod.z.union([openHandsAgentProfileSchema, acpAgentProfileSchema]);
+function validateAgentProfile(data) {
+  const payload = applyAgentProfileMigrations(data);
+  const kind = payload.agent_kind ?? "openhands";
+  if (kind === "acp") {
+    return acpAgentProfileSchema.parse(payload);
+  }
+  if (kind === "openhands") {
+    return openHandsAgentProfileSchema.parse({ ...payload, agent_kind: "openhands" });
+  }
+  const renderedKind = typeof kind === "string" ? kind : JSON.stringify(kind);
+  throw new Error(`Unknown agent_kind: ${renderedKind ?? "<unserializable>"}`);
+}
+function applyAgentProfileMigrations(data) {
+  if (!isRecord2(data)) {
+    throw new TypeError("AgentProfile payload must be a mapping.");
+  }
+  const migrated = { ...data };
+  const version = migrated.schema_version;
+  if (version === void 0 || version === null) {
+    migrated.schema_version = AGENT_PROFILE_SCHEMA_VERSION;
+    return migrated;
+  }
+  if (typeof version !== "number" || !Number.isInteger(version) || Object.is(version, -0)) {
+    throw new TypeError(`AgentProfile schema_version must be an integer, got ${typeof version}.`);
+  }
+  if (version < 0) {
+    throw new Error("AgentProfile schema_version must be non-negative.");
+  }
+  if (version > AGENT_PROFILE_SCHEMA_VERSION) {
+    throw new Error(
+      `AgentProfile schema_version ${version} is newer than supported version ${AGENT_PROFILE_SCHEMA_VERSION}.`
+    );
+  }
+  if (version === 1) {
+    if ((migrated.agent_kind ?? "openhands") === "openhands" && migrated.name === "default" && (migrated.revision ?? 0) === 0 && Array.isArray(migrated.tools) && migrated.tools.length === 0) {
+      migrated.tools = null;
+    }
+    migrated.schema_version = 2;
+  }
+  return migrated;
+}
+function isRecord2(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// src/settings/index.ts
+var RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED = [
+  "provider",
+  "model",
+  "openaiApiMode",
+  "baseUrl",
+  "apiVersion",
+  "timeout",
+  "temperature",
+  "topP",
+  "topK",
+  "maxInputTokens",
+  "maxOutputTokens",
+  "reasoningEffort",
+  "reasoningSummary",
+  "promptCacheRetention",
+  "promptCacheKey",
+  "inputCostPerToken",
+  "outputCostPerToken"
+];
+var AGENT_SETTINGS_SCHEMA_VERSION = 6;
+var CONVERSATION_SETTINGS_SCHEMA_VERSION = 1;
+var settingsSchemaVersion = (version) => zod.z.literal(version).default(version);
+var observabilityMetadataSchema = zod.z.record(zod.z.string().min(1), zod.z.unknown());
+var observabilityTagsSchema = zod.z.array(zod.z.string());
+var OBSERVABILITY_SPAN_NAME_PATTERN = /^[A-Za-z0-9._:/-]+$/u;
+var OBSERVABILITY_SPAN_NAME_MAX_LENGTH = 128;
+var observabilitySpanNameSchema = zod.z.string().min(1, "Observability span name must be a non-empty string").max(OBSERVABILITY_SPAN_NAME_MAX_LENGTH, `Observability span name exceeds maximum length of ${OBSERVABILITY_SPAN_NAME_MAX_LENGTH} characters`).regex(OBSERVABILITY_SPAN_NAME_PATTERN, "Observability span name may only contain letters, numbers, dots, underscores, colons, slashes, and hyphens");
+var conversationSettingsSchema = zod.z.object({
+  schema_version: settingsSchemaVersion(CONVERSATION_SETTINGS_SCHEMA_VERSION),
+  max_iterations: zod.z.number().int().min(1).default(500),
+  observability_metadata: observabilityMetadataSchema.nullable().default(null),
+  observability_tags: observabilityTagsSchema.nullable().default(null),
+  observability_span_name: observabilitySpanNameSchema.nullable().default(null)
+}).strict();
+var agentSettingsBaseFields = {
+  schema_version: settingsSchemaVersion(AGENT_SETTINGS_SCHEMA_VERSION),
+  mcp_config: zod.z.unknown().nullable().default(null)
+};
+var defaultVerificationSettings = profileVerificationSettingsSchema.parse({});
+var openHandsAgentSettingsSchema = zod.z.object({
+  ...agentSettingsBaseFields,
+  agent_kind: zod.z.literal("openhands").default("openhands"),
+  llm_profile_ref: zod.z.string().min(1),
+  agent: zod.z.string().default("CodeActAgent"),
+  tools: zod.z.array(zod.z.unknown()).nullable().default(null),
+  enable_sub_agents: zod.z.boolean().default(false),
+  enable_switch_llm_tool: zod.z.boolean().default(true),
+  tool_concurrency_limit: zod.z.number().int().min(1).default(1),
+  condenser: condenserSettingsSchema.prefault({}),
+  hard_condenser: hardCondenserSettingsSchema.nullable().optional(),
+  verification: profileVerificationSettingsSchema.default(defaultVerificationSettings)
+}).strict().superRefine((settings, context) => {
+  if (settings.hard_condenser !== void 0 && settings.hard_condenser !== null && (settings.condenser.condenser_kind !== "agent_reset" || !settings.condenser.enabled)) {
+    context.addIssue({
+      code: "custom",
+      path: ["hard_condenser"],
+      message: "hard_condenser requires an enabled agent_reset condenser"
+    });
+  }
+});
+var acpAgentSettingsSchema = zod.z.object({
+  ...agentSettingsBaseFields,
+  agent_kind: zod.z.literal("acp").default("acp"),
+  acp_server: acpServerKindSchema.default("claude-code"),
+  acp_command: zod.z.array(zod.z.string()).default([]),
+  acp_args: zod.z.array(zod.z.string()).default([]),
+  acp_model: zod.z.string().nullable().default(null),
+  acp_session_mode: zod.z.string().nullable().default(null),
+  acp_prompt_timeout: zod.z.number().positive().default(1800),
+  acp_startup_timeout: zod.z.number().positive().default(90)
+}).strict();
+var agentSettingsSchema = zod.z.union([openHandsAgentSettingsSchema, acpAgentSettingsSchema]);
+function clearRawLlmFieldsWhenProfileSelected(llm) {
+  const profileId = typeof llm.profileId === "string" ? llm.profileId.trim() : "";
+  if (profileId.length === 0) {
+    return llm;
+  }
+  return {
+    ...llm,
+    provider: void 0,
+    model: void 0,
+    openaiApiMode: void 0,
+    baseUrl: void 0,
+    apiVersion: void 0,
+    timeout: void 0,
+    temperature: void 0,
+    topP: void 0,
+    topK: void 0,
+    maxInputTokens: void 0,
+    maxOutputTokens: void 0,
+    reasoningEffort: void 0,
+    reasoningSummary: void 0,
+    promptCacheRetention: void 0,
+    promptCacheKey: void 0,
+    inputCostPerToken: void 0,
+    outputCostPerToken: void 0
+  };
+}
+function validateAgentSettings(data) {
+  const payload = applySettingsVersion(data, AGENT_SETTINGS_SCHEMA_VERSION, "AgentSettings");
+  const kind = payload.agent_kind ?? "openhands";
+  if (kind === "acp") {
+    return acpAgentSettingsSchema.parse(payload);
+  }
+  if (kind === "llm" || kind === "openhands") {
+    return openHandsAgentSettingsSchema.parse({ ...payload, agent_kind: "openhands" });
+  }
+  const renderedKind = typeof kind === "string" ? kind : JSON.stringify(kind);
+  throw new Error(`Unknown agent_kind: ${renderedKind ?? "<unserializable>"}`);
+}
+function validateConversationSettings(data) {
+  return conversationSettingsSchema.parse(
+    applySettingsVersion(data, CONVERSATION_SETTINGS_SCHEMA_VERSION, "ConversationSettings")
+  );
+}
+function defaultAgentSettings(llmProfileRef) {
+  return openHandsAgentSettingsSchema.parse({ llm_profile_ref: llmProfileRef });
+}
+function applySettingsVersion(data, currentVersion, payloadName) {
+  if (!isRecord3(data)) {
+    throw new TypeError(`${payloadName} payload must be a mapping.`);
+  }
+  const migrated = { ...data };
+  const version = migrated.schema_version;
+  if (version === void 0 || version === null) {
+    migrated.schema_version = currentVersion;
+    return migrated;
+  }
+  if (typeof version !== "number" || !Number.isInteger(version)) {
+    throw new TypeError(`${payloadName} schema_version must be an integer, got ${typeof version}.`);
+  }
+  if (version < 0) {
+    throw new Error(`${payloadName} schema_version must be non-negative.`);
+  }
+  if (version > currentVersion) {
+    throw new Error(`${payloadName} schema_version ${version} is newer than supported version ${currentVersion}.`);
+  }
+  migrated.schema_version = currentVersion;
+  return migrated;
+}
+function isRecord3(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// src/utils/uuid.ts
+function normalizeUuid(value) {
+  let hex = value;
+  if (hex.startsWith("urn:uuid:")) hex = hex.slice(9);
+  if (hex.startsWith("{") && hex.endsWith("}")) hex = hex.slice(1, -1);
+  if (!/^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/iu.test(hex)) {
+    throw new Error("Expected a valid UUID");
+  }
+  hex = hex.replaceAll("-", "");
+  hex = hex.toLowerCase();
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 // src/conversation/remote-conversation.ts
 var RemoteConversation = class _RemoteConversation {
@@ -4954,14 +5361,14 @@ var RemoteConversation = class _RemoteConversation {
     const host = options.host.replace(/\/+$/, "");
     const fetcher = options.fetch ?? globalRemoteFetch();
     const apiKey = options.apiKey ?? null;
-    const info = await sendRemoteRequest(fetcher, apiKey, "POST", `${host}/api/conversations`, serializeCreateRequest(options.request));
+    const info = await sendRemoteRequest(fetcher, apiKey, "POST", `${host}/api/conversations`, serializeCreateRequest(options.request, options.server ?? "smolpaws"));
     return _RemoteConversation.fromInfo(host, fetcher, apiKey, options.state, info);
   }
   static async attach(options) {
     const host = options.host.replace(/\/+$/, "");
     const fetcher = options.fetch ?? globalRemoteFetch();
     const apiKey = options.apiKey ?? null;
-    const info = await sendRemoteRequest(fetcher, apiKey, "GET", `${host}/api/conversations/${encodeURIComponent(options.conversationId)}`);
+    const info = await sendRemoteRequest(fetcher, apiKey, "GET", `${host}/api/conversations/${encodeURIComponent(normalizeUuid(options.conversationId))}`);
     return _RemoteConversation.fromInfo(host, fetcher, apiKey, options.state, info);
   }
   static fromInfo(host, fetcher, apiKey, state, info) {
@@ -5025,7 +5432,7 @@ var RemoteConversation = class _RemoteConversation {
   }
   async pollStatus() {
     const info = await this.request("GET", this.infoPath);
-    if (isRecord2(info) && typeof info.execution_status === "string" && isExecutionStatus(info.execution_status)) {
+    if (isRecord4(info) && typeof info.execution_status === "string" && isExecutionStatus(info.execution_status)) {
       return info.execution_status;
     }
     return null;
@@ -5060,45 +5467,75 @@ async function sendRemoteRequest(fetcher, apiKey, method, url, payload, acceptab
   }
   return response.json();
 }
-function serializeCreateRequest(request) {
-  const payload = {};
-  if (request.agentProfileId !== void 0 && request.agentProfileId !== null) {
-    payload.agent_profile_id = request.agentProfileId;
+function serializeCreateRequest(request, server) {
+  if (request.workspace?.kind !== "LocalWorkspace" || typeof request.workspace.working_dir !== "string" || !request.workspace.working_dir) {
+    throw new Error("Creation requires a LocalWorkspace with working_dir");
   }
-  if (request.agentSettings !== void 0 && request.agentSettings !== null) {
-    payload.agent_settings = request.agentSettings;
+  const payload = { workspace: request.workspace };
+  const hasSettings = request.agentSettings !== void 0 && request.agentSettings !== null;
+  const hasProfile = request.agentProfileId !== void 0 && request.agentProfileId !== null;
+  if (server === "python") {
+    if (!hasProfile || hasSettings) {
+      throw new Error("Python creation requires agentProfileId; TypeScript AgentSettings are not Python settings");
+    }
+    payload.agent_profile_id = normalizeUuid(request.agentProfileId);
+  } else {
+    if (hasProfile || !hasSettings) {
+      throw new Error("SmolPaws creation requires agentSettings with an explicit llm_profile_ref; agentProfileId is a Python Agent Profile UUID");
+    }
+    const settings = validateAgentSettings(request.agentSettings);
+    if (settings.agent_kind !== "openhands") throw new Error("acp_runtime_not_ported");
+    payload.agent = settings;
   }
-  if (request.conversationId !== void 0 && request.conversationId !== null) {
-    payload.conversation_id = request.conversationId;
+  const fields2 = {
+    worktree: request.worktree,
+    initial_message: request.initialMessage,
+    max_iterations: request.maxIterations ?? void 0,
+    stuck_detection: request.stuckDetection,
+    hook_config: request.hookConfig,
+    agent_launch_additions: request.agentLaunchAdditions,
+    tags: request.tags ?? void 0,
+    user_id: request.userId,
+    observability_metadata: request.observabilityMetadata,
+    observability_tags: request.observabilityTags,
+    observability_span_name: request.observabilitySpanName,
+    autotitle: request.autotitle,
+    title_llm_profile: request.titleLlmProfile,
+    title: request.title,
+    persistence_dir: request.persistenceDir
+  };
+  for (const [key, value] of Object.entries(fields2)) {
+    if (value !== void 0) payload[key] = value;
   }
-  if (request.maxIterations !== void 0 && request.maxIterations !== null) {
-    payload.max_iterations = request.maxIterations;
-  }
-  if (request.tags !== void 0 && request.tags !== null) {
-    payload.tags = request.tags;
-  }
+  if (request.conversationId !== void 0 && request.conversationId !== null) payload.conversation_id = normalizeUuid(request.conversationId);
+  if (request.parentConversationId !== void 0 && request.parentConversationId !== null) payload.parent_conversation_id = normalizeUuid(request.parentConversationId);
   return payload;
 }
 function extractConversationId(info) {
-  if (!isRecord2(info)) {
+  if (!isRecord4(info)) {
     throw new Error("Invalid response from server: missing conversation id");
   }
   const id = info.id ?? info.conversation_id;
   if (typeof id !== "string" || id.length === 0) {
     throw new Error("Invalid response from server: missing conversation id");
   }
-  return id;
+  try {
+    return normalizeUuid(id);
+  } catch {
+    throw new Error("Invalid response from server: invalid conversation id");
+  }
 }
 function restoreExecutionStatus(info, state) {
-  if (isRecord2(info) && typeof info.execution_status === "string" && isExecutionStatus(info.execution_status)) {
-    state.executionStatus = info.execution_status;
+  if (!isRecord4(info) || typeof info.execution_status !== "string" || !isExecutionStatus(info.execution_status)) {
+    throw new Error("Invalid response from server: missing or invalid execution_status");
   }
+  state.executionStatus = info.execution_status;
   return state;
 }
 function isExecutionStatus(status) {
   return Object.values(conversationExecutionStatus).includes(status);
 }
-function isRecord2(value) {
+function isRecord4(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function sleep(ms) {
@@ -5149,7 +5586,7 @@ function migrateEvent(payload, index, droppedEventFields) {
   for (const field of dropped) {
     delete event[field];
   }
-  if (isRecord3(event.tool_call)) {
+  if (isRecord5(event.tool_call)) {
     const toolCall = { ...event.tool_call };
     if (Object.hasOwn(toolCall, "security_risk")) {
       delete toolCall.security_risk;
@@ -5172,12 +5609,12 @@ function sortedKeys(record4, fields2) {
   return Object.keys(record4).filter((key) => fields2.has(key)).sort();
 }
 function recordOrThrow(value, name) {
-  if (isRecord3(value)) {
+  if (isRecord5(value)) {
     return value;
   }
   throw new TypeError(`${name} must be an object`);
 }
-function isRecord3(value) {
+function isRecord5(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -6070,7 +6507,7 @@ var InstallationMetadata = class _InstallationMetadata {
   static async loadFromDir(installedDir) {
     try {
       const raw = JSON.parse(await promises.readFile(_InstallationMetadata.metadataPath(installedDir), "utf8"));
-      if (isRecord4(raw)) {
+      if (isRecord6(raw)) {
         return new _InstallationMetadata(raw);
       }
     } catch {
@@ -6163,7 +6600,7 @@ async function exists2(path3) {
 function isLocalPathSource2(source) {
   return source.startsWith("/") || source.startsWith("~/") || source.startsWith("./") || source.startsWith("../") || /^[a-zA-Z]:[\\/]/u.test(source);
 }
-function isRecord4(value) {
+function isRecord6(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 var HookEventType = /* @__PURE__ */ ((HookEventType2) => {
@@ -6605,7 +7042,7 @@ function parseHookStdout(stdout) {
   }
   try {
     const parsed = JSON.parse(stdout);
-    if (!isRecord5(parsed)) {
+    if (!isRecord7(parsed)) {
       return { decision: null, reason: null, additionalContext: null, blocked: false };
     }
     const decision = parsed.decision === "allow" /* Allow */ ? "allow" /* Allow */ : parsed.decision === "deny" /* Deny */ ? "deny" /* Deny */ : null;
@@ -6686,7 +7123,7 @@ async function existsFile2(path3) {
     return false;
   }
 }
-function isRecord5(value) {
+function isRecord7(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function extractFirstJsonObject(text) {
@@ -6700,7 +7137,7 @@ function extractFirstJsonObject(text) {
     }
     try {
       const parsed = JSON.parse(text.slice(start, end + 1));
-      if (isRecord5(parsed)) {
+      if (isRecord7(parsed)) {
         return parsed;
       }
     } catch {
@@ -9345,102 +9782,6 @@ function isMcpTextBlock(block) {
 function isMcpImageBlock(block) {
   return block.type === "image" && typeof block.mimeType === "string" && typeof block.data === "string";
 }
-var AGENT_PROFILE_SCHEMA_VERSION = 2;
-var acpServerKindSchema = zod.z.union([
-  zod.z.literal("claude-code"),
-  zod.z.literal("codex"),
-  zod.z.literal("gemini-cli"),
-  zod.z.literal("custom")
-]);
-var criticModeSchema = zod.z.union([zod.z.literal("finish_and_message"), zod.z.literal("all_actions")]);
-var profileVerificationSettingsSchema = zod.z.object({
-  critic_enabled: zod.z.boolean().default(false),
-  critic_mode: criticModeSchema.default("finish_and_message"),
-  enable_iterative_refinement: zod.z.boolean().default(false),
-  critic_threshold: zod.z.number().min(0).max(1).default(0.6),
-  max_refinement_iterations: zod.z.number().int().min(1).default(3),
-  critic_server_url: zod.z.string().nullable().default(null),
-  critic_model_name: zod.z.string().nullable().default(null)
-});
-var defaultProfileVerificationSettings = profileVerificationSettingsSchema.parse({});
-var agentProfileBaseFields = {
-  schema_version: zod.z.literal(AGENT_PROFILE_SCHEMA_VERSION).default(AGENT_PROFILE_SCHEMA_VERSION),
-  id: zod.z.string().uuid().default(() => crypto.randomUUID()),
-  name: zod.z.string().min(1),
-  revision: zod.z.number().int().min(0).default(0),
-  mcp_server_refs: zod.z.array(zod.z.string()).nullable().default(null),
-  secret_refs: zod.z.array(zod.z.string()).nullable().default(null)
-};
-var openHandsAgentProfileSchema = zod.z.object({
-  ...agentProfileBaseFields,
-  agent_kind: zod.z.literal("openhands").default("openhands"),
-  llm_profile_ref: zod.z.string().min(1),
-  agent: zod.z.string().default("CodeActAgent"),
-  tools: zod.z.array(zod.z.unknown()).nullable().default(null),
-  system_message_suffix: zod.z.string().nullable().default(null),
-  disabled_skills: zod.z.array(zod.z.string()).default([]),
-  condenser: zod.z.unknown().default({ condenser_kind: "llm_summarizing", enabled: true }),
-  verification: profileVerificationSettingsSchema.default(defaultProfileVerificationSettings),
-  enable_sub_agents: zod.z.boolean().default(false),
-  enable_switch_llm_tool: zod.z.boolean().default(true),
-  tool_concurrency_limit: zod.z.number().int().min(1).default(1)
-}).strict();
-var acpAgentProfileSchema = zod.z.object({
-  ...agentProfileBaseFields,
-  agent_kind: zod.z.literal("acp").default("acp"),
-  acp_server: acpServerKindSchema.default("claude-code"),
-  acp_model: zod.z.string().nullable().default(null),
-  acp_session_mode: zod.z.string().nullable().default(null),
-  acp_prompt_timeout: zod.z.number().positive().default(1800),
-  acp_startup_timeout: zod.z.number().positive().default(90),
-  acp_command: zod.z.string().nullable().default(null),
-  acp_args: zod.z.array(zod.z.string()).nullable().default(null)
-}).strict();
-var agentProfileSchema = zod.z.union([openHandsAgentProfileSchema, acpAgentProfileSchema]);
-function validateAgentProfile(data) {
-  const payload = applyAgentProfileMigrations(data);
-  const kind = payload.agent_kind ?? "openhands";
-  if (kind === "acp") {
-    return acpAgentProfileSchema.parse(payload);
-  }
-  if (kind === "openhands") {
-    return openHandsAgentProfileSchema.parse({ ...payload, agent_kind: "openhands" });
-  }
-  const renderedKind = typeof kind === "string" ? kind : JSON.stringify(kind);
-  throw new Error(`Unknown agent_kind: ${renderedKind ?? "<unserializable>"}`);
-}
-function applyAgentProfileMigrations(data) {
-  if (!isRecord6(data)) {
-    throw new TypeError("AgentProfile payload must be a mapping.");
-  }
-  const migrated = { ...data };
-  const version = migrated.schema_version;
-  if (version === void 0 || version === null) {
-    migrated.schema_version = AGENT_PROFILE_SCHEMA_VERSION;
-    return migrated;
-  }
-  if (typeof version !== "number" || !Number.isInteger(version) || Object.is(version, -0)) {
-    throw new TypeError(`AgentProfile schema_version must be an integer, got ${typeof version}.`);
-  }
-  if (version < 0) {
-    throw new Error("AgentProfile schema_version must be non-negative.");
-  }
-  if (version > AGENT_PROFILE_SCHEMA_VERSION) {
-    throw new Error(
-      `AgentProfile schema_version ${version} is newer than supported version ${AGENT_PROFILE_SCHEMA_VERSION}.`
-    );
-  }
-  if (version === 1) {
-    if ((migrated.agent_kind ?? "openhands") === "openhands" && migrated.name === "default" && (migrated.revision ?? 0) === 0 && Array.isArray(migrated.tools) && migrated.tools.length === 0) {
-      migrated.tools = null;
-    }
-    migrated.schema_version = 2;
-  }
-  return migrated;
-}
-function isRecord6(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 // src/observability/index.ts
 var RootSpan = class {
@@ -9526,11 +9867,11 @@ function startChildSpan(root, name, tags) {
 }
 function extractActionName(actionEvent) {
   try {
-    if (!isRecord7(actionEvent)) {
+    if (!isRecord8(actionEvent)) {
       return "agent.execute_action";
     }
     const action = actionEvent.action;
-    if (isRecord7(action) && typeof action.kind === "string") {
+    if (isRecord8(action) && typeof action.kind === "string") {
       return action.kind;
     }
     if (typeof actionEvent.tool_name === "string") {
@@ -9543,227 +9884,6 @@ function extractActionName(actionEvent) {
     return "agent.execute_action";
   }
   return "agent.execute_action";
-}
-function isRecord7(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-var profileReferenceSchema = zod.z.string().trim().min(1);
-var llmSummarizingCondenserSettingsSchema = zod.z.object({
-  condenser_kind: zod.z.literal("llm_summarizing").default("llm_summarizing"),
-  enabled: zod.z.boolean().default(true),
-  llm_profile_ref: profileReferenceSchema.optional(),
-  // DEV-SDK-011: align omitted settings with the class and standard factory.
-  max_size: zod.z.number().int().min(20).default(1e3),
-  // Absence inherits the agent limit at materialization; explicit null does not.
-  max_tokens: zod.z.number().int().positive().nullable().optional(),
-  keep_first: zod.z.number().int().nonnegative().default(2),
-  minimum_progress: zod.z.number().gt(0).lt(1).default(0.1),
-  hard_context_reset_max_retries: zod.z.number().int().positive().default(5),
-  hard_context_reset_context_scaling: zod.z.number().gt(0).lt(1).default(0.8)
-}).strict();
-var noOpCondenserSettingsSchema = zod.z.object({
-  condenser_kind: zod.z.literal("no_op"),
-  enabled: zod.z.boolean().default(true)
-}).strict();
-var agentResetCondenserSettingsSchema = zod.z.object({
-  condenser_kind: zod.z.literal("agent_reset"),
-  enabled: zod.z.boolean().default(true),
-  warning_thresholds: contextWarningThresholdsSchema.default(() => [...DEFAULT_CONTEXT_WARNING_THRESHOLDS])
-}).strict();
-var hardCondenserSettingsSchema = zod.z.object({
-  condenser_kind: zod.z.literal("llm_summarizing"),
-  llm_profile_ref: profileReferenceSchema,
-  hard_context_reset_max_retries: zod.z.number().int().positive().default(5),
-  hard_context_reset_context_scaling: zod.z.number().gt(0).lt(1).default(0.8)
-}).strict();
-var condenserSettingsSchema = zod.z.preprocess((value) => {
-  if (typeof value === "object" && value !== null && !Array.isArray(value) && "condenser_kind" in value && value.condenser_kind === "noop") {
-    return { ...value, condenser_kind: "no_op" };
-  }
-  return value;
-}, zod.z.union([llmSummarizingCondenserSettingsSchema, noOpCondenserSettingsSchema, agentResetCondenserSettingsSchema]));
-async function materializeCondenser(data, options) {
-  const settings = condenserSettingsSchema.parse(data);
-  if (!settings.enabled) return null;
-  if (settings.condenser_kind === "no_op") return new NoOpCondenser();
-  if (settings.condenser_kind === "agent_reset") return new AgentResetCondenser({ warningThresholds: settings.warning_thresholds });
-  if (Math.floor(settings.max_size / 2) - settings.keep_first - 1 <= 0) {
-    throw new RangeError("keep_first must be less than max_size // 2 to leave room for condensation");
-  }
-  const selectedRef = settings.llm_profile_ref ?? options.defaultProfileRef;
-  if (selectedRef === void 0) {
-    throw new Error("Enabled LLM condenser requires llm_profile_ref or an explicit host defaultProfileRef.");
-  }
-  const profileRef = profileReferenceSchema.parse(selectedRef);
-  const llm = await options.resolveClient(profileRef);
-  let maxTokens = settings.max_tokens;
-  if (maxTokens === void 0) {
-    await options.agentLlm?.resolveRuntimeMetadata?.();
-    maxTokens = options.agentLlm?.effectiveMaxInputTokens ?? null;
-  }
-  return new LLMSummarizingCondenser({
-    llm,
-    maxSize: settings.max_size,
-    maxTokens,
-    keepFirst: settings.keep_first,
-    minimumProgress: settings.minimum_progress,
-    hardContextResetMaxRetries: settings.hard_context_reset_max_retries,
-    hardContextResetContextScaling: settings.hard_context_reset_context_scaling
-  });
-}
-async function materializeHardCondenser(data, options) {
-  if (data === void 0 || data === null) return null;
-  const settings = hardCondenserSettingsSchema.parse(data);
-  const llm = await options.resolveClient(settings.llm_profile_ref);
-  return new LLMSummarizingCondenser({
-    llm,
-    // The fallback never inherits a proactive main-model token trigger.
-    maxTokens: null,
-    hardContextResetMaxRetries: settings.hard_context_reset_max_retries,
-    hardContextResetContextScaling: settings.hard_context_reset_context_scaling
-  });
-}
-
-// src/settings/index.ts
-var RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED = [
-  "provider",
-  "model",
-  "openaiApiMode",
-  "baseUrl",
-  "apiVersion",
-  "timeout",
-  "temperature",
-  "topP",
-  "topK",
-  "maxInputTokens",
-  "maxOutputTokens",
-  "reasoningEffort",
-  "reasoningSummary",
-  "promptCacheRetention",
-  "promptCacheKey",
-  "inputCostPerToken",
-  "outputCostPerToken"
-];
-var AGENT_SETTINGS_SCHEMA_VERSION = 6;
-var CONVERSATION_SETTINGS_SCHEMA_VERSION = 1;
-var settingsSchemaVersion = (version) => zod.z.literal(version).default(version);
-var observabilityMetadataSchema = zod.z.record(zod.z.string().min(1), zod.z.unknown());
-var observabilityTagsSchema = zod.z.array(zod.z.string());
-var OBSERVABILITY_SPAN_NAME_PATTERN = /^[A-Za-z0-9._:/-]+$/u;
-var OBSERVABILITY_SPAN_NAME_MAX_LENGTH = 128;
-var observabilitySpanNameSchema = zod.z.string().min(1, "Observability span name must be a non-empty string").max(OBSERVABILITY_SPAN_NAME_MAX_LENGTH, `Observability span name exceeds maximum length of ${OBSERVABILITY_SPAN_NAME_MAX_LENGTH} characters`).regex(OBSERVABILITY_SPAN_NAME_PATTERN, "Observability span name may only contain letters, numbers, dots, underscores, colons, slashes, and hyphens");
-var conversationSettingsSchema = zod.z.object({
-  schema_version: settingsSchemaVersion(CONVERSATION_SETTINGS_SCHEMA_VERSION),
-  max_iterations: zod.z.number().int().min(1).default(500),
-  observability_metadata: observabilityMetadataSchema.nullable().default(null),
-  observability_tags: observabilityTagsSchema.nullable().default(null),
-  observability_span_name: observabilitySpanNameSchema.nullable().default(null)
-}).strict();
-var agentSettingsBaseFields = {
-  schema_version: settingsSchemaVersion(AGENT_SETTINGS_SCHEMA_VERSION),
-  mcp_config: zod.z.unknown().nullable().default(null)
-};
-var defaultVerificationSettings = profileVerificationSettingsSchema.parse({});
-var openHandsAgentSettingsSchema = zod.z.object({
-  ...agentSettingsBaseFields,
-  agent_kind: zod.z.literal("openhands").default("openhands"),
-  llm_profile_ref: zod.z.string().min(1),
-  agent: zod.z.string().default("CodeActAgent"),
-  tools: zod.z.array(zod.z.unknown()).nullable().default(null),
-  enable_sub_agents: zod.z.boolean().default(false),
-  enable_switch_llm_tool: zod.z.boolean().default(true),
-  tool_concurrency_limit: zod.z.number().int().min(1).default(1),
-  condenser: condenserSettingsSchema.prefault({}),
-  hard_condenser: hardCondenserSettingsSchema.nullable().optional(),
-  verification: profileVerificationSettingsSchema.default(defaultVerificationSettings)
-}).strict().superRefine((settings, context) => {
-  if (settings.hard_condenser !== void 0 && settings.hard_condenser !== null && (settings.condenser.condenser_kind !== "agent_reset" || !settings.condenser.enabled)) {
-    context.addIssue({
-      code: "custom",
-      path: ["hard_condenser"],
-      message: "hard_condenser requires an enabled agent_reset condenser"
-    });
-  }
-});
-var acpAgentSettingsSchema = zod.z.object({
-  ...agentSettingsBaseFields,
-  agent_kind: zod.z.literal("acp").default("acp"),
-  acp_server: acpServerKindSchema.default("claude-code"),
-  acp_command: zod.z.array(zod.z.string()).default([]),
-  acp_args: zod.z.array(zod.z.string()).default([]),
-  acp_model: zod.z.string().nullable().default(null),
-  acp_session_mode: zod.z.string().nullable().default(null),
-  acp_prompt_timeout: zod.z.number().positive().default(1800),
-  acp_startup_timeout: zod.z.number().positive().default(90)
-}).strict();
-var agentSettingsSchema = zod.z.union([openHandsAgentSettingsSchema, acpAgentSettingsSchema]);
-function clearRawLlmFieldsWhenProfileSelected(llm) {
-  const profileId = typeof llm.profileId === "string" ? llm.profileId.trim() : "";
-  if (profileId.length === 0) {
-    return llm;
-  }
-  return {
-    ...llm,
-    provider: void 0,
-    model: void 0,
-    openaiApiMode: void 0,
-    baseUrl: void 0,
-    apiVersion: void 0,
-    timeout: void 0,
-    temperature: void 0,
-    topP: void 0,
-    topK: void 0,
-    maxInputTokens: void 0,
-    maxOutputTokens: void 0,
-    reasoningEffort: void 0,
-    reasoningSummary: void 0,
-    promptCacheRetention: void 0,
-    promptCacheKey: void 0,
-    inputCostPerToken: void 0,
-    outputCostPerToken: void 0
-  };
-}
-function validateAgentSettings(data) {
-  const payload = applySettingsVersion(data, AGENT_SETTINGS_SCHEMA_VERSION, "AgentSettings");
-  const kind = payload.agent_kind ?? "openhands";
-  if (kind === "acp") {
-    return acpAgentSettingsSchema.parse(payload);
-  }
-  if (kind === "llm" || kind === "openhands") {
-    return openHandsAgentSettingsSchema.parse({ ...payload, agent_kind: "openhands" });
-  }
-  const renderedKind = typeof kind === "string" ? kind : JSON.stringify(kind);
-  throw new Error(`Unknown agent_kind: ${renderedKind ?? "<unserializable>"}`);
-}
-function validateConversationSettings(data) {
-  return conversationSettingsSchema.parse(
-    applySettingsVersion(data, CONVERSATION_SETTINGS_SCHEMA_VERSION, "ConversationSettings")
-  );
-}
-function defaultAgentSettings(llmProfileRef) {
-  return openHandsAgentSettingsSchema.parse({ llm_profile_ref: llmProfileRef });
-}
-function applySettingsVersion(data, currentVersion, payloadName) {
-  if (!isRecord8(data)) {
-    throw new TypeError(`${payloadName} payload must be a mapping.`);
-  }
-  const migrated = { ...data };
-  const version = migrated.schema_version;
-  if (version === void 0 || version === null) {
-    migrated.schema_version = currentVersion;
-    return migrated;
-  }
-  if (typeof version !== "number" || !Number.isInteger(version)) {
-    throw new TypeError(`${payloadName} schema_version must be an integer, got ${typeof version}.`);
-  }
-  if (version < 0) {
-    throw new Error(`${payloadName} schema_version must be non-negative.`);
-  }
-  if (version > currentVersion) {
-    throw new Error(`${payloadName} schema_version ${version} is newer than supported version ${currentVersion}.`);
-  }
-  migrated.schema_version = currentVersion;
-  return migrated;
 }
 function isRecord8(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -10505,7 +10625,7 @@ var SendMediaTool = class {
 var execAsync = util.promisify(child_process.exec);
 var baseToolObservationSchema = zod.z.object({ text: zod.z.string(), is_error: zod.z.boolean().default(false) }).strict();
 var terminalActionSchema = zod.z.object({ command: zod.z.string(), is_input: zod.z.boolean().default(false), timeout: zod.z.number().nonnegative().nullable().default(null), reset: zod.z.boolean().default(false) }).strict();
-var terminalObservationSchema = baseToolObservationSchema.extend({ command: zod.z.string().nullable().default(null), exit_code: zod.z.number().nullable().default(null), timeout: zod.z.boolean().default(false) }).strict();
+var terminalObservationSchema = baseToolObservationSchema.extend({ command: zod.z.string().nullable().default(null), exit_code: zod.z.number().nullable().default(null), timeout: zod.z.boolean().default(false), metadata: terminalMetadataSchema.optional(), full_output_save_dir: zod.z.string().nullable().optional() }).strict();
 var DEFAULT_TERMINAL_TIMEOUT_SECONDS = 300;
 var TERMINAL_MAX_BUFFER_BYTES = 32 * 1024 * 1024;
 var TerminalExecutor = class {
@@ -10517,17 +10637,17 @@ var TerminalExecutor = class {
   }
   async execute(action) {
     const parsed = terminalActionSchema.parse(action);
-    if (parsed.is_input) return { text: "Interactive input is not supported by this executor.", is_error: true, command: parsed.command, exit_code: null, timeout: false };
+    if (parsed.is_input) return this.observation({ text: "Interactive input is not supported by this executor.", is_error: true, command: parsed.command, exit_code: null, timeout: false });
     try {
       const cwd = await promises.stat(this.workingDir);
       if (!cwd.isDirectory()) throw new Error("not a directory");
     } catch {
-      return { text: `Working directory does not exist: ${this.workingDir}`, is_error: true, command: parsed.command, exit_code: -1, timeout: false };
+      return this.observation({ text: `Working directory does not exist: ${this.workingDir}`, is_error: true, command: parsed.command, exit_code: -1, timeout: false });
     }
     const timeoutSeconds = parsed.timeout === null ? this.defaultTimeoutSeconds : parsed.timeout;
     try {
       const { stdout, stderr } = await execAsync(parsed.command, { cwd: this.workingDir, timeout: timeoutSeconds * 1e3, maxBuffer: TERMINAL_MAX_BUFFER_BYTES });
-      return { text: `${stdout}${stderr}`, is_error: false, command: parsed.command, exit_code: 0, timeout: false };
+      return this.observation({ text: `${stdout}${stderr}`, is_error: false, command: parsed.command, exit_code: 0, timeout: false });
     } catch (error) {
       const err = error;
       const timedOut = err.killed === true || err.signal === "SIGTERM";
@@ -10535,8 +10655,15 @@ var TerminalExecutor = class {
       const detail = timedOut ? `Command timed out after ${timeoutSeconds}s and was killed. Pass a larger \`timeout\` for long-running commands, or run servers in the background.` : output.length > 0 ? "" : err.message ?? String(error);
       const text = output.length > 0 && detail.length > 0 ? `${output}
 ${detail}` : output.length > 0 ? output : detail;
-      return { text, is_error: true, command: parsed.command, exit_code: typeof err.code === "number" ? err.code : -1, timeout: timedOut };
+      return this.observation({ text, is_error: true, command: parsed.command, exit_code: typeof err.code === "number" ? err.code : -1, timeout: timedOut });
     }
+  }
+  observation(result) {
+    return {
+      ...result,
+      text: maybeTruncate(result.text, { truncateAfter: MAX_CMD_OUTPUT_SIZE }),
+      metadata: terminalMetadataSchema.parse({ working_dir: this.workingDir, exit_code: result.exit_code ?? -1 })
+    };
   }
 };
 var TerminalTool = class {
@@ -11191,15 +11318,15 @@ async function delay2(ms) {
 function isRecord9(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-var UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 function normalizeRuntimeConversationId(value) {
   if (value === null) {
     return null;
   }
-  if (!UUID_PATTERN.test(value)) {
-    throw new Error(`runtimeConversationId must be a valid UUID or null, got ${JSON.stringify(value)}`);
+  try {
+    return normalizeUuid(value);
+  } catch {
+    throw new Error("runtimeConversationId must be a valid UUID or null");
   }
-  return value;
 }
 function isExecError3(error) {
   return typeof error === "object" && error !== null && ("stdout" in error || "stderr" in error || "code" in error);
@@ -11696,6 +11823,7 @@ exports.LocalConversation = LocalConversation;
 exports.LocalFileStore = LocalFileStore;
 exports.LocalWorkspace = LocalWorkspace;
 exports.LogLevel = LogLevel;
+exports.MAX_CMD_OUTPUT_SIZE = MAX_CMD_OUTPUT_SIZE;
 exports.MAX_FILE_SIZE_FOR_GIT_DIFF = MAX_FILE_SIZE_FOR_GIT_DIFF;
 exports.MCPError = MCPError;
 exports.MCPTimeoutError = MCPTimeoutError;
@@ -12004,6 +12132,7 @@ exports.taskTrackerActionSchema = taskTrackerActionSchema;
 exports.taskTrackerObservationSchema = taskTrackerObservationSchema;
 exports.taskTriggerSchema = taskTriggerSchema;
 exports.terminalActionSchema = terminalActionSchema;
+exports.terminalMetadataSchema = terminalMetadataSchema;
 exports.terminalObservationSchema = terminalObservationSchema;
 exports.textContent = textContent;
 exports.textContentSchema = textContentSchema;

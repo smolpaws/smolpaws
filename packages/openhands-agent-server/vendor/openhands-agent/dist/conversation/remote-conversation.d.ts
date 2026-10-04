@@ -1,5 +1,6 @@
 import { type Message } from '../llm/index.js';
-import type { AgentSettings } from '../settings/index.js';
+import { type AgentSettings } from '../settings/index.js';
+import type { HookConfig, HookConfigInput } from '../hooks/index.js';
 import { ConversationState } from './state.js';
 export interface RemoteFetchResponseLike {
     readonly ok: boolean;
@@ -22,6 +23,30 @@ export interface RemoteConversationOptions {
     readonly state?: ConversationState;
 }
 export interface RemoteConversationCreateRequest {
+    readonly workspace: {
+        readonly kind: 'LocalWorkspace';
+        readonly working_dir: string;
+    };
+    readonly worktree?: boolean;
+    readonly parentConversationId?: string | null;
+    readonly initialMessage?: {
+        readonly role?: Message['role'];
+        readonly content: Message['content'];
+        readonly run?: boolean;
+    } | null;
+    readonly stuckDetection?: boolean;
+    readonly hookConfig?: HookConfig | HookConfigInput | null;
+    readonly agentLaunchAdditions?: {
+        readonly system_message_suffix_append?: string | null;
+    } | null;
+    readonly userId?: string | null;
+    readonly observabilityMetadata?: Readonly<Record<string, unknown>>;
+    readonly observabilityTags?: readonly string[];
+    readonly observabilitySpanName?: string;
+    readonly autotitle?: boolean;
+    readonly titleLlmProfile?: string | null;
+    readonly title?: string | null;
+    readonly persistenceDir?: string | null;
     readonly agentProfileId?: string | null;
     readonly agentSettings?: AgentSettings | null;
     readonly conversationId?: string | null;
@@ -29,6 +54,8 @@ export interface RemoteConversationCreateRequest {
     readonly tags?: Readonly<Record<string, string>> | null;
 }
 export interface RemoteConversationCreateOptions {
+    /** SmolPaws accepts TS AgentSettings as `agent`; Python accepts a saved Agent Profile UUID. */
+    readonly server?: 'smolpaws' | 'python';
     readonly host: string;
     readonly request: RemoteConversationCreateRequest;
     readonly fetch?: RemoteFetchLike;

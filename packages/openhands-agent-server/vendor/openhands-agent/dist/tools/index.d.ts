@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ToolDefinition } from '../tool/index.js';
+export { MAX_CMD_OUTPUT_SIZE, terminalMetadataSchema } from './terminal-observation.js';
 export declare const baseToolObservationSchema: z.ZodObject<{
     text: z.ZodString;
     is_error: z.ZodDefault<z.ZodBoolean>;
@@ -16,6 +17,17 @@ export declare const terminalObservationSchema: z.ZodObject<{
     command: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     exit_code: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
     timeout: z.ZodDefault<z.ZodBoolean>;
+    metadata: z.ZodOptional<z.ZodObject<{
+        exit_code: z.ZodDefault<z.ZodNumber>;
+        pid: z.ZodDefault<z.ZodNumber>;
+        username: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        hostname: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        working_dir: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        py_interpreter_path: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        prefix: z.ZodDefault<z.ZodString>;
+        suffix: z.ZodDefault<z.ZodString>;
+    }, z.core.$strict>>;
+    full_output_save_dir: z.ZodOptional<z.ZodNullable<z.ZodString>>;
 }, z.core.$strict>;
 export type TerminalAction = z.infer<typeof terminalActionSchema>;
 export type TerminalObservation = z.infer<typeof terminalObservationSchema>;
@@ -35,6 +47,7 @@ export declare class TerminalExecutor {
         readonly defaultTimeoutSeconds?: number;
     });
     execute(action: TerminalAction): Promise<TerminalObservation>;
+    private observation;
 }
 export declare class TerminalTool {
     static create(options: {
