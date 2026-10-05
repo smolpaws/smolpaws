@@ -58,6 +58,41 @@ npm run slack:relay:local                           # same as bridge:start -- sl
 
 Logs: `~/.smolpaws/logs/bridge.<bridge>.launchagent.log`, `~/.smolpaws/logs/openhands-agent-server-8790.log`.
 
+### Local server log retention
+
+Install `npm run logs:launchagent:install` once on macOS to keep the `:8790`
+server stdout and stderr logs from accumulating without limit. The independent
+`com.smolpaws.log-maintenance` LaunchAgent checks every 30 seconds and runs at login.
+When either log exceeds 10 MiB, it saves exactly the last 200,000 bytes in a single
+private `<log-name>.tail.gz` checkpoint, replacing the previous checkpoint, then
+truncates the original file in place. Server and bridge processes remain running.
+It does not touch conversation history, databases, credentials, bridge logs or
+the separately dated tail archives saved during manual cleanup.
+
+Inspect `~/.smolpaws/logs/.log-maintenance-status.json` for the last check and any
+errors, or preview decisions with `npm run logs:maintain -- --dry-run`.
+If that timestamp stops advancing, inspect the job's exit status with
+`launchctl print gui/$(id -u)/com.smolpaws.log-maintenance`; startup or lock failures
+can prevent the status file from being updated.
+Read the latest stdout checkpoint with
+`gzip -dc ~/.smolpaws/logs/openhands-agent-server-8790.log.tail.gz`.
+Success is silent; the job uses one replaced status file instead of accumulating
+its own logs. `SMOLPAWS_HOME_DIR` selects the private state directory. The installer
+copies the helper into its `bin/` directory so branch switches or removal of a
+temporary checkout cannot break the scheduled job. Reinstall to update that copy.
+`npm run logs:launchagent:remove` unloads only maintenance and preserves all logs,
+checkpoints and the installed helper.
+
+This policy is for disposable diagnostic logs whose writers use append mode.
+Polling allows the threshold to be exceeded between checks or while the Mac is
+asleep. Writes between the tail snapshot and truncation may be lost, as with
+copytruncate; this is not suitable for durable message/event stores. Missing logs
+are skipped, log-file symlinks/nonregular files/multiple hardlinks are refused, concurrent
+maintenance is serialized, and checkpoint-write failure leaves the live log intact.
+The CLI accepts explicit `--log` basenames, `--max-bytes` and `--tail-bytes` for
+other verified append-only service logs; the installed default covers only the
+two `openhands-agent-server-8790` logs.
+
 `~/.smolpaws/.env` is loaded by the launcher for every bridge (tokens, `SMOLPAWS_RELAY_SERVER_URL`,
 `SMOLPAWS_RELAY_SERVER_API_KEY`, `SMOLPAWS_WORKING_DIR`).
 
