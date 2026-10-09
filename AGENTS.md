@@ -39,6 +39,8 @@ SmolPaws is an OpenHands agent in TypeScript, with inspiration from NanoClaw, Op
 | `/setup` | First-time installation, authentication, service configuration |
 | `/customize` | Adding channels, integrations, changing behavior |
 | `/debug` | Container issues, logs, troubleshooting |
+| `/agent-sdk` | Vendored OpenHands SDK changes, bounded upstream pin reviews, profile and secret boundaries |
+| `/agent-sdk-server` | Agent-server REST/WebSocket parity, OpenAPI policy, and coordinator boundary |
 | `/improve-codebase-architecture` | Scan a codebase for deepening opportunities, present a visual HTML report, then grill through the chosen one. Full pass is explicit-only, but nudge when you hit real shallow-module friction during normal work |
 | `/codebase-design` | Shared deep-module vocabulary (module, interface, seam, adapter, depth, leverage, locality) for designing/restructuring code |
 | `/grilling` | Interview relentlessly to stress-test a plan or design before building |
@@ -140,6 +142,7 @@ npm run build        # Compile TypeScript
 npm run github:dev   # Run the GitHub Worker locally
 npm run runner:dev   # Run the shared agent-server locally
 npm run runner:image:build
+npm run ci --prefix packages/openhands-agent-server  # Validate vendored SDK provenance, server review, API parity, tests, and build
 npm --prefix apps/discord run test  # Run Discord ingress regression tests
 npm run email:test   # Run Resend email ingress tests
 ```
