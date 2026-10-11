@@ -2474,380 +2474,6 @@ function contextWarningMessage(event) {
     }
   });
 }
-var llmUsageSchema = zod.z.object({
-  promptTokens: zod.z.number().int().min(0).optional(),
-  completionTokens: zod.z.number().int().min(0).optional(),
-  totalTokens: zod.z.number().int().min(0).optional(),
-  cacheReadTokens: zod.z.number().int().min(0).optional(),
-  cacheWriteTokens: zod.z.number().int().min(0).optional(),
-  cacheMissTokens: zod.z.number().int().min(0).optional(),
-  reasoningTokens: zod.z.number().int().min(0).optional(),
-  toolUsePromptTokens: zod.z.number().int().min(0).optional(),
-  providerUsage: zod.z.record(zod.z.string(), zod.z.unknown()).optional(),
-  reportedCost: zod.z.object({ amount: zod.z.number().finite().nonnegative(), currency: zod.z.string().min(1) }).strict().optional()
-}).strict();
-var llmResponseMetadataSchema = zod.z.object({
-  usage: llmUsageSchema.nullable().default(null),
-  responseId: zod.z.string().optional(),
-  model: zod.z.string().optional()
-}).strict();
-var llmCompletionResponseSchema = llmResponseMetadataSchema.extend({
-  message: messageSchema,
-  raw: zod.z.unknown().optional()
-}).strict();
-var LLMResponseError = class extends Error {
-  constructor(metadata, cause) {
-    super("Provider returned an invalid or incomplete LLM response", { cause });
-    this.metadata = metadata;
-    this.name = "LLMResponseError";
-  }
-  metadata;
-};
-function parseLlmResponseWithMetadata(raw, parseMetadata, parseContent) {
-  const object = typeof raw === "object" && raw !== null && !Array.isArray(raw) ? raw : {};
-  const nativeUsage = object.usage;
-  let metadata = {
-    usage: typeof nativeUsage === "object" && nativeUsage !== null && !Array.isArray(nativeUsage) ? { providerUsage: nativeUsage } : null,
-    ...typeof object.id === "string" ? { responseId: object.id } : {},
-    ...typeof object.model === "string" ? { model: object.model } : {}
-  };
-  try {
-    metadata = parseMetadata(raw);
-    return parseContent(raw, metadata);
-  } catch (cause) {
-    throw new LLMResponseError(metadata, cause);
-  }
-}
-function throwProviderErrorWithMetadata(body, error, parseMetadata) {
-  let raw = body;
-  if (typeof body === "string") {
-    try {
-      raw = JSON.parse(body);
-    } catch {
-      throw error;
-    }
-  }
-  if (typeof raw === "object" && raw !== null && !Array.isArray(raw) && ("usage" in raw || "id" in raw || "model" in raw)) {
-    try {
-      parseLlmResponseWithMetadata(raw, parseMetadata, () => {
-        throw error;
-      });
-    } catch (failure2) {
-      if (failure2 instanceof LLMResponseError) throw new LLMResponseError(failure2.metadata, error);
-    }
-  }
-  throw error;
-}
-
-// src/llm/pricing.ts
-var DEEPSEEK_FLASH_MODELS = /* @__PURE__ */ new Set([
-  "deepseek-flash",
-  "deepseek-v4-flash",
-  "deepseek-v4-flash-vision-exp"
-]);
-var DEEPSEEK_FLASH_RESPONSE_MODELS = /* @__PURE__ */ new Set([
-  ...DEEPSEEK_FLASH_MODELS,
-  "DeepSeek-V4.1-Flash",
-  "deepseek-v4.1-flash"
-]);
-var DAY_MS = 864e5;
-var HOUR_MS = 36e5;
-function estimateUsageCost(profile, usage, startedAtMs, completedAtMs, servedModel) {
-  if (!isDirectDeepSeekFlash(profile) || usage === null) return null;
-  if (servedModel !== void 0 && !DEEPSEEK_FLASH_RESPONSE_MODELS.has(servedModel)) return null;
-  const tokens = priceableDeepSeekTokens(usage);
-  const band = requestPriceBand(startedAtMs, completedAtMs);
-  if (tokens === null || band === null) return null;
-  const rates = band === "peak" ? { cachedInputPerMillion: 6e-3, uncachedInputPerMillion: 0.3, outputPerMillion: 1.2 } : { cachedInputPerMillion: 3e-3, uncachedInputPerMillion: 0.15, outputPerMillion: 0.6 };
-  return {
-    amount: (tokens.hit * rates.cachedInputPerMillion + tokens.miss * rates.uncachedInputPerMillion + tokens.output * rates.outputPerMillion) / 1e6,
-    currency: "USD",
-    source: "calculated",
-    pricing: {
-      sourceUrl: "https://api-docs.deepseek.com/quick_start/pricing/",
-      checkedAt: "2026-09-15",
-      model: "DeepSeek-V4.1-Flash",
-      band,
-      rates
-    }
-  };
-}
-function isDirectDeepSeekFlash(profile) {
-  if (profile.authType === "subscription" || !DEEPSEEK_FLASH_MODELS.has(profile.model) || !profile.baseUrl) return false;
-  try {
-    const url = new URL(profile.baseUrl);
-    return url.protocol === "https:" && url.hostname === "api.deepseek.com" && url.port === "" && url.username === "" && url.password === "" && url.search === "" && url.hash === "" && ["", "/v1", "/anthropic"].includes(url.pathname.replace(/\/+$/u, ""));
-  } catch {
-    return false;
-  }
-}
-function isTokenCount(value) {
-  return Number.isSafeInteger(value) && value >= 0;
-}
-function isPresent(value) {
-  return value !== void 0 && value !== null;
-}
-function priceableDeepSeekTokens(usage) {
-  const counts = [
-    usage.promptTokens,
-    usage.completionTokens,
-    usage.totalTokens,
-    usage.cacheReadTokens,
-    usage.cacheMissTokens,
-    usage.cacheWriteTokens,
-    usage.reasoningTokens
-  ];
-  if (counts.some((value) => isPresent(value) && !isTokenCount(value))) return null;
-  const hit = usage.cacheReadTokens;
-  const output = usage.completionTokens;
-  if (!isPresent(hit) || !isPresent(output)) return null;
-  const miss = usage.cacheMissTokens ?? (isPresent(usage.promptTokens) ? usage.promptTokens - hit : null);
-  if (miss === null || !isTokenCount(miss)) return null;
-  const prompt = hit + miss;
-  if (!isTokenCount(prompt) || !isTokenCount(prompt + output)) return null;
-  if (isPresent(usage.promptTokens) && usage.promptTokens !== prompt) return null;
-  if (isPresent(usage.totalTokens) && usage.totalTokens !== prompt + output) return null;
-  if (isPresent(usage.cacheWriteTokens) && usage.cacheWriteTokens !== 0) return null;
-  if (isPresent(usage.reasoningTokens) && usage.reasoningTokens > output) return null;
-  return { hit, miss, output };
-}
-function requestPriceBand(start, end) {
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start || !Number.isFinite(new Date(start).getTime()) || !Number.isFinite(new Date(end).getTime())) return null;
-  if (end - start >= 7 * DAY_MS) return null;
-  for (let day = Math.floor(start / DAY_MS) * DAY_MS; day <= end; day += DAY_MS) {
-    const weekday2 = new Date(day).getUTCDay();
-    if (weekday2 === 0 || weekday2 === 6) continue;
-    for (const hour2 of [1, 4, 6, 10]) {
-      const boundary = day + hour2 * HOUR_MS;
-      if (boundary > start && boundary <= end) return null;
-    }
-  }
-  const date = new Date(start);
-  const weekday = date.getUTCDay();
-  const hour = date.getUTCHours();
-  return weekday >= 1 && weekday <= 5 && (hour >= 1 && hour < 4 || hour >= 6 && hour < 10) ? "peak" : "off_peak";
-}
-
-// src/llm/metrics.ts
-var LLM_USAGE_KEY = "llm_usage";
-var LLM_METRICS_RESET_KEY = "llm_metrics_reset";
-var costSchema = zod.z.object({
-  amount: zod.z.number().finite().nonnegative(),
-  currency: zod.z.string().min(1),
-  source: zod.z.enum(["provider", "calculated"]),
-  pricing: zod.z.record(zod.z.string(), zod.z.unknown()).optional()
-}).strict();
-var usageRecordSchema = zod.z.object({
-  version: zod.z.literal(1),
-  record_id: zod.z.string().min(1),
-  response_id: zod.z.string().nullable(),
-  usage_id: zod.z.string().min(1),
-  profile_id: zod.z.string(),
-  provider_id: zod.z.string(),
-  history_origin: zod.z.string().regex(/^[a-f0-9]{64}$/u).optional(),
-  model: zod.z.string(),
-  requested_model: zod.z.string(),
-  timestamp: zod.z.string().datetime(),
-  latency: zod.z.number().finite().nonnegative(),
-  usage: llmUsageSchema.nullable(),
-  cost: costSchema.nullable(),
-  // Present on main-agent requests. Persist delivery with successful accounting
-  // so a crash during response dispatch cannot replay a consumed warning.
-  request_succeeded: zod.z.boolean().optional(),
-  context_warning_ids: zod.z.array(zod.z.string().min(1)).optional()
-}).strict();
-function readLlmUsageEvent(event) {
-  if (event.kind !== "ConversationStateUpdateEvent" || event.key !== LLM_USAGE_KEY) return null;
-  const result = usageRecordSchema.safeParse(event.value);
-  return result.success ? result.data : null;
-}
-function llmHistoryOrigin(profile) {
-  const endpoint = profile.baseUrl === null ? null : new URL(profile.baseUrl);
-  return crypto.createHash("sha256").update(JSON.stringify([
-    profile.profileId,
-    profile.providerId,
-    profile.model,
-    // URL userinfo/query and custom headers may contain credentials. They never enter this digest.
-    endpoint === null ? null : `${endpoint.origin}${endpoint.pathname}`,
-    profile.openAiApiMode,
-    profile.authType,
-    profile.subscriptionVendor,
-    profile.useProfileKeyOverride
-  ])).digest("hex");
-}
-var fields = {
-  prompt_tokens: "promptTokens",
-  completion_tokens: "completionTokens",
-  total_tokens: "totalTokens",
-  cache_read_tokens: "cacheReadTokens",
-  cache_write_tokens: "cacheWriteTokens",
-  cache_miss_tokens: "cacheMissTokens",
-  reasoning_tokens: "reasoningTokens",
-  tool_use_prompt_tokens: "toolUsePromptTokens"
-};
-function createLlmUsageEvent(profile, response, timing) {
-  const recordId = crypto.randomUUID();
-  const reported = response.usage?.reportedCost;
-  const cost = reported === void 0 ? estimateUsageCost(profile, response.usage, timing.startedAt, timing.completedAt, response.model) : { ...reported, source: "provider" };
-  const record4 = usageRecordSchema.parse({
-    version: 1,
-    record_id: recordId,
-    response_id: response.responseId ?? null,
-    usage_id: timing.usageId ?? `profile:${profile.profileId}`,
-    profile_id: profile.profileId,
-    history_origin: llmHistoryOrigin(profile),
-    provider_id: profile.providerId,
-    model: response.model ?? profile.model,
-    requested_model: profile.model,
-    timestamp: new Date(timing.completedAt).toISOString(),
-    latency: Math.max(0, timing.completedAt - timing.startedAt) / 1e3,
-    usage: structuredClone(response.usage),
-    cost,
-    ...timing.requestSucceeded === void 0 ? {} : { request_succeeded: timing.requestSucceeded },
-    ...timing.contextWarningIds === void 0 ? {} : { context_warning_ids: [...timing.contextWarningIds] }
-  });
-  return conversationStateUpdateEventSchema.parse({ id: recordId, key: LLM_USAGE_KEY, value: record4 });
-}
-function createMetricsResetEvent() {
-  return conversationStateUpdateEventSchema.parse({ key: LLM_METRICS_RESET_KEY, value: { version: 1 } });
-}
-function statsForEvents(events) {
-  let records = [];
-  const seen = /* @__PURE__ */ new Map();
-  const resets = /* @__PURE__ */ new Set();
-  const responseIds = /* @__PURE__ */ new Set();
-  let unmeasured = false;
-  let invalid = 0;
-  for (const event of events) {
-    if (event.kind === "ConversationStateUpdateEvent" && event.key === LLM_METRICS_RESET_KEY) {
-      if (resets.has(event.id)) continue;
-      resets.add(event.id);
-      if (!zod.z.object({ version: zod.z.literal(1) }).strict().safeParse(event.value).success) {
-        invalid += 1;
-        unmeasured = true;
-        continue;
-      }
-      records = [];
-      responseIds.clear();
-      unmeasured = false;
-      invalid = 0;
-    } else if (event.kind === "ConversationStateUpdateEvent" && event.key === LLM_USAGE_KEY) {
-      const parsed = usageRecordSchema.safeParse(structuredClone(event.value));
-      if (!parsed.success) {
-        invalid += 1;
-        unmeasured = true;
-        continue;
-      }
-      const record4 = parsed.data;
-      const fingerprint = JSON.stringify(record4);
-      if (seen.has(record4.record_id)) {
-        if (seen.get(record4.record_id) !== fingerprint) {
-          invalid += 1;
-          unmeasured = true;
-        }
-        continue;
-      }
-      seen.set(record4.record_id, fingerprint);
-      responseIds.add(record4.response_id ?? record4.record_id);
-      records.push(record4);
-    } else if (event.kind === "ActionEvent" || event.kind === "MessageEvent" && event.source === "agent") {
-      if (event.llm_response_id === null || !responseIds.has(event.llm_response_id)) unmeasured = true;
-    }
-  }
-  const grouped = /* @__PURE__ */ new Map();
-  for (const record4 of records) {
-    const bucket = grouped.get(record4.usage_id) ?? [];
-    bucket.push(record4);
-    grouped.set(record4.usage_id, bucket);
-  }
-  return {
-    usage_to_metrics: Object.fromEntries([...grouped].map(([id, bucket]) => [id, metricsForRecords(bucket, unmeasured)])),
-    coverage: { unmeasured_history: unmeasured, invalid_record_count: invalid, first_recorded_at: records[0]?.timestamp ?? null }
-  };
-}
-function metricsSnapshot(stats) {
-  const records = Object.values(stats.usage_to_metrics).flatMap((metrics) => metrics.records).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-  return compactMetrics(metricsForRecords(records, stats.coverage.unmeasured_history));
-}
-function statsSnapshot(stats) {
-  return structuredClone({ usage_to_metrics: Object.fromEntries(Object.entries(stats.usage_to_metrics).map(([id, metrics]) => {
-    return [id, compactMetrics(metrics)];
-  })), coverage: stats.coverage });
-}
-function compactMetrics(metrics) {
-  return {
-    model_name: metrics.model_name,
-    accumulated_cost: metrics.accumulated_cost,
-    max_budget_per_task: metrics.max_budget_per_task,
-    accumulated_token_usage: metrics.accumulated_token_usage,
-    known_token_usage: metrics.known_token_usage,
-    known_costs: metrics.known_costs,
-    cost_sources: metrics.cost_sources,
-    cache_hit_rate: metrics.cache_hit_rate,
-    coverage: metrics.coverage
-  };
-}
-function tokenUsage(record4) {
-  const usage = record4.usage;
-  const counts = Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, usage?.[field] ?? null]));
-  return {
-    ...counts,
-    model: record4.model,
-    response_id: record4.response_id,
-    context_window: null,
-    per_turn_token: usage?.promptTokens !== void 0 && usage.completionTokens !== void 0 ? usage.promptTokens + usage.completionTokens : null
-  };
-}
-function metricsForRecords(records, unmeasured) {
-  const models = new Set(records.map((record4) => record4.model));
-  const model = models.size === 1 ? records[0].model : models.size === 0 ? "default" : "mixed";
-  const tokens = records.map(tokenUsage);
-  const known = { model, response_id: null, context_window: null, per_turn_token: tokens.length === 0 ? 0 : tokens.at(-1).per_turn_token };
-  const totals = { ...known };
-  const missing = {};
-  for (const field of Object.keys(fields)) {
-    missing[field] = tokens.filter((record4) => record4[field] === null).length;
-    known[field] = tokens.reduce((sum, record4) => sum + (record4[field] ?? 0), 0);
-    totals[field] = unmeasured || missing[field] > 0 ? null : known[field];
-  }
-  if (unmeasured && records.length === 0) totals.per_turn_token = null;
-  const knownCosts = /* @__PURE__ */ Object.create(null);
-  const costSources = /* @__PURE__ */ Object.create(null);
-  for (const record4 of records) if (record4.cost !== null) {
-    knownCosts[record4.cost.currency] = (knownCosts[record4.cost.currency] ?? 0) + record4.cost.amount;
-    costSources[record4.cost.source] = (costSources[record4.cost.source] ?? 0) + 1;
-  }
-  const missingCost = records.filter((record4) => record4.cost === null).length;
-  return {
-    model_name: model,
-    accumulated_cost: !unmeasured && missingCost === 0 && records.every((r) => r.cost?.currency === "USD") ? knownCosts.USD ?? 0 : null,
-    max_budget_per_task: null,
-    accumulated_token_usage: totals,
-    known_token_usage: known,
-    known_costs: knownCosts,
-    cost_sources: costSources,
-    cache_hit_rate: totals.prompt_tokens !== null && totals.prompt_tokens > 0 && totals.cache_read_tokens !== null && totals.cache_read_tokens <= totals.prompt_tokens ? totals.cache_read_tokens / totals.prompt_tokens : null,
-    coverage: {
-      completion_count: records.length,
-      missing_usage_count: records.filter((r) => r.usage === null).length,
-      missing_cost_count: missingCost,
-      missing_fields: missing,
-      unmeasured_history: unmeasured
-    },
-    records,
-    token_usages: tokens,
-    costs: records.map((r) => ({
-      model: r.model,
-      cost: r.cost?.amount ?? null,
-      timestamp: Date.parse(r.timestamp) / 1e3,
-      source: r.cost?.source ?? null,
-      currency: r.cost?.currency ?? null,
-      response_id: r.response_id,
-      record_id: r.record_id
-    })),
-    response_latencies: records.map((r) => ({ model: r.model, latency: r.latency, response_id: r.response_id, record_id: r.record_id }))
-  };
-}
 
 // src/context/reset-notices.ts
 var AGENT_RESET_NOTICE = "The agent triggered context condensation.";
@@ -2910,13 +2536,6 @@ var View = class _View {
         break;
       case "ConversationStateUpdateEvent": {
         if (event.key === "condensation_operation_failure") this.applyRequestFailure(event);
-        const usage = readLlmUsageEvent(event);
-        if (usage?.request_succeeded === true && usage.context_warning_ids !== void 0) {
-          const consumed = new Set(usage.context_warning_ids.map((id) => `${id}-message`));
-          const retained = this.events.filter((candidate) => !consumed.has(candidate.id));
-          this.events.length = 0;
-          this.events.push(...retained);
-        }
         const warning = contextWarningMessage(event);
         if (warning !== null) this.events.push(warning);
         break;
@@ -2973,7 +2592,8 @@ var View = class _View {
     const requestIndex = this.history.indexOf(request);
     if (details.input_event_id !== null && inputIndex < 0 || inputIndex >= requestIndex) throw new Error("Invalid reset input boundary");
     const positions = new Map(this.history.map((event, index) => [event.id, index]));
-    const retained = this.events.filter((event) => !commit.forgotten_event_ids.has(event.id));
+    const warningIds = new Set(this.history.filter((event) => event.kind === "ConversationStateUpdateEvent" && event.key === "agent_context_warning").map((event) => `${event.id}-message`));
+    const retained = this.events.filter((event) => !commit.forgotten_event_ids.has(event.id) && !warningIds.has(event.id));
     const fixed = retained.filter((event) => event.kind === "SystemPromptEvent");
     const protectedIds = details.trigger === "provider_context_window" ? this.protectedInput(details, inputIndex) : /* @__PURE__ */ new Set();
     const pair = details.trigger === "agent" ? this.resetToolPair(commit, request, details, inputIndex) : [];
@@ -3420,6 +3040,380 @@ function activeEventsBeforeEnforcement(history) {
   const view = new View();
   for (const event of history) view.appendEvent(event);
   return view.events;
+}
+var llmUsageSchema = zod.z.object({
+  promptTokens: zod.z.number().int().min(0).optional(),
+  completionTokens: zod.z.number().int().min(0).optional(),
+  totalTokens: zod.z.number().int().min(0).optional(),
+  cacheReadTokens: zod.z.number().int().min(0).optional(),
+  cacheWriteTokens: zod.z.number().int().min(0).optional(),
+  cacheMissTokens: zod.z.number().int().min(0).optional(),
+  reasoningTokens: zod.z.number().int().min(0).optional(),
+  toolUsePromptTokens: zod.z.number().int().min(0).optional(),
+  providerUsage: zod.z.record(zod.z.string(), zod.z.unknown()).optional(),
+  reportedCost: zod.z.object({ amount: zod.z.number().finite().nonnegative(), currency: zod.z.string().min(1) }).strict().optional()
+}).strict();
+var llmResponseMetadataSchema = zod.z.object({
+  usage: llmUsageSchema.nullable().default(null),
+  responseId: zod.z.string().optional(),
+  model: zod.z.string().optional()
+}).strict();
+var llmCompletionResponseSchema = llmResponseMetadataSchema.extend({
+  message: messageSchema,
+  raw: zod.z.unknown().optional()
+}).strict();
+var LLMResponseError = class extends Error {
+  constructor(metadata, cause) {
+    super("Provider returned an invalid or incomplete LLM response", { cause });
+    this.metadata = metadata;
+    this.name = "LLMResponseError";
+  }
+  metadata;
+};
+function parseLlmResponseWithMetadata(raw, parseMetadata, parseContent) {
+  const object = typeof raw === "object" && raw !== null && !Array.isArray(raw) ? raw : {};
+  const nativeUsage = object.usage;
+  let metadata = {
+    usage: typeof nativeUsage === "object" && nativeUsage !== null && !Array.isArray(nativeUsage) ? { providerUsage: nativeUsage } : null,
+    ...typeof object.id === "string" ? { responseId: object.id } : {},
+    ...typeof object.model === "string" ? { model: object.model } : {}
+  };
+  try {
+    metadata = parseMetadata(raw);
+    return parseContent(raw, metadata);
+  } catch (cause) {
+    throw new LLMResponseError(metadata, cause);
+  }
+}
+function throwProviderErrorWithMetadata(body, error, parseMetadata) {
+  let raw = body;
+  if (typeof body === "string") {
+    try {
+      raw = JSON.parse(body);
+    } catch {
+      throw error;
+    }
+  }
+  if (typeof raw === "object" && raw !== null && !Array.isArray(raw) && ("usage" in raw || "id" in raw || "model" in raw)) {
+    try {
+      parseLlmResponseWithMetadata(raw, parseMetadata, () => {
+        throw error;
+      });
+    } catch (failure2) {
+      if (failure2 instanceof LLMResponseError) throw new LLMResponseError(failure2.metadata, error);
+    }
+  }
+  throw error;
+}
+
+// src/llm/pricing.ts
+var DEEPSEEK_FLASH_MODELS = /* @__PURE__ */ new Set([
+  "deepseek-flash",
+  "deepseek-v4-flash",
+  "deepseek-v4-flash-vision-exp"
+]);
+var DEEPSEEK_FLASH_RESPONSE_MODELS = /* @__PURE__ */ new Set([
+  ...DEEPSEEK_FLASH_MODELS,
+  "DeepSeek-V4.1-Flash",
+  "deepseek-v4.1-flash"
+]);
+var DAY_MS = 864e5;
+var HOUR_MS = 36e5;
+function estimateUsageCost(profile, usage, startedAtMs, completedAtMs, servedModel) {
+  if (!isDirectDeepSeekFlash(profile) || usage === null) return null;
+  if (servedModel !== void 0 && !DEEPSEEK_FLASH_RESPONSE_MODELS.has(servedModel)) return null;
+  const tokens = priceableDeepSeekTokens(usage);
+  const band = requestPriceBand(startedAtMs, completedAtMs);
+  if (tokens === null || band === null) return null;
+  const rates = band === "peak" ? { cachedInputPerMillion: 6e-3, uncachedInputPerMillion: 0.3, outputPerMillion: 1.2 } : { cachedInputPerMillion: 3e-3, uncachedInputPerMillion: 0.15, outputPerMillion: 0.6 };
+  return {
+    amount: (tokens.hit * rates.cachedInputPerMillion + tokens.miss * rates.uncachedInputPerMillion + tokens.output * rates.outputPerMillion) / 1e6,
+    currency: "USD",
+    source: "calculated",
+    pricing: {
+      sourceUrl: "https://api-docs.deepseek.com/quick_start/pricing/",
+      checkedAt: "2026-09-15",
+      model: "DeepSeek-V4.1-Flash",
+      band,
+      rates
+    }
+  };
+}
+function isDirectDeepSeekFlash(profile) {
+  if (profile.authType === "subscription" || !DEEPSEEK_FLASH_MODELS.has(profile.model) || !profile.baseUrl) return false;
+  try {
+    const url = new URL(profile.baseUrl);
+    return url.protocol === "https:" && url.hostname === "api.deepseek.com" && url.port === "" && url.username === "" && url.password === "" && url.search === "" && url.hash === "" && ["", "/v1", "/anthropic"].includes(url.pathname.replace(/\/+$/u, ""));
+  } catch {
+    return false;
+  }
+}
+function isTokenCount(value) {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+function isPresent(value) {
+  return value !== void 0 && value !== null;
+}
+function priceableDeepSeekTokens(usage) {
+  const counts = [
+    usage.promptTokens,
+    usage.completionTokens,
+    usage.totalTokens,
+    usage.cacheReadTokens,
+    usage.cacheMissTokens,
+    usage.cacheWriteTokens,
+    usage.reasoningTokens
+  ];
+  if (counts.some((value) => isPresent(value) && !isTokenCount(value))) return null;
+  const hit = usage.cacheReadTokens;
+  const output = usage.completionTokens;
+  if (!isPresent(hit) || !isPresent(output)) return null;
+  const miss = usage.cacheMissTokens ?? (isPresent(usage.promptTokens) ? usage.promptTokens - hit : null);
+  if (miss === null || !isTokenCount(miss)) return null;
+  const prompt = hit + miss;
+  if (!isTokenCount(prompt) || !isTokenCount(prompt + output)) return null;
+  if (isPresent(usage.promptTokens) && usage.promptTokens !== prompt) return null;
+  if (isPresent(usage.totalTokens) && usage.totalTokens !== prompt + output) return null;
+  if (isPresent(usage.cacheWriteTokens) && usage.cacheWriteTokens !== 0) return null;
+  if (isPresent(usage.reasoningTokens) && usage.reasoningTokens > output) return null;
+  return { hit, miss, output };
+}
+function requestPriceBand(start, end) {
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start || !Number.isFinite(new Date(start).getTime()) || !Number.isFinite(new Date(end).getTime())) return null;
+  if (end - start >= 7 * DAY_MS) return null;
+  for (let day = Math.floor(start / DAY_MS) * DAY_MS; day <= end; day += DAY_MS) {
+    const weekday2 = new Date(day).getUTCDay();
+    if (weekday2 === 0 || weekday2 === 6) continue;
+    for (const hour2 of [1, 4, 6, 10]) {
+      const boundary = day + hour2 * HOUR_MS;
+      if (boundary > start && boundary <= end) return null;
+    }
+  }
+  const date = new Date(start);
+  const weekday = date.getUTCDay();
+  const hour = date.getUTCHours();
+  return weekday >= 1 && weekday <= 5 && (hour >= 1 && hour < 4 || hour >= 6 && hour < 10) ? "peak" : "off_peak";
+}
+
+// src/llm/metrics.ts
+var LLM_USAGE_KEY = "llm_usage";
+var LLM_METRICS_RESET_KEY = "llm_metrics_reset";
+var costSchema = zod.z.object({
+  amount: zod.z.number().finite().nonnegative(),
+  currency: zod.z.string().min(1),
+  source: zod.z.enum(["provider", "calculated"]),
+  pricing: zod.z.record(zod.z.string(), zod.z.unknown()).optional()
+}).strict();
+var usageRecordSchema = zod.z.object({
+  version: zod.z.literal(1),
+  record_id: zod.z.string().min(1),
+  response_id: zod.z.string().nullable(),
+  usage_id: zod.z.string().min(1),
+  profile_id: zod.z.string(),
+  provider_id: zod.z.string(),
+  history_origin: zod.z.string().regex(/^[a-f0-9]{64}$/u).optional(),
+  model: zod.z.string(),
+  requested_model: zod.z.string(),
+  timestamp: zod.z.string().datetime(),
+  latency: zod.z.number().finite().nonnegative(),
+  usage: llmUsageSchema.nullable(),
+  cost: costSchema.nullable(),
+  // Present on main-agent requests. Record the warnings included in each request;
+  // successful delivery does not remove them from model-visible history.
+  request_succeeded: zod.z.boolean().optional(),
+  context_warning_ids: zod.z.array(zod.z.string().min(1)).optional()
+}).strict();
+function readLlmUsageEvent(event) {
+  if (event.kind !== "ConversationStateUpdateEvent" || event.key !== LLM_USAGE_KEY) return null;
+  const result = usageRecordSchema.safeParse(event.value);
+  return result.success ? result.data : null;
+}
+function llmHistoryOrigin(profile) {
+  const endpoint = profile.baseUrl === null ? null : new URL(profile.baseUrl);
+  return crypto.createHash("sha256").update(JSON.stringify([
+    profile.profileId,
+    profile.providerId,
+    profile.model,
+    // URL userinfo/query and custom headers may contain credentials. They never enter this digest.
+    endpoint === null ? null : `${endpoint.origin}${endpoint.pathname}`,
+    profile.openAiApiMode,
+    profile.authType,
+    profile.subscriptionVendor,
+    profile.useProfileKeyOverride
+  ])).digest("hex");
+}
+var fields = {
+  prompt_tokens: "promptTokens",
+  completion_tokens: "completionTokens",
+  total_tokens: "totalTokens",
+  cache_read_tokens: "cacheReadTokens",
+  cache_write_tokens: "cacheWriteTokens",
+  cache_miss_tokens: "cacheMissTokens",
+  reasoning_tokens: "reasoningTokens",
+  tool_use_prompt_tokens: "toolUsePromptTokens"
+};
+function createLlmUsageEvent(profile, response, timing) {
+  const recordId = crypto.randomUUID();
+  const reported = response.usage?.reportedCost;
+  const cost = reported === void 0 ? estimateUsageCost(profile, response.usage, timing.startedAt, timing.completedAt, response.model) : { ...reported, source: "provider" };
+  const record4 = usageRecordSchema.parse({
+    version: 1,
+    record_id: recordId,
+    response_id: response.responseId ?? null,
+    usage_id: timing.usageId ?? `profile:${profile.profileId}`,
+    profile_id: profile.profileId,
+    history_origin: llmHistoryOrigin(profile),
+    provider_id: profile.providerId,
+    model: response.model ?? profile.model,
+    requested_model: profile.model,
+    timestamp: new Date(timing.completedAt).toISOString(),
+    latency: Math.max(0, timing.completedAt - timing.startedAt) / 1e3,
+    usage: structuredClone(response.usage),
+    cost,
+    ...timing.requestSucceeded === void 0 ? {} : { request_succeeded: timing.requestSucceeded },
+    ...timing.contextWarningIds === void 0 ? {} : { context_warning_ids: [...timing.contextWarningIds] }
+  });
+  return conversationStateUpdateEventSchema.parse({ id: recordId, key: LLM_USAGE_KEY, value: record4 });
+}
+function createMetricsResetEvent() {
+  return conversationStateUpdateEventSchema.parse({ key: LLM_METRICS_RESET_KEY, value: { version: 1 } });
+}
+function statsForEvents(events) {
+  let records = [];
+  const seen = /* @__PURE__ */ new Map();
+  const resets = /* @__PURE__ */ new Set();
+  const responseIds = /* @__PURE__ */ new Set();
+  let unmeasured = false;
+  let invalid = 0;
+  for (const event of events) {
+    if (event.kind === "ConversationStateUpdateEvent" && event.key === LLM_METRICS_RESET_KEY) {
+      if (resets.has(event.id)) continue;
+      resets.add(event.id);
+      if (!zod.z.object({ version: zod.z.literal(1) }).strict().safeParse(event.value).success) {
+        invalid += 1;
+        unmeasured = true;
+        continue;
+      }
+      records = [];
+      responseIds.clear();
+      unmeasured = false;
+      invalid = 0;
+    } else if (event.kind === "ConversationStateUpdateEvent" && event.key === LLM_USAGE_KEY) {
+      const parsed = usageRecordSchema.safeParse(structuredClone(event.value));
+      if (!parsed.success) {
+        invalid += 1;
+        unmeasured = true;
+        continue;
+      }
+      const record4 = parsed.data;
+      const fingerprint = JSON.stringify(record4);
+      if (seen.has(record4.record_id)) {
+        if (seen.get(record4.record_id) !== fingerprint) {
+          invalid += 1;
+          unmeasured = true;
+        }
+        continue;
+      }
+      seen.set(record4.record_id, fingerprint);
+      responseIds.add(record4.response_id ?? record4.record_id);
+      records.push(record4);
+    } else if (event.kind === "ActionEvent" || event.kind === "MessageEvent" && event.source === "agent") {
+      if (event.llm_response_id === null || !responseIds.has(event.llm_response_id)) unmeasured = true;
+    }
+  }
+  const grouped = /* @__PURE__ */ new Map();
+  for (const record4 of records) {
+    const bucket = grouped.get(record4.usage_id) ?? [];
+    bucket.push(record4);
+    grouped.set(record4.usage_id, bucket);
+  }
+  return {
+    usage_to_metrics: Object.fromEntries([...grouped].map(([id, bucket]) => [id, metricsForRecords(bucket, unmeasured)])),
+    coverage: { unmeasured_history: unmeasured, invalid_record_count: invalid, first_recorded_at: records[0]?.timestamp ?? null }
+  };
+}
+function metricsSnapshot(stats) {
+  const records = Object.values(stats.usage_to_metrics).flatMap((metrics) => metrics.records).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  return compactMetrics(metricsForRecords(records, stats.coverage.unmeasured_history));
+}
+function statsSnapshot(stats) {
+  return structuredClone({ usage_to_metrics: Object.fromEntries(Object.entries(stats.usage_to_metrics).map(([id, metrics]) => {
+    return [id, compactMetrics(metrics)];
+  })), coverage: stats.coverage });
+}
+function compactMetrics(metrics) {
+  return {
+    model_name: metrics.model_name,
+    accumulated_cost: metrics.accumulated_cost,
+    max_budget_per_task: metrics.max_budget_per_task,
+    accumulated_token_usage: metrics.accumulated_token_usage,
+    known_token_usage: metrics.known_token_usage,
+    known_costs: metrics.known_costs,
+    cost_sources: metrics.cost_sources,
+    cache_hit_rate: metrics.cache_hit_rate,
+    coverage: metrics.coverage
+  };
+}
+function tokenUsage(record4) {
+  const usage = record4.usage;
+  const counts = Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, usage?.[field] ?? null]));
+  return {
+    ...counts,
+    model: record4.model,
+    response_id: record4.response_id,
+    context_window: null,
+    per_turn_token: usage?.promptTokens !== void 0 && usage.completionTokens !== void 0 ? usage.promptTokens + usage.completionTokens : null
+  };
+}
+function metricsForRecords(records, unmeasured) {
+  const models = new Set(records.map((record4) => record4.model));
+  const model = models.size === 1 ? records[0].model : models.size === 0 ? "default" : "mixed";
+  const tokens = records.map(tokenUsage);
+  const known = { model, response_id: null, context_window: null, per_turn_token: tokens.length === 0 ? 0 : tokens.at(-1).per_turn_token };
+  const totals = { ...known };
+  const missing = {};
+  for (const field of Object.keys(fields)) {
+    missing[field] = tokens.filter((record4) => record4[field] === null).length;
+    known[field] = tokens.reduce((sum, record4) => sum + (record4[field] ?? 0), 0);
+    totals[field] = unmeasured || missing[field] > 0 ? null : known[field];
+  }
+  if (unmeasured && records.length === 0) totals.per_turn_token = null;
+  const knownCosts = /* @__PURE__ */ Object.create(null);
+  const costSources = /* @__PURE__ */ Object.create(null);
+  for (const record4 of records) if (record4.cost !== null) {
+    knownCosts[record4.cost.currency] = (knownCosts[record4.cost.currency] ?? 0) + record4.cost.amount;
+    costSources[record4.cost.source] = (costSources[record4.cost.source] ?? 0) + 1;
+  }
+  const missingCost = records.filter((record4) => record4.cost === null).length;
+  return {
+    model_name: model,
+    accumulated_cost: !unmeasured && missingCost === 0 && records.every((r) => r.cost?.currency === "USD") ? knownCosts.USD ?? 0 : null,
+    max_budget_per_task: null,
+    accumulated_token_usage: totals,
+    known_token_usage: known,
+    known_costs: knownCosts,
+    cost_sources: costSources,
+    cache_hit_rate: totals.prompt_tokens !== null && totals.prompt_tokens > 0 && totals.cache_read_tokens !== null && totals.cache_read_tokens <= totals.prompt_tokens ? totals.cache_read_tokens / totals.prompt_tokens : null,
+    coverage: {
+      completion_count: records.length,
+      missing_usage_count: records.filter((r) => r.usage === null).length,
+      missing_cost_count: missingCost,
+      missing_fields: missing,
+      unmeasured_history: unmeasured
+    },
+    records,
+    token_usages: tokens,
+    costs: records.map((r) => ({
+      model: r.model,
+      cost: r.cost?.amount ?? null,
+      timestamp: Date.parse(r.timestamp) / 1e3,
+      source: r.cost?.source ?? null,
+      currency: r.cost?.currency ?? null,
+      response_id: r.response_id,
+      record_id: r.record_id
+    })),
+    response_latencies: records.map((r) => ({ model: r.model, latency: r.latency, response_id: r.response_id, record_id: r.record_id }))
+  };
 }
 
 // src/llm/history.ts
@@ -8143,6 +8137,7 @@ var PROMPT_CACHE_MODELS = [
   "claude-sonnet-4",
   "claude-opus-4",
   "claude-haiku-4-5",
+  "claude-haiku-5-5",
   "claude-sonnet-4-5",
   "claude-sonnet-4-6",
   "claude-opus-4-5",
