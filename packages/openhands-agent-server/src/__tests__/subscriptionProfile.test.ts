@@ -48,6 +48,9 @@ it('uses SDK subscription auth for preflight, execution and persisted conversati
     expect(JSON.stringify(bodies[2]?.input)).toContain('Finish first turn');
     expect(JSON.stringify(bodies[2]?.input)).toContain('Finish the continuation');
     expect(authFetch).toHaveBeenCalledOnce();
+    // Finished execution can still be saving metadata under a temporary lease lock.
+    // Drain writes and stop lease renewals before inspecting all persisted files.
+    await server.app.close();
     for (const folder of [options.config.conversationsPath, options.config.statePath]) {
       for (const filename of await readdir(folder, { recursive: true })) {
         try {
