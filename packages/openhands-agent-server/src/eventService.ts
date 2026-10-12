@@ -19,7 +19,6 @@ import {
   llmProfileSchema,
   messageEventSchema,
   pauseEventSchema,
-  redactTextSecrets,
   type Event,
   type LLMClient,
   type Message,
@@ -28,6 +27,7 @@ import {
 
 import { ConversationLeaseHeldError, ConversationLeaseInvalidError, ConversationOwnershipLostError } from './conversationLease.js';
 import { resolvePersistenceRoot } from './conversationMetadata.js';
+import { defaultErrorLogger, safeErrorDiagnostics, safeRunError, type ErrorLogger } from './errorDiagnostics.js';
 import { conversationSecretRef, extractConversationSecretUpdates } from './conversationSecrets.js';
 import { type ConfirmationResponseRequest, type EventPage, type EventSortOrder, textFromContent } from './models.js';
 import type { StoredConversation } from './models.js';
@@ -47,6 +47,7 @@ export type AgentFactory = (requestAgent: unknown, context: AgentFactoryContext)
 
 export interface EventServiceOptions {
   readonly stored: StoredConversation;
+  readonly errorLogger?: ErrorLogger;
   readonly agentFactory?: AgentFactory;
   /** Match the factory fallback for legacy requests that omit agent settings; no client preparation. */
   readonly getDefaultAgentSettings?: () => unknown;
@@ -63,6 +64,7 @@ export class EventService {
   readonly eventLog: EventLog;
   readonly state: ConversationState;
   private readonly pubSub = new PubSub<Event>(50, { isStreamingDelta: isStreamingDeltaEvent });
+  private readonly errorLogger: ErrorLogger;
   private readonly saveConversation: (stored: StoredConversation) => Promise<void>;
   private readonly secretStore: SecretStore | undefined;
   private readonly agentFactory: AgentFactory | undefined;
@@ -80,6 +82,7 @@ export class EventService {
 
   constructor(options: EventServiceOptions) {
     this.stored = options.stored;
+    this.errorLogger = options.errorLogger ?? defaultErrorLogger;
     this.eventLog = options.eventLog ?? createEventLog(options.stored);
     this.state = new ConversationState({ eventLog: this.eventLog, events: options.events ?? [] });
     this.saveConversation = options.saveConversation ?? (async () => undefined);
@@ -233,13 +236,13 @@ export class EventService {
     this.runPromise = runPromise;
     void runPromise
       .catch((error: unknown) => {
-        console.error('conversation_run_error_cleanup', safeRunError(error));
+        this.logError('conversation_run_error_cleanup', error);
       })
       .finally(() => {
         this.runPromise = null;
         // A message may arrive after the final loop condition but before cleanup.
         if (this.rerunRequested) void this.run().catch((error: unknown) => {
-          console.error('conversation_rerun_error', safeRunError(error));
+          this.logError('conversation_rerun_error', error);
         });
       });
   }
@@ -438,6 +441,7 @@ export class EventService {
         this.state.executionStatus = conversationExecutionStatus.IDLE;
       }
       const startIndex = this.events().length;
+      const startedAt = Date.now();
       try {
         const conversation = await this.conversation();
         await conversation.run();
@@ -448,7 +452,7 @@ export class EventService {
           await this.publishEventOnce(event);
         }
       } catch (error) {
-        await this.handleRunError(error, startIndex);
+        await this.handleRunError(error, startIndex, Date.now() - startedAt);
       } finally {
         await this.pubSub.publish(this.createStateUpdateEvent());
       }
@@ -459,9 +463,9 @@ export class EventService {
     return [...this.events()].reverse().find((event) => event.kind === 'MessageEvent' && event.source === 'user')?.id ?? null;
   }
 
-  private async handleRunError(error: unknown, startIndex: number): Promise<void> {
+  private async handleRunError(error: unknown, startIndex: number, elapsedMs: number): Promise<void> {
     const failure = safeRunError(error);
-    console.error('conversation_run_error', failure);
+    this.logError('conversation_run_error', error, elapsedMs);
     this.state.executionStatus = conversationExecutionStatus.ERROR;
     // Python skips ConversationRunError when its SDK already emitted an error. The TS SDK has no
     // wrapper: inspect this run's durable events, so old failures never suppress a later failure.
@@ -477,6 +481,14 @@ export class EventService {
         await this.publishEventOnce(event);
       }
     }
+  }
+
+  private logError(message: string, error: unknown, elapsedMs?: number): void {
+    this.errorLogger.error({
+      conversation_id: this.stored.id,
+      ...(elapsedMs === undefined ? {} : { elapsed_ms: elapsedMs }),
+      error: safeErrorDiagnostics(error),
+    }, message);
   }
 
   private async appendAndPublish(event: Event): Promise<void> {
@@ -559,16 +571,6 @@ function safeMaintenanceError(error: unknown): Error {
   const failure = new Error(sanitized.detail);
   failure.name = sanitized.code;
   return failure;
-}
-
-function safeRunError(error: unknown): { code: string; detail: string } {
-  // Never serialize arbitrary thrown objects, causes, or attached requests/responses.
-  if (!(error instanceof Error)) return { code: 'Error', detail: 'Conversation run failed.' };
-  const name = error.constructor.name;
-  const code = /^[A-Za-z_$][\w$]{0,79}$/u.test(name) ? name : 'Error';
-  const detail = redactTextSecrets(error.message)
-    .replace(/\b(Bearer|Basic)\s+[^\s"',;]+/giu, '$1 <redacted>');
-  return { code, detail };
 }
 
 function createEventLog(stored: StoredConversation): EventLog {

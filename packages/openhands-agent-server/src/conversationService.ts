@@ -4,6 +4,7 @@ import { conversationExecutionStatus, createMetricsResetEvent, metricsSnapshot, 
 
 import { ConversationLease, ConversationLeaseHeldError, defaultLeaseTtlMs } from './conversationLease.js';
 import { conversationDirectory, ConversationMetadataStore } from './conversationMetadata.js';
+import { defaultErrorLogger, safeErrorDiagnostics, type ErrorLogger } from './errorDiagnostics.js';
 import { conversationSecretRef, extractConversationSecrets, withoutConversationSecrets } from './conversationSecrets.js';
 import { EventService, type AgentFactory, type EventServiceOptions } from './eventService.js';
 import type { ProfileRuntimeOptions, UpdateConversationRequest as UpdateStoredRequest } from './profileRuntime.js';
@@ -22,6 +23,7 @@ import {
 } from './models.js';
 
 export interface ConversationServiceOptions {
+  readonly errorLogger?: ErrorLogger;
   readonly agentFactory?: AgentFactory;
   readonly getDefaultAgentSettings?: EventServiceOptions['getDefaultAgentSettings'];
   readonly persistenceDir?: string;
@@ -41,12 +43,14 @@ export class ConversationService {
   private readonly conversations = new Map<string, StoredConversation>();
   private readonly eventServices = new Map<string, EventService>();
   private readonly leases = new Map<string, ClaimedLease>();
+  private readonly errorLogger: ErrorLogger;
   private readonly metadataStore: ConversationMetadataStore;
   private readonly readyPromise: Promise<void>;
   private readonly ownerInstanceId: string;
   private readonly leaseTtlMs: number;
 
   constructor(private readonly options: ConversationServiceOptions = {}) {
+    this.errorLogger = options.errorLogger ?? defaultErrorLogger;
     this.metadataStore = new ConversationMetadataStore(options.persistenceDir ?? 'workspace/conversations');
     this.ownerInstanceId = options.ownerInstanceId ?? randomUUID();
     this.leaseTtlMs = options.leaseTtlMs ?? defaultLeaseTtlMs;
@@ -359,6 +363,7 @@ export class ConversationService {
   private eventServiceOptions(stored: StoredConversation, events?: readonly Event[]): EventServiceOptions {
     return {
       stored,
+      errorLogger: this.errorLogger,
       saveConversation: (conversation) => this.saveOwnedConversation(conversation),
       updateRequest: (update) => this.updateOwnedRequest(stored, update),
       ...(this.options.profileRuntime === undefined ? {} : { profileRuntime: this.options.profileRuntime }),
@@ -398,7 +403,7 @@ export class ConversationService {
     const renewEveryMs = Math.max(1_000, Math.floor(this.leaseTtlMs / 3));
     const renewTimer = setInterval(() => {
       void lease.renew(claim.generation).catch((error: unknown) => {
-        console.error('conversation_lease_renew_error', error);
+        this.errorLogger.error({ conversation_id: stored.id, error: safeErrorDiagnostics(error) }, 'conversation_lease_renew_error');
       });
     }, renewEveryMs);
     renewTimer.unref?.();

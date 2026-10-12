@@ -33,9 +33,18 @@ later failure. Subsequent user prompts retain the conversation and its history; 
 can be retried. Max-iteration errors already emitted by the SDK use the same event stream.
 
 `DEV-SERVER-003` applies: exception messages pass through SDK secret redaction and authorization
-scheme redaction before persistence or logging. Only a stable exception class name and the redacted
-message are used; attached request/response objects, causes and arbitrary thrown objects are not
-serialized. This is not a guarantee that arbitrary unstructured text can be made secret-free.
+scheme redaction before persistence or logging. Persisted/public events retain only a stable
+exception class name and redacted message.
+
+Conversation run, cleanup, rerun and ownership-lease renewal failures use the server's **error-level** logger. Structured
+records include the conversation ID and, for run failures, elapsed milliseconds; the logger supplies
+timestamp, PID and level. Local diagnostics add stack frames and a bounded cause tree, including
+AggregateError members. Causes contain only exception class names, allowlisted native error codes,
+numeric errno, allowlisted syscalls, IP addresses/ports and redacted stack frames. Cause messages,
+HTTP URLs in stack frames, attached request/response objects and arbitrary thrown objects are never serialized.
+Projection skips cause/metadata getters, omits error-message lines from stacks, and caps cause count,
+depth, frame count and text length. This is not a guarantee that arbitrary unstructured text can be
+made secret-free. No SDK/event schema, provider retry behavior or chat notice changes.
 
 SmolPaws owns user notices in `src/coordinator/messageRelay.ts`. All `ConversationErrorEvent`
 instances project into its existing durable outbox; max-iteration events have specific wording and

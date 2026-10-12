@@ -50,7 +50,8 @@ export interface AgentServerApp {
 
 export async function createAgentServerApp(options: AgentServerAppOptions = {}): Promise<AgentServerApp> {
   if (options.conversationService !== undefined && (
-    options.agentFactory !== undefined
+    options.errorLogger !== undefined
+    || options.agentFactory !== undefined
     || options.getDefaultAgentSettings !== undefined
     || options.persistenceDir !== undefined
     || options.ownerInstanceId !== undefined
@@ -97,7 +98,9 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
     llmClientFactory,
     ...(options.resolveCondenserProfileSelection === undefined ? {} : { resolveCondenserProfileSelection: options.resolveCondenserProfileSelection }),
   });
+  const app = Fastify({ logger: options.logger ?? false, bodyLimit: 25 * 1024 * 1024 });
   const serviceOptions: ConversationServiceOptions = {
+    errorLogger: options.errorLogger ?? app.log,
     persistenceDir: config.conversationsPath,
     secretStore,
     agentFactory,
@@ -122,7 +125,6 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
   const retentionTask = retentionSeconds === null || retentionController === null
     ? null
     : bashEventService.runRetentionCleanupLoop(retentionSeconds, undefined, retentionController.signal);
-  const app = Fastify({ logger: options.logger ?? false, bodyLimit: 25 * 1024 * 1024 });
 
   await app.register(multipart);
   await app.register(websocket);

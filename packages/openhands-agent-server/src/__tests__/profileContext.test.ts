@@ -118,11 +118,13 @@ describe('profile agent context configuration', () => {
 
   test('surfaces configuration failures and does not run without the required context', async () => {
     const failure = new Error('required_context_unavailable');
-    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const { server, llmClientFactory, complete } = await fixture({ configureContext: async () => { throw failure; } });
+    const errorLog = vi.spyOn(server.app.log, 'error');
     const id = await start(server);
     await run(server, id, 'error');
-    expect(errorLog).toHaveBeenCalledWith('conversation_run_error', { code: 'Error', detail: 'required_context_unavailable' });
+    expect(errorLog).toHaveBeenCalledWith(expect.objectContaining({
+      conversation_id: id, error: expect.objectContaining({ code: 'Error', detail: 'required_context_unavailable' }),
+    }), 'conversation_run_error');
     expect(llmClientFactory).not.toHaveBeenCalled();
     expect(complete).not.toHaveBeenCalled();
   });
