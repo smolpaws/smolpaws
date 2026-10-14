@@ -50,6 +50,12 @@ async function run(server: AgentServerApp, id: string, status: 'error' | 'finish
   await expect.poll(async () => (await server.app.inject(`/api/conversations/${id}`)).json().execution_status).toBe(status);
 }
 
+async function closeServer(server: AgentServerApp): Promise<void> {
+  await server.app.close();
+  const index = servers.indexOf(server);
+  if (index !== -1) servers.splice(index, 1);
+}
+
 async function errors(server: AgentServerApp, id: string) {
   const response = await server.app.inject(`/api/conversations/${id}/events/search?kind=ConversationErrorEvent`);
   expect(response.statusCode).toBe(200);
@@ -87,13 +93,11 @@ describe('durable conversation run failures', () => {
     expect(JSON.stringify(log.mock.calls)).not.toContain(secret);
     expect(JSON.stringify(log.mock.calls)).not.toContain(requestSecret);
     expect(JSON.stringify(log.mock.calls)).not.toContain(bearerSecret);
+    socket.close();
+    await closeServer(server);
     expect(await pathContainsPlaintext(root, secret)).toBe(false);
     expect(await pathContainsPlaintext(root, requestSecret)).toBe(false);
     expect(await pathContainsPlaintext(root, bearerSecret)).toBe(false);
-
-    socket.close();
-    await server.app.close();
-    servers.splice(servers.indexOf(server), 1);
     const restored = await createAgentServerApp(options);
     servers.push(restored);
     expect(await errors(restored, id)).toEqual([first]);
@@ -140,9 +144,10 @@ describe('durable conversation run failures', () => {
     const persisted = (await errors(server, id))[0]!;
     expect(persisted).toMatchObject({ code: 'TypeError', detail: message });
     expect(persisted).not.toHaveProperty('causes');
-    expect(await pathContainsPlaintext(root, secret)).toBe(false);
     await run(server, id, 'finished');
     expect(await errors(server, id)).toEqual([persisted]);
+    await closeServer(server);
+    expect(await pathContainsPlaintext(root, secret)).toBe(false);
   });
 
   test('logs bounded aggregate causes and stack frames without serializing their messages or objects', async () => {
@@ -186,6 +191,7 @@ describe('durable conversation run failures', () => {
     expect(getter).not.toHaveBeenCalled();
     await expect.poll(async () => (await errors(server, id)).length).toBe(1);
     expect((await errors(server, id))[0]).toMatchObject({ code: 'TypeError', detail: 'fetch failed' });
+    await closeServer(server);
     expect(await pathContainsPlaintext(root, secret)).toBe(false);
   });
 
@@ -231,10 +237,11 @@ describe('durable conversation run failures', () => {
       })] }),
     }), 'conversation_run_error');
     expect(JSON.stringify(log.mock.calls)).not.toContain(secret);
-    expect(await pathContainsPlaintext(root, secret)).toBe(false);
     await run(server, id, 'finished');
     expect(await errors(server, id)).toEqual([first]);
     expect(factory).toHaveBeenCalledTimes(2);
+    await closeServer(server);
+    expect(await pathContainsPlaintext(root, secret)).toBe(false);
   });
 
   test('writes a structured level-50 record when only error-level logging is enabled', async () => {
@@ -286,8 +293,7 @@ describe('durable conversation run failures', () => {
       expect(log).toHaveBeenCalledWith(expect.objectContaining({
         conversation_id: id, error: expect.objectContaining({ system_code: 'EEXIST', syscall: 'open' }),
       }), 'conversation_lease_renew_error');
-      await server.app.close();
-      servers.splice(servers.indexOf(server), 1);
+      await closeServer(server);
     } finally {
       vi.useRealTimers();
     }
@@ -335,6 +341,7 @@ describe('durable conversation run failures', () => {
     await expect.poll(async () => (await errors(server, id)).length).toBe(1);
     expect((await errors(server, id))[0]).toMatchObject({ code: 'Error', detail: 'Conversation run failed.' });
     expect(JSON.stringify(log.mock.calls)).not.toContain(secret);
+    await closeServer(server);
     expect(await pathContainsPlaintext(root, secret)).toBe(false);
   });
 });
