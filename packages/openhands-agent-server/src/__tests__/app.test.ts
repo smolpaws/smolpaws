@@ -5,7 +5,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { Agent, EventLog, FinishTool, InMemorySecretStore, LocalFileStore, RemoteConversation, RemoteWorkspace, TestLLM, ToolDefinition, llmProfileSchema, textContent, type LLMClient } from '@smolpaws/openhands-agent';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 
 import { createAgentServerApp } from '../app.js';
@@ -352,6 +352,89 @@ describe('createAgentServerApp', () => {
       expect(persistedEvents.join('\n')).not.toContain(PROVIDER_REQUEST_SECRET);
     } finally {
       await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test.each([undefined, false])('emits error-only diagnostics when request logging is %s', async (logger) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-logging-'));
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { app } = await createAgentServerApp({
+      ...(logger === undefined ? {} : { logger }),
+      agentFactory: failingAgentFactory,
+      secretStore: new InMemorySecretStore(),
+      config: {
+        conversationsPath: path.join(root, 'conversations'), statePath: path.join(root, 'state'),
+        bashEventsPath: path.join(root, 'bash'), workspaceRoot: root,
+      },
+    });
+    try {
+      const start = await app.inject({ method: 'POST', url: '/api/conversations', payload: {} });
+      expect(start.statusCode).toBe(201);
+      const id = start.json<{ id: string }>().id;
+      const run = await app.inject({ method: 'POST', url: `/api/conversations/${id}/events`,
+        payload: { role: 'user', content: 'fail', run: true } });
+      expect(run.statusCode).toBe(200);
+      await waitFor(async () => {
+        expect((await app.inject(`/api/conversations/${id}`)).json().execution_status).toBe('error');
+      });
+
+      expect(consoleError).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(String(consoleError.mock.calls[0]?.[0]))).toMatchObject({
+        level: 50, time: expect.any(Number), pid: process.pid,
+        msg: 'conversation_run_error', conversation_id: id, elapsed_ms: expect.any(Number),
+        error: { code: 'Error', detail: 'provider_response_invalid' },
+      });
+      expect(JSON.stringify(consoleError.mock.calls)).not.toContain(PROVIDER_REQUEST_SECRET);
+    } finally {
+      await app.close();
+      consoleError.mockRestore();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test.each([
+    ['the enabled Fastify logger', true, false],
+    ['an explicit logger with request logging enabled', true, true],
+    ['an explicit logger with request logging disabled', false, true],
+  ] as const)('routes conversation error diagnostics to %s', async (_name, logger, explicitLogger) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-logging-'));
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const errorLogger = { error: vi.fn() };
+    const { app } = await createAgentServerApp({
+      logger,
+      ...(explicitLogger ? { errorLogger } : {}),
+      agentFactory: failingAgentFactory,
+      secretStore: new InMemorySecretStore(),
+      config: {
+        conversationsPath: path.join(root, 'conversations'), statePath: path.join(root, 'state'),
+        bashEventsPath: path.join(root, 'bash'), workspaceRoot: root,
+      },
+    });
+    if (logger) app.log.level = 'error';
+    const fastifyError = vi.spyOn(app.log, 'error').mockImplementation(() => {});
+    try {
+      const start = await app.inject({ method: 'POST', url: '/api/conversations', payload: {} });
+      expect(start.statusCode).toBe(201);
+      const id = start.json<{ id: string }>().id;
+      const run = await app.inject({ method: 'POST', url: `/api/conversations/${id}/events`,
+        payload: { role: 'user', content: 'fail', run: true } });
+      expect(run.statusCode).toBe(200);
+      await waitFor(async () => {
+        expect((await app.inject(`/api/conversations/${id}`)).json().execution_status).toBe('error');
+      });
+
+      const selectedLogger = explicitLogger ? errorLogger.error : fastifyError;
+      expect(selectedLogger).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        conversation_id: id, elapsed_ms: expect.any(Number),
+        error: expect.objectContaining({ code: 'Error', detail: 'provider_response_invalid' }),
+      }), 'conversation_run_error');
+      expect(explicitLogger ? fastifyError : errorLogger.error).not.toHaveBeenCalled();
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+      fastifyError.mockRestore();
+      consoleError.mockRestore();
       await rm(root, { recursive: true, force: true });
     }
   });

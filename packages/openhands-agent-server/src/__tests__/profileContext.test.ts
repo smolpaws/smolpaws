@@ -27,15 +27,17 @@ async function fixture(options: Pick<AgentServerAppOptions, 'configureContext' |
   }));
   const secretStore = new InMemorySecretStore();
   const llmClientFactory = vi.fn(async () => ({ profile, complete }));
+  const errorLogger = { error: vi.fn() };
   const server = await createAgentServerApp({
     ...options,
+    errorLogger,
     secretStore,
     llmClientFactory,
     config: { conversationsPath: path.join(root, 'conversations'), statePath: path.join(root, 'state'), bashEventsPath: path.join(root, 'bash'), workspaceRoot: root },
   });
   servers.push(server);
   await server.serverStateService.saveProfile(profile);
-  return { server, complete, secretStore, llmClientFactory };
+  return { server, complete, secretStore, llmClientFactory, errorLogger };
 }
 
 async function start(server: AgentServerApp, suffix?: string): Promise<string> {
@@ -118,8 +120,8 @@ describe('profile agent context configuration', () => {
 
   test('surfaces configuration failures and does not run without the required context', async () => {
     const failure = new Error('required_context_unavailable');
-    const { server, llmClientFactory, complete } = await fixture({ configureContext: async () => { throw failure; } });
-    const errorLog = vi.spyOn(server.app.log, 'error');
+    const { server, llmClientFactory, complete, errorLogger } = await fixture({ configureContext: async () => { throw failure; } });
+    const errorLog = vi.spyOn(errorLogger, 'error');
     const id = await start(server);
     await run(server, id, 'error');
     expect(errorLog).toHaveBeenCalledWith(expect.objectContaining({

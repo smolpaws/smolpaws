@@ -28,6 +28,8 @@ interface ErrorDiagnostics {
 const MAX_ERRORS = 8;
 const MAX_DEPTH = 4;
 const MAX_STACK_FRAMES = 8;
+const MAX_PROTOTYPE_DEPTH = 8;
+const NATIVE_STACK_DESCRIPTOR = Object.getOwnPropertyDescriptor(new Error(), 'stack');
 const SYSTEM_CODES = new Set([
   ...Object.keys(constants.errno),
   'ENOTFOUND', 'EAI_AGAIN', 'EAI_NONAME',
@@ -54,10 +56,23 @@ function redact(text: string): string {
   return redactTextSecrets(text).replace(/\b(Bearer|Basic)\s+[^\s"',;]+/giu, '$1 <redacted>');
 }
 
+function isError(value: unknown): value is Error {
+  try {
+    return value instanceof Error;
+  } catch {
+    return false;
+  }
+}
+
 /** The event/API summary stays small; diagnostic causes belong only in local logs. */
 export function safeRunError(error: unknown): { code: string; detail: string } {
-  if (!(error instanceof Error)) return { code: 'Error', detail: 'Conversation run failed.' };
-  return { code: errorCode(error), detail: redact(error.message) };
+  if (!isError(error)) return { code: 'Error', detail: 'Conversation run failed.' };
+  const code = errorCode(error);
+  try {
+    return { code, detail: redact(error.message) };
+  } catch {
+    return { code, detail: 'Conversation run failed.' };
+  }
 }
 
 function ownValue(error: Error, key: string): unknown {
@@ -68,11 +83,28 @@ function ownValue(error: Error, key: string): unknown {
   }
 }
 
+/** Read inherited data properties without evaluating message/name accessors. */
+function dataTextProperty(error: Error, key: 'message' | 'name'): string | undefined {
+  let current: object | null = error;
+  for (let depth = 0; current !== null && depth < MAX_PROTOTYPE_DEPTH; depth += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(current, key);
+    if (descriptor !== undefined) return typeof descriptor.value === 'string' ? descriptor.value : undefined;
+    current = Object.getPrototypeOf(current) as object | null;
+  }
+  return undefined;
+}
+
 function stackFrames(error: Error): string[] {
   try {
-    const message = ownValue(error, 'message');
-    const messageLines = typeof message === 'string' ? message.split('\n').length : 1;
-    return (error.stack ?? '').split('\n').slice(messageLines).filter((line) => /^\s+at\s/u.test(line))
+    const message = dataTextProperty(error, 'message');
+    const name = dataTextProperty(error, 'name');
+    // Native stack formatting reads both fields. An unknown header can expose cause text as a frame.
+    if (message === undefined || name === undefined || /[\r\n]/u.test(name)) return [];
+    const descriptor = Object.getOwnPropertyDescriptor(error, 'stack');
+    const stack: unknown = typeof descriptor?.value === 'string' ? descriptor.value
+      : descriptor?.get !== undefined && descriptor.get === NATIVE_STACK_DESCRIPTOR?.get ? descriptor.get.call(error) : undefined;
+    if (typeof stack !== 'string') return [];
+    return stack.split('\n').slice(message.split('\n').length).filter((line) => /^\s+at\s/u.test(line))
       .slice(0, MAX_STACK_FRAMES)
       .map((line) => redact(line).replace(/https?:\/\/[^\s)'"<>]+/giu, '<url>').slice(0, 400));
   } catch {
@@ -83,7 +115,7 @@ function stackFrames(error: Error): string[] {
 /** Never hand an Error to a logger serializer: project a bounded set of diagnostic fields. */
 export function safeErrorDiagnostics(error: unknown): ErrorDiagnostics {
   const summary = safeRunError(error);
-  if (!(error instanceof Error)) return summary;
+  if (!isError(error)) return summary;
   const seen = new Set<Error>();
   let remaining = MAX_ERRORS;
   function project(value: Error, depth: number): ErrorDiagnostics | undefined {
@@ -105,10 +137,10 @@ export function safeErrorDiagnostics(error: unknown): ErrorDiagnostics {
     if (frames.length > 0) result.stack_frames = frames;
     const children: Error[] = [];
     const cause = ownValue(value, 'cause');
-    if (cause instanceof Error) children.push(cause);
+    if (isError(cause)) children.push(cause);
     if (value instanceof AggregateError) {
       const errors = ownValue(value, 'errors');
-      if (Array.isArray(errors)) children.push(...errors.slice(0, MAX_ERRORS).filter((child): child is Error => child instanceof Error));
+      if (Array.isArray(errors)) children.push(...errors.slice(0, MAX_ERRORS).filter(isError));
     }
     const causes = children.flatMap((child) => {
       const projected = project(child, depth + 1);
@@ -117,5 +149,11 @@ export function safeErrorDiagnostics(error: unknown): ErrorDiagnostics {
     if (causes.length > 0) result.causes = causes;
     return result;
   }
-  return { ...project(error, 0), ...summary, detail: summary.detail.slice(0, 2000) };
+  const boundedSummary = { ...summary, detail: summary.detail.slice(0, 2000) };
+  try {
+    return { ...project(error, 0), ...boundedSummary };
+  } catch {
+    // Diagnostic inspection must not replace the original failure or prevent its durable event.
+    return boundedSummary;
+  }
 }

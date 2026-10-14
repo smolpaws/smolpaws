@@ -43,7 +43,12 @@ AggregateError members. Causes contain only exception class names, allowlisted n
 numeric errno, allowlisted syscalls, IP addresses/ports and redacted stack frames. Cause messages,
 HTTP URLs in stack frames, attached request/response objects and arbitrary thrown objects are never serialized.
 Projection skips cause/metadata getters, omits error-message lines from stacks, and caps cause count,
-depth, frame count and text length. This is not a guarantee that arbitrary unstructured text can be
+depth, frame count and text length. Stack frames require data-only message/name headers and a saved
+stack string or the runtime’s native stack accessor; accessor-backed headers are omitted without
+evaluation. Uninspectable causes are skipped, and a failed diagnostic projection falls back to the
+original redacted summary so error persistence and subsequent-prompt continuation still proceed.
+When HTTP logging is disabled or omitted, an error-only structured stderr logger remains active; an
+explicit error logger takes precedence. This is not a guarantee that arbitrary unstructured text can be
 made secret-free. No SDK/event schema, provider retry behavior or chat notice changes.
 
 SmolPaws owns user notices in `src/coordinator/messageRelay.ts`. All `ConversationErrorEvent`
