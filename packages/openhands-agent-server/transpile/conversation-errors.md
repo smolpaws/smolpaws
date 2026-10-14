@@ -47,6 +47,8 @@ depth, frame count and text length. Stack frames require data-only message/name 
 stack string or the runtime’s native stack accessor; accessor-backed headers are omitted without
 evaluation. Uninspectable causes are skipped, and a failed diagnostic projection falls back to the
 original redacted summary so error persistence and subsequent-prompt continuation still proceed.
+Run-error logging is best effort: logger writes and diagnostic serialization cannot prevent error
+persistence, publication, run cleanup or subsequent-prompt continuation.
 When HTTP logging is disabled or omitted, an error-only structured stderr logger remains active; an
 explicit error logger takes precedence. This is not a guarantee that arbitrary unstructured text can be
 made secret-free. No SDK/event schema, provider retry behavior or chat notice changes.

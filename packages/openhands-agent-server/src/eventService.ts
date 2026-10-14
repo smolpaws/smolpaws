@@ -484,11 +484,15 @@ export class EventService {
   }
 
   private logError(message: string, error: unknown, elapsedMs?: number): void {
-    this.errorLogger.error({
-      conversation_id: this.stored.id,
-      ...(elapsedMs === undefined ? {} : { elapsed_ms: elapsedMs }),
-      error: safeErrorDiagnostics(error),
-    }, message);
+    try {
+      this.errorLogger.error({
+        conversation_id: this.stored.id,
+        ...(elapsedMs === undefined ? {} : { elapsed_ms: elapsedMs }),
+        error: safeErrorDiagnostics(error),
+      }, message);
+    } catch {
+      // Diagnostic logging must not prevent durable errors, publication or cleanup.
+    }
   }
 
   private async appendAndPublish(event: Event): Promise<void> {

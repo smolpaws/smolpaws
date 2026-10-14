@@ -8,6 +8,7 @@ import Fastify from 'fastify';
 
 import { pathContainsPlaintext } from '../../examples/plaintextScan.js';
 import { ConversationLease, defaultLeaseTtlMs } from '../conversationLease.js';
+import { defaultErrorLogger } from '../errorDiagnostics.js';
 import { createAgentServerApp, type AgentServerApp, type AgentServerAppOptions } from '../app.js';
 
 // Adapted from pinned tests/agent_server/test_event_service.py:
@@ -312,6 +313,46 @@ describe('durable conversation run failures', () => {
     await run(server, id, 'finished');
     expect(factory).toHaveBeenCalledTimes(2);
     expect(await errors(server, id)).toHaveLength(1);
+  });
+
+  test.each(['write', 'serialization'])('preserves error publication, persistence and retry when logging fails during %s', async (kind) => {
+    const cause = new Error('private native cause');
+    const name: Record<string, unknown> = { toString: () => 'Error' };
+    name.self = name;
+    Object.defineProperty(cause, 'constructor', { value: { name } });
+    const failure = new TypeError('fetch failed', { cause });
+    const log = vi.fn((fields: Record<string, unknown>, message: string) => {
+      if (kind === 'write') throw new Error('fixture log write failed');
+      defaultErrorLogger.error(fields, message);
+    });
+    const factory = vi.fn(() => {
+      if (factory.mock.calls.length === 1) throw failure;
+      return new Agent({ llm: TestLLM.fromMessages([finish('finish-after-logging-failure')]), tools: [FinishTool.create()] });
+    });
+    const { server, id, options } = await fixture(factory, { error: log });
+    const emitted: Event[] = [];
+    const service = (await server.conversationService.getEventService(id))!;
+    await service.subscribeToEvents((event) => { emitted.push(event); });
+
+    const response = await server.app.inject({ method: 'POST', url: `/api/conversations/${id}/events`,
+      payload: { role: 'user', content: 'Trigger the failure.', run: true } });
+    expect(response.statusCode).toBe(200);
+    await service.whenIdle();
+    expect((await server.app.inject(`/api/conversations/${id}`)).json().execution_status).toBe('error');
+    const saved = await errors(server, id);
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({ code: 'TypeError', detail: 'fetch failed' });
+    expect(emitted.filter((event) => event.kind === 'ConversationErrorEvent')).toEqual(saved);
+    expect(emitted.at(-1)).toMatchObject({ kind: 'ConversationStateUpdateEvent', value: { execution_status: 'error' } });
+    expect(log).toHaveBeenCalledTimes(1);
+
+    await closeServer(server);
+    const restored = await createAgentServerApp(options);
+    servers.push(restored);
+    expect(await errors(restored, id)).toEqual(saved);
+    await run(restored, id, 'finished');
+    expect(await errors(restored, id)).toEqual(saved);
+    expect(factory).toHaveBeenCalledTimes(2);
   });
 
   test('publishes an error already appended by the agent without emitting a second backstop event', async () => {
