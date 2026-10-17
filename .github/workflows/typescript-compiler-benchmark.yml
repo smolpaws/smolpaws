@@ -1,0 +1,71 @@
+name: TypeScript Compiler Benchmark
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/typescript-compiler-benchmark.yml
+      - scripts/benchmark-typescript-compilers.py
+      - scripts/TYPESCRIPT-COMPILER-BENCHMARK.md
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full commit SHA of smolpaws/smolpaws to benchmark
+        required: true
+        default: '6cacf641daa3625ba35ccfb0d344a65b22bb3fec'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: harness
+          persist-credentials: false
+      - name: Validate immutable source revision
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha || '6cacf641daa3625ba35ccfb0d344a65b22bb3fec' }}
+        run: '[[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]'
+      - uses: actions/checkout@v4
+        with:
+          repository: smolpaws/smolpaws
+          ref: ${{ inputs.source_sha || '6cacf641daa3625ba35ccfb0d344a65b22bb3fec' }}
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install locked project dependencies
+        working-directory: source/packages/openhands-agent-server
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Prepare generated project types
+        working-directory: source/packages/openhands-agent-server
+        run: |
+          true
+      - name: Install pinned native compilers outside project
+        run: npm install --prefix "$RUNNER_TEMP/compiler-tools" --ignore-scripts --no-audit --no-fund --save-exact tsc-ts@0.0.2 @typescript/native-preview@7.0.0-dev.20260707.2
+      - name: Record machine and source metadata
+        run: |
+          mkdir -p results
+          git -C source rev-parse HEAD > results/source-sha.txt
+          node --version > results/node-version.txt
+          uname -a > results/machine.txt
+          lscpu >> results/machine.txt
+          free -h >> results/machine.txt
+          cat "$RUNNER_TEMP/compiler-tools/package-lock.json" > results/tools-package-lock.json
+      - name: Benchmark successful checks and diagnostic controls
+        run: python3 harness/scripts/benchmark-typescript-compilers.py --project source/packages/openhands-agent-server --tools "$RUNNER_TEMP/compiler-tools" --out results --rounds 5
+      - name: Publish summary
+        if: always()
+        run: |
+          if test -f results/report.md; then cat results/report.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: typescript-compiler-benchmark
+          path: results/
+          retention-days: 14
