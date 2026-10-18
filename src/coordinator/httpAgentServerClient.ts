@@ -112,8 +112,8 @@ export class HttpAgentServerClient implements AgentServerClient {
     await this.raise('ensureConversation', res);
   }
 
-  async executionStatus(conversationId: string): Promise<string> {
-    const response = await this.request(`${this.baseUrl}/api/conversations/${encodeURIComponent(conversationId)}`, { headers: this.headers(false) });
+  async executionStatus(conversationId: string, signal?: AbortSignal): Promise<string> {
+    const response = await this.request(`${this.baseUrl}/api/conversations/${encodeURIComponent(conversationId)}`, { headers: this.headers(false), signal });
     if (!response.ok) await this.raise('executionStatus', response);
     return String(((await this.json(response)) as { execution_status: string }).execution_status).toLowerCase();
   }
