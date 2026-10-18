@@ -10665,13 +10665,14 @@ var fileEditorActionSchema = z.object({ command: z.enum(["view", "create", "str_
 var fileEditorObservationSchema = baseToolObservationSchema.extend({ command: z.enum(["view", "create", "str_replace", "insert", "undo_edit"]), path: z.string().nullable().default(null), prev_exist: z.boolean().default(true), old_content: z.string().nullable().default(null), new_content: z.string().nullable().default(null) }).strict();
 var FileEditorExecutor = class {
   history = /* @__PURE__ */ new Map();
+  /** Workspace context retained for callers; filesystem access follows host permissions. */
   workspaceRoot;
   constructor(options = {}) {
     this.workspaceRoot = options.workspaceRoot ? resolve(options.workspaceRoot) : null;
   }
   async execute(action) {
     const parsed = fileEditorActionSchema.parse(action);
-    const path3 = this.resolvePath(parsed.path);
+    const path3 = resolve(parsed.path);
     try {
       if (parsed.command === "view") return await this.view(path3, parsed);
       if (parsed.command === "create") return await this.create(path3, parsed);
@@ -10681,11 +10682,6 @@ var FileEditorExecutor = class {
     } catch (error) {
       return this.observation({ text: error instanceof Error ? error.message : String(error), is_error: true, command: parsed.command, path: path3 });
     }
-  }
-  resolvePath(path3) {
-    const resolved = resolve(path3);
-    if (this.workspaceRoot !== null && !(resolved === this.workspaceRoot || resolved.startsWith(`${this.workspaceRoot}${sep}`))) throw new Error(`Path escapes workspace: ${path3}`);
-    return resolved;
   }
   async view(path3, action) {
     const info = await stat(path3);

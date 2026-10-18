@@ -89,12 +89,12 @@ export type FileEditorAction = z.infer<typeof fileEditorActionSchema>;
 export type FileEditorObservation = z.infer<typeof fileEditorObservationSchema>;
 export declare class FileEditorExecutor {
     private readonly history;
+    /** Workspace context retained for callers; filesystem access follows host permissions. */
     readonly workspaceRoot: string | null;
     constructor(options?: {
         readonly workspaceRoot?: string | null;
     });
     execute(action: FileEditorAction): Promise<FileEditorObservation>;
-    private resolvePath;
     private view;
     private create;
     private strReplace;
