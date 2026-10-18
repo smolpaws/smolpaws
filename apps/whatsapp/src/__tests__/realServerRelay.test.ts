@@ -127,7 +127,20 @@ test('WhatsApp ingress reaches the real TypeScript agent-server and returns thro
   const config = { ...loadConfig({ HOME: home }, repoRoot), pollIntervalMs: 60_000, debounceMs: 0 };
   const relayDbPath = path.join(root, 'whatsapp-relay.db');
 
-  const server = await createAgentServerApp({ agentFactory, config: { conversationsPath, sessionApiKey: SESSION_KEY } });
+  let finishTurn!: () => void;
+  const finishGate = new Promise<void>(resolve => { finishTurn = resolve; });
+  const heldAgentFactory = () => {
+    const agent = agentFactory();
+    const llm = agent.llm;
+    const complete = llm.complete.bind(llm);
+    let calls = 0;
+    llm.complete = async (...args: Parameters<typeof complete>) => {
+      if (++calls === 2) await finishGate;
+      return complete(...args);
+    };
+    return agent;
+  };
+  const server = await createAgentServerApp({ agentFactory: heldAgentFactory, config: { conversationsPath, sessionApiKey: SESSION_KEY } });
   const app = server.app as unknown as AppLike;
   const baseUrl = await listen(app);
 
@@ -172,15 +185,22 @@ test('WhatsApp ingress reaches the real TypeScript agent-server and returns thro
     await socket.emit('messages.upsert', upsert('M2', '@smolpaws say the words', 1_700_000_002));
     await bridge.pollOnce();
 
+    // Durable intake resolves while the real agent keeps running after its interim send.
+    await waitFor(() => socket.sent.length === 1 && socket.presence.includes('composing'),
+      () => bridge['runtime']!.runOnce());
+    assert.equal(socket.sent[0]?.text, `smolpaws: ${MID_TURN}`);
+    assert.equal(socket.presence.includes('paused'), false);
+    finishTurn();
     await waitFor(
-      () => socket.sent.length >= 2,
+      () => socket.sent.length >= 2 && socket.presence.at(-1) === 'paused',
       () => bridge['runtime']!.runOnce(),
     );
     assert.deepEqual(socket.sent, [
       { jid: '4915551234@s.whatsapp.net', text: `smolpaws: ${MID_TURN}` },
       { jid: '4915551234@s.whatsapp.net', text: `smolpaws: ${FINAL}` },
     ].map((entry) => ({ ...entry, jid: '123@g.us' })));
-    assert.deepEqual(socket.presence, ['composing', 'paused']);
+    assert.equal(socket.presence[0], 'composing');
+    assert.equal(socket.presence.at(-1), 'paused');
 
     // A voice note has no text prefix. Its preallocated ID must suppress its own account echo.
     const voiceId = await bridge['sendMedia']('123@g.us', { kind: 'current_thread_media', path: '/tmp/fake.ogg', mediaType: 'audio', mimeType: 'audio/ogg; codecs=opus', fileName: 'fake.ogg', voiceNote: true });
@@ -202,6 +222,7 @@ test('WhatsApp ingress reaches the real TypeScript agent-server and returns thro
       handoffDb.prepare("UPDATE work SET state='done' WHERE kind='intake'").run();
     } finally { handoffDb.close(); }
   } finally {
+    finishTurn();
     await bridge.stop();
     await app.close();
   }

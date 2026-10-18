@@ -79,6 +79,18 @@ Choose each chat's LLM profile in the shared [model configuration](../models.md)
 such as `whatsapp:main`. A changed selection applies to the existing conversation at a safe boundary;
 the agent's `switch_llm` tool uses that same activation path. The bridge keeps no separate profile map.
 
+## Working indicator
+
+The bridge polls canonical per-conversation execution status every five seconds, independently of
+message delivery. While a conversation is `running`, it refreshes native WhatsApp composing presence.
+An interim `send_message` does not clear it. Durable intake acceptance alone never starts it.
+
+Finished, paused, waiting, failed, unavailable, or stale (15 seconds) state stops presence. Reconnect
+requires a fresh server snapshot; startup reconciles existing conversations. Multiple runs for one
+chat share presence until all stop. A scheduled follow-up that is merely waiting does not count as
+active work. Presence is best-effort, creates no text messages, and never blocks durable delivery.
+Short turns can finish between polls; a real client's rendering still needs human confirmation.
+
 ## Errors and follow-up messages
 
 The bridge also sends `smolpaws: 🐾 I'm up.` to every registered chat after startup. It does not
