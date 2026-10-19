@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "OpenHands/software-agent-sdk",
-  "commit": "d128a786ee2ee570eb23ff5862ec148b43cfad0b",
+  "commit": "e7cc8c27b2b234fc1c104825ad20dddf1c01fa31",
   "targets": {
     "sdk": {
       "sourcePrefixes": [
@@ -79,7 +79,8 @@
     ".agents/",
     ".github/",
     ".openhands/",
-    ".pr/"
+    ".pr/",
+    "clients/"
   ],
   "ignorePaths": [
     ".dockerignore",

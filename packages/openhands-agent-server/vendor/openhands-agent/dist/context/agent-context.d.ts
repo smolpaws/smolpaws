@@ -24,6 +24,7 @@ export interface ToolUseSuffixResult {
 }
 export declare class AgentContext {
     readonly skills: Skill[];
+    readonly disabledSkills: readonly string[];
     readonly systemMessageSuffix: string | null;
     readonly userMessageSuffix: string | null;
     readonly secrets: Readonly<Record<string, string | {

@@ -240,8 +240,14 @@ export class ServerStateService {
     const state = await this.load();
     const deleted = state.agentProfiles[name];
     const profiles = withoutKey(state.agentProfiles, name);
-    const active_agent_profile_id = deleted?.id === state.settings.active_agent_profile_id ? null : state.settings.active_agent_profile_id;
-    await this.commit({ ...state, agentProfiles: profiles, settings: { ...state.settings, active_agent_profile_id } });
+    const wasActive = deleted !== undefined && deleted.id === state.settings.active_agent_profile_id;
+    const active_agent_profile_id = wasActive ? null : state.settings.active_agent_profile_id;
+    // Reset by the stored settings variant, not the deleted profile's kind.
+    // MCP is a server-wide registry and must survive this variant transition.
+    const agent_settings = wasActive && state.settings.agent_settings.agent_kind !== 'openhands'
+      ? { ...defaultAgentSettings(state.settings.active_profile_id ?? defaultProfileId), mcp_config: state.settings.agent_settings.mcp_config }
+      : state.settings.agent_settings;
+    await this.commit({ ...state, agentProfiles: profiles, settings: { ...state.settings, active_agent_profile_id, agent_settings } });
     });
   }
 

@@ -301,6 +301,37 @@ This runs `uv sync --locked --dev` inside the upstream checkout (Python 3.12+
 is fetched by `uv` automatically; budget 2–5 minutes), generates the schema,
 and canonicalizes it into `transpile/python-openapi.json` + `.meta.json`.
 
+The condensation wire fixture is also bound to the Python pin. Regenerate it
+from the matching SDK's Python generator, even when its event content is
+unchanged. From `packages/openhands-agent-server`, with absolute `SDK` and
+`UPSTREAM` paths and the Python environment synced above:
+
+```sh
+set -e
+CONDENSATION_ORACLE="$(mktemp)"
+PYTHONDONTWRITEBYTECODE=1 OPENHANDS_SUPPRESS_BANNER=1 LITELLM_LOCAL_MODEL_COST_MAP=True \
+  "$UPSTREAM/.venv/bin/python" "$SDK/scripts/parity/generate-python-condensation-wire-oracle.py" \
+  --upstream "$UPSTREAM" --output "$CONDENSATION_ORACLE"
+node --input-type=module - "$CONDENSATION_ORACLE" <<'NODE'
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const oracle = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const manifest = JSON.parse(fs.readFileSync('vendor/openhands-agent/transpile/upstream.json', 'utf8'));
+assert.equal(oracle.upstream_commit, manifest.commit);
+const event = oracle.cases.flatMap(item => item.events).find(item => item.kind === 'Condensation');
+assert.ok(event);
+const fixture = {
+  upstream_commit: oracle.upstream_commit,
+  source_sha256: oracle.source_sha256,
+  generator: 'SDK scripts/parity/generate-python-condensation-wire-oracle.py; first Condensation model_dump(mode=json) case',
+  event,
+};
+fs.writeFileSync('src/__tests__/fixtures/python-condensation-event.json', JSON.stringify(fixture, null, 2) + '\n');
+NODE
+rm "$CONDENSATION_ORACLE"
+npm test -- --run src/__tests__/condensationWire.test.ts
+```
+
 Then, inside `packages/openhands-agent-server`:
 
 ```sh

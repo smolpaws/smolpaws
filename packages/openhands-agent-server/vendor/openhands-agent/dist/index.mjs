@@ -1720,18 +1720,20 @@ async function existsDirectory(path3) {
 // src/context/agent-context.ts
 var AgentContext = class {
   skills;
+  disabledSkills;
   systemMessageSuffix;
   userMessageSuffix;
   secrets;
   currentDatetime;
   constructor(options = {}) {
-    const disabled = new Set(options.disabledSkills ?? []);
+    this.disabledSkills = [...options.disabledSkills ?? []];
+    const disabled = new Set(this.disabledSkills);
     this.skills = (options.skills ?? []).filter((skill) => !disabled.has(skill.name));
     assertUniqueSkillNames(this.skills);
     this.systemMessageSuffix = options.systemMessageSuffix ?? null;
     this.userMessageSuffix = options.userMessageSuffix ?? null;
     this.secrets = options.secrets ?? null;
-    this.currentDatetime = options.currentDatetime ?? /* @__PURE__ */ new Date();
+    this.currentDatetime = options.currentDatetime === void 0 ? /* @__PURE__ */ new Date() : options.currentDatetime;
   }
   getSecretInfos(additional = []) {
     const byName = /* @__PURE__ */ new Map();
@@ -8179,6 +8181,7 @@ var REASONING_MODELS = [
   "deepseek-r1",
   "deepseek-v4-pro",
   "deepseek-v4-flash",
+  "deepseek-v4.1-flash",
   "kimi-k2-thinking",
   "kimi-k2.5",
   "kimi-k2.6",
@@ -10974,6 +10977,87 @@ var RemoteWorkspace = class {
     const data = await response.json();
     return isRecord9(data) ? data : {};
   }
+  /**
+   * Load server skills, replacing the base context's skills while preserving its
+   * other fields and applying its disabledSkills deny-list. Later project
+   * directories override earlier skills with the same name.
+   *
+   * Local automatic public/user discovery is not implemented. When the server
+   * returns no usable skills (including on failure), retain the supplied context's
+   * explicit skills instead of Python's automatic public-skill fallback.
+   */
+  async loadSkillsFromAgentServer(options = {}) {
+    if (!this.host || this.host === "undefined") {
+      throw new Error("Workspace not initialized. Start the workspace before loading skills.");
+    }
+    const flags = {
+      load_public: options.loadPublic ?? true,
+      load_user: options.loadUser ?? true,
+      load_project: options.loadProject ?? true,
+      load_org: options.loadOrg ?? true
+    };
+    const byName = /* @__PURE__ */ new Map();
+    const load = async (projectDir, selection) => {
+      const skills = await this.callSkillsApi({ ...selection, project_dir: projectDir, sandbox_config: null }, options.timeoutSeconds ?? 60);
+      for (const skill of skills) {
+        if (isRecord9(skill)) {
+          const name = skill.name === void 0 ? "unknown" : skill.name;
+          if (typeof name === "string") byName.set(name, skill);
+        }
+      }
+    };
+    if (options.projectDirs?.length) {
+      await load(this.workingDir, { ...flags, load_project: false });
+      if (flags.load_project) {
+        for (const directory of options.projectDirs) {
+          await load(directory, { load_public: false, load_user: false, load_project: true, load_org: false });
+        }
+      }
+    } else {
+      await load(this.workingDir, flags);
+    }
+    const loaded = [];
+    for (const data of byName.values()) {
+      const triggers = data.triggers ?? [];
+      if (!Array.isArray(triggers)) continue;
+      const trigger = Array.isArray(triggers) && triggers.length > 0 ? triggers.some((value) => typeof value === "string" && value.startsWith("/")) ? { type: "task", triggers } : { type: "keyword", keywords: triggers } : null;
+      const result = skillSchema.safeParse({
+        name: data.name === void 0 ? "unknown" : data.name,
+        content: data.content === void 0 ? "" : data.content,
+        trigger,
+        source: data.source,
+        description: data.description,
+        isAgentskillsFormat: data.is_agentskills_format,
+        disableModelInvocation: data.disable_model_invocation
+      });
+      if (result.success) loaded.push(result.data);
+    }
+    const base = options.baseContext ?? new AgentContext();
+    return [loaded, new AgentContext({ ...base, skills: loaded.length > 0 ? loaded : base.skills })];
+  }
+  async callSkillsApi(payload, timeoutSeconds) {
+    const serverErrors = new Set(Array.from({ length: 100 }, (_, index) => 500 + index));
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const response = await this.request("/api/skills", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+          timeoutMs: timeoutSeconds * 1e3
+        }, serverErrors);
+        if (response.ok) {
+          const data = await response.json();
+          return isRecord9(data) && Array.isArray(data.skills) ? data.skills : [];
+        }
+        await response.body?.cancel();
+      } catch (error) {
+        const transient = error instanceof TypeError || error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name);
+        if (!transient) return [];
+      }
+      if (attempt < 2) await delay2(1e3 * 2 ** attempt);
+    }
+    return [];
+  }
   async executeCommand(command, options = {}) {
     const timeoutSeconds = options.timeoutSeconds ?? 30;
     const payload = { command, timeout: Math.trunc(timeoutSeconds) };
@@ -11324,117 +11408,64 @@ var VERIFIED_OPENAI_MODELS = [
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
-  "gpt-5.5",
-  "gpt-5.4",
-  "gpt-5.2",
-  "gpt-5.2-codex",
   "gpt-5.3-codex",
-  "gpt-5.1",
-  "gpt-5.1-codex-max",
-  "gpt-5.1-codex",
-  "gpt-5.1-codex-mini",
-  "gpt-5-codex",
-  "gpt-5-2025-08-07",
-  "gpt-5-mini-2025-08-07",
-  "o4-mini",
-  "gpt-4o",
-  "gpt-4o-mini",
-  "gpt-4-32k",
-  "gpt-4.1",
-  "gpt-4.1-2025-04-14",
-  "o1-mini",
-  "o3",
-  "o3-pro",
-  "codex-mini-latest"
+  "gpt-5.2-codex"
 ];
 var VERIFIED_ANTHROPIC_MODELS = [
-  "claude-sonnet-4-5-20250929",
-  "claude-haiku-4-5-20251001",
-  "claude-opus-4-5-20251101",
-  "claude-opus-4-5",
-  "claude-opus-4-6",
-  "claude-opus-4-7",
-  "claude-opus-4-8",
   "claude-opus-5",
-  "claude-fable-5",
-  "claude-fable-5-1",
+  "claude-opus-4-8",
   "claude-sonnet-5",
-  "claude-sonnet-4-5",
   "claude-sonnet-4-6",
-  "claude-sonnet-4-20250514",
-  "claude-opus-4-20250514",
-  "claude-opus-4-1-20250805",
-  "claude-3-7-sonnet-20250219",
-  "claude-3-sonnet-20240229",
-  "claude-3-opus-20240229",
-  "claude-3-haiku-20240307",
-  "claude-3-5-haiku-20241022",
-  "claude-3-5-sonnet-20241022",
-  "claude-3-5-sonnet-20240620"
+  "claude-haiku-4-5-20251001",
+  "claude-fable-5-1",
+  "claude-fable-5"
 ];
 var VERIFIED_MISTRAL_MODELS = [
-  "devstral-small-2505",
-  "devstral-small-2507",
-  "devstral-medium-2507",
   "devstral-2512",
   "devstral-medium-2512"
 ];
 var VERIFIED_GEMINI_MODELS = [
-  "gemini-3.1-pro-preview",
   "gemini-3.1-pro",
-  "gemini-3.1-flash-lite",
+  "gemini-3.1-pro-preview",
   "gemini-3.8-flash",
   "gemini-3.7-flash",
-  "gemini-3.6-flash",
-  "gemini-3.5-flash",
   "gemini-3.5-flash-lite",
-  "gemini-3-flash",
-  "gemini-3-pro"
+  "gemini-3.1-flash-lite"
 ];
 var VERIFIED_DEEPSEEK_MODELS = [
   "deepseek-chat",
-  "deepseek-v3.2-reasoner",
   "deepseek-v4-pro",
   "deepseek-v4-flash",
-  "deepseek-v4-flash-vision-exp"
+  "deepseek-v4-flash-vision-exp",
+  "deepseek-v4.1-flash",
+  "deepseek-v3.2-reasoner"
 ];
 var VERIFIED_MOONSHOT_MODELS = [
   "kimi-k3",
-  "kimi-k2-thinking",
   "kimi-k2.7-code",
-  "kimi-k2.6",
-  "kimi-k2.5",
   "kimi-for-coding"
 ];
 var VERIFIED_MINIMAX_MODELS = [
-  "minimax-m2.1",
-  "minimax-m2.5",
-  "minimax-m2.7",
-  "minimax-m3"
+  "minimax-m3",
+  "minimax-m2.7"
 ];
 var VERIFIED_GLM_MODELS = [
-  "glm-4.7",
-  "glm-4.7-flash",
-  "glm-5",
-  "glm-5.1",
-  "glm-5.2",
   "glm-5.3",
-  "glm-5.3-flash"
+  "glm-5.3-flash",
+  "glm-5.2"
 ];
 var VERIFIED_NVIDIA_MODELS = [
+  "nemotron-3.5-lightning-30b-a3b",
   "nemotron-3-nano",
+  "nemotron-3-nano-omni-30b-a3b-reasoning",
   "nemotron-3-super-120b-a12b",
-  "nemotron-3-ultra-550b-a55b",
-  "nemotron-3.5-lightning-30b-a3b"
+  "nemotron-3-ultra-550b-a55b"
 ];
 var VERIFIED_QWEN_MODELS = [
-  "qwen3-6-plus",
-  "qwen3.5-plus",
-  "qwen3.6-plus",
   "qwen3.7-plus",
+  "qwen3.6-plus",
   "qwen3.8-max",
   "qwen3.7-max",
-  "qwen3-max",
   "qwen3.8-flash",
   "qwen3.7-flash",
   "qwen3-coder-480b",
@@ -11443,69 +11474,44 @@ var VERIFIED_QWEN_MODELS = [
   "qwen3-coder-flash"
 ];
 var VERIFIED_OPENHANDS_MODELS = [
-  "claude-opus-4-5-20251101",
-  "claude-opus-4-6",
-  "claude-opus-4-7",
-  "claude-opus-4-8",
   "claude-opus-5",
-  "claude-fable-5",
-  "claude-fable-5-1",
+  "claude-opus-4-8",
   "claude-sonnet-5",
-  "claude-sonnet-4-5",
   "claude-sonnet-4-6",
+  "claude-fable-5-1",
+  "claude-fable-5",
   "gpt-6-astra",
   "gpt-5.6",
-  "gpt-5.5",
-  "gpt-5.4",
-  "gpt-5.2",
-  "gpt-5.2-codex",
   "gpt-5.3-codex",
-  "minimax-m2.1",
-  "minimax-m2.5",
-  "minimax-m2.7",
+  "gpt-5.2-codex",
   "minimax-m3",
+  "minimax-m2.7",
   "gemini-3.1-pro",
   "gemini-3.1-pro-preview",
   "gemini-3.8-flash",
   "gemini-3.7-flash",
-  "gemini-3.6-flash",
-  "gemini-3.5-flash",
   "gemini-3.5-flash-lite",
-  "gemini-3-flash",
-  "gemini-3-pro",
   "deepseek-chat",
-  "deepseek-v3.2-reasoner",
   "deepseek-v4-pro",
   "deepseek-v4-flash",
   "deepseek-v4-flash-vision-exp",
+  "deepseek-v4.1-flash",
+  "deepseek-v3.2-reasoner",
   "kimi-k3",
-  "kimi-k2-thinking",
   "kimi-k2.7-code",
-  "kimi-k2.6",
-  "kimi-k2.5",
-  "devstral-medium-2512",
   "devstral-2512",
-  "gpt-5.1-codex-max",
-  "gpt-5.1-codex",
-  "gpt-5.1",
-  "o3-pro",
-  "glm-4.7",
-  "glm-5",
-  "glm-5.1",
-  "glm-5.2",
+  "devstral-medium-2512",
   "glm-5.3",
   "glm-5.3-flash",
+  "glm-5.2",
+  "nemotron-3.5-lightning-30b-a3b",
   "nemotron-3-nano",
   "nemotron-3-super-120b-a12b",
   "nemotron-3-ultra-550b-a55b",
-  "nemotron-3.5-lightning-30b-a3b",
-  "qwen3-6-plus",
-  "qwen3.5-plus",
-  "qwen3.6-plus",
   "qwen3.7-plus",
+  "qwen3.6-plus",
   "qwen3.8-max",
   "qwen3.7-max",
-  "qwen3-max",
   "qwen3.8-flash",
   "qwen3.7-flash",
   "qwen3-coder-480b",
@@ -11516,69 +11522,44 @@ var VERIFIED_OPENHANDS_MODELS = [
 ];
 var VERIFIED_MODELS = {
   "openhands": [
-    "claude-opus-4-5-20251101",
-    "claude-opus-4-6",
-    "claude-opus-4-7",
-    "claude-opus-4-8",
     "claude-opus-5",
-    "claude-fable-5",
-    "claude-fable-5-1",
+    "claude-opus-4-8",
     "claude-sonnet-5",
-    "claude-sonnet-4-5",
     "claude-sonnet-4-6",
+    "claude-fable-5-1",
+    "claude-fable-5",
     "gpt-6-astra",
     "gpt-5.6",
-    "gpt-5.5",
-    "gpt-5.4",
-    "gpt-5.2",
-    "gpt-5.2-codex",
     "gpt-5.3-codex",
-    "minimax-m2.1",
-    "minimax-m2.5",
-    "minimax-m2.7",
+    "gpt-5.2-codex",
     "minimax-m3",
+    "minimax-m2.7",
     "gemini-3.1-pro",
     "gemini-3.1-pro-preview",
     "gemini-3.8-flash",
     "gemini-3.7-flash",
-    "gemini-3.6-flash",
-    "gemini-3.5-flash",
     "gemini-3.5-flash-lite",
-    "gemini-3-flash",
-    "gemini-3-pro",
     "deepseek-chat",
-    "deepseek-v3.2-reasoner",
     "deepseek-v4-pro",
     "deepseek-v4-flash",
     "deepseek-v4-flash-vision-exp",
+    "deepseek-v4.1-flash",
+    "deepseek-v3.2-reasoner",
     "kimi-k3",
-    "kimi-k2-thinking",
     "kimi-k2.7-code",
-    "kimi-k2.6",
-    "kimi-k2.5",
-    "devstral-medium-2512",
     "devstral-2512",
-    "gpt-5.1-codex-max",
-    "gpt-5.1-codex",
-    "gpt-5.1",
-    "o3-pro",
-    "glm-4.7",
-    "glm-5",
-    "glm-5.1",
-    "glm-5.2",
+    "devstral-medium-2512",
     "glm-5.3",
     "glm-5.3-flash",
+    "glm-5.2",
+    "nemotron-3.5-lightning-30b-a3b",
     "nemotron-3-nano",
     "nemotron-3-super-120b-a12b",
     "nemotron-3-ultra-550b-a55b",
-    "nemotron-3.5-lightning-30b-a3b",
-    "qwen3-6-plus",
-    "qwen3.5-plus",
-    "qwen3.6-plus",
     "qwen3.7-plus",
+    "qwen3.6-plus",
     "qwen3.8-max",
     "qwen3.7-max",
-    "qwen3-max",
     "qwen3.8-flash",
     "qwen3.7-flash",
     "qwen3-coder-480b",
@@ -11588,29 +11569,13 @@ var VERIFIED_MODELS = {
     "trinity-large-thinking"
   ],
   "anthropic": [
-    "claude-sonnet-4-5-20250929",
-    "claude-haiku-4-5-20251001",
-    "claude-opus-4-5-20251101",
-    "claude-opus-4-5",
-    "claude-opus-4-6",
-    "claude-opus-4-7",
-    "claude-opus-4-8",
     "claude-opus-5",
-    "claude-fable-5",
-    "claude-fable-5-1",
+    "claude-opus-4-8",
     "claude-sonnet-5",
-    "claude-sonnet-4-5",
     "claude-sonnet-4-6",
-    "claude-sonnet-4-20250514",
-    "claude-opus-4-20250514",
-    "claude-opus-4-1-20250805",
-    "claude-3-7-sonnet-20250219",
-    "claude-3-sonnet-20240229",
-    "claude-3-opus-20240229",
-    "claude-3-haiku-20240307",
-    "claude-3-5-haiku-20241022",
-    "claude-3-5-sonnet-20241022",
-    "claude-3-5-sonnet-20240620"
+    "claude-haiku-4-5-20251001",
+    "claude-fable-5-1",
+    "claude-fable-5"
   ],
   "openai": [
     "gpt-6-astra",
@@ -11618,92 +11583,55 @@ var VERIFIED_MODELS = {
     "gpt-5.6-sol",
     "gpt-5.6-terra",
     "gpt-5.6-luna",
-    "gpt-5.5",
-    "gpt-5.4",
-    "gpt-5.2",
-    "gpt-5.2-codex",
     "gpt-5.3-codex",
-    "gpt-5.1",
-    "gpt-5.1-codex-max",
-    "gpt-5.1-codex",
-    "gpt-5.1-codex-mini",
-    "gpt-5-codex",
-    "gpt-5-2025-08-07",
-    "gpt-5-mini-2025-08-07",
-    "o4-mini",
-    "gpt-4o",
-    "gpt-4o-mini",
-    "gpt-4-32k",
-    "gpt-4.1",
-    "gpt-4.1-2025-04-14",
-    "o1-mini",
-    "o3",
-    "o3-pro",
-    "codex-mini-latest"
+    "gpt-5.2-codex"
   ],
   "mistral": [
-    "devstral-small-2505",
-    "devstral-small-2507",
-    "devstral-medium-2507",
     "devstral-2512",
     "devstral-medium-2512"
   ],
   "gemini": [
-    "gemini-3.1-pro-preview",
     "gemini-3.1-pro",
-    "gemini-3.1-flash-lite",
+    "gemini-3.1-pro-preview",
     "gemini-3.8-flash",
     "gemini-3.7-flash",
-    "gemini-3.6-flash",
-    "gemini-3.5-flash",
     "gemini-3.5-flash-lite",
-    "gemini-3-flash",
-    "gemini-3-pro"
+    "gemini-3.1-flash-lite"
   ],
   "deepseek": [
     "deepseek-chat",
-    "deepseek-v3.2-reasoner",
     "deepseek-v4-pro",
     "deepseek-v4-flash",
-    "deepseek-v4-flash-vision-exp"
+    "deepseek-v4-flash-vision-exp",
+    "deepseek-v4.1-flash",
+    "deepseek-v3.2-reasoner"
   ],
   "moonshot": [
     "kimi-k3",
-    "kimi-k2-thinking",
     "kimi-k2.7-code",
-    "kimi-k2.6",
-    "kimi-k2.5",
     "kimi-for-coding"
   ],
   "minimax": [
-    "minimax-m2.1",
-    "minimax-m2.5",
-    "minimax-m2.7",
-    "minimax-m3"
+    "minimax-m3",
+    "minimax-m2.7"
   ],
   "glm": [
-    "glm-4.7",
-    "glm-4.7-flash",
-    "glm-5",
-    "glm-5.1",
-    "glm-5.2",
     "glm-5.3",
-    "glm-5.3-flash"
+    "glm-5.3-flash",
+    "glm-5.2"
   ],
   "nvidia": [
+    "nemotron-3.5-lightning-30b-a3b",
     "nemotron-3-nano",
+    "nemotron-3-nano-omni-30b-a3b-reasoning",
     "nemotron-3-super-120b-a12b",
-    "nemotron-3-ultra-550b-a55b",
-    "nemotron-3.5-lightning-30b-a3b"
+    "nemotron-3-ultra-550b-a55b"
   ],
   "qwen": [
-    "qwen3-6-plus",
-    "qwen3.5-plus",
-    "qwen3.6-plus",
     "qwen3.7-plus",
+    "qwen3.6-plus",
     "qwen3.8-max",
     "qwen3.7-max",
-    "qwen3-max",
     "qwen3.8-flash",
     "qwen3.7-flash",
     "qwen3-coder-480b",

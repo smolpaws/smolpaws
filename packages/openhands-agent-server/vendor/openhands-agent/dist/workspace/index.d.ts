@@ -1,4 +1,6 @@
 import { type GitChange, type GitDiff } from '../git/index.js';
+import { AgentContext } from '../context/agent-context.js';
+import { type Skill } from '../skills/index.js';
 export type TargetType = 'binary' | 'binary-minimal' | 'source' | 'source-minimal' | 'base-image-minimal' | 'base-image' | 'builder';
 export type PlatformType = 'linux/amd64' | 'linux/arm64';
 export type GitProvider = 'github' | 'gitlab' | 'bitbucket';
@@ -58,6 +60,15 @@ export interface RemoteWorkspaceOptions extends LocalWorkspaceOptions {
     readonly runtimeConversationId?: string | null;
     readonly runtime_conversation_id?: string | null;
 }
+export interface RemoteSkillLoadOptions {
+    readonly projectDirs?: readonly string[];
+    readonly loadPublic?: boolean;
+    readonly loadUser?: boolean;
+    readonly loadProject?: boolean;
+    readonly loadOrg?: boolean;
+    readonly timeoutSeconds?: number;
+    readonly baseContext?: AgentContext | null;
+}
 export declare class RemoteWorkspace implements BaseWorkspace {
     readonly host: string;
     readonly apiKey: string | null;
@@ -67,6 +78,17 @@ export declare class RemoteWorkspace implements BaseWorkspace {
     constructor(options: RemoteWorkspaceOptions);
     alive(): Promise<boolean>;
     getServerInfo(): Promise<Record<string, unknown>>;
+    /**
+     * Load server skills, replacing the base context's skills while preserving its
+     * other fields and applying its disabledSkills deny-list. Later project
+     * directories override earlier skills with the same name.
+     *
+     * Local automatic public/user discovery is not implemented. When the server
+     * returns no usable skills (including on failure), retain the supplied context's
+     * explicit skills instead of Python's automatic public-skill fallback.
+     */
+    loadSkillsFromAgentServer(options?: RemoteSkillLoadOptions): Promise<[Skill[], AgentContext]>;
+    private callSkillsApi;
     executeCommand(command: string, options?: {
         readonly cwd?: string | null;
         readonly timeoutSeconds?: number;

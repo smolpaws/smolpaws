@@ -21748,7 +21748,7 @@
   "info": {
     "description": "OpenHands Agent Server - REST/WebSocket interface for OpenHands AI Agent",
     "title": "OpenHands Agent Server",
-    "version": "1.49.2"
+    "version": "1.49.4"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -21781,7 +21781,7 @@
     },
     "/api/agent-profiles/{name}": {
       "delete": {
-        "description": "Delete a stored profile (idempotent).\n\nIf the deleted profile was the active one, ``active_agent_profile_id`` is\ncleared.",
+        "description": "Delete a stored profile (idempotent).\n\nIf the deleted profile was the active one, ``active_agent_profile_id`` is\ncleared. If ``agent_settings`` is itself left on a non-OpenHands variant,\nit is reset to default OpenHands agent settings so stale ACP configuration\ndoes not outlive the profile it came from; the server-wide ``mcp_config``\nis carried over.",
         "operationId": "delete_agent_profile_api_agent_profiles__name__delete",
         "parameters": [
           {

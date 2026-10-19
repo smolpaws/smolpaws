@@ -30,17 +30,21 @@ if [[ ! -d "$UPSTREAM_DIR/.git" ]]; then
   exit 1
 fi
 
-readarray -t SOURCE < <(
+SOURCE="$(
   node --input-type=module - "$MANIFEST" <<'NODE'
 import { readFile } from 'node:fs/promises';
 const manifest = JSON.parse(await readFile(process.argv[2], 'utf8'));
 console.log(manifest.repository);
 console.log(manifest.commit);
 NODE
-)
+)"
 
-REPOSITORY="${SOURCE[0]:-}"
-PIN="${SOURCE[1]:-}"
+# Bash 3.2 (the macOS default) has no readarray. Capture first so a manifest
+# read/parse failure also stops the script before any generation commands.
+{
+  IFS= read -r REPOSITORY
+  IFS= read -r PIN
+} <<< "$SOURCE"
 ACTUAL="$(git -C "$UPSTREAM_DIR" rev-parse HEAD)"
 
 if [[ ! "$PIN" =~ ^[0-9a-f]{40}$ ]]; then

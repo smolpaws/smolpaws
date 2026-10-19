@@ -17,3 +17,17 @@ A deferred operation must remain visible in generated parity output. This file i
 ## Bounded runtime expansion
 
 Bead `smolpaws-09ou` explicitly tracks new conversation-scoped runtime, file/git/bash and VSCode operations in the reviewed intervals. Each has its own policy entry; this is an explicit expansion. Profile secret metadata filtering is now ported; see [secret scoping correction](secret-scoping.md). Local runtime_info/persisted reads, Docker lifecycle and search-limit422 validation remain documented in the interval records.
+
+The `d128a786..e7cc8c27` interval also carries runtime work that a route inventory
+alone cannot express. Docker launches need the upstream host-gateway mapping.
+MCP OAuth tool construction must seed inline credentials when no saved server
+matches, retain refreshed/deleted inline state in memory, and give saved settings
+precedence. That behavior remains under `OPENAPI-DEFERRED-001`; storing MCP
+configuration metadata does not implement it.
+
+General `LookupSecret` URL hydration and local resolver registration remain
+deferred with SDK `openhands-agent-wlw.6` and server `smolpaws-09ou`. Existing native
+profile keys resolve directly through asynchronous `SecretStore` references and
+secret GET responses remain redacted. The persistence deviation does not exclude
+the missing runtime protocol. Revisit these semantics with conversation secret
+injection and profile authorization, preserving the no-raw-persistence boundary.
