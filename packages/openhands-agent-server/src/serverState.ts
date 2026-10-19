@@ -7,6 +7,8 @@ import {
   type LLMProfile,
   type SecretStore,
   defaultAgentSettings,
+  buildSeedProfile,
+  SEED_PROFILE_NAME,
   llmProfileSecretRef,
   llmProviderSecretRef,
   validateAgentProfile,
@@ -34,6 +36,14 @@ export class McpServerNotFoundError extends Error {
   }
 }
 
+export class AgentProfileLimitExceeded extends Error {
+  constructor() { super('Agent profile limit reached (50). Delete a profile before saving a new one.'); this.name = 'AgentProfileLimitExceeded'; }
+}
+
+export class InvalidStoredAgentProfile extends Error {
+  constructor() { super('Invalid agent profile'); this.name = 'InvalidStoredAgentProfile'; }
+}
+
 interface SecretMetadata {
   readonly name: string;
   readonly created_at: string;
@@ -43,6 +53,8 @@ interface SecretMetadata {
 interface PersistedState {
   readonly llmProfiles: Record<string, LLMProfile>;
   readonly agentProfiles: Record<string, AgentProfile>;
+  /** Unreadable entries remain in their original on-disk map until explicitly replaced or deleted. */
+  readonly unreadableAgentProfiles: Record<string, unknown>;
   readonly settings: SettingsResponse;
   readonly secrets: Record<string, SecretMetadata>;
 }
@@ -267,13 +279,23 @@ export class ServerStateService {
   }
 
   async listAgentProfiles(): Promise<{ readonly profiles: AgentProfile[]; readonly active_agent_profile_id: string | null }> {
-    const state = await this.load();
-    return { profiles: Object.values(state.agentProfiles).sort((left, right) => left.name.localeCompare(right.name)), active_agent_profile_id: state.settings.active_agent_profile_id };
+    return this.serializeMutation(async () => {
+      const state = await this.ensureActiveAgentProfile(await this.load());
+      return { profiles: structuredClone(sortedAgentProfiles(state)), active_agent_profile_id: state.settings.active_agent_profile_id };
+    });
+  }
+
+  async activeAgentProfile(): Promise<AgentProfile | null> {
+    return this.serializeMutation(async () => {
+      const state = await this.ensureActiveAgentProfile(await this.load());
+      return structuredClone(Object.values(state.agentProfiles).find(profile => profile.id === state.settings.active_agent_profile_id) ?? null);
+    });
   }
 
   async getAgentProfile(name: string): Promise<AgentProfile | null> {
     const state = await this.load();
-    return state.agentProfiles[name] ?? null;
+    if (Object.hasOwn(state.unreadableAgentProfiles, name)) throw new InvalidStoredAgentProfile();
+    return Object.hasOwn(state.agentProfiles, name) ? structuredClone(state.agentProfiles[name]!) : null;
   }
 
   async getAgentProfileById(id: string): Promise<AgentProfile | null> {
@@ -286,9 +308,14 @@ export class ServerStateService {
     if (validated.agent_kind === 'openhands') validateRouterToolSpecs(validated);
     return this.serializeMutation(async () => {
     const state = await this.load();
-    const existing = state.agentProfiles[validated.name];
-    const profile = validateAgentProfile({ ...validated, id: existing?.id ?? randomUUID(), revision: existing === undefined ? validated.revision : existing.revision + 1 });
-    await this.commit({ ...state, agentProfiles: { ...state.agentProfiles, [profile.name]: profile } });
+    const existing = Object.hasOwn(state.agentProfiles, validated.name) ? state.agentProfiles[validated.name] : undefined;
+    const occupied = existing !== undefined || Object.hasOwn(state.unreadableAgentProfiles, validated.name);
+    if (!occupied && occupiedAgentProfileCount(state) >= 50) throw new AgentProfileLimitExceeded();
+    // Explicit replacement may repair an unreadable entry. Preserve any valid
+    // identity metadata just as the source store's summary-based write does.
+    const prior = existing ?? readableIdentity(state.unreadableAgentProfiles[validated.name], validated);
+    const profile = validateAgentProfile({ ...validated, id: prior?.id ?? randomUUID(), revision: prior === undefined ? validated.revision : prior.revision + 1 });
+    await this.commit({ ...state, agentProfiles: { ...state.agentProfiles, [profile.name]: profile }, unreadableAgentProfiles: withoutKey(state.unreadableAgentProfiles, profile.name) });
     return profile;
     });
   }
@@ -305,19 +332,24 @@ export class ServerStateService {
     const agent_settings = wasActive && state.settings.agent_settings.agent_kind !== 'openhands'
       ? { ...defaultAgentSettings(state.settings.active_profile_id ?? defaultProfileId), mcp_config: state.settings.agent_settings.mcp_config }
       : state.settings.agent_settings;
-    await this.commit({ ...state, agentProfiles: profiles, settings: { ...state.settings, active_agent_profile_id, agent_settings } });
+    const next = { ...state, agentProfiles: profiles, unreadableAgentProfiles: withoutKey(state.unreadableAgentProfiles, name), settings: { ...state.settings, active_agent_profile_id, agent_settings } };
+    await this.commit(wasActive ? this.withActiveAgentProfile(next) : next);
     });
   }
 
   async renameAgentProfile(name: string, newName: string): Promise<void> {
     return this.serializeMutation(async () => {
     const state = await this.load();
-    const profile = state.agentProfiles[name];
-    if (profile === undefined) throw new Error('profile_not_found');
-    if (name !== newName && state.agentProfiles[newName] !== undefined) throw new Error('profile_exists');
+    const profile = Object.hasOwn(state.agentProfiles, name) ? state.agentProfiles[name] : undefined;
+    const unreadable = Object.hasOwn(state.unreadableAgentProfiles, name);
+    if (profile === undefined && !unreadable) throw new Error('profile_not_found');
+    if (name !== newName && (Object.hasOwn(state.agentProfiles, newName) || Object.hasOwn(state.unreadableAgentProfiles, newName))) throw new Error('profile_exists');
+    if (unreadable) {
+      await this.commit({ ...state, unreadableAgentProfiles: { ...withoutKey(state.unreadableAgentProfiles, name), [newName]: state.unreadableAgentProfiles[name] } });
+      return;
+    }
     const profiles = withoutKey(state.agentProfiles, name);
-    profiles[newName] = { ...profile, name: newName };
-    await this.commit({ ...state, agentProfiles: profiles });
+    await this.commit({ ...state, agentProfiles: { ...profiles, [newName]: { ...profile!, name: newName } } });
     });
   }
 
@@ -400,13 +432,33 @@ export class ServerStateService {
     await mkdir(path.dirname(this.stateFile), { recursive: true });
     const temporaryFile = `${this.stateFile}.${process.pid}.${Date.now()}.tmp`;
     try {
-      await writeFile(temporaryFile, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
+      const { unreadableAgentProfiles, ...serializable } = next;
+      await writeFile(temporaryFile, `${JSON.stringify({ ...serializable, agentProfiles: { ...unreadableAgentProfiles, ...next.agentProfiles } }, null, 2)}\n`, 'utf8');
       await rename(temporaryFile, this.stateFile);
     } catch (error) {
       await rm(temporaryFile, { force: true }).catch(() => undefined);
       throw error;
     }
     this.state = next;
+  }
+
+  private withActiveAgentProfile(state: PersistedState): PersistedState {
+    if (Object.values(state.agentProfiles).some(profile => profile.id === state.settings.active_agent_profile_id)) return state;
+    let selected: AgentProfile | undefined = state.agentProfiles[SEED_PROFILE_NAME];
+    let profiles = state.agentProfiles;
+    if (selected === undefined && !Object.hasOwn(state.unreadableAgentProfiles, SEED_PROFILE_NAME) && occupiedAgentProfileCount(state) < 50) {
+      selected = buildSeedProfile(validateAgentSettings(state.settings.agent_settings), state.settings.active_profile_id);
+      profiles = { ...profiles, [selected.name]: selected };
+    }
+    selected ??= sortedAgentProfiles(state).find(profile => profile.name !== SEED_PROFILE_NAME);
+    if (selected === undefined) return state;
+    return { ...state, agentProfiles: profiles, settings: { ...state.settings, active_agent_profile_id: selected.id } };
+  }
+
+  private async ensureActiveAgentProfile(state: PersistedState): Promise<PersistedState> {
+    const next = this.withActiveAgentProfile(state);
+    if (next !== state) await this.commit(next);
+    return next;
   }
 
   private async commitWithSecretChange(
@@ -477,6 +529,7 @@ function defaultState(): PersistedState {
   return {
     llmProfiles: { [profile.profileId]: profile },
     agentProfiles: {},
+    unreadableAgentProfiles: {},
     settings: {
       agent_settings: defaultAgentSettings(profile.profileId),
       conversation_settings: { schema_version: 1, max_iterations: 500, observability_metadata: null, observability_tags: null },
@@ -502,11 +555,17 @@ function validatePersistedState(value: unknown): PersistedState {
     if (parsed.profileId !== key) throw new Error(`invalid server state: LLM profile key '${key}' does not match its profileId`);
     return [key, parsed];
   }));
-  const agentProfiles = Object.fromEntries(Object.entries(value.agentProfiles).map(([key, profile]) => {
-    const parsed = validateAgentProfile(profile);
-    if (parsed.name !== key) throw new Error(`invalid server state: agent profile key '${key}' does not match its name`);
-    return [key, parsed];
-  }));
+  const agentProfiles: Record<string, AgentProfile> = {};
+  const unreadableAgentProfiles: Record<string, unknown> = {};
+  for (const [key, profile] of Object.entries(value.agentProfiles)) {
+    try {
+      const parsed = validateAgentProfile(profile);
+      if (parsed.name !== key) throw new InvalidStoredAgentProfile();
+      Object.defineProperty(agentProfiles, key, { value: parsed, enumerable: true, writable: true, configurable: true });
+    } catch {
+      Object.defineProperty(unreadableAgentProfiles, key, { value: profile, enumerable: true, writable: true, configurable: true });
+    }
+  }
   const settingsValue = value.settings;
   const settings: SettingsResponse = {
     agent_settings: validateAgentSettings(settingsValue.agent_settings),
@@ -525,7 +584,23 @@ function validatePersistedState(value: unknown): PersistedState {
     }
     return [key, { name: key, created_at: metadata.created_at, updated_at: metadata.updated_at }];
   }));
-  return { llmProfiles, agentProfiles, settings, secrets };
+  return { llmProfiles, agentProfiles, unreadableAgentProfiles, settings, secrets };
+}
+
+function sortedAgentProfiles(state: PersistedState): AgentProfile[] {
+  return Object.values(state.agentProfiles).sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+}
+
+function occupiedAgentProfileCount(state: PersistedState): number {
+  return Object.keys(state.agentProfiles).length + Object.keys(state.unreadableAgentProfiles).length;
+}
+
+function readableIdentity(value: unknown, profile: AgentProfile): Pick<AgentProfile, 'id' | 'revision'> | undefined {
+  if (!isPlainObject(value) || typeof value.id !== 'string') return undefined;
+  try {
+    const parsed = validateAgentProfile({ ...profile, id: value.id, revision: Number.isInteger(value.revision) && Number(value.revision) >= 0 ? value.revision : 0 });
+    return { id: parsed.id, revision: parsed.revision };
+  } catch { return undefined; }
 }
 
 function nullableString(value: unknown, field: string): string | null {

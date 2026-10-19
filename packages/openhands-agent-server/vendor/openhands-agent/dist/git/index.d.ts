@@ -74,6 +74,7 @@ export declare class GitPathError extends GitError {
 export declare function runGitCommand(args: readonly string[], options?: {
     readonly cwd?: string | null;
     readonly timeoutSeconds?: number;
+    readonly strip?: boolean;
 }): Promise<string>;
 export declare function validateGitRepository(repoDir: string): Promise<string>;
 export declare function getValidRef(repoDir: string, override?: string | null, purpose?: GitRefPurpose): Promise<string>;

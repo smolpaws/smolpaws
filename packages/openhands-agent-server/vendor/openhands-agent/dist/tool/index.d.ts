@@ -26,6 +26,8 @@ export interface ToolDefinitionOptions<TInputSchema extends z.ZodType = z.ZodTyp
     readonly annotations?: ToolAnnotations;
     readonly meta?: JsonObject;
     readonly usable?: boolean;
+    /** The implementation accesses only its own conversation's state. */
+    readonly conversationLocal?: boolean;
     /** Runtime prompt text; excluded from tool wire schemas and JSON persistence. */
     readonly promptGuidance?: string | null;
 }
@@ -53,6 +55,7 @@ export declare class ToolDefinition<TInputSchema extends z.ZodType = z.ZodType, 
     readonly annotations: ToolAnnotations | undefined;
     readonly meta: JsonObject | undefined;
     readonly usable: boolean;
+    readonly conversationLocal: boolean;
     readonly promptGuidance: string | null;
     constructor(options: ToolDefinitionOptions<TInputSchema, TOutputSchema>);
     execute(input: unknown, context?: unknown): Promise<z.infer<TOutputSchema>>;
@@ -65,6 +68,7 @@ export interface ToolCatalogMetadata {
     readonly isUsable?: () => boolean;
     /** Trusted protocol provenance for this exact implementation; never imported. */
     readonly moduleQualname?: string;
+    readonly conversationLocal?: boolean;
     /** Marks a registration of the actual builtin, rather than a host override. */
     readonly builtinName?: string;
 }
@@ -95,6 +99,8 @@ export declare class ToolRegistry {
      * A host override without metadata deliberately hides builtin provenance.
      */
     getToolModuleQualnames(names?: readonly string[]): Readonly<Record<string, string>>;
+    /** Use the effective implementation, without constructing a factory or inheriting a shadowed builtin. */
+    isConversationLocalTool(name: string): boolean;
     listUsableTools(): readonly string[];
     isToolAvailable(name: string, options?: {
         readonly checkUsable?: boolean;
@@ -111,6 +117,7 @@ export declare function registerToolFactory(name: string, factory: ToolFactory, 
 export declare function resolveTool(spec: ToolSpec, context?: unknown): readonly ToolDefinition[];
 export declare function listRegisteredTools(): readonly string[];
 export declare function getToolModuleQualnames(names?: readonly string[]): Readonly<Record<string, string>>;
+export declare function isConversationLocalTool(name: string): boolean;
 export declare function listUsableTools(): readonly string[];
 /** Resolver fallbacks do not construct tools while cataloging availability. */
 type BuiltInResolver = (params: Readonly<Record<string, unknown>>, context?: unknown) => readonly ToolDefinition[];

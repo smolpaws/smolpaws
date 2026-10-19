@@ -665,6 +665,23 @@ export declare const resumeTranscriptEventSchema: z.ZodObject<{
     kind: z.ZodDefault<z.ZodLiteral<"ResumeTranscriptEvent">>;
     transcript: z.ZodDefault<z.ZodArray<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
 }, z.core.$strict>;
+/** Imported analyzer metadata only; native analysis/confirmation execution remains disabled. */
+export declare const securityAnalysisEventSchema: z.ZodObject<{
+    id: z.ZodDefault<z.ZodString>;
+    timestamp: z.ZodDefault<z.ZodString>;
+    source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    kind: z.ZodDefault<z.ZodLiteral<"SecurityAnalysisEvent">>;
+    analyzer: z.ZodString;
+    policy: z.ZodString;
+    risks: z.ZodRecord<z.ZodString, z.ZodEnum<{
+        UNKNOWN: "UNKNOWN";
+        LOW: "LOW";
+        MEDIUM: "MEDIUM";
+        HIGH: "HIGH";
+    }>>;
+    details: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
+}, z.core.$strict>;
 export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
     timestamp: z.ZodDefault<z.ZodString>;
@@ -1305,6 +1322,21 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     kind: z.ZodDefault<z.ZodLiteral<"ResumeTranscriptEvent">>;
     transcript: z.ZodDefault<z.ZodArray<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
+}, z.core.$strict>, z.ZodObject<{
+    id: z.ZodDefault<z.ZodString>;
+    timestamp: z.ZodDefault<z.ZodString>;
+    source: never;
+    parent_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    kind: z.ZodDefault<z.ZodLiteral<"SecurityAnalysisEvent">>;
+    analyzer: z.ZodString;
+    policy: z.ZodString;
+    risks: z.ZodRecord<z.ZodString, z.ZodEnum<{
+        UNKNOWN: "UNKNOWN";
+        LOW: "LOW";
+        MEDIUM: "MEDIUM";
+        HIGH: "HIGH";
+    }>>;
+    details: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
 }, z.core.$strict>], "kind">;
 export declare const llmConvertibleEventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     id: z.ZodDefault<z.ZodString>;
@@ -1788,6 +1820,7 @@ export declare const llmConvertibleEventSchema: z.ZodDiscriminatedUnion<[z.ZodOb
 }, z.core.$strict>], "kind">;
 export type SourceType = z.infer<typeof sourceTypeSchema>;
 export type Event = z.infer<typeof eventSchema>;
+export type SecurityAnalysisEvent = z.infer<typeof securityAnalysisEventSchema>;
 export type TokenEvent = z.infer<typeof tokenEventSchema>;
 export type StreamingDeltaEvent = z.infer<typeof streamingDeltaEventSchema>;
 export type ConversationErrorEvent = z.infer<typeof conversationErrorEventSchema>;

@@ -1,8 +1,8 @@
 import { randomUUID, createHash, randomBytes, verify, createPublicKey } from 'crypto';
 import { z } from 'zod';
 import { execFile, exec, spawnSync, spawn } from 'child_process';
-import { promisify, isDeepStrictEqual, format } from 'util';
-import { mkdirSync, writeFileSync, existsSync, readFileSync, statSync, openSync, rmSync, readdirSync, closeSync, unlinkSync, chmodSync, renameSync } from 'fs';
+import { promisify, format } from 'util';
+import { mkdirSync, writeFileSync, existsSync, readFileSync, statSync, openSync, rmSync, fchmodSync, fsyncSync, closeSync, renameSync, unlinkSync, readdirSync, chmodSync } from 'fs';
 import { homedir, tmpdir, platform, arch } from 'os';
 import path2, { basename, dirname, extname, relative, join, resolve, sep, posix, isAbsolute } from 'path';
 import { readFile, mkdir, writeFile, readdir, rename, rm, stat, open, unlink, access, realpath, chmod, copyFile } from 'fs/promises';
@@ -10,6 +10,7 @@ import { AsyncLocalStorage } from 'async_hooks';
 import { createServer } from 'http';
 import { setTimeout as setTimeout$1 } from 'timers/promises';
 import { getEncoding } from 'js-tiktoken';
+import { parseDocument } from 'yaml';
 import { analyse } from 'chardet';
 
 // src/event/index.ts
@@ -33,7 +34,7 @@ function normalizeMcpToolWire(value) {
   for (const [field, renames] of Object.entries(nestedKeys)) {
     const item = result[field];
     if (isRecord(item)) result[field] = renameFields(item, renames);
-    else if (Array.isArray(item)) result[field] = item.map((entry) => isRecord(entry) ? renameFields(entry, renames) : entry);
+    else if (Array.isArray(item)) result[field] = item.map((entry2) => isRecord(entry2) ? renameFields(entry2, renames) : entry2);
   }
   return result;
 }
@@ -599,8 +600,8 @@ function isHostAbsolutePath(inputPath) {
   const value = inputPath.toString().trim();
   return value.length > 0 && path2.isAbsolute(value);
 }
-function isLocalPathSource(source) {
-  const value = source.trim();
+function isLocalPathSource(source2) {
+  const value = source2.trim();
   if (value.length === 0) {
     return false;
   }
@@ -740,10 +741,9 @@ function redactUrlParams(url) {
 }
 var keyValueSecretPattern = /\b([A-Za-z0-9_.-]*(?:api[_-]?key|authorization|cookie|credential|password|secret|session|token|key)[A-Za-z0-9_.-]*)\s*=\s*("[^"]*"|'[^']*'|[^\s]+)/giu;
 var anthropicKeyPattern = /sk-ant-api\d{2}-[A-Za-z0-9_-]{20,}/gu;
-var singleQuotedDictSecretPattern = /('[A-Za-z_]*(?:KEY|SECRET|TOKEN|PASSWORD)[A-Za-z_]*':\s*')[^']*(')/giu;
-var doubleQuotedDictSecretPattern = /("[A-Za-z_]*(?:KEY|SECRET|TOKEN|PASSWORD)[A-Za-z_]*":\s*")[^"]*(")/giu;
+var quotedDictSecretPattern = /(?<head>(?<kq>\\?["'])[\p{L}\p{N}_-]*(?:key|secret|token|password|authorization)[\p{L}\p{N}_-]*\k<kq>\s*:\s*)(?<q>\\?["']).*?\k<q>/gisu;
 function redactTextSecrets(text) {
-  return redactUrlCredentialsInText(text).replace(anthropicKeyPattern, "<redacted>").replace(keyValueSecretPattern, (_match, key) => `${key}=<redacted>`).replace(singleQuotedDictSecretPattern, "$1<redacted>$2").replace(doubleQuotedDictSecretPattern, "$1<redacted>$2");
+  return redactUrlCredentialsInText(text).replace(anthropicKeyPattern, "<redacted>").replace(keyValueSecretPattern, (_match, key) => `${key}=<redacted>`).replace(quotedDictSecretPattern, "$<head>$<q><redacted>$<q>");
 }
 function utcNow() {
   return /* @__PURE__ */ new Date();
@@ -1070,6 +1070,14 @@ var resumeTranscriptEventSchema = eventObject({
   source: z.literal("environment").default("environment"),
   transcript: z.array(recordSchema).default([])
 });
+var securityAnalysisEventSchema = eventObject({
+  kind: z.literal("SecurityAnalysisEvent").default("SecurityAnalysisEvent"),
+  source: sourceTypeSchema.default("environment"),
+  analyzer: z.string(),
+  policy: z.string(),
+  risks: z.record(z.string(), z.enum(["UNKNOWN", "LOW", "MEDIUM", "HIGH"])),
+  details: z.record(z.string(), recordSchema).default({})
+});
 var eventSchema = z.discriminatedUnion("kind", [
   tokenEventSchema,
   streamingDeltaEventSchema,
@@ -1089,7 +1097,8 @@ var eventSchema = z.discriminatedUnion("kind", [
   condensationSummaryEventSchema,
   acpToolCallEventSchema,
   hookExecutionEventSchema,
-  resumeTranscriptEventSchema
+  resumeTranscriptEventSchema,
+  securityAnalysisEventSchema
 ]);
 var llmConvertibleEventSchema = z.discriminatedUnion("kind", [
   systemPromptEventSchema,
@@ -1546,24 +1555,24 @@ async function loadSkillsFromDir(skillDir) {
   }
   const entries = await readdir(skillDir, { withFileTypes: true });
   const skillMdDirectories = /* @__PURE__ */ new Set();
-  for (const entry of entries) {
-    if (!entry.isDirectory()) {
+  for (const entry2 of entries) {
+    if (!entry2.isDirectory()) {
       continue;
     }
-    const skillPath = join(skillDir, entry.name, "SKILL.md");
+    const skillPath = join(skillDir, entry2.name, "SKILL.md");
     if (await existsFile(skillPath)) {
-      skillMdDirectories.add(entry.name);
+      skillMdDirectories.add(entry2.name);
       categorizeSkill(await Skill.load(skillPath, skillDir), loaded);
     }
   }
-  for (const entry of entries) {
-    if (!entry.isFile() || extname(entry.name).toLowerCase() !== ".md") {
+  for (const entry2 of entries) {
+    if (!entry2.isFile() || extname(entry2.name).toLowerCase() !== ".md") {
       continue;
     }
-    if (skillMdDirectories.has(entry.name)) {
+    if (skillMdDirectories.has(entry2.name)) {
       continue;
     }
-    categorizeSkill(await Skill.load(join(skillDir, entry.name), skillDir), loaded);
+    categorizeSkill(await Skill.load(join(skillDir, entry2.name), skillDir), loaded);
   }
   return loaded;
 }
@@ -1614,7 +1623,7 @@ function loadLegacySkill(path4, fileContent, skillBaseDir) {
   const name = stringValue(parsed.metadata.name) ?? derivedName;
   return createSkillFromMetadata(name, parsed.content, path4, parsed.metadata, null, false);
 }
-function createSkillFromMetadata(name, content, source, metadata, resources, isAgentskillsFormat) {
+function createSkillFromMetadata(name, content, source2, metadata, resources, isAgentskillsFormat) {
   const triggers = stringList(metadata.triggers);
   const inputs = inputList(metadata.inputs);
   const paths = parsePaths(metadata.paths);
@@ -1634,7 +1643,7 @@ function createSkillFromMetadata(name, content, source, metadata, resources, isA
   return skillSchema.parse({
     name,
     content: appendMissingVariablesPrompt(content, trigger, triggerInputs),
-    source,
+    source: source2,
     trigger,
     inputs: triggerInputs,
     isAgentskillsFormat,
@@ -1719,12 +1728,12 @@ async function discoverSkillResources(skillRoot) {
 }
 async function listFiles(directory, prefix = "") {
   const files = [];
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const relativePath = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
-    const absolutePath = join(directory, entry.name);
-    if (entry.isDirectory()) {
+  for (const entry2 of await readdir(directory, { withFileTypes: true })) {
+    const relativePath = prefix.length === 0 ? entry2.name : `${prefix}/${entry2.name}`;
+    const absolutePath = join(directory, entry2.name);
+    if (entry2.isDirectory()) {
       files.push(...await listFiles(absolutePath, relativePath));
-    } else if (entry.isFile()) {
+    } else if (entry2.isFile()) {
       files.push(relativePath);
     }
   }
@@ -2311,8 +2320,8 @@ function foldDeprecatedToolSwitches(data) {
   return foldRetiredToolSwitches(payload, { sparse: true });
 }
 function toggle(entries, name, enabled) {
-  if (!enabled) return entries.filter((entry) => canonicalToolName(entry.name) !== name);
-  return entries.some((entry) => canonicalToolName(entry.name) === name) ? entries : [...entries, { name, params: {} }];
+  if (!enabled) return entries.filter((entry2) => canonicalToolName(entry2.name) !== name);
+  return entries.some((entry2) => canonicalToolName(entry2.name) === name) ? entries : [...entries, { name, params: {} }];
 }
 function popSwitch(payload, key, fallback) {
   if (!(key in payload)) return fallback;
@@ -2370,6 +2379,7 @@ var ToolDefinition = class {
     this.annotations = options.annotations;
     this.meta = options.meta;
     this.usable = options.usable ?? true;
+    Object.defineProperty(this, "conversationLocal", { value: options.conversationLocal ?? false, enumerable: false });
     Object.defineProperty(this, "promptGuidance", { value: options.promptGuidance ?? null, enumerable: false });
   }
   async execute(input, context) {
@@ -2476,6 +2486,14 @@ var ToolRegistry = class {
     }
     return Object.fromEntries(modules);
   }
+  /** Use the effective implementation, without constructing a factory or inheriting a shadowed builtin. */
+  isConversationLocalTool(name) {
+    const registered = this.registrations.get(name);
+    if (registered !== void 0) {
+      return registered.metadata.conversationLocal ?? (registered.implementation instanceof ToolDefinition ? registered.implementation.conversationLocal : false);
+    }
+    return builtinToolResolvers.get(name)?.metadata.conversationLocal ?? false;
+  }
   listUsableTools() {
     return [...this.registrations.keys()].filter((name) => this.isToolAvailable(name));
   }
@@ -2544,6 +2562,9 @@ function listRegisteredTools() {
 }
 function getToolModuleQualnames(names2) {
   return globalToolRegistry.getToolModuleQualnames(names2);
+}
+function isConversationLocalTool(name) {
+  return globalToolRegistry.isConversationLocalTool(name);
 }
 function listUsableTools() {
   return globalToolRegistry.listUsableTools();
@@ -3487,12 +3508,12 @@ var LLMResponseError = class extends Error {
   metadata;
 };
 function parseLlmResponseWithMetadata(raw, parseMetadata, parseContent) {
-  const object = typeof raw === "object" && raw !== null && !Array.isArray(raw) ? raw : {};
-  const nativeUsage = object.usage;
+  const object2 = typeof raw === "object" && raw !== null && !Array.isArray(raw) ? raw : {};
+  const nativeUsage = object2.usage;
   let metadata = {
     usage: typeof nativeUsage === "object" && nativeUsage !== null && !Array.isArray(nativeUsage) ? { providerUsage: nativeUsage } : null,
-    ...typeof object.id === "string" ? { responseId: object.id } : {},
-    ...typeof object.model === "string" ? { model: object.model } : {}
+    ...typeof object2.id === "string" ? { responseId: object2.id } : {},
+    ...typeof object2.model === "string" ? { model: object2.model } : {}
   };
   try {
     metadata = parseMetadata(raw);
@@ -3737,6 +3758,7 @@ var PROMPT_CACHE_KEY_MODELS = [
   "gpt-6-astra",
   "gpt-6-luna",
   "gpt-6-sol",
+  "gpt-6.1-sol",
   "gpt-audio",
   "gpt-audio-1.5",
   "gpt-audio-2025-08-28",
@@ -3826,6 +3848,8 @@ var PROMPT_CACHE_KEY_UNHINTED = {
   "anthropic/claude-haiku-4-5": false,
   "anthropic/claude-haiku-4-5-20251001": false,
   "anthropic/claude-haiku-4.5": false,
+  "anthropic/claude-haiku-5-5": false,
+  "anthropic/claude-haiku-5.5": false,
   "anthropic/claude-opus-4": false,
   "anthropic/claude-opus-4-5": false,
   "anthropic/claude-opus-4-6": false,
@@ -3838,10 +3862,11 @@ var PROMPT_CACHE_KEY_UNHINTED = {
   "anthropic/claude-opus-5-5": false,
   "anthropic/claude-sonnet-4": false,
   "anthropic/claude-sonnet-4-5": false,
-  "anthropic/claude-sonnet-4-6": false,
   "anthropic/claude-sonnet-4.5": false,
   "anthropic/claude-sonnet-4.6": false,
   "anthropic/claude-sonnet-5": false,
+  "anthropic/claude-sonnet-5-5": false,
+  "anthropic/claude-sonnet-5.5": false,
   "ap-northeast-1/1-month-commitment/anthropic.claude-instant-v1": false,
   "ap-northeast-1/1-month-commitment/anthropic.claude-v1": false,
   "ap-northeast-1/1-month-commitment/anthropic.claude-v2:1": false,
@@ -4295,6 +4320,7 @@ var PROMPT_CACHE_KEY_UNHINTED = {
   "claude-haiku-4-5": false,
   "claude-haiku-4-5-20251001": false,
   "claude-haiku-4.5": false,
+  "claude-haiku-5-5": false,
   "claude-opus-4": false,
   "claude-opus-4-1": false,
   "claude-opus-4-1-20250805": false,
@@ -4321,6 +4347,7 @@ var PROMPT_CACHE_KEY_UNHINTED = {
   "claude-sonnet-4.5": false,
   "claude-sonnet-4.6": false,
   "claude-sonnet-5": false,
+  "claude-sonnet-5-5": false,
   "cloudflare/@cf/aisingapore/gemma-sea-lion-v4-27b-it": true,
   "cloudflare/@cf/deepseek-ai/deepseek-r1-distill-qwen-32b": true,
   "cloudflare/@cf/google/gemma-2b-it-lora": true,
@@ -4895,6 +4922,7 @@ var PROMPT_CACHE_KEY_UNHINTED = {
   "gemini/gemini-3.5-flash-lite": false,
   "gemini/gemini-3.7-flash": false,
   "gemini/gemini-3.8-flash": false,
+  "gemini/gemini-4-argon": false,
   "gemini/gemini-exp-1114": false,
   "gemini/gemini-exp-1206": false,
   "gemini/gemini-flash-latest": false,
@@ -5504,6 +5532,7 @@ var PROMPT_CACHE_KEY_UNHINTED = {
   "openai/gpt-6-astra": true,
   "openai/gpt-6-luna": true,
   "openai/gpt-6-sol": true,
+  "openai/gpt-6.1-sol": true,
   "openai/gpt-oss-120b": true,
   "openai/gpt-oss-20b": true,
   "openai/gpt-oss-safeguard-20b": true,
@@ -5517,6 +5546,7 @@ var PROMPT_CACHE_KEY_UNHINTED = {
   "openrouter/anthropic/claude-3.5-sonnet": true,
   "openrouter/anthropic/claude-3.7-sonnet": true,
   "openrouter/anthropic/claude-haiku-4.5": true,
+  "openrouter/anthropic/claude-haiku-5.5": true,
   "openrouter/anthropic/claude-opus-4": true,
   "openrouter/anthropic/claude-opus-4.1": true,
   "openrouter/anthropic/claude-opus-4.5": true,
@@ -5527,6 +5557,7 @@ var PROMPT_CACHE_KEY_UNHINTED = {
   "openrouter/anthropic/claude-sonnet-4.5": true,
   "openrouter/anthropic/claude-sonnet-4.6": true,
   "openrouter/anthropic/claude-sonnet-5": true,
+  "openrouter/anthropic/claude-sonnet-5.5": true,
   "openrouter/auto": true,
   "openrouter/bodybuilder": true,
   "openrouter/bytedance/ui-tars-1.5-7b": true,
@@ -5551,6 +5582,7 @@ var PROMPT_CACHE_KEY_UNHINTED = {
   "openrouter/google/gemini-3.5-flash-lite": true,
   "openrouter/google/gemini-3.7-flash": true,
   "openrouter/google/gemini-3.8-flash": true,
+  "openrouter/google/gemini-4-argon": true,
   "openrouter/gryphe/mythomax-l2-13b": true,
   "openrouter/mancer/weaver": true,
   "openrouter/meta-llama/llama-3-70b-instruct": true,
@@ -5592,6 +5624,7 @@ var PROMPT_CACHE_KEY_UNHINTED = {
   "openrouter/openai/gpt-5.3-codex": true,
   "openrouter/openai/gpt-5.6-sol": true,
   "openrouter/openai/gpt-6-astra": true,
+  "openrouter/openai/gpt-6.1-sol": true,
   "openrouter/openai/gpt-oss-120b": true,
   "openrouter/openai/gpt-oss-20b": true,
   "openrouter/openai/o1": true,
@@ -6864,6 +6897,19 @@ var PROMPT_CACHE_KEY_HINTED = {
     "deepseek-v4-pro": true,
     "deepseek-v4.1-flash": true
   },
+  "digitalocean": {
+    "anthropic-claude-5-sonnet": false,
+    "anthropic-claude-opus-5": false,
+    "anthropic-claude-opus-5.5": false,
+    "anthropic-claude-sonnet-5.5": false,
+    "deepseek-v4-pro": false,
+    "glm-5.2": false,
+    "glm-5.3": false,
+    "openai-gpt-5.6-luna": false,
+    "openai-gpt-5.6-sol": false,
+    "openai-gpt-5.6-terra": false,
+    "qwen3.8-max": false
+  },
   "featherless_ai": {
     "featherless-ai/qwerky-72b": false,
     "featherless-ai/qwerky-qwq-32b": false,
@@ -7391,6 +7437,7 @@ var PROMPT_CACHE_KEY_HINTED = {
     "gemini-3.5-flash-lite": false,
     "gemini-3.7-flash": false,
     "gemini-3.8-flash": false,
+    "gemini-4-argon": false,
     "gemini-exp-1114": false,
     "gemini-exp-1206": false,
     "gemini-flash-latest": false,
@@ -8003,7 +8050,8 @@ var PROMPT_CACHE_KEY_HINTED = {
     "ft:o4-mini-2025-04-16": true,
     "gpt-6-astra": true,
     "gpt-6-luna": true,
-    "gpt-6-sol": true
+    "gpt-6-sol": true,
+    "gpt-6.1-sol": true
   },
   "openhands": {
     "deepseek-chat": false,
@@ -8024,6 +8072,7 @@ var PROMPT_CACHE_KEY_HINTED = {
     "gpt-6-astra": false,
     "gpt-6-luna": false,
     "gpt-6-sol": false,
+    "gpt-6.1-sol": false,
     "kimi-k2.7-code": false,
     "minimax-m2.7": false,
     "minimax-m3": false,
@@ -8075,6 +8124,7 @@ var PROMPT_CACHE_KEY_HINTED = {
     "google/gemini-3.5-flash-lite": true,
     "google/gemini-3.7-flash": true,
     "google/gemini-3.8-flash": true,
+    "google/gemini-4-argon": true,
     "gpt-5.2-chat": true,
     "gpt-oss-120b": true,
     "gpt-oss-20b": true,
@@ -12770,6 +12820,7 @@ function resolveOpenAiApiMode(profile) {
 }
 function resolveProviderFromProfile(profile) {
   const providerId = profile.providerId.toLowerCase();
+  if (providerId === "digitalocean") return "openai";
   if (isDetectedLlmProvider(providerId)) {
     return providerId;
   }
@@ -13238,8 +13289,8 @@ function errorDetails(body) {
     }
   }
   if (typeof body !== "object" || body === null || Array.isArray(body)) return [];
-  const object = body;
-  return ["code", "type", "message", "status"].flatMap((key) => typeof object[key] === "string" ? [object[key]] : []).concat(object.error === void 0 ? [] : errorDetails(object.error));
+  const object2 = body;
+  return ["code", "type", "message", "status"].flatMap((key) => typeof object2[key] === "string" ? [object2[key]] : []).concat(object2.error === void 0 ? [] : errorDetails(object2.error));
 }
 function providerResponseError(provider, status, body) {
   const message2 = `${provider} completion failed with HTTP ${status}`;
@@ -13893,7 +13944,7 @@ function isTraceMetadataValue(value) {
   return Array.isArray(value) && (value.every((item) => typeof item === "string") || value.every((item) => typeof item === "boolean") || value.every((item) => typeof item === "number" && Number.isFinite(item)));
 }
 function cleanTraceMetadata(value) {
-  return isRecord3(value) ? Object.fromEntries(Object.entries(value).filter((entry) => entry[0].length > 0 && isTraceMetadataValue(entry[1]))) : {};
+  return isRecord3(value) ? Object.fromEntries(Object.entries(value).filter((entry2) => entry2[0].length > 0 && isTraceMetadataValue(entry2[1]))) : {};
 }
 function observabilityMetadataFromEnv(env = process.env) {
   try {
@@ -13963,6 +14014,36 @@ function startConversationSpan(sessionId, options) {
   if (resolved.observabilitySpanName && resolved.observabilitySpanName !== "conversation") startChildSpan(root, resolved.observabilitySpanName, resolved.observabilityTags);
   return root;
 }
+function isTempFile(path4) {
+  return extname(path4) === ".tmp";
+}
+function atomicWriteText(path4, value, mode = 384) {
+  const temporary = join(dirname(path4), `.${basename(path4)}.${randomUUID()}.tmp`);
+  let descriptor;
+  try {
+    descriptor = openSync(temporary, "wx", mode);
+    fchmodSync(descriptor, mode);
+    writeFileSync(descriptor, value, "utf8");
+    fsyncSync(descriptor);
+    closeSync(descriptor);
+    descriptor = void 0;
+    renameSync(temporary, path4);
+  } catch (error) {
+    if (descriptor !== void 0) {
+      try {
+        closeSync(descriptor);
+      } catch {
+      }
+    }
+    try {
+      unlinkSync(temporary);
+    } catch {
+    }
+    throw error;
+  }
+}
+
+// src/io/index.ts
 var MemoryLRUCache = class {
   maxMemory;
   maxSize;
@@ -13979,13 +14060,13 @@ var MemoryLRUCache = class {
     return this.entries.has(key);
   }
   get(key) {
-    const entry = this.entries.get(key);
-    if (entry === void 0) {
+    const entry2 = this.entries.get(key);
+    if (entry2 === void 0) {
       return void 0;
     }
     this.entries.delete(key);
-    this.entries.set(key, entry);
-    return entry.value;
+    this.entries.set(key, entry2);
+    return entry2.value;
   }
   set(key, value) {
     const newSize = valueSize(value);
@@ -14068,7 +14149,7 @@ var LocalFileStore = class {
     const fullPath = this.getFullPath(filePath);
     mkdirSync(path2.dirname(fullPath), { recursive: true });
     if (typeof contents === "string") {
-      writeFileSync(fullPath, contents, "utf8");
+      atomicWriteText(fullPath, contents);
       this.cache.set(fullPath, contents);
     } else {
       writeFileSync(fullPath, contents);
@@ -14362,8 +14443,8 @@ function sleepSync(milliseconds) {
   Atomics.wait(view, 0, 0, milliseconds);
 }
 function sleepAsync(milliseconds) {
-  return new Promise((resolve7) => {
-    setTimeout(resolve7, milliseconds);
+  return new Promise((resolve8) => {
+    setTimeout(resolve8, milliseconds);
   });
 }
 function removeStaleLockFile(lockPath) {
@@ -15208,12 +15289,20 @@ var openHandsAgentProfileObjectSchema = z.object({
   persona: z.string().min(1).max(65536).nullable().default(null),
   system_message_suffix: z.string().nullable().default(null),
   disabled_skills: z.array(z.string()).default([]),
+  public_skills: z.array(z.string()).nullable().default(null),
   condenser: z.unknown().default({ condenser_kind: "llm_summarizing", enabled: true }),
+  hard_condenser: hardCondenserSettingsSchema.nullable().optional(),
   verification: profileVerificationSettingsSchema.default(defaultProfileVerificationSettings),
   enable_classify_and_switch_llm_tool: z.boolean().default(false),
   meta_profile_ref: z.string().min(1).nullable().default(null),
   tool_concurrency_limit: z.number().int().min(1).default(1)
-}).strict();
+}).strict().superRefine((profile, context) => {
+  if (profile.hard_condenser === void 0 || profile.hard_condenser === null) return;
+  const condenser = condenserSettingsSchema.safeParse(profile.condenser);
+  if (!condenser.success || condenser.data.condenser_kind !== "agent_reset" || !condenser.data.enabled) {
+    context.addIssue({ code: "custom", path: ["hard_condenser"], message: "hard_condenser requires an enabled agent_reset condenser" });
+  }
+});
 var openHandsAgentProfileSchema = z.preprocess(foldDeprecatedToolSwitches, openHandsAgentProfileObjectSchema);
 var acpAgentProfileSchema = z.object({
   ...agentProfileBaseFields,
@@ -15726,7 +15815,7 @@ function isRecord6(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function sleep(ms) {
-  return new Promise((resolve7) => setTimeout(resolve7, ms));
+  return new Promise((resolve8) => setTimeout(resolve8, ms));
 }
 function globalRemoteFetch() {
   return {
@@ -15753,12 +15842,12 @@ var unsupportedEventFields = /* @__PURE__ */ new Set([
   "security_risk"
 ]);
 function restoreConversationState(payload) {
-  const source = Array.isArray(payload) ? { events: payload } : recordOrThrow(payload, "conversation restore payload");
-  const droppedStateFields = sortedKeys(source, unsupportedStateFields);
+  const source2 = Array.isArray(payload) ? { events: payload } : recordOrThrow(payload, "conversation restore payload");
+  const droppedStateFields = sortedKeys(source2, unsupportedStateFields);
   const droppedEventFields = [];
-  const eventPayloads = Array.isArray(source.events) ? source.events : [];
+  const eventPayloads = Array.isArray(source2.events) ? source2.events : [];
   const events = eventPayloads.map((event, index) => migrateEvent(event, index, droppedEventFields));
-  const executionStatus = parseExecutionStatus(source.executionStatus ?? source.execution_status);
+  const executionStatus = parseExecutionStatus(source2.executionStatus ?? source2.execution_status);
   return {
     state: new ConversationState({ events, executionStatus }),
     droppedStateFields,
@@ -16150,36 +16239,29 @@ function automationObservabilityHeaders(options = {}) {
 }
 var SUB_AGENT_SCOPE_PARAM = "sub_agent_scope";
 var DELEGATION_TOOL_NAMES = ["task_tool_set", "workflow_tool_set", "workflow"];
-var subAgentScopeSchema = z.object({ tools: z.boolean().default(false), mcp_servers: z.boolean().default(false) }).strict();
+var subAgentScopeSchema = z.object({ tools: z.boolean().default(false), mcp_servers: z.boolean().optional() }).strict().transform(({ tools }) => ({ tools }));
 var SubAgentScope = class {
   tools;
-  mcp_servers;
   constructor(data = {}) {
     const scope2 = subAgentScopeSchema.parse(data);
     this.tools = scope2.tools;
-    this.mcp_servers = scope2.mcp_servers;
     Object.freeze(this);
   }
   get restricts() {
-    return this.tools || this.mcp_servers;
+    return this.tools;
   }
   missingFrom(parent, child) {
     const missing = [];
     if (this.tools) {
       const parentTools = names(parent);
-      missing.push(...[...names(child)].filter((name) => !parentTools.has(name)).sort());
-    }
-    if (this.mcp_servers) {
-      const parentServers = parent.mcpConfig ?? {};
-      for (const name of Object.keys(child.mcpConfig ?? {}).sort()) {
-        if (!Object.hasOwn(parentServers, name) || !isDeepStrictEqual(parentServers[name], child.mcpConfig?.[name])) {
-          missing.push(`MCP server '${name}'`);
-        }
-      }
+      missing.push(...[...names(child)].filter((name) => !parentTools.has(name) && !isConversationLocalTool(name)).sort());
     }
     return missing;
   }
 };
+function inheritMcpConfig(parent, child) {
+  return { ...child, mcpConfig: structuredClone(parent.mcpConfig ?? {}) };
+}
 function names(agent) {
   return new Set([...agent.tools, ...agent.includeDefaultTools ?? []].map(canonicalToolName));
 }
@@ -16189,8 +16271,7 @@ function scopeDelegationTools(tools, scope2) {
     if (!DELEGATION_TOOL_NAMES.includes(canonicalToolName(tool.name))) return tool;
     const current = subAgentScopeSchema.parse(tool.params?.[SUB_AGENT_SCOPE_PARAM] ?? {});
     return { ...tool, params: { ...tool.params, [SUB_AGENT_SCOPE_PARAM]: {
-      tools: current.tools || scope2.tools,
-      mcp_servers: current.mcp_servers || scope2.mcp_servers
+      tools: current.tools || scope2.tools
     } } };
   });
 }
@@ -16411,14 +16492,14 @@ var ResolvedLaunch = class {
     return this.profile?.secret_refs === null || this.profile?.secret_refs === void 0 ? null : new Set(this.profile.secret_refs);
   }
 };
-async function resolveLaunch(source, stores) {
+async function resolveLaunch(source2, stores, options = {}) {
   let loaded;
-  if (typeof source === "string") {
-    if (!stores.agentProfiles) throw new ProfileNotFound(`Agent profile with id '${source}' not found`);
-    const name = await readStore("Agent profile", () => stores.agentProfiles.nameForId(source));
+  if (typeof source2 === "string") {
+    if (!stores.agentProfiles) throw new ProfileNotFound(`Agent profile with id '${source2}' not found`);
+    const name = await readStore("Agent profile", () => stores.agentProfiles.nameForId(source2));
     loaded = name === null ? null : await readStore("Agent profile", () => stores.agentProfiles.load(name));
-    if (loaded === null) throw new ProfileNotFound(`Agent profile with id '${source}' not found`);
-  } else loaded = source;
+    if (loaded === null) throw new ProfileNotFound(`Agent profile with id '${source2}' not found`);
+  } else loaded = source2;
   let profile;
   try {
     profile = validateAgentProfile(copy(loaded));
@@ -16429,24 +16510,26 @@ async function resolveLaunch(source, stores) {
   const mcp = filterMcp(stores.mcpConfig, profile.mcp_server_refs);
   const catalog = await loadSkills(stores);
   const context = {
-    skills: deduplicateSkills(catalog, profile.disabled_skills),
+    skills: selectProfileSkills(catalog, profile, await loadPublicSkillNames(profile, stores)),
     disabledSkills: profile.disabled_skills,
     systemMessageSuffix: profile.system_message_suffix
   };
+  if (options.llmProfileRef !== void 0 && options.llmProfileRef !== null && options.llmProfileRef.length === 0) throw new AgentLaunchError("llmProfileRef must not be empty");
   const settings = validateAgentSettings({
-    llm_profile_ref: profile.llm_profile_ref,
+    llm_profile_ref: options.llmProfileRef ?? profile.llm_profile_ref,
     agent: profile.agent,
-    tools: profile.tools === null ? null : scopeDelegationTools(profile.tools, new SubAgentScope({ tools: true, mcp_servers: profile.mcp_server_refs !== null })),
+    tools: profile.tools === null ? null : scopeDelegationTools(profile.tools, new SubAgentScope({ tools: true })),
     persona: profile.persona,
     mcp_config: mcp.config,
     condenser: profile.condenser,
     verification: profile.verification,
+    ...profile.hard_condenser === void 0 ? {} : { hard_condenser: profile.hard_condenser },
     enable_classify_and_switch_llm_tool: profile.enable_classify_and_switch_llm_tool,
     active_meta_profile: profile.meta_profile_ref,
     tool_concurrency_limit: profile.tool_concurrency_limit
   });
   if (settings.agent_kind !== "openhands") throw new AgentLaunchError("Invalid native settings");
-  return resolveSettings(settings, stores, context, { agent_profile_id: profile.id, revision: profile.revision, secret_refs: profile.secret_refs }, mcp.dangling);
+  return resolveSettings(settings, stores, context, { agent_profile_id: profile.id, revision: profile.revision, secret_refs: profile.secret_refs, llm_profile_ref: options.llmProfileRef ?? null }, mcp.dangling);
 }
 async function resolveSettingsLaunch(data, stores, context = null) {
   const settings = validateAgentSettings(data);
@@ -16568,12 +16651,24 @@ function filterMcp(config, refs) {
   const names2 = refs === null ? Object.keys(config) : [...new Set(refs)];
   return { config: Object.fromEntries(names2.filter((name) => Object.hasOwn(config, name)).map((name) => [name, copy(config[name])])), dangling: names2.filter((name) => !Object.hasOwn(config, name)) };
 }
-function deduplicateSkills(skills, disabled) {
+async function loadPublicSkillNames(profile, stores) {
+  if (profile.public_skills === null || stores.publicSkillNames === void 0) return null;
+  try {
+    return [...await stores.publicSkillNames()];
+  } catch {
+    throw new LaunchStoreError("Skill discovery failed");
+  }
+}
+function selectProfileSkills(skills, profile, publicNames) {
   const selected = /* @__PURE__ */ new Map();
   for (const skill of skills) selected.set(skill.name, cloneSkill(skill));
-  return [...selected.values()].filter((skill) => !disabled.includes(skill.name));
+  return [...selected.values()].filter((skill) => !profile.disabled_skills.includes(skill.name) && (profile.public_skills === null || profile.public_skills.includes(skill.name) || publicNames !== null && !publicNames.includes(skill.name)));
 }
-var agentLaunchAdditionsSchema = z.object({ system_message_suffix_append: z.string().max(32768).nullable().default(null) }).strict();
+var agentLaunchAdditionsSchema = z.object({
+  system_message_suffix_append: z.string().max(32768).nullable().default(null),
+  skills: z.array(z.union([z.instanceof(Skill), skillSchema])).nullable().optional(),
+  llm_profile_ref: z.string().min(1).nullable().default(null)
+}).strict();
 var FINALIZE_TOKEN = /* @__PURE__ */ Symbol("finalize launch");
 var LaunchedAgent = class {
   constructor(agent, profile, token) {
@@ -16585,13 +16680,13 @@ var LaunchedAgent = class {
   agent;
   profile;
 };
-async function finalizeLaunch(source, runtime, options = {}) {
+async function finalizeLaunch(source2, runtime, options = {}) {
   let agent;
-  const profile = source instanceof ResolvedLaunch ? source.profile : null;
-  if (source instanceof ResolvedLaunch) {
-    const settings = copy(source.settings);
+  const profile = source2 instanceof ResolvedLaunch ? source2.profile : null;
+  if (source2 instanceof ResolvedLaunch) {
+    const settings = copy(source2.settings);
     if (settings.verification.critic_enabled || settings.verification.enable_iterative_refinement) throw new AgentLaunchError("Enabled verification requires the native critic execution lifecycle, which is not yet implemented");
-    const main = source.bindings.main ?? source.llmProfiles[settings.llm_profile_ref];
+    const main = source2.bindings.main ?? source2.llmProfiles[settings.llm_profile_ref];
     if (main === void 0) throw new AgentLaunchError("Main LLM profile snapshot is missing");
     if (main.profileId !== settings.llm_profile_ref) throw new AgentLaunchError("Main LLM profile snapshot does not match the selected reference");
     if (hasMcp(settings.mcp_config) && !runtime.materializeTools) throw new AgentLaunchError("MCP configuration requires a native host tool materializer");
@@ -16607,14 +16702,14 @@ async function finalizeLaunch(source, runtime, options = {}) {
     }
     let tools2;
     try {
-      tools2 = runtime.materializeTools ? await runtime.materializeTools(specs, { settings, llm, llmProfiles: copy(source.llmProfiles) }) : specs.flatMap((spec) => resolveTool(spec, runtime.toolContext));
+      tools2 = runtime.materializeTools ? await runtime.materializeTools(specs, { settings, llm, llmProfiles: copy(source2.llmProfiles) }) : specs.flatMap((spec) => resolveTool(spec, runtime.toolContext));
     } catch {
       throw new AgentLaunchError("Selected tools could not be materialized");
     }
     const byName = new Map(tools2.map((tool) => [tool.name, tool]));
     for (const name of ["finish", "think"]) if (!byName.has(name)) for (const tool of resolveTool({ name, params: {} }, runtime.toolContext)) byName.set(tool.name, tool);
     const resolveRoleClient = async (name, role) => {
-      const selected = source.bindings[role] ?? source.llmProfiles[name];
+      const selected = source2.bindings[role] ?? source2.llmProfiles[name];
       if (selected === void 0) throw new AgentLaunchError("Condenser LLM profile snapshot is missing");
       if (selected.profileId !== name) throw new AgentLaunchError("Condenser LLM profile snapshot does not match the selected reference");
       return runtime.createClient(copy(selected), role);
@@ -16622,19 +16717,19 @@ async function finalizeLaunch(source, runtime, options = {}) {
     const condenser = await materializeCondenser(settings.condenser, {
       resolveClient: (name) => resolveRoleClient(name, "condenser"),
       agentLlm: llm,
-      ...source.bindings.condenser === void 0 ? {} : { defaultProfileRef: source.bindings.condenser.profileId }
+      ...source2.bindings.condenser === void 0 ? {} : { defaultProfileRef: source2.bindings.condenser.profileId }
     });
     const hardCondenser = await materializeHardCondenser(settings.hard_condenser, { resolveClient: (name) => resolveRoleClient(name, "hard_condenser"), agentLlm: llm });
     agent = new Agent({
       llm,
       tools: [...byName.values()],
-      context: source.context === null ? null : cloneContext(source.context),
+      context: source2.context === null ? null : cloneContext(source2.context),
       condenser,
       hardCondenser,
       toolConcurrencyLimit: settings.tool_concurrency_limit,
       persona: settings.persona
     });
-  } else agent = source;
+  } else agent = source2;
   let context = agent.context === null ? null : cloneContext(agent.context);
   const ensureContext = () => context ?? new AgentContext({ currentDatetime: null });
   if (context !== null && isTimestamp(context.currentDatetime)) context = cloneContext({ ...context, currentDatetime: options.launchedAt ?? nowWithOffset(context.currentDatetime) });
@@ -16651,9 +16746,19 @@ async function finalizeLaunch(source, runtime, options = {}) {
     const current = ensureContext();
     context = cloneContext({ ...current, systemMessageSuffix: [current.systemMessageSuffix?.trim(), suffix.trim()].filter(Boolean).join("\n\n") });
   }
+  if (additions?.skills?.length) {
+    const current = ensureContext();
+    const taken = /* @__PURE__ */ new Set([...current.skills.map((skill) => skill.name), ...current.disabledSkills]);
+    const added = [];
+    for (const skill of additions.skills) if (!taken.has(skill.name)) {
+      taken.add(skill.name);
+      added.push(cloneSkill(skill));
+    }
+    if (added.length) context = cloneContext({ ...current, skills: [...current.skills, ...added] });
+  }
   if (context?.secrets !== null && context?.secrets !== void 0) {
     const excluded = new Set(options.managedSecrets ?? []);
-    const allowed = source instanceof ResolvedLaunch ? source.allowedSecrets : null;
+    const allowed = source2 instanceof ResolvedLaunch ? source2.allowedSecrets : null;
     context = cloneContext({ ...context, secrets: Object.fromEntries(Object.entries(context.secrets).filter(([name]) => !excluded.has(name) && (allowed === null || allowed.has(name)))) });
   }
   const tools = new Map(agent.tools.map((tool) => [tool.name, tool]));
@@ -16663,8 +16768,8 @@ async function finalizeLaunch(source, runtime, options = {}) {
   const result = unchanged ? agent : agent.withOverrides({ tools: selectedTools, context });
   return new LaunchedAgent(result, profile, FINALIZE_TOKEN);
 }
-async function previewLaunch(source, stores, runtime, options = {}) {
-  const profile = validateAgentProfile(source);
+async function previewLaunch(source2, stores, runtime, options = {}) {
+  const profile = validateAgentProfile(source2);
   const native = profile.agent_kind === "openhands" ? profile : null;
   const mcp = filterMcp(stores.mcpConfig, profile.mcp_server_refs);
   const diagnostics = {
@@ -16709,7 +16814,7 @@ async function previewLaunch(source, stores, runtime, options = {}) {
           const main = await loadLlm(stores, native.llm_profile_ref);
           diagnostics.llm_profile_resolved = main !== null;
           if (main !== null) diagnostics.llm_api_key_set = await runtime.apiKeyAvailable?.(copy(main)) ?? false;
-          diagnostics.resolved_skills = deduplicateSkills(await loadSkills(stores), native.disabled_skills).map((skill) => skill.name);
+          diagnostics.resolved_skills = selectProfileSkills(await loadSkills(stores), native, await loadPublicSkillNames(native, stores)).map((skill) => skill.name);
         } catch {
         }
       }
@@ -16718,10 +16823,12 @@ async function previewLaunch(source, stores, runtime, options = {}) {
   return diagnostics;
 }
 function normalizeLaunchSource(input) {
+  const override = input.agentLaunchAdditions === null || input.agentLaunchAdditions === void 0 ? null : agentLaunchAdditionsSchema.parse(input.agentLaunchAdditions).llm_profile_ref;
+  if (override !== null && (input.agentProfileId === null || input.agentProfileId === void 0)) throw new AgentLaunchError("A per-launch LLM profile requires agentProfileId");
   if (input.agentProfileId !== null && input.agentProfileId !== void 0) {
     if (input.agent !== null && input.agent !== void 0 || input.agentSettings !== null && input.agentSettings !== void 0) throw new AgentLaunchError("agentProfileId is mutually exclusive with agent and agentSettings");
     if (!input.agentProfileId.trim()) throw new AgentLaunchError("agentProfileId must not be empty");
-    return { kind: "profile", id: input.agentProfileId };
+    return { kind: "profile", id: input.agentProfileId, ...override === null ? {} : { llmProfileRef: override } };
   }
   if (input.agent !== null && input.agent !== void 0) return { kind: "agent", agent: input.agent };
   if (input.agentSettings !== null && input.agentSettings !== void 0) return { kind: "settings", settings: input.agentSettings };
@@ -16923,7 +17030,7 @@ async function runGitCommand(args, options = {}) {
   const redactedArgs = args.map(redactUrlCredentials2);
   try {
     const { stdout } = await execFileAsync2(args[0] ?? "git", args.slice(1), { cwd: options.cwd ?? void 0, timeout: (options.timeoutSeconds ?? 30) * 1e3 });
-    return stdout.trim();
+    return options.strip === false ? stdout : stdout.trim();
   } catch (error) {
     if (isExecError2(error)) {
       throw new GitCommandError(`Git command failed: ${redactedArgs.join(" ")}`, redactedArgs, typeof error.code === "number" ? error.code : -1, redactUrlCredentialsInText2(error.stderr ?? "").trim());
@@ -17116,9 +17223,9 @@ async function getChangesInRepo(repoDir, ref) {
   const repo = await validateGitRepository(repoDir);
   const base = await getValidRef(repo, ref, "display");
   const output = await runGitCommand(["git", "--no-pager", "diff", "--name-status", base], { cwd: repo });
-  const changes = parseNameStatus(output.split(/\r?\n/u).filter((entry) => entry.trim().length > 0));
+  const changes = parseNameStatus(output.split(/\r?\n/u).filter((entry2) => entry2.trim().length > 0));
   const untracked = await runGitCommand(["git", "--no-pager", "ls-files", "--others", "--exclude-standard"], { cwd: repo }).catch(() => "");
-  for (const path4 of untracked.split(/\r?\n/u).filter((entry) => entry.trim().length > 0)) {
+  for (const path4 of untracked.split(/\r?\n/u).filter((entry2) => entry2.trim().length > 0)) {
     changes.push({ status: "ADDED" /* ADDED */, path: toPosixPath2(path4.trim()) });
   }
   return changes.sort((left, right) => left.path.localeCompare(right.path));
@@ -17154,10 +17261,13 @@ async function getGitDiff(filePath, ref) {
   }
   const validRepo = await validateGitRepository(repo);
   const base = await getValidRef(validRepo, ref, "display");
-  const relative3 = toPosixPath2(path4.slice(validRepo.length + 1));
-  const original = await runGitCommand(["git", "show", `${base}:${relative3}`], { cwd: validRepo }).catch(() => "");
-  const modified = (await readFile(path4, "utf8")).split(/\r?\n/u).join("\n").replace(/\n$/u, "");
+  const relative4 = toPosixPath2(path4.slice(validRepo.length + 1));
+  const original = normalizeDiffLines(await runGitCommand(["git", "show", `${base}:${relative4}`], { cwd: validRepo, strip: false }).catch(() => ""));
+  const modified = normalizeDiffLines(await readFile(path4, "utf8"));
   return { modified, original };
+}
+function normalizeDiffLines(content) {
+  return content.replace(/\r\n|[\n\r\v\f\u001c-\u001e\u0085\u2028\u2029]/gu, "\n").replace(/\n$/u, "");
 }
 var DEFAULT_COMMIT_LIMIT = 50;
 var LOG_FORMAT = "%H%h%an%aI%s";
@@ -17190,10 +17300,10 @@ async function getGitCommits(repoPath, limit = DEFAULT_COMMIT_LIMIT) {
     }
     const sha = fields2[0] ?? "";
     const shortSha = fields2[1] ?? "";
-    const author = fields2[2] ?? "";
+    const author2 = fields2[2] ?? "";
     const timestamp = fields2[3] ?? "";
     const subject = fields2[4] ?? "";
-    commits.push({ sha, short_sha: shortSha, subject, author, timestamp });
+    commits.push({ sha, short_sha: shortSha, subject, author: author2, timestamp });
   }
   return { commits: commits.slice(0, limit), has_more: commits.length > limit };
 }
@@ -17205,7 +17315,7 @@ async function getCommitChanges(repoDir, commit) {
   const sha = await resolveCommit(validatedRepo, commit);
   const parent = await revParse(validatedRepo, `${sha}^`) ?? GIT_EMPTY_TREE_HASH;
   const output = await runGitCommand(["git", "--no-pager", "diff", "--name-status", parent, sha], { cwd: validatedRepo });
-  return parseNameStatus(output.split(/\r?\n/u).filter((entry) => entry.trim().length > 0));
+  return parseNameStatus(output.split(/\r?\n/u).filter((entry2) => entry2.trim().length > 0));
 }
 async function getCommitFileDiff(filePath, commit) {
   const path4 = resolve(filePath);
@@ -17266,17 +17376,19 @@ function parseNameStatus(lines) {
   }
   return changes;
 }
-function isGitUrl(source) {
-  return source.startsWith("https://") || source.startsWith("http://") || source.startsWith("git://") || source.startsWith("file://") || /^[\w.-]+@[\w.-]+:/u.test(source);
+function isGitUrl(source2) {
+  return source2.startsWith("https://") || source2.startsWith("http://") || source2.startsWith("git://") || source2.startsWith("file://") || /^[\w.-]+@[\w.-]+:/u.test(source2);
 }
 function normalizeGitUrl(url) {
   if ((url.startsWith("https://") || url.startsWith("http://")) && !url.endsWith(".git")) {
-    return `${url.replace(/\/+$/u, "")}.git`;
+    const normalized = url.replace(/\/+$/u, "");
+    if (new URL(normalized).pathname.includes("/_git/")) return normalized;
+    return `${normalized}.git`;
   }
   return url;
 }
-function extractRepoName(source) {
-  let name = source;
+function extractRepoName(source2) {
+  let name = source2;
   for (const prefix of ["github:", "https://", "http://", "git://", "file://"]) {
     if (name.startsWith(prefix)) {
       name = name.slice(prefix.length);
@@ -17332,14 +17444,15 @@ function isExecError2(error) {
 // src/extensions/index.ts
 var ExtensionFetchError = class extends Error {
 };
-function parseExtensionSource(source) {
-  const value = source.trim();
+function parseExtensionSource(source2) {
+  const value = source2.trim();
   if (value.startsWith("github:")) {
-    const repo = value.slice("github:".length);
-    if (!/^[\w.-]+\/[\w.-]+$/u.test(repo)) {
+    const [owner, repository2, ...parts] = value.slice("github:".length).split("/");
+    if (!owner || !repository2 || !/^[\w.-]+$/u.test(owner) || !/^[\w.-]+$/u.test(repository2)) {
       throw new ExtensionFetchError(`Invalid GitHub shorthand format: ${value}. Expected format: github:owner/repo`);
     }
-    return { type: "github", url: `https://github.com/${repo}.git` };
+    const repoPath = parts.join("/").replace(/^\/+|\/+$/gu, "");
+    return { type: "github", url: `https://github.com/${owner}/${repository2.replace(/\.git$/u, "")}.git`, ...repoPath ? { repoPath } : {} };
   }
   if (isGitUrl(value)) {
     return { type: "git", url: normalizeGitUrl(value) };
@@ -17349,28 +17462,30 @@ function parseExtensionSource(source) {
   }
   throw new ExtensionFetchError(`Unable to parse extension source: ${value}`);
 }
-function getCachePath(source, cacheDir) {
-  const parsed = parseExtensionSource(source);
+function getCachePath(source2, cacheDir) {
+  const parsed = parseExtensionSource(source2);
   const repoName = parsed.type === "local" ? basename(parsed.url.replace(/\/+$/u, "")) || "extension" : extractRepoName(parsed.url);
   const digest = createHash("sha256").update(parsed.url).digest("hex").slice(0, 12);
   return join(cacheDir, `${repoName}-${digest}`);
 }
-async function fetchWithResolution(source, cacheDir, options = {}) {
-  const parsed = parseExtensionSource(source);
+async function fetchWithResolution(source2, cacheDir, options = {}) {
+  const parsed = parseExtensionSource(source2);
+  if (parsed.repoPath && options.repoPath) throw new ExtensionFetchError("GitHub shorthand subpath cannot be combined with repoPath");
+  const repoPath = parsed.repoPath ?? options.repoPath ?? null;
   if (parsed.type === "local") {
     const basePath = await resolveLocalSource(parsed.url);
-    return { path: await applySubpath(basePath, options.repoPath ?? null, `local source '${source}'`), resolvedRef: null };
+    return { path: await applySubpath(basePath, repoPath, `local source '${source2}'`), resolvedRef: null };
   }
   if (options.gitFetcher === void 0) {
     throw new ExtensionFetchError("Git extension fetching requires an explicit gitFetcher in the TypeScript package");
   }
   await mkdir(cacheDir, { recursive: true });
-  const cachePath = getCachePath(source, cacheDir);
-  const resolvedRef = await options.gitFetcher(parsed.url, cachePath, { ref: options.ref ?? null, update: options.update ?? true });
-  return { path: await applySubpath(cachePath, options.repoPath ?? null, "extension repository"), resolvedRef };
+  const cachePath = getCachePath(source2, cacheDir);
+  const resolvedRef = await options.gitFetcher(parsed.url, cachePath, { ref: options.ref ?? null, update: options.update ?? true, ...options.strict === void 0 ? {} : { strict: options.strict } });
+  return { path: await applySubpath(cachePath, repoPath, "extension repository"), resolvedRef };
 }
-async function fetchExtension(source, cacheDir, options = {}) {
-  return (await fetchWithResolution(source, cacheDir, options)).path;
+async function fetchExtension(source2, cacheDir, options = {}) {
+  return (await fetchWithResolution(source2, cacheDir, options)).path;
 }
 var InstallationInfo = class _InstallationInfo {
   name;
@@ -17395,12 +17510,12 @@ var InstallationInfo = class _InstallationInfo {
     this.installedAt = options.installedAt ?? (/* @__PURE__ */ new Date()).toISOString();
     this.installPath = options.installPath;
   }
-  static fromExtension(extension, source, installPath, options = {}) {
+  static fromExtension(extension, source2, installPath, options = {}) {
     return new _InstallationInfo({
       name: extension.name,
       version: extension.version,
       description: extension.description ?? "",
-      source,
+      source: source2,
       installPath,
       requestedRef: options.requestedRef ?? null,
       resolvedRef: options.resolvedRef ?? null,
@@ -17493,8 +17608,8 @@ function normalizeInfoMap(map) {
   }
   return result;
 }
-async function resolveLocalSource(source) {
-  const expanded = source.startsWith("~/") ? join(homedir(), source.slice(2)) : source;
+async function resolveLocalSource(source2) {
+  const expanded = source2.startsWith("~/") ? join(homedir(), source2.slice(2)) : source2;
   const path4 = resolve(expanded);
   if (!await exists3(path4)) {
     throw new ExtensionFetchError(`Local extension path does not exist: ${path4}`);
@@ -17514,6 +17629,8 @@ async function applySubpath(basePath, subpath, context) {
   if (!await exists3(finalPath)) {
     throw new ExtensionFetchError(`Subdirectory '${subpath}' not found in ${context}`);
   }
+  const physicalRelative = relative(await realpath(basePath), await realpath(finalPath));
+  if (physicalRelative === ".." || physicalRelative.startsWith(`..${sep}`)) throw new ExtensionFetchError(`Subdirectory '${subpath}' escapes ${context}`);
   return finalPath;
 }
 async function exists3(path4) {
@@ -17524,8 +17641,8 @@ async function exists3(path4) {
     return false;
   }
 }
-function isLocalPathSource2(source) {
-  return source.startsWith("/") || source.startsWith("~/") || source.startsWith("./") || source.startsWith("../") || /^[a-zA-Z]:[\\/]/u.test(source);
+function isLocalPathSource2(source2) {
+  return source2.startsWith("/") || source2.startsWith("~/") || source2.startsWith("./") || source2.startsWith("../") || /^[a-zA-Z]:[\\/]/u.test(source2);
 }
 function isRecord8(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -17884,23 +18001,23 @@ ${JSON.stringify(event, null, 2)}`
     }
   }
   executeCommand(hook, eventJson, env) {
-    return new Promise((resolve7) => {
+    return new Promise((resolve8) => {
       const child = spawn(hook.command, { shell: true, cwd: this.workingDir, env });
       const stdout = [];
       const stderr = [];
       const timeout = setTimeout(() => {
         child.kill("SIGTERM");
-        resolve7(new HookResult({ success: false, exit_code: -1, error: `Hook timed out after ${hook.timeout} seconds` }));
+        resolve8(new HookResult({ success: false, exit_code: -1, error: `Hook timed out after ${hook.timeout} seconds` }));
       }, hook.timeout * 1e3);
       child.stdout.on("data", (chunk) => stdout.push(chunk));
       child.stderr.on("data", (chunk) => stderr.push(chunk));
       child.on("error", (error) => {
         clearTimeout(timeout);
-        resolve7(new HookResult({ success: false, exit_code: -1, error: `Hook execution failed: ${error.message}` }));
+        resolve8(new HookResult({ success: false, exit_code: -1, error: `Hook execution failed: ${error.message}` }));
       });
       child.on("close", (code) => {
         clearTimeout(timeout);
-        resolve7(parseCommandResult(code ?? -1, Buffer.concat(stdout).toString("utf8"), Buffer.concat(stderr).toString("utf8")));
+        resolve8(parseCommandResult(code ?? -1, Buffer.concat(stdout).toString("utf8"), Buffer.concat(stderr).toString("utf8")));
       });
       child.stdin.write(eventJson);
       child.stdin.end();
@@ -18103,6 +18220,92 @@ function findMatchingBrace(text, openIndex) {
   }
   return -1;
 }
+var execute = promisify(execFile);
+async function isCachedGitPinned(directory) {
+  try {
+    await execute("git", ["-C", directory, "symbolic-ref", "--quiet", "HEAD"]);
+    return false;
+  } catch {
+    await execute("git", ["-C", directory, "rev-parse", "--verify", "HEAD"]);
+    return true;
+  }
+}
+async function cachedGitFetcher(url, destination, options) {
+  if (options.ref?.startsWith("-")) throw new Error("Git cache ref must not be an option");
+  await mkdir(dirname(destination), { recursive: true });
+  const lockStore = new LocalFileStore(dirname(destination));
+  return lockStore.lockAsync(`.${basename(destination)}.git-cache.lock`, async () => {
+    const git = async (...args) => {
+      try {
+        const { stdout } = await execute("git", ["-c", "core.hooksPath=/dev/null", "-C", destination, ...args], { timeout: 6e4, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+        return stdout.trim();
+      } catch {
+        throw new Error(`Git cache ${args[0] ?? "operation"} failed`);
+      }
+    };
+    const branch = async () => {
+      try {
+        return await git("symbolic-ref", "--quiet", "--short", "HEAD");
+      } catch {
+        return null;
+      }
+    };
+    const resetBranch = async () => {
+      const current = await branch();
+      if (current) {
+        try {
+          await git("reset", "--hard", `origin/${current}`);
+        } catch {
+        }
+      }
+    };
+    const checkout = async (ref) => {
+      await git("checkout", ref);
+      await resetBranch();
+    };
+    if (!existsSync(join(destination, ".git"))) {
+      try {
+        await execute("git", ["-c", "core.hooksPath=/dev/null", "clone", "--", url, destination], { timeout: 6e4, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+      } catch {
+        throw new Error("Git cache clone failed");
+      }
+      if (options.ref) await checkout(options.ref);
+      return git("rev-parse", "HEAD");
+    }
+    if (!options.update) {
+      if (options.ref) await checkout(options.ref);
+      return git("rev-parse", "HEAD");
+    }
+    if (options.ref) {
+      try {
+        await git("checkout", options.ref);
+        if (await branch() === null) return git("rev-parse", "HEAD");
+      } catch {
+      }
+    }
+    try {
+      await git("fetch", "origin", "--tags");
+    } catch (error) {
+      if (options.strict) throw error;
+      return git("rev-parse", "HEAD");
+    }
+    if (options.ref) {
+      try {
+        await checkout(options.ref);
+      } catch (error) {
+        if (options.strict) throw error;
+      }
+    } else if (await branch()) await resetBranch();
+    else {
+      try {
+        const originHead = await git("symbolic-ref", "--short", "refs/remotes/origin/HEAD");
+        await checkout(originHead.replace(/^origin\//u, ""));
+      } catch {
+      }
+    }
+    return git("rev-parse", "HEAD");
+  }, { recoverStaleLocks: false, timeoutSeconds: 65 });
+}
 var INITIAL_CWD2 = process.cwd();
 var oauthCredentialsSchema = z.object({
   type: z.literal("oauth").default("oauth"),
@@ -18218,10 +18421,10 @@ async function login(auth, options) {
   if (!options.onAuthorize) throw new Error("Browser login requires an onAuthorize callback");
   const { verifier, challenge } = generatePKCE();
   const state = randomBytes(32).toString("base64url");
-  let resolve7;
+  let resolve8;
   let reject;
   const result = new Promise((yes, no) => {
-    resolve7 = yes;
+    resolve8 = yes;
     reject = no;
   });
   let redirectUri = "";
@@ -18259,7 +18462,7 @@ async function login(auth, options) {
       if (!active) return;
       auth.saveCredentials(credentials);
       response.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }).end("Authorization successful. You can return to OpenHands.");
-      resolve7(credentials);
+      resolve8(credentials);
     }).catch(() => {
       fail("OpenAI token exchange failed", 500);
     });
@@ -18303,6 +18506,8 @@ var DEFAULT_OAUTH_PORT = 1455;
 var OPENAI_CODEX_MODELS = [
   "gpt-6-astra",
   "gpt-6.1-sol",
+  "gpt-6-sol",
+  "gpt-6-luna",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
@@ -19008,8 +19213,8 @@ function staticLimit(profile) {
   if (endpoint && (endpoint.port || !["", "/", "/v1", "/v1/", "/v1beta", "/v1beta/"].includes(endpoint.pathname))) return null;
   const nativeHosts = { openai: "api.openai.com", anthropic: "api.anthropic.com", gemini: "generativelanguage.googleapis.com", deepseek: "api.deepseek.com", moonshot: "api.moonshot.ai", minimax: "api.minimax.io", mistral: "api.mistral.ai", xai: "api.x.ai", zai: "api.z.ai" };
   if (!nativeHosts[profile.providerId] || host && host !== nativeHosts[profile.providerId]) return null;
-  const entry = MODEL_INPUT_LIMITS[profile.model] ?? MODEL_INPUT_LIMITS[`${profile.providerId}/${profile.model}`];
-  return entry?.provider === profile.providerId ? entry.maxInputTokens : null;
+  const entry2 = MODEL_INPUT_LIMITS[profile.model] ?? MODEL_INPUT_LIMITS[`${profile.providerId}/${profile.model}`];
+  return entry2?.provider === profile.providerId ? entry2.maxInputTokens : null;
 }
 var LLMContextBudget = class {
   constructor(profile, options = {}) {
@@ -19136,7 +19341,7 @@ async function requestWithRecovery(apiKey, options, request, allowAuthRefresh = 
       }
       if (attempt >= Math.max(1, attempts) || !isTransientProviderError(error)) throw error;
       const delay3 = Math.min(max, Math.max(min, multiplier * 2 ** (attempt - 1)));
-      if (delay3 > 0) await new Promise((resolve7) => setTimeout(resolve7, delay3));
+      if (delay3 > 0) await new Promise((resolve8) => setTimeout(resolve8, delay3));
       attempt += 1;
     }
   }
@@ -19592,7 +19797,7 @@ function assertSupportedGenerationParams(profile) {
     ["temperature", profile.temperature],
     ["topP", profile.topP],
     ["topK", profile.topK]
-  ].filter((entry) => entry[1] !== null);
+  ].filter((entry2) => entry2[1] !== null);
   if (unsupported.length > 0) {
     throw new Error(
       `Gemini Interactions does not support profile fields: ${unsupported.map(([name]) => name).join(", ")}.`
@@ -20040,7 +20245,7 @@ function buildChatCompletionsBody(profile, messages, tools = [], context, metada
   const requireReasoningContent = tools.length > 0 && sendReasoningContent && normalizedProfile.model.toLowerCase().includes("deepseek");
   const history = messages.map((message2) => messageSchema.parse(message2)).map((message2) => requireReasoningContent && message2.role === "assistant" && message2.reasoning_content === null ? { ...message2, reasoning_content: "" } : message2);
   const body = {
-    model: normalizedProfile.model,
+    model: wireModelName(normalizedProfile),
     messages: prepareAnthropicPromptCaching(normalizedProfile, orderCompletedToolResults(history)).map((message2) => toOpenAIChatMessage(message2, sendReasoningContent))
   };
   if (tools.length > 0) {
@@ -20068,7 +20273,7 @@ function buildOpenAIResponsesBody(profile, messages, tools = [], context, metada
   const parsedMessages = orderCompletedToolResults(messages.map((message2) => messageSchema.parse(message2)));
   const instructions = parsedMessages.filter((message2) => message2.role === "system").flatMap((message2) => contentToString(message2.content));
   const body = {
-    model: normalizedProfile.model,
+    model: wireModelName(normalizedProfile),
     input: parsedMessages.filter((message2) => message2.role !== "system").flatMap(toOpenAIResponsesInputItems),
     include: ["reasoning.encrypted_content"],
     store: false
@@ -20323,13 +20528,13 @@ function parseOpenAIResponsesMetadata(raw) {
 }
 function parseOpenAIResponsesContent(raw, metadata) {
   const parsed = openAIResponsesResponseSchema.parse(raw);
-  const text = parsed.output.filter((item) => item.type === "message").flatMap((item) => item.content).filter((content) => content.type === "output_text").map((content) => content.text).join("\n");
-  const reasoningItem = parsed.output.find((item) => item.type === "reasoning") ?? null;
+  const text = parsed.output.filter((item) => item.type === "message").flatMap((item) => item.content).filter((content) => content.type === "output_text").map((content) => content.text).join("\n").trim();
+  const reasoningItem = parsed.output.filter((item) => item.type === "reasoning").at(-1) ?? null;
   const toolCalls = parsed.output.filter((item) => item.type === "function_call").map(fromOpenAIResponsesFunctionCall);
   return llmCompletionResponseSchema.parse({
     message: {
       role: "assistant",
-      content: text,
+      content: text ? [textContent(text)] : [],
       tool_calls: toolCalls.length > 0 ? toolCalls : null,
       responses_reasoning_item: reasoningItem === null ? null : {
         id: reasoningItem.id,
@@ -20353,21 +20558,13 @@ function fromOpenAIResponsesFunctionCall(item) {
   };
 }
 function normalizeResponsesReasoningSummary(summary) {
-  return summary.flatMap((item) => item.text.length === 0 ? [] : [item.text]);
+  return summary.map((item) => item.text);
 }
 function normalizeResponsesReasoningContent(content) {
   if (content === null) {
     return null;
   }
-  const values = content.flatMap((item) => {
-    if (item.text !== null && item.text.length > 0) {
-      return [item.text];
-    }
-    if (item.content !== null && item.content.length > 0) {
-      return [item.content];
-    }
-    return [];
-  });
+  const values = content.map((item) => item.text);
   return values.length > 0 ? values : null;
 }
 function resolveBaseUrl3(profile) {
@@ -20375,10 +20572,14 @@ function resolveBaseUrl3(profile) {
   return baseUrl.replace(/\/+$/u, "");
 }
 function defaultBaseUrlForProvider(providerId) {
+  if (providerId.toLowerCase() === "digitalocean") return "https://inference.do-ai.run/v1";
   if (providerId === "openrouter") {
     return DEFAULT_OPENROUTER_BASE_URL;
   }
   return DEFAULT_OPENAI_BASE_URL;
+}
+function wireModelName(profile) {
+  return profile.providerId.toLowerCase() === "digitalocean" ? profile.model.replace(/^digitalocean\//u, "") : profile.model;
 }
 function buildHeaders3(profile, apiKey) {
   return {
@@ -20427,20 +20628,16 @@ var openAIChatCompletionResponseSchema = z.object({
   }).passthrough().nullable().default(null)
 }).passthrough();
 var openAIResponsesOutputTextSchema = z.object({ type: z.literal("output_text"), text: z.string() }).passthrough();
-var openAIResponsesContentItemSchema = z.union([openAIResponsesOutputTextSchema, z.object({ type: z.string() }).passthrough()]);
+var openAIResponsesContentItemSchema = openAIResponsesOutputTextSchema;
 var openAIResponsesMessageItemSchema = z.object({
   type: z.literal("message"),
-  role: z.literal("assistant").default("assistant"),
   content: z.array(openAIResponsesContentItemSchema).default([])
 }).passthrough();
 var openAIResponsesReasoningSummaryItemSchema = z.object({
-  type: z.string().default("summary_text"),
   text: z.string().default("")
 }).passthrough();
 var openAIResponsesReasoningContentItemSchema = z.object({
-  type: z.string().default("reasoning_text"),
-  text: z.string().nullable().default(null),
-  content: z.string().nullable().default(null)
+  text: z.string().default("")
 }).passthrough();
 var openAIResponsesReasoningItemSchema = z.object({
   type: z.literal("reasoning"),
@@ -20454,19 +20651,73 @@ var openAIResponsesFunctionCallItemSchema = z.object({
   type: z.literal("function_call"),
   id: z.string().nullable().default(null),
   call_id: z.string(),
-  name: z.string(),
-  arguments: z.string().default("{}")
+  name: z.string().default(""),
+  arguments: z.string().default("")
 }).passthrough();
 var openAIResponsesOutputItemSchema = z.union([
   openAIResponsesMessageItemSchema,
   openAIResponsesReasoningItemSchema,
-  openAIResponsesFunctionCallItemSchema,
-  z.object({ type: z.string() }).passthrough()
+  openAIResponsesFunctionCallItemSchema
 ]);
+function normalizeResponsesOutput(value) {
+  if (value === null || value === void 0) return [];
+  if (!Array.isArray(value)) return value;
+  return value.flatMap((item) => {
+    if (!isRecord10(item)) return [];
+    if (item.type === "message") {
+      const parts = item.content ?? [];
+      const content = Array.isArray(parts) ? parts.filter((part) => isRecord10(part) && part.type === "output_text" && pythonTruthy(part.text)) : parts;
+      return [{ ...item, content }];
+    }
+    if (item.type === "function_call") {
+      const callId = z.string().nullish().parse(item.call_id);
+      return [{
+        ...item,
+        call_id: callId || (pythonTruthy(item.id) ? item.id : ""),
+        id: pythonTruthy(item.id) ? pythonItemId(item.id) : null
+      }];
+    }
+    if (item.type === "reasoning") return [{ ...item, summary: item.summary ?? [], content: item.content ?? null }];
+    return [];
+  });
+}
+function isRecord10(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function pythonTruthy(value) {
+  if (!value) return false;
+  if (Array.isArray(value)) return value.length > 0;
+  return !isRecord10(value) || Object.keys(value).length > 0;
+}
+function pythonItemId(value) {
+  if (value === true) return "True";
+  if (value === false) return "False";
+  if (value === null) return "None";
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  if (Array.isArray(value) || isRecord10(value)) return pythonJsonRepr(value);
+  return z.string().parse(value);
+}
+function pythonJsonRepr(value) {
+  if (typeof value === "string") {
+    const quote = value.includes("'") && !value.includes('"') ? '"' : "'";
+    return quote + Array.from(value, (character) => {
+      if (character === "\\" || character === quote) return `\\${character}`;
+      if (character === "\n") return "\\n";
+      if (character === "\r") return "\\r";
+      if (character === "	") return "\\t";
+      if (character.charCodeAt(0) < 32 || character === "\x7F") return `\\x${character.charCodeAt(0).toString(16).padStart(2, "0")}`;
+      return character;
+    }).join("") + quote;
+  }
+  if (Array.isArray(value)) return `[${value.map(pythonJsonRepr).join(", ")}]`;
+  if (isRecord10(value)) return `{${Object.entries(value).map(([key, item]) => `${pythonJsonRepr(key)}: ${pythonJsonRepr(item)}`).join(", ")}}`;
+  return pythonItemId(value);
+}
 var openAIResponsesResponseSchema = z.object({
   id: z.string().optional(),
   model: z.string().optional(),
-  output: z.array(openAIResponsesOutputItemSchema).default([]),
+  output: z.preprocess(normalizeResponsesOutput, z.array(openAIResponsesOutputItemSchema)),
   usage: z.object({
     input_tokens: z.number().int().min(0).optional(),
     output_tokens: z.number().int().min(0).optional(),
@@ -20728,6 +20979,243 @@ function isMcpTextBlock(block) {
 function isMcpImageBlock(block) {
   return block.type === "image" && typeof block.mimeType === "string" && typeof block.data === "string";
 }
+
+// src/profiles/seed.ts
+var SEED_PROFILE_NAME = "default";
+function buildSeedProfile(settings, activeLlmProfile, options = {}) {
+  const name = options.name ?? SEED_PROFILE_NAME;
+  if (settings.agent_kind === "acp") {
+    return validateAgentProfile({
+      name,
+      agent_kind: "acp",
+      acp_server: settings.acp_server,
+      acp_model: settings.acp_model,
+      acp_session_mode: settings.acp_session_mode,
+      acp_prompt_timeout: settings.acp_prompt_timeout,
+      acp_startup_timeout: settings.acp_startup_timeout,
+      acp_command: settings.acp_command.length === 0 ? null : settings.acp_command.map(quoteShellWord).join(" "),
+      acp_args: settings.acp_args.length === 0 ? null : [...settings.acp_args],
+      mcp_server_refs: null
+    });
+  }
+  return validateAgentProfile({
+    name,
+    agent_kind: "openhands",
+    llm_profile_ref: activeLlmProfile || SEED_PROFILE_NAME,
+    agent: settings.agent,
+    tools: settings.tools,
+    disabled_skills: [...options.context?.disabledSkills ?? []],
+    persona: settings.persona,
+    system_message_suffix: options.context?.systemMessageSuffix ?? null,
+    condenser: structuredClone(settings.condenser),
+    ...settings.hard_condenser === void 0 ? {} : { hard_condenser: structuredClone(settings.hard_condenser) },
+    verification: profileVerificationSettingsSchema.parse(settings.verification),
+    enable_classify_and_switch_llm_tool: settings.enable_classify_and_switch_llm_tool,
+    meta_profile_ref: settings.active_meta_profile,
+    tool_concurrency_limit: settings.tool_concurrency_limit,
+    mcp_server_refs: null
+  });
+}
+function quoteShellWord(word) {
+  return /^[\w@%+=:,./-]+$/u.test(word) ? word : `'${word.replaceAll("'", `'"'"'`)}'`;
+}
+var optionalText = z.string().nullish();
+var author = z.union([z.string(), z.object({ name: z.string().optional(), email: optionalText, url: optionalText })]).nullish();
+var source = z.object({ source: z.string(), repo: optionalText, url: optionalText, ref: optionalText, path: optionalText }).refine((value) => value.source !== "github" || Boolean(value.repo)).refine((value) => value.source !== "url" || Boolean(value.url));
+var entry = z.object({
+  name: z.string(),
+  source: z.string(),
+  description: optionalText,
+  version: optionalText,
+  author,
+  category: optionalText,
+  homepage: optionalText
+});
+var stringOrStrings = z.union([z.string(), z.array(z.string())]).nullish();
+var object = z.record(z.string(), z.unknown());
+var serverMap = z.record(z.string(), object).nullish();
+var pythonBoolean = z.preprocess((value) => {
+  if (value === 0 || value === 1) return Boolean(value);
+  if (typeof value === "string") {
+    if (["0", "off", "f", "false", "n", "no"].includes(value.toLowerCase())) return false;
+    if (["1", "on", "t", "true", "y", "yes"].includes(value.toLowerCase())) return true;
+  }
+  return value;
+}, z.boolean());
+var plugin = entry.extend({
+  source: z.union([z.string(), source]),
+  entry_command: optionalText,
+  strict: pythonBoolean.optional(),
+  commands: stringOrStrings,
+  agents: stringOrStrings,
+  hooks: z.union([z.string(), object]).nullish(),
+  mcpServers: serverMap,
+  lspServers: serverMap,
+  license: optionalText,
+  repository: optionalText,
+  keywords: z.array(z.string()).optional(),
+  tags: z.array(z.string()).optional()
+});
+var marketplace = z.object({
+  name: z.string(),
+  owner: z.object({ name: z.string(), email: optionalText }),
+  description: optionalText,
+  plugins: z.array(z.preprocess((value) => {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const data = value;
+      return {
+        ...data,
+        mcpServers: "mcpServers" in data ? data.mcpServers : data.mcp_config,
+        lspServers: "lspServers" in data ? data.lspServers : data.lsp_servers
+      };
+    }
+    return value;
+  }, plugin)).default([]),
+  skills: z.array(entry).default([]),
+  metadata: z.object({ description: optionalText, version: optionalText }).nullish()
+  // The source overwrites path with the actual repository path before validation.
+});
+function parseSkillsMarketplace(value) {
+  return marketplace.parse(value);
+}
+function parseCatalogSkillNames(value) {
+  return new Set(parseSkillsMarketplace(value).plugins.map((plugin2) => plugin2.name));
+}
+
+// src/skills/catalog.ts
+var PUBLIC_SKILLS_REPO = "https://github.com/OpenHands/extensions";
+var DEFAULT_MARKETPLACE_PATH = "marketplaces/default.json";
+var publicCache = /* @__PURE__ */ new Map();
+function invalidatePublicSkillsCache() {
+  publicCache.clear();
+}
+function localPublicPath(url) {
+  const local = process.env.EXTENSIONS_PATH;
+  return url === PUBLIC_SKILLS_REPO && local ? resolve(local.startsWith("~/") ? join(homedir(), local.slice(2)) : local) : null;
+}
+async function repository(options, strict) {
+  const url = options.repoUrl ?? PUBLIC_SKILLS_REPO;
+  const ref = options.ref ?? process.env.EXTENSIONS_REF ?? "main";
+  const local = localPublicPath(url);
+  if (local !== null) return { path: local, pinned: false };
+  if (options.fetchRepository) return options.fetchRepository(url, ref, { strict });
+  const destination = getCachePath(url, options.cacheDirectory ?? join(getUserPersistenceDir(), "skills", ".cache"));
+  await cachedGitFetcher(url, destination, { ref, update: true, strict });
+  return { path: destination, pinned: await isCachedGitPinned(destination) };
+}
+async function syncPublicSkills(options = {}) {
+  await repository(options, true);
+  invalidatePublicSkillsCache();
+}
+async function loadPublicSkills(options = {}) {
+  const url = options.repoUrl ?? PUBLIC_SKILLS_REPO;
+  const marketplace2 = options.marketplacePath === void 0 ? DEFAULT_MARKETPLACE_PATH : options.marketplacePath;
+  const key = JSON.stringify([localPublicPath(url) ?? url, options.ref ?? process.env.EXTENSIONS_REF ?? "main", marketplace2, options.cacheDirectory ?? null]);
+  const cached = publicCache.get(key);
+  if (cached && performance.now() < cached.until) return [...cached.skills];
+  try {
+    const repo = await repository(options, false);
+    let selected = null;
+    if (marketplace2 !== null) {
+      const manifest = resolve(repo.path, marketplace2);
+      if (!within(resolve(repo.path), manifest)) return [];
+      try {
+        selected = parseCatalogSkillNames(JSON.parse(await readFile(manifest, "utf8")));
+      } catch {
+        if (marketplace2 !== DEFAULT_MARKETPLACE_PATH) return [];
+      }
+    }
+    const skills = [];
+    if (selected === null) skills.push(...await scanSkills(join(repo.path, "skills"), [], repo.path));
+    else for (const name of selected) {
+      const directory = resolve(repo.path, "skills");
+      const candidate = resolve(directory, name);
+      if (!within(directory, candidate)) continue;
+      for (const file of [join(candidate, "SKILL.md"), `${candidate}.md`]) {
+        try {
+          if (!(await stat(file)).isFile()) continue;
+          skills.push(await Skill.load(file, repo.path));
+          break;
+        } catch {
+        }
+      }
+    }
+    if (skills.length) publicCache.set(key, { until: repo.pinned ? Infinity : performance.now() + 6e4, skills });
+    return [...skills];
+  } catch {
+    return [];
+  }
+}
+async function loadUserSkills(options = {}) {
+  const base = getUserPersistenceDir();
+  const installed = options.installedDirectory ?? join(base, "skills", "installed");
+  const directories = options.directories ?? [join(homedir(), ".agents", "skills"), join(base, "skills"), join(base, "microagents")];
+  const selected = /* @__PURE__ */ new Map();
+  for (const dir of directories) for (const skill of await scanSkills(dir, [installed])) if (!selected.has(skill.name)) selected.set(skill.name, skill);
+  try {
+    const enabled = options.loadInstalled ? await options.loadInstalled() : await loadInstalledSkills(installed);
+    for (const skill of enabled) if (!selected.has(skill.name)) selected.set(skill.name, skill);
+  } catch {
+  }
+  return [...selected.values()];
+}
+async function loadInstalledSkills(directory) {
+  const metadata = await InstallationMetadata.loadFromDir(directory);
+  const skills = [];
+  for (const info of metadata.validateTracked(directory)) if (info.enabled) skills.push(...await scanSkills(join(directory, info.name)));
+  return skills;
+}
+async function scanSkills(root, excluded = [], baseDirectory = root) {
+  const skills = [];
+  const visited = /* @__PURE__ */ new Set();
+  const blocked = await Promise.all(excluded.map(async (path4) => {
+    try {
+      return await realpath(path4);
+    } catch {
+      return resolve(path4);
+    }
+  }));
+  const walk = async (directory) => {
+    let physical;
+    try {
+      physical = await realpath(directory);
+    } catch {
+      return;
+    }
+    if (visited.has(physical) || blocked.some((path4) => within(path4, physical))) return;
+    visited.add(physical);
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    const skillFile = entries.find((entry2) => entry2.isFile() && entry2.name.toLowerCase() === "skill.md");
+    if (skillFile) {
+      try {
+        skills.push(await Skill.load(join(directory, skillFile.name), baseDirectory));
+      } catch {
+      }
+      return;
+    }
+    for (const entry2 of entries) {
+      if (entry2.name.startsWith(".")) continue;
+      const path4 = join(directory, entry2.name);
+      try {
+        const info = entry2.isSymbolicLink() ? await stat(path4) : entry2;
+        if (info.isDirectory()) await walk(path4);
+        else if (info.isFile() && entry2.name !== "README.md" && entry2.name.toLowerCase().endsWith(".md")) skills.push(await Skill.load(path4, baseDirectory));
+      } catch {
+      }
+    }
+  };
+  await walk(root);
+  return skills;
+}
+function within(root, path4) {
+  const rel = relative(root, path4);
+  return rel !== ".." && !rel.startsWith(`..${sep}`) && !rel.startsWith(sep);
+}
 var knownAgentFields = /* @__PURE__ */ new Set([
   "name",
   "description",
@@ -20739,6 +21227,7 @@ var knownAgentFields = /* @__PURE__ */ new Set([
   "max_budget_per_run",
   "hooks",
   "profile_store_dir",
+  "mcp_config",
   "mcp_servers",
   "permission_mode",
   "condenser"
@@ -20758,7 +21247,8 @@ var AgentDefinition = class _AgentDefinition {
   hooks;
   max_iteration_per_run;
   max_budget_per_run;
-  mcp_servers;
+  mcp_config;
+  permission_mode;
   profile_store_dir;
   condenser;
   metadata;
@@ -20776,11 +21266,16 @@ var AgentDefinition = class _AgentDefinition {
     this.hooks = options.hooks ?? null;
     this.max_iteration_per_run = positiveNumberOrNull(options.max_iteration_per_run ?? null, "max_iteration_per_run");
     this.max_budget_per_run = positiveNumberOrNull(options.max_budget_per_run ?? null, "max_budget_per_run");
-    this.mcp_servers = options.mcp_servers ?? null;
+    this.mcp_config = normalizeMcpConfig(Object.hasOwn(options, "mcp_config") ? options.mcp_config : options.mcp_servers);
+    this.permission_mode = permissionMode(options.permission_mode);
     this.profile_store_dir = options.profile_store_dir ?? null;
     this.condenser = options.condenser ?? null;
     this.metadata = { ...options.metadata ?? {} };
     this.level = options.level ?? null;
+  }
+  /** Deprecated read alias; canonical JSON carries mcp_config only. */
+  get mcp_servers() {
+    return this.mcp_config;
   }
   static async load(agentPath) {
     const fileContent = await readFile(agentPath, "utf8");
@@ -20797,10 +21292,11 @@ var AgentDefinition = class _AgentDefinition {
       skills: stringList2(metadata.skills, true),
       max_iteration_per_run: optionalNumber(metadata.max_iteration_per_run),
       max_budget_per_run: optionalNumber(metadata.max_budget_per_run),
-      mcp_servers: recordOrNull(metadata.mcp_servers, "mcp_servers"),
+      mcp_config: recordOrNull(Object.hasOwn(metadata, "mcp_config") ? metadata.mcp_config : metadata.mcp_servers, "mcp_config"),
+      permission_mode: nullableString(metadata.permission_mode),
       profile_store_dir: nullableString(metadata.profile_store_dir),
       hooks: metadata.hooks,
-      condenser: metadata.condenser,
+      condenser: condenserMetadata(metadata.condenser),
       system_prompt: parsed.content.trim(),
       source: toPosixPath3(agentPath),
       when_to_use_examples: examplesFrom(description),
@@ -20814,12 +21310,12 @@ async function loadProjectAgents(projectDir) {
 async function loadUserAgents() {
   return loadAgentsFromDirs(agentDirectories.map((dir) => userAgentsDir(dir)));
 }
-function userAgentsDir(relative3) {
-  const [base, ...rest] = relative3.split("/");
+function userAgentsDir(relative4) {
+  const [base, ...rest] = relative4.split("/");
   if (base === ".openhands") {
     return join(getUserPersistenceDir(), rest.join("/"));
   }
-  return join(homedir(), relative3);
+  return join(homedir(), relative4);
 }
 async function discoverAgents(options = {}) {
   const includeProject = options.includeProject ?? true;
@@ -20827,12 +21323,12 @@ async function discoverAgents(options = {}) {
   const discovered = [];
   if (includeProject && options.projectDir !== null && options.projectDir !== void 0) {
     for (const definition of await loadProjectAgents(options.projectDir)) {
-      discovered.push({ ...definition, level: "project" });
+      discovered.push(new AgentDefinition({ ...definition, level: "project" }));
     }
   }
   if (includeUser) {
     for (const definition of await loadUserAgents()) {
-      discovered.push({ ...definition, level: "user" });
+      discovered.push(new AgentDefinition({ ...definition, level: "user" }));
     }
   }
   const seen = /* @__PURE__ */ new Set();
@@ -20863,9 +21359,9 @@ async function loadAgentsFromDir(agentsDir) {
     return [];
   }
   const definitions = [];
-  for (const entry of (await readdir(agentsDir)).sort()) {
-    const path4 = join(agentsDir, entry);
-    if (skipFiles.has(entry) || extname(entry).toLowerCase() !== ".md" || await isDirectory(path4)) {
+  for (const entry2 of (await readdir(agentsDir)).sort()) {
+    const path4 = join(agentsDir, entry2);
+    if (skipFiles.has(entry2) || extname(entry2).toLowerCase() !== ".md" || await isDirectory(path4)) {
       continue;
     }
     try {
@@ -20919,55 +21415,18 @@ function resolveAgentDefinition(name, description) {
   return description instanceof AgentDefinition ? description : new AgentDefinition({ name, description });
 }
 function parseFrontmatter2(fileContent) {
-  if (!fileContent.startsWith("---")) {
+  const lines = fileContent.replace(/^\uFEFF/u, "").split(/\r?\n/u);
+  if (lines[0]?.trim() !== "---") {
     return { metadata: {}, content: fileContent };
   }
-  const end = fileContent.indexOf("\n---", 3);
+  const end = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
   if (end === -1) {
     return { metadata: {}, content: fileContent };
   }
-  return { metadata: parseSimpleYaml(fileContent.slice(3, end)), content: fileContent.slice(end + 4).replace(/^\r?\n/, "") };
-}
-function parseSimpleYaml(frontmatter) {
-  const metadata = {};
-  for (const line of frontmatter.split(/\r?\n/u)) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0 || trimmed.startsWith("#")) {
-      continue;
-    }
-    const separator = trimmed.indexOf(":");
-    if (separator === -1) {
-      continue;
-    }
-    metadata[trimmed.slice(0, separator).trim()] = parseScalar(trimmed.slice(separator + 1).trim());
-  }
-  return metadata;
-}
-function parseScalar(value) {
-  const unquoted = stripQuotes2(value);
-  if (unquoted === "true") {
-    return true;
-  }
-  if (unquoted === "false") {
-    return false;
-  }
-  if (/^-?\d+(?:\.\d+)?$/u.test(unquoted)) {
-    return Number(unquoted);
-  }
-  if (unquoted.startsWith("[") && unquoted.endsWith("]")) {
-    return unquoted.slice(1, -1).split(",").map((part) => part.trim()).filter((part) => part.length > 0);
-  }
-  return unquoted;
-}
-function stripQuotes2(value) {
-  if (value.length >= 2) {
-    const first = value[0];
-    const last = value.at(-1);
-    if ((first === '"' || first === "'") && first === last) {
-      return value.slice(1, -1);
-    }
-  }
-  return value;
+  const document = parseDocument(lines.slice(1, end).join("\n"), { version: "1.1", uniqueKeys: false });
+  if (document.errors.length || document.warnings.length) throw new Error("Invalid agent frontmatter");
+  const metadata = document.toJS({ maxAliasCount: 100 });
+  return { metadata: recordOrNull(metadata, "frontmatter") ?? {}, content: lines.slice(end + 1).join("\n") };
 }
 function stringField(value, fallback) {
   return value === void 0 || value === null ? fallback : scalarToString(value);
@@ -21020,6 +21479,33 @@ function recordOrNull(value, field) {
   }
   throw new Error(`${field} must be a mapping`);
 }
+function normalizeMcpConfig(value) {
+  const config = recordOrNull(value, "mcp_config");
+  if (config === null) return null;
+  return Object.fromEntries(Object.entries(config).map(([name, item]) => {
+    const server = recordOrNull(item, "MCP server");
+    if (server === null) throw new Error("MCP server must be a mapping");
+    if (server.enabled !== void 0 && typeof server.enabled !== "boolean") throw new Error("MCP enabled must be boolean");
+    return [name, { ...structuredClone(server), enabled: server.enabled ?? true }];
+  }));
+}
+function permissionMode(value) {
+  if (value === null || value === void 0) return null;
+  const mode = value.trim().toLowerCase();
+  if (!["always_confirm", "never_confirm", "confirm_risky"].includes(mode)) throw new Error("Invalid permission_mode");
+  return mode;
+}
+function condenserMetadata(value) {
+  if (value === null || value === void 0 || value === true) return null;
+  if (value === false) return { kind: "NoOpCondenser" };
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["", "default", "inherit"].includes(normalized)) return null;
+    if (["none", "off", "false", "no", "disable", "disabled"].includes(normalized)) return { kind: "NoOpCondenser" };
+    throw new Error("Invalid condenser metadata");
+  }
+  return recordOrNull(value, "condenser");
+}
 function examplesFrom(description) {
   return [...description.matchAll(/<example>(.*?)<\/example>/gis)].map((match) => match[1]?.trim() ?? "").filter((example) => example.length > 0);
 }
@@ -21032,6 +21518,138 @@ async function isDirectory(path4) {
   } catch {
     return false;
   }
+}
+
+// src/subagent/builtin-catalog.ts
+var builtinAgentSource = {
+  "repository": "OpenHands/software-agent-sdk",
+  "commit": "fd387b58dc7b707b73c159845c0396a17000be24",
+  "factory": "openhands-tools/openhands/tools/preset/default.py::discover_builtin_agents",
+  "files": {
+    "openhands-tools/openhands/tools/preset/subagents/bash_runner.md": "6485915175e28dadc1371d68448a6371e353491896a4ef5eea0422425f12444c",
+    "openhands-tools/openhands/tools/preset/subagents/code_explorer.md": "ff947caf38dbfe1bfd2d6ff1973ba798f8a34fbfd29cf213d624acc0603924d8",
+    "openhands-tools/openhands/tools/preset/subagents/default.md": "e8355f405c62305e3cea6d1853bbb8dce867b94b594d04ab07c25484e6f8807e",
+    "openhands-tools/openhands/tools/preset/subagents/web_researcher.md": "f2438787336621cc11e0c234c0a6be2b8f579cfeb66046fb9be4afcd7ed4e4df"
+  }
+};
+var builtinAgentCatalog = [
+  {
+    "name": "bash-runner",
+    "description": "USE THIS to execute shell commands and get a concise report of the results. Runs tests, builds, linters, git operations, system inspection, dependency installation, or any other CLI task. Returns only what matters: pass/fail counts, specific failures with reasons, and actionable errors \u2014 never raw output.",
+    "model": "inherit",
+    "color": null,
+    "tools": [
+      "terminal"
+    ],
+    "skills": [],
+    "system_prompt": 'You are a command-line execution specialist. Your sole interface is the\nterminal \u2014 use it to run shell commands on behalf of the caller.\n\n## Core capabilities\n\n- Execute arbitrary shell commands (bash/sh).\n- Run builds, tests, linters, formatters, and other development tooling.\n- Inspect system state: processes, disk usage, environment variables, network.\n- Perform git operations (commit, push, rebase, etc.).\n\n## Reporting\n\nYour most important job is to **distill command output into a concise report**.\nThe caller does not see raw terminal output \u2014 they only see what you write back.\nNever dump raw output. Always summarize.\n\nFor **test suites**, report:\n- Total passed / failed / skipped / errored counts\n- For each failure: test name, short reason (assertion message or exception), and\n  the file:line where it failed\n- Nothing else \u2014 no passing test names, no full tracebacks, no captured stdout\n\nFor **builds and linters**, report:\n- Success or failure\n- For each error/warning: file:line, the message, and a one-line summary\n- Nothing else \u2014 no "compiling X..." progress lines\n\nFor **git operations**, report:\n- What changed (branch, commit hash, files affected)\n- Any conflicts or errors\n\nFor **all other commands**, report:\n- Exit code (if non-zero)\n- Key output lines that answer the caller\'s question\n- Any errors or warnings\n\n## Guidelines\n\n1. **Be precise.** Run exactly what was requested. Do not add extra flags or\n   steps unless they are necessary for correctness.\n2. **Chain when appropriate.** Use `&&` to chain dependent commands so later\n   steps only run if earlier ones succeed.\n3. **Avoid interactive commands.** Do not run commands that require interactive\n   input (e.g., `vim`, `less`, `git rebase -i`). Use non-interactive\n   alternatives instead.',
+    "source": "openhands-tools/openhands/tools/preset/subagents/bash_runner.md",
+    "level": "builtin",
+    "when_to_use_examples": [],
+    "hooks": null,
+    "permission_mode": null,
+    "max_iteration_per_run": null,
+    "max_budget_per_run": null,
+    "mcp_config": null,
+    "profile_store_dir": null,
+    "condenser": null,
+    "metadata": {}
+  },
+  {
+    "name": "code-explorer",
+    "description": "USE THIS when you need to understand unfamiliar code before making changes. Returns a structured summary with file paths, line numbers, and code snippets.",
+    "model": "inherit",
+    "color": null,
+    "tools": [
+      "terminal"
+    ],
+    "skills": [],
+    "system_prompt": "You are a codebase exploration specialist. Your sole interface is the\nterminal \u2014 use it to run read-only shell commands. You never create, modify,\nor delete files.\n\n## Core capabilities\n\n- **File discovery** \u2014 `find`, `ls`, `tree` to locate files by name or pattern.\n- **Content search** \u2014 `grep`, `rg` to find code, symbols, and text.\n- **Code reading** \u2014 `cat`, `head`, `tail`, `sed -n` to read source files.\n- **Git inspection** \u2014 `git log`, `git diff`, `git show`, `git blame`.\n\n## Constraints\n\n- Do **not** create, modify, move, copy, or delete any file.\n- Do **not** run commands that change system state (installs, builds, writes).\n- Restrict yourself to read-only commands: `ls`, `find`, `cat`, `head`,\n  `tail`, `wc`, `sed -n`, `git status`, `git log`, `git diff`, `git show`,\n  `git blame`, `tree`, `file`, `stat`, `which`, `echo`, `pwd`, `env`,\n  `printenv`, `grep`, `rg`.\n- Never use redirect operators (`>`, `>>`) or pipe to write commands.\n\n## Workflow guidelines\n\n1. Start broad, then narrow down. Use `find` or `ls` to locate candidate\n   files before reading them.\n2. Prefer `grep`/`rg` for content searches and `find` for file-name searches.\n3. When exploring an unfamiliar area, check directory structure first (`ls`,\n   `tree`) before diving into individual files.\n4. Run multiple terminal commands in parallel whenever possible \u2014 e.g., grep\n   for a symbol in multiple directories at once \u2014 to return results quickly.\n5. Provide concise, structured answers. Summarize findings with file paths and\n   line numbers so the caller can act on them immediately.",
+    "source": "openhands-tools/openhands/tools/preset/subagents/code_explorer.md",
+    "level": "builtin",
+    "when_to_use_examples": [],
+    "hooks": null,
+    "permission_mode": null,
+    "max_iteration_per_run": null,
+    "max_budget_per_run": null,
+    "mcp_config": null,
+    "profile_store_dir": null,
+    "condenser": null,
+    "metadata": {}
+  },
+  {
+    "name": "general-purpose",
+    "description": "General-purpose subagent. Can read, write, and edit code, run shell commands, and track tasks. Use this when the task requires a combination of capabilities or doesn't fit a specialized agent.",
+    "model": "inherit",
+    "color": null,
+    "tools": [
+      "terminal",
+      "file_editor",
+      "task_tracker"
+    ],
+    "skills": [],
+    "system_prompt": "You are a general-purpose agent. You can read and write\ncode, run shell commands, and track tasks to solve tasks end-to-end.\n\n## Core capabilities\n\n- **Code editing** \u2014 create, view, and modify files with `file_editor`.\n- **Shell execution** \u2014 run builds, tests, git operations, and system commands\n  with `terminal`.\n- **Task tracking** \u2014 break down complex work into steps with `task_tracker`.\n\n## Reporting\n\nWhen you finish, report a concise summary back to the caller: what you did,\nwhat changed (files, tests, errors), and any open issues. No play-by-play of\nevery command \u2014 just the outcome.",
+    "source": "openhands-tools/openhands/tools/preset/subagents/default.md",
+    "level": "builtin",
+    "when_to_use_examples": [],
+    "hooks": null,
+    "permission_mode": null,
+    "max_iteration_per_run": null,
+    "max_budget_per_run": null,
+    "mcp_config": null,
+    "profile_store_dir": null,
+    "condenser": null,
+    "metadata": {}
+  },
+  {
+    "name": "web-researcher",
+    "description": "USE THIS when you need to research information on the web \u2014 documentation, API references, changelogs, Stack Overflow answers, or any publicly available content. Returns a structured summary of findings with source URLs.",
+    "model": "inherit",
+    "color": null,
+    "tools": [
+      "browser_tool_set"
+    ],
+    "skills": [],
+    "system_prompt": "You are a web research specialist. You have three interfaces for finding                                                                                                                                           \ninformation on the web:                                                                                                                                                                                            \n\n1. **Tavily search** (`tavily_search`) \u2014 a fast, API-based web search tool.                                                                                                                                        \n    Use this as your **first choice** for finding information quickly.                                                                                                                                              \n2. **Fetch** (`fetch`) \u2014 a lightweight URL fetcher for grabbing page content                                                                                                                                       \n    directly without a full browser. Use this when you have a specific URL                                                                                                                                          \n    and just need its text content. Note: fetch respects robots.txt and will                                                                                                                                        \n    refuse some sites that a browser would load fine.                                                                                                                                                               \n3. **Browser tools** \u2014 a full browser for navigating pages, reading content,                                                                                                                                       \n    and interacting with web UIs. Use this when you need to interact with                                                                                                                                           \n    a page or when simpler tools are insufficient.                                                                                                                                                                  \n\n## Core capabilities                                                                                                                                                                                               \n                                                                                                                                                                                                             \n- **Web search** \u2014 use Tavily for fast, targeted searches across documentation,                                                                                                                                    \ntutorials, API references, error messages, and technical content.\n- **Page navigation** \u2014 use the browser to follow links, browse documentation                                                                                                                                      \nsites, and explore web content.                                                                                                                                                                                  \n- **Content extraction** \u2014 read and extract relevant information from web pages.                                                                                                                                   \n\n## Constraints                                                                                                                                                                                                     \n                                                                                                                                                                                                             \n- Do **not** fill in forms that submit data, create accounts, or perform                                                                                                                                           \nactions with side effects. Limit interactions to search queries and\nnavigation.                                                                                                                                                                                                      \n- Stay focused on the research task \u2014 do not browse unrelated content.\n\n## Handling blocked sites                                                                                                                                                                                          \n                                                                                                                                                                                                             \nIf you hit a 403, Cloudflare challenge, CAPTCHA, login wall, or an empty                                                                                                                                           \npage from a JS-heavy site, **stop** \u2014 do not retry that site more than\nonce. Instead:                                                                                                                                                                                                     \n1. Try a different tool on the same URL (fetch if browser failed, or\nvice versa).                                                                                                                                                                                                    \n2. If both fail, search for the same information on a different site.                                                                                                                                              \n\n**Never spend more than 2 actions on a blocked site.**                                                                                                                                                             \n\n## Workflow guidelines                                                                                                                                                                                             \n          \n1. Start with `tavily_search` for fast, targeted results.                                                                                                                                                          \n2. If Tavily results are sufficient, summarize and report immediately.\n3. Use `fetch` to grab full content from specific URLs found via search.                                                                                                                                           \n4. Fall back to the browser for complex pages or interactive content.\n5. If the first search doesn't yield results, refine the query and try\n   again with different terms.                                                                                                                                                                                     \n6. Cross-reference critical facts against at least 2 independent sources\n   before reporting.                                                                                                                                                                                               \n7. Always include source URLs so the caller can verify findings.\n\n## Accuracy                                                                                                                                                                                                        \n\n- When a question references a specific past date, verify you are looking\nat a source from that time period, not a version that may have been                                                                                                                                              \nupdated since.                                                                                                                                                                                                   \n- Do not correct unusual spellings in source material \u2014 preserve them                                                                                                                                              \nexactly.                                                                                                                                                                                                         \n\n## Reporting                                                                                                                                                                                                       \n                                                                                                                                                                                                             \nWhen you finish, report a concise summary back to the caller:                                                                                                                                                      \n\n- **Answer the question directly** \u2014 lead with the key finding.                                                                                                                                                    \n- **Include source URLs** for every claim.\n- **Quote relevant snippets** when precision matters.                                                                                                                                                              \n- **Flag low confidence** if you found only one source or sources conflict.                                                                                                                                        \n- No play-by-play \u2014 just findings and sources.",
+    "source": "openhands-tools/openhands/tools/preset/subagents/web_researcher.md",
+    "level": "builtin",
+    "when_to_use_examples": [],
+    "hooks": null,
+    "permission_mode": null,
+    "max_iteration_per_run": null,
+    "max_budget_per_run": null,
+    "mcp_config": {
+      "fetch": {
+        "command": "uvx",
+        "args": [
+          "--with",
+          "mcp==1.29.0",
+          "mcp-server-fetch==2026.7.10"
+        ],
+        "enabled": true
+      },
+      "tavily": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "tavily-mcp@0.2.1"
+        ],
+        "env": {
+          "TAVILY_API_KEY": "${TAVILY_API_KEY}"
+        },
+        "enabled": true
+      }
+    },
+    "profile_store_dir": null,
+    "condenser": null,
+    "metadata": {}
+  }
+];
+
+// src/subagent/builtins.ts
+var BUILTIN_AGENT_SOURCE = builtinAgentSource;
+function discoverBuiltinAgents(options = {}) {
+  return builtinAgentCatalog.filter((definition) => options.enableBrowser !== false || definition.name !== "web-researcher").map((definition) => new AgentDefinition(structuredClone(definition)));
 }
 
 // src/testing/index.ts
@@ -21575,10 +22193,10 @@ function invalidByte(encoding, byte) {
 }
 function decode(bytes, encoding) {
   if (encoding === "latin-1") return Buffer.from(bytes).toString("latin1");
-  if (encoding !== "utf-8") {
+  if (encoding !== "utf-8" && encoding !== "utf-8-sig") {
     for (const byte of bytes) if (invalidByte(encoding, byte)) throw new Error(`Invalid byte for ${encoding}`);
   }
-  return new TextDecoder(encoding === "utf-8" ? "utf-8" : encoding === "cp1251" ? "windows-1251" : "windows-1252", { fatal: true, ignoreBOM: true }).decode(bytes);
+  return new TextDecoder(encoding.startsWith("utf-8") ? "utf-8" : encoding === "cp1251" ? "windows-1251" : "windows-1252", { fatal: true, ignoreBOM: encoding !== "utf-8-sig" }).decode(bytes);
 }
 var encodingTables = /* @__PURE__ */ new Map();
 function encodingTable(encoding) {
@@ -21593,6 +22211,7 @@ function encodingTable(encoding) {
 }
 function encode(text, encoding) {
   if (encoding === "utf-8") return Buffer.from(text, "utf8");
+  if (encoding === "utf-8-sig") return Buffer.concat([Buffer.from([239, 187, 191]), Buffer.from(text, "utf8")]);
   const table = encodingTable(encoding);
   const bytes = [];
   for (const character of text) {
@@ -21626,9 +22245,25 @@ var FileEncodingManager = class {
     if (cached?.fingerprint === digest) {
       encoding = cached.encoding;
     } else {
-      const guess = await this.detector(bytes.subarray(0, MAX_SAMPLE_BYTES));
-      encoding = guess?.encoding && (guess.confidence ?? 0) > 0.9 ? primaryEncoding(guess.encoding) : "utf-8";
+      const sample = bytes.subarray(0, MAX_SAMPLE_BYTES);
+      let guess = null;
+      if (sample[0] === 239 && sample[1] === 187 && sample[2] === 191) encoding = "utf-8-sig";
+      else {
+        try {
+          decode(sample, "utf-8");
+          encoding = "utf-8";
+        } catch {
+          guess = await this.detector(sample);
+          encoding = guess?.encoding && (guess.confidence ?? 0) > 0.9 ? primaryEncoding(guess.encoding) : "utf-8";
+        }
+      }
       if (encoding === "utf-8") {
+        let cleanUtf8 = false;
+        try {
+          cleanUtf8 = !BINARY_CONTROL_CHARS.test(decode(bytes, "utf-8"));
+        } catch {
+        }
+        if (!cleanUtf8 && guess === null) guess = await this.detector(sample);
         if (recognizedUnsupportedEncoding(guess?.encoding)) {
           try {
             decode(bytes, "utf-8");
@@ -21636,7 +22271,7 @@ var FileEncodingManager = class {
             throw new Error(`Unsupported detected text encoding: ${guess.encoding}`);
           }
         }
-        const candidates = /* @__PURE__ */ new Set([recoveryGuess(guess?.encoding), ...TEXT_DECODE_CANDIDATES]);
+        const candidates = /* @__PURE__ */ new Set(["utf-8", recoveryGuess(guess?.encoding), ...TEXT_DECODE_CANDIDATES]);
         for (const candidate of candidates) {
           if (candidate === null) continue;
           try {
@@ -21844,7 +22479,13 @@ When uncertain, favor using this tool. Proactive task management demonstrates
 systematic approach and ensures comprehensive requirement fulfillment.`;
 
 // src/tool/task-tracker.ts
-var taskItemSchema = z.object({ title: z.string(), notes: z.string().default(""), status: z.enum(["todo", "in_progress", "done"]).default("todo") });
+var taskStatusSchema = z.preprocess((value) => {
+  if (typeof value !== "string") return value;
+  const normalized = value.trim().toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
+  if (["todo", "in_progress", "done"].includes(normalized)) return normalized;
+  return { pending: "todo", to_do: "todo", completed: "done", complete: "done" }[normalized] ?? value;
+}, z.enum(["todo", "in_progress", "done"]));
+var taskItemSchema = z.object({ title: z.string(), notes: z.string().default(""), status: taskStatusSchema.default("todo") });
 var taskTrackerActionSchema = z.object({ command: z.enum(["view", "plan"]).default("view"), task_list: z.array(taskItemSchema).default([]) }).strict();
 var taskTrackerObservationSchema = z.object({ text: z.string(), is_error: z.boolean().default(false), command: z.enum(["view", "plan"]), task_list: z.array(taskItemSchema).default([]) }).strict();
 var TaskTrackerExecutor = class {
@@ -21895,6 +22536,7 @@ var TaskTrackerTool = class {
     return new ToolDefinition({
       name: "task_tracker",
       description: TASK_TRACKER_DESCRIPTION,
+      conversationLocal: true,
       inputSchema: taskTrackerActionSchema,
       outputSchema: taskTrackerObservationSchema,
       annotations: toolAnnotationsSchema.parse({ title: "task_tracker", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }),
@@ -21912,7 +22554,7 @@ registerBuiltinResolver("task_tracker", (params, context) => {
   if (Object.keys(params).length > 0) throw new Error("TaskTrackerTool does not accept parameters.");
   const persistenceDir = typeof context === "object" && context !== null && "persistenceDir" in context && typeof context.persistenceDir === "string" ? context.persistenceDir : null;
   return [TaskTrackerTool.create({ saveDir: persistenceDir })];
-}, { canonicalName: "task_tracker", catalogDescription: "Keep a running task list to organise multi-step work.", moduleQualname: NATIVE_TOOL_MODULE_QUALNAMES.task_tracker });
+}, { canonicalName: "task_tracker", conversationLocal: true, catalogDescription: "Keep a running task list to organise multi-step work.", moduleQualname: NATIVE_TOOL_MODULE_QUALNAMES.task_tracker });
 
 // src/tools/index.ts
 var execAsync = promisify(exec);
@@ -22132,10 +22774,11 @@ async function exists4(path4) {
 }
 async function listDirectory(path4) {
   const entries = await readdir(path4, { withFileTypes: true });
-  return entries.filter((entry) => !entry.name.startsWith(".")).map((entry) => `${entry.isDirectory() ? "d" : "-"} ${entry.name}`).sort();
+  return entries.filter((entry2) => !entry2.name.startsWith(".")).map((entry2) => `${entry2.isDirectory() ? "d" : "-"} ${entry2.name}`).sort();
 }
 function numberLines(content, range) {
-  const lines = content.replace(/\n$/u, "").split("\n");
+  const lines = content.split("\n");
+  if (lines.at(-1) === "") lines.pop();
   const start = range?.[0] ?? 1;
   const end = range?.[1] === -1 ? lines.length : range?.[1] ?? lines.length;
   return lines.slice(start - 1, end).map((line, index) => `${start + index}	${line}`).join("\n");
@@ -22147,11 +22790,11 @@ function normalizeTrailingNewline(content, oldContent) {
 async function walkFiles(root) {
   const result = [];
   async function walk(dir) {
-    for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
-      if (entry.name === "node_modules" || entry.name.startsWith(".git")) continue;
-      const path4 = join(dir, entry.name);
-      if (entry.isDirectory()) await walk(path4);
-      else if (entry.isFile()) result.push(path4);
+    for (const entry2 of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      if (entry2.name === "node_modules" || entry2.name.startsWith(".git")) continue;
+      const path4 = join(dir, entry2.name);
+      if (entry2.isDirectory()) await walk(path4);
+      else if (entry2.isFile()) result.push(path4);
     }
   }
   await walk(root);
@@ -22288,15 +22931,15 @@ var LocalWorkspace = class {
     return Promise.resolve();
   }
   async copy(sourcePath, destinationPath) {
-    const source = this.resolvePath(sourcePath);
+    const source2 = this.resolvePath(sourcePath);
     const destination = this.resolvePath(destinationPath);
     try {
       await mkdir(dirname(destination), { recursive: true });
-      await copyFile(source, destination);
+      await copyFile(source2, destination);
       const info = await stat(destination);
-      return { success: true, sourcePath: source, destinationPath: destination, fileSize: info.size };
+      return { success: true, sourcePath: source2, destinationPath: destination, fileSize: info.size };
     } catch (error) {
-      return { success: false, sourcePath: source, destinationPath: destination, error: error instanceof Error ? error.message : String(error) };
+      return { success: false, sourcePath: source2, destinationPath: destination, error: error instanceof Error ? error.message : String(error) };
     }
   }
   resolvePath(path4) {
@@ -22343,7 +22986,7 @@ var RemoteWorkspace = class {
   async getServerInfo() {
     const response = await this.request("/server_info");
     const data = await response.json();
-    return isRecord10(data) ? data : {};
+    return isRecord11(data) ? data : {};
   }
   /**
    * Load server skills, replacing the base context's skills while preserving its
@@ -22368,7 +23011,7 @@ var RemoteWorkspace = class {
     const load = async (projectDir, selection) => {
       const skills = await this.callSkillsApi({ ...selection, project_dir: projectDir, sandbox_config: null }, options.timeoutSeconds ?? 60);
       for (const skill of skills) {
-        if (isRecord10(skill)) {
+        if (isRecord11(skill)) {
           const name = skill.name === void 0 ? "unknown" : skill.name;
           if (typeof name === "string") byName.set(name, skill);
         }
@@ -22415,7 +23058,7 @@ var RemoteWorkspace = class {
         }, serverErrors);
         if (response.ok) {
           const data = await response.json();
-          return isRecord10(data) && Array.isArray(data.skills) ? data.skills : [];
+          return isRecord11(data) && Array.isArray(data.skills) ? data.skills : [];
         }
         await response.body?.cancel();
       } catch (error) {
@@ -22535,7 +23178,7 @@ var RemoteWorkspace = class {
     await this.request(`${this.apiPrefix}/runtime`, { method: "DELETE", timeoutMs: 6e4 }, /* @__PURE__ */ new Set([404]));
   }
   async fileUpload(sourcePath, destinationPath) {
-    const source = sourcePath instanceof Uint8Array ? "upload" : resolve(sourcePath);
+    const source2 = sourcePath instanceof Uint8Array ? "upload" : resolve(sourcePath);
     const destination = joinRemotePath(this.workingDir, destinationPath);
     try {
       let content;
@@ -22544,35 +23187,35 @@ var RemoteWorkspace = class {
         content = Buffer.from(sourcePath);
         filename = "upload";
       } else {
-        content = await readFile(source);
-        filename = source.split(/[\\/]/u).at(-1) ?? "file";
+        content = await readFile(source2);
+        filename = source2.split(/[\\/]/u).at(-1) ?? "file";
       }
       const form = new FormData();
       form.set("file", new Blob([content]), filename);
       const params = new URLSearchParams({ path: destination });
       const response = await this.request(`${this.apiPrefix}/file/upload?${params.toString()}`, { method: "POST", body: form, timeoutMs: 6e4 });
       const data = await response.json().catch(() => ({}));
-      const result = { success: data.success !== false, sourcePath: source, destinationPath: destination, fileSize: typeof data.file_size === "number" ? data.file_size : content.length };
+      const result = { success: data.success !== false, sourcePath: source2, destinationPath: destination, fileSize: typeof data.file_size === "number" ? data.file_size : content.length };
       if (typeof data.error === "string") {
         return { ...result, error: data.error };
       }
       return result;
     } catch (error) {
-      return { success: false, sourcePath: source, destinationPath: destination, error: error instanceof Error ? error.message : String(error) };
+      return { success: false, sourcePath: source2, destinationPath: destination, error: error instanceof Error ? error.message : String(error) };
     }
   }
   async fileDownload(sourcePath, destinationPath) {
-    const source = joinRemotePath(this.workingDir, sourcePath);
+    const source2 = joinRemotePath(this.workingDir, sourcePath);
     const destination = resolve(destinationPath);
     try {
-      const params = new URLSearchParams({ path: source });
+      const params = new URLSearchParams({ path: source2 });
       const response = await this.request(`${this.apiPrefix}/file/download?${params.toString()}`, { timeoutMs: 6e4 });
       const content = Buffer.from(await response.arrayBuffer());
       await mkdir(dirname(destination), { recursive: true });
       await writeFile(destination, content);
-      return { success: true, sourcePath: source, destinationPath: destination, fileSize: content.length };
+      return { success: true, sourcePath: source2, destinationPath: destination, fileSize: content.length };
     } catch (error) {
-      return { success: false, sourcePath: source, destinationPath: destination, error: error instanceof Error ? error.message : String(error) };
+      return { success: false, sourcePath: source2, destinationPath: destination, error: error instanceof Error ? error.message : String(error) };
     }
   }
   async gitChanges(path4) {
@@ -22603,7 +23246,7 @@ var RemoteWorkspace = class {
     }
   }
   parseCommandId(data) {
-    const id = isRecord10(data) ? data.id : void 0;
+    const id = isRecord11(data) ? data.id : void 0;
     if (typeof id !== "string" || id.length === 0) {
       throw new Error("agent-server did not return a bash command id");
     }
@@ -22637,10 +23280,10 @@ var RepoSource = class {
   ref;
   provider;
   constructor(options) {
-    const source = typeof options === "string" ? { url: options } : options;
-    this.url = validateUrl(source.url);
-    this.ref = source.ref ?? null;
-    this.provider = source.provider ?? null;
+    const source2 = typeof options === "string" ? { url: options } : options;
+    this.url = validateUrl(source2.url);
+    this.ref = source2.ref ?? null;
+    this.provider = source2.provider ?? null;
     if (isShortUrlFormat(this.url) && this.provider === null) {
       throw new Error(`Short URL format '${this.url}' requires explicit provider field`);
     }
@@ -22762,7 +23405,7 @@ function joinRemotePath(base, path4) {
 async function delay2(ms) {
   await new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }
-function isRecord10(value) {
+function isRecord11(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function normalizeRuntimeConversationId(value) {
@@ -22781,18 +23424,22 @@ function isExecError3(error) {
 
 // src/llm/verified-models.ts
 var VERIFIED_MODELS_PROVENANCE = {
-  "upstream_commit": "229b2b920d4541eab7a34b051a1f6f2bca5ebabf",
-  "source_sha256": "9a30e3e968a5a2acef7015b79372992aeb1dfbd26312a49089e5b27afa6468df",
+  "upstream_commit": "fd387b58dc7b707b73c159845c0396a17000be24",
+  "source_sha256": "b4cd26bbba23906a0b9937f7a1aaf8c5589cbf9e0a586972d58c65631402ffe4",
   "litellm_version": "1.93.0",
   "model_map_sha256": "cc1955f7f1cdc2cdd9ebf216e7eebbc90bbb3528b62439327f7e8b893eda7c12",
   "openrouter_routes_missing_from_locked_map": [
     "anthropic/claude-opus-5",
+    "anthropic/claude-sonnet-5.5",
     "anthropic/claude-sonnet-5",
+    "anthropic/claude-haiku-5.5",
+    "openai/gpt-6.1-sol",
     "openai/gpt-6-astra",
     "openai/gpt-5.6-sol",
     "openai/gpt-5.3-codex",
     "deepseek/deepseek-v4-pro",
     "deepseek/deepseek-v4-flash",
+    "google/gemini-4-argon",
     "google/gemini-3.8-flash",
     "google/gemini-3.7-flash",
     "google/gemini-3.5-flash-lite",
@@ -22805,6 +23452,7 @@ var VERIFIED_MODELS_PROVENANCE = {
   ]
 };
 var VERIFIED_OPENAI_MODELS = [
+  "gpt-6.1-sol",
   "gpt-6-sol",
   "gpt-6-luna",
   "gpt-6-astra",
@@ -22818,8 +23466,9 @@ var VERIFIED_OPENAI_MODELS = [
 var VERIFIED_ANTHROPIC_MODELS = [
   "claude-opus-5-5",
   "claude-opus-5",
+  "claude-sonnet-5-5",
   "claude-sonnet-5",
-  "claude-sonnet-4-6",
+  "claude-haiku-5-5",
   "claude-haiku-4-5-20251001",
   "claude-fable-5-1",
   "claude-fable-5"
@@ -22829,6 +23478,7 @@ var VERIFIED_MISTRAL_MODELS = [
   "devstral-medium-2512"
 ];
 var VERIFIED_GEMINI_MODELS = [
+  "gemini-4-argon",
   "gemini-3.1-pro",
   "gemini-3.1-pro-preview",
   "gemini-3.8-flash",
@@ -22879,8 +23529,11 @@ var VERIFIED_QWEN_MODELS = [
 ];
 var VERIFIED_OPENROUTER_MODELS = [
   "anthropic/claude-opus-5",
+  "anthropic/claude-sonnet-5.5",
   "anthropic/claude-sonnet-5",
+  "anthropic/claude-haiku-5.5",
   "anthropic/claude-haiku-4.5",
+  "openai/gpt-6.1-sol",
   "openai/gpt-6-astra",
   "openai/gpt-5.6-sol",
   "openai/gpt-5.3-codex",
@@ -22888,6 +23541,7 @@ var VERIFIED_OPENROUTER_MODELS = [
   "deepseek/deepseek-chat",
   "deepseek/deepseek-v4-pro",
   "deepseek/deepseek-v4-flash",
+  "google/gemini-4-argon",
   "google/gemini-3.1-pro-preview",
   "google/gemini-3.8-flash",
   "google/gemini-3.7-flash",
@@ -22900,13 +23554,28 @@ var VERIFIED_OPENROUTER_MODELS = [
   "z-ai/glm-5.2",
   "minimax/minimax-m3"
 ];
+var VERIFIED_DIGITALOCEAN_MODELS = [
+  "anthropic-claude-opus-5.5",
+  "anthropic-claude-opus-5",
+  "anthropic-claude-sonnet-5.5",
+  "anthropic-claude-5-sonnet",
+  "openai-gpt-5.6-sol",
+  "openai-gpt-5.6-terra",
+  "openai-gpt-5.6-luna",
+  "deepseek-v4-pro",
+  "glm-5.3",
+  "glm-5.2",
+  "kimi-k3",
+  "qwen3.8-max"
+];
 var VERIFIED_OPENHANDS_MODELS = [
   "claude-opus-5-5",
   "claude-opus-5",
+  "claude-sonnet-5-5",
   "claude-sonnet-5",
-  "claude-sonnet-4-6",
   "claude-fable-5-1",
   "claude-fable-5",
+  "gpt-6.1-sol",
   "gpt-6-sol",
   "gpt-6-luna",
   "gpt-6-astra",
@@ -22953,10 +23622,11 @@ var VERIFIED_MODELS = {
   "openhands": [
     "claude-opus-5-5",
     "claude-opus-5",
+    "claude-sonnet-5-5",
     "claude-sonnet-5",
-    "claude-sonnet-4-6",
     "claude-fable-5-1",
     "claude-fable-5",
+    "gpt-6.1-sol",
     "gpt-6-sol",
     "gpt-6-luna",
     "gpt-6-astra",
@@ -23002,13 +23672,15 @@ var VERIFIED_MODELS = {
   "anthropic": [
     "claude-opus-5-5",
     "claude-opus-5",
+    "claude-sonnet-5-5",
     "claude-sonnet-5",
-    "claude-sonnet-4-6",
+    "claude-haiku-5-5",
     "claude-haiku-4-5-20251001",
     "claude-fable-5-1",
     "claude-fable-5"
   ],
   "openai": [
+    "gpt-6.1-sol",
     "gpt-6-sol",
     "gpt-6-luna",
     "gpt-6-astra",
@@ -23024,6 +23696,7 @@ var VERIFIED_MODELS = {
     "devstral-medium-2512"
   ],
   "gemini": [
+    "gemini-4-argon",
     "gemini-3.1-pro",
     "gemini-3.1-pro-preview",
     "gemini-3.8-flash",
@@ -23074,8 +23747,11 @@ var VERIFIED_MODELS = {
   ],
   "openrouter": [
     "anthropic/claude-opus-5",
+    "anthropic/claude-sonnet-5.5",
     "anthropic/claude-sonnet-5",
+    "anthropic/claude-haiku-5.5",
     "anthropic/claude-haiku-4.5",
+    "openai/gpt-6.1-sol",
     "openai/gpt-6-astra",
     "openai/gpt-5.6-sol",
     "openai/gpt-5.3-codex",
@@ -23083,6 +23759,7 @@ var VERIFIED_MODELS = {
     "deepseek/deepseek-chat",
     "deepseek/deepseek-v4-pro",
     "deepseek/deepseek-v4-flash",
+    "google/gemini-4-argon",
     "google/gemini-3.1-pro-preview",
     "google/gemini-3.8-flash",
     "google/gemini-3.7-flash",
@@ -23094,12 +23771,4912 @@ var VERIFIED_MODELS = {
     "z-ai/glm-5.3-flash",
     "z-ai/glm-5.2",
     "minimax/minimax-m3"
+  ],
+  "digitalocean": [
+    "anthropic-claude-opus-5.5",
+    "anthropic-claude-opus-5",
+    "anthropic-claude-sonnet-5.5",
+    "anthropic-claude-5-sonnet",
+    "openai-gpt-5.6-sol",
+    "openai-gpt-5.6-terra",
+    "openai-gpt-5.6-luna",
+    "deepseek-v4-pro",
+    "glm-5.3",
+    "glm-5.2",
+    "kimi-k3",
+    "qwen3.8-max"
   ]
 };
+
+// src/llm/model-discovery-catalog.ts
+var MODEL_DISCOVERY_PROVENANCE = {
+  "upstream_commit": "fd387b58dc7b707b73c159845c0396a17000be24",
+  "uv_lock_sha256": "e723efc2657d1830edfb5b9e652b1567d229864bf10a1dcf09610b4acc19b64a",
+  "litellm_version": "1.93.0",
+  "litellm_sdist_sha256": "140bf215e264c71601bca9c06d2436c5451bb59e1e195ea23fc2d3d87b6929ec",
+  "source_sha256": {
+    "__init__.py": "ec195b7936f49902beb48c13a61fa80c6ae99b1c75f47e6306b1c71f04e8b95c",
+    "model_prices_and_context_window_backup.json": "cc1955f7f1cdc2cdd9ebf216e7eebbc90bbb3528b62439327f7e8b893eda7c12"
+  },
+  "model_ids_sha256": "5f18b4ce331ac58159811136c1c985c22c901d3e53c919d16a53a5de285e0184",
+  "model_cost_ids_sha256": "8ba2626d92d8f9c70f8f1ab5b22931827c3f5cb236bd8491ac9a9b480330e94d"
+};
+var LOCKED_MODEL_IDS = [
+  "1024-x-1024/50-steps/bedrock/amazon.nova-canvas-v1:0",
+  "1024-x-1024/50-steps/stability.stable-diffusion-xl-v1",
+  "1024-x-1024/dall-e-2",
+  "1024-x-1024/gpt-image-1.5",
+  "1024-x-1024/gpt-image-1.5-2025-12-16",
+  "1024-x-1024/max-steps/stability.stable-diffusion-xl-v1",
+  "1024-x-1536/gpt-image-1.5",
+  "1024-x-1536/gpt-image-1.5-2025-12-16",
+  "1536-x-1024/gpt-image-1.5",
+  "1536-x-1024/gpt-image-1.5-2025-12-16",
+  "256-x-256/dall-e-2",
+  "31dxrj3",
+  "512-x-512/50-steps/stability.stable-diffusion-xl-v0",
+  "512-x-512/dall-e-2",
+  "512-x-512/max-steps/stability.stable-diffusion-xl-v0",
+  "Austism/chronos-hermes-13b",
+  "HuggingFaceH4/starchat-alpha",
+  "MiniMaxAI/MiniMax-M2.5",
+  "NousResearch/Nous-Hermes-Llama2-13b",
+  "NumbersStation/nsql-llama-2-7B",
+  "Qwen/QVQ-72B-Preview",
+  "Qwen/QwQ-32B",
+  "Qwen/QwQ-32B-Preview",
+  "Qwen/Qwen-Image-Edit",
+  "Qwen/Qwen3-0.6B",
+  "Qwen/Qwen3-1.7B",
+  "Qwen/Qwen3-14B",
+  "Qwen/Qwen3-235B-A22B",
+  "Qwen/Qwen3-235B-A22B-Instruct-2507",
+  "Qwen/Qwen3-235B-A22B-Thinking-2507",
+  "Qwen/Qwen3-30B-A3B",
+  "Qwen/Qwen3-30B-A3B-Thinking-2507",
+  "Qwen/Qwen3-32B",
+  "Qwen/Qwen3-4B",
+  "Qwen/Qwen3-8B",
+  "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+  "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+  "Qwen/Qwen3-Next-80B-A3B-Instruct",
+  "Qwen/Qwen3-Next-80B-A3B-Thinking",
+  "Qwen/Qwen3-VL-235B-A22B-Instruct",
+  "Qwen/Qwen3-VL-8B-Instruct",
+  "Qwen/Qwen3-VL-8B-Thinking",
+  "Qwen/Qwen3.5-122B-A10B",
+  "Qwen/Qwen3.5-27B",
+  "Qwen/Qwen3.5-35B-A3B",
+  "Qwen/Qwen3.5-397B-A17B",
+  "WizardLM/WizardCoder-15B-V1.0",
+  "WizardLM/WizardCoder-Python-34B-V1.0",
+  "WizardLM/WizardLM-70B-V1.0",
+  "a16z-infra/llama-2-13b-chat:2a7f981751ec7fdf87b5b91ad4db53683a98082e9ff7bfd12c8cd5ea85980a52",
+  "ai21.j2-mid-v1",
+  "ai21.j2-ultra-v1",
+  "ai21.jamba-1-5-large-v1:0",
+  "ai21.jamba-1-5-mini-v1:0",
+  "ai21.jamba-instruct-v1:0",
+  "amazon.nova-2-multimodal-embeddings-v1:0",
+  "amazon.nova-canvas-v1:0",
+  "amazon.rerank-v1:0",
+  "amazon.titan-embed-g1-text-02",
+  "amazon.titan-embed-image-v1",
+  "amazon.titan-embed-text-v1",
+  "amazon.titan-embed-text-v2:0",
+  "amazon.titan-image-generator-v1",
+  "amazon.titan-image-generator-v2",
+  "amazon.titan-image-generator-v2:0",
+  "amazon.titan-text-express-v1",
+  "amazon.titan-text-lite-v1",
+  "amazon.titan-text-premier-v1:0",
+  "anthropic.claude-3-5-haiku-20241022-v1:0",
+  "anthropic.claude-3-5-sonnet-20240620-v1:0",
+  "anthropic.claude-3-5-sonnet-20241022-v2:0",
+  "anthropic.claude-3-7-sonnet-20240620-v1:0",
+  "anthropic.claude-3-haiku-20240307-v1:0",
+  "anthropic.claude-3-opus-20240229-v1:0",
+  "anthropic.claude-3-sonnet-20240229-v1:0",
+  "anthropic.claude-instant-v1",
+  "anthropic.claude-mythos-preview",
+  "anthropic.claude-v1",
+  "anthropic.claude-v2:1",
+  "anyscale/HuggingFaceH4/zephyr-7b-beta",
+  "anyscale/codellama/CodeLlama-34b-Instruct-hf",
+  "anyscale/codellama/CodeLlama-70b-Instruct-hf",
+  "anyscale/google/gemma-7b-it",
+  "anyscale/meta-llama/Llama-2-13b-chat-hf",
+  "anyscale/meta-llama/Llama-2-70b-chat-hf",
+  "anyscale/meta-llama/Llama-2-7b-chat-hf",
+  "anyscale/meta-llama/Meta-Llama-3-70B-Instruct",
+  "anyscale/meta-llama/Meta-Llama-3-8B-Instruct",
+  "anyscale/mistralai/Mistral-7B-Instruct-v0.1",
+  "anyscale/mistralai/Mixtral-8x22B-Instruct-v0.1",
+  "anyscale/mistralai/Mixtral-8x7B-Instruct-v0.1",
+  "apac.anthropic.claude-3-5-sonnet-20240620-v1:0",
+  "apac.anthropic.claude-3-5-sonnet-20241022-v2:0",
+  "apac.anthropic.claude-3-haiku-20240307-v1:0",
+  "apac.anthropic.claude-3-sonnet-20240229-v1:0",
+  "assemblyai/best",
+  "assemblyai/nano",
+  "azure/ada",
+  "azure/codex-mini",
+  "azure/command-r-plus",
+  "azure/computer-use-preview",
+  "azure/container",
+  "azure/eu/gpt-4o-2024-08-06",
+  "azure/eu/gpt-4o-2024-11-20",
+  "azure/eu/gpt-4o-mini-2024-07-18",
+  "azure/eu/gpt-4o-mini-realtime-preview-2024-12-17",
+  "azure/eu/gpt-4o-realtime-preview-2024-10-01",
+  "azure/eu/gpt-4o-realtime-preview-2024-12-17",
+  "azure/eu/gpt-5-2025-08-07",
+  "azure/eu/gpt-5-mini-2025-08-07",
+  "azure/eu/gpt-5-nano-2025-08-07",
+  "azure/eu/gpt-5.1",
+  "azure/eu/gpt-5.1-chat",
+  "azure/eu/gpt-5.1-codex",
+  "azure/eu/gpt-5.1-codex-mini",
+  "azure/eu/gpt-5.4",
+  "azure/eu/gpt-5.4-2026-03-05",
+  "azure/eu/gpt-5.5",
+  "azure/eu/gpt-5.5-2026-04-23",
+  "azure/eu/gpt-5.6",
+  "azure/eu/gpt-5.6-luna",
+  "azure/eu/gpt-5.6-sol",
+  "azure/eu/gpt-5.6-terra",
+  "azure/eu/o1-2024-12-17",
+  "azure/eu/o1-mini-2024-09-12",
+  "azure/eu/o1-preview-2024-09-12",
+  "azure/eu/o3-mini-2025-01-31",
+  "azure/global-standard/gpt-4o-2024-08-06",
+  "azure/global-standard/gpt-4o-2024-11-20",
+  "azure/global-standard/gpt-4o-mini",
+  "azure/global/gpt-4o-2024-08-06",
+  "azure/global/gpt-4o-2024-11-20",
+  "azure/global/gpt-5.1",
+  "azure/global/gpt-5.1-chat",
+  "azure/global/gpt-5.1-codex",
+  "azure/global/gpt-5.1-codex-mini",
+  "azure/gpt-3.5-turbo",
+  "azure/gpt-3.5-turbo-0125",
+  "azure/gpt-3.5-turbo-instruct-0914",
+  "azure/gpt-35-turbo",
+  "azure/gpt-35-turbo-0125",
+  "azure/gpt-35-turbo-1106",
+  "azure/gpt-35-turbo-16k",
+  "azure/gpt-35-turbo-16k-0613",
+  "azure/gpt-35-turbo-instruct",
+  "azure/gpt-35-turbo-instruct-0914",
+  "azure/gpt-4",
+  "azure/gpt-4-0125-preview",
+  "azure/gpt-4-0613",
+  "azure/gpt-4-1106-preview",
+  "azure/gpt-4-32k",
+  "azure/gpt-4-32k-0613",
+  "azure/gpt-4-turbo",
+  "azure/gpt-4-turbo-2024-04-09",
+  "azure/gpt-4-turbo-vision-preview",
+  "azure/gpt-4.1",
+  "azure/gpt-4.1-2025-04-14",
+  "azure/gpt-4.1-mini",
+  "azure/gpt-4.1-mini-2025-04-14",
+  "azure/gpt-4.1-nano",
+  "azure/gpt-4.1-nano-2025-04-14",
+  "azure/gpt-4.5-preview",
+  "azure/gpt-4o",
+  "azure/gpt-4o-2024-05-13",
+  "azure/gpt-4o-2024-08-06",
+  "azure/gpt-4o-2024-11-20",
+  "azure/gpt-4o-audio-preview-2024-12-17",
+  "azure/gpt-4o-mini",
+  "azure/gpt-4o-mini-2024-07-18",
+  "azure/gpt-4o-mini-audio-preview-2024-12-17",
+  "azure/gpt-4o-mini-realtime-preview-2024-12-17",
+  "azure/gpt-4o-mini-transcribe",
+  "azure/gpt-4o-mini-tts",
+  "azure/gpt-4o-realtime-preview-2024-10-01",
+  "azure/gpt-4o-realtime-preview-2024-12-17",
+  "azure/gpt-4o-transcribe",
+  "azure/gpt-4o-transcribe-diarize",
+  "azure/gpt-5",
+  "azure/gpt-5-2025-08-07",
+  "azure/gpt-5-chat",
+  "azure/gpt-5-chat-latest",
+  "azure/gpt-5-codex",
+  "azure/gpt-5-mini",
+  "azure/gpt-5-mini-2025-08-07",
+  "azure/gpt-5-nano",
+  "azure/gpt-5-nano-2025-08-07",
+  "azure/gpt-5-pro",
+  "azure/gpt-5.1",
+  "azure/gpt-5.1-2025-11-13",
+  "azure/gpt-5.1-chat",
+  "azure/gpt-5.1-chat-2025-11-13",
+  "azure/gpt-5.1-codex",
+  "azure/gpt-5.1-codex-2025-11-13",
+  "azure/gpt-5.1-codex-max",
+  "azure/gpt-5.1-codex-mini",
+  "azure/gpt-5.1-codex-mini-2025-11-13",
+  "azure/gpt-5.2",
+  "azure/gpt-5.2-2025-12-11",
+  "azure/gpt-5.2-chat",
+  "azure/gpt-5.2-chat-2025-12-11",
+  "azure/gpt-5.2-codex",
+  "azure/gpt-5.2-pro",
+  "azure/gpt-5.2-pro-2025-12-11",
+  "azure/gpt-5.3-chat",
+  "azure/gpt-5.3-codex",
+  "azure/gpt-5.4",
+  "azure/gpt-5.4-2026-03-05",
+  "azure/gpt-5.4-mini",
+  "azure/gpt-5.4-mini-2026-03-17",
+  "azure/gpt-5.4-nano",
+  "azure/gpt-5.4-nano-2026-03-17",
+  "azure/gpt-5.4-pro",
+  "azure/gpt-5.4-pro-2026-03-05",
+  "azure/gpt-5.5",
+  "azure/gpt-5.5-2026-04-23",
+  "azure/gpt-5.5-pro",
+  "azure/gpt-5.5-pro-2026-04-23",
+  "azure/gpt-5.6",
+  "azure/gpt-5.6-luna",
+  "azure/gpt-5.6-sol",
+  "azure/gpt-5.6-terra",
+  "azure/gpt-audio-1.5-2026-02-23",
+  "azure/gpt-audio-2025-08-28",
+  "azure/gpt-audio-mini-2025-10-06",
+  "azure/gpt-image-1",
+  "azure/gpt-image-1-mini",
+  "azure/gpt-image-1.5",
+  "azure/gpt-image-1.5-2025-12-16",
+  "azure/gpt-image-2",
+  "azure/gpt-image-2-2026-04-21",
+  "azure/gpt-realtime-1.5-2026-02-23",
+  "azure/gpt-realtime-2025-08-28",
+  "azure/gpt-realtime-mini-2025-10-06",
+  "azure/gpt-realtime-whisper",
+  "azure/hd/1024-x-1024/dall-e-3",
+  "azure/hd/1024-x-1792/dall-e-3",
+  "azure/hd/1792-x-1024/dall-e-3",
+  "azure/high/1024-x-1024/gpt-image-1",
+  "azure/high/1024-x-1024/gpt-image-1-mini",
+  "azure/high/1024-x-1536/gpt-image-1",
+  "azure/high/1024-x-1536/gpt-image-1-mini",
+  "azure/high/1536-x-1024/gpt-image-1",
+  "azure/high/1536-x-1024/gpt-image-1-mini",
+  "azure/low/1024-x-1024/gpt-image-1",
+  "azure/low/1024-x-1024/gpt-image-1-mini",
+  "azure/low/1024-x-1536/gpt-image-1",
+  "azure/low/1024-x-1536/gpt-image-1-mini",
+  "azure/low/1536-x-1024/gpt-image-1",
+  "azure/low/1536-x-1024/gpt-image-1-mini",
+  "azure/medium/1024-x-1024/gpt-image-1",
+  "azure/medium/1024-x-1024/gpt-image-1-mini",
+  "azure/medium/1024-x-1536/gpt-image-1",
+  "azure/medium/1024-x-1536/gpt-image-1-mini",
+  "azure/medium/1536-x-1024/gpt-image-1",
+  "azure/medium/1536-x-1024/gpt-image-1-mini",
+  "azure/mistral-large-2402",
+  "azure/mistral-large-latest",
+  "azure/o1",
+  "azure/o1-2024-12-17",
+  "azure/o1-mini",
+  "azure/o1-mini-2024-09-12",
+  "azure/o1-preview",
+  "azure/o1-preview-2024-09-12",
+  "azure/o3",
+  "azure/o3-2025-04-16",
+  "azure/o3-deep-research",
+  "azure/o3-mini",
+  "azure/o3-mini-2025-01-31",
+  "azure/o3-pro",
+  "azure/o3-pro-2025-06-10",
+  "azure/o4-mini",
+  "azure/o4-mini-2025-04-16",
+  "azure/sora-2",
+  "azure/sora-2-pro",
+  "azure/sora-2-pro-high-res",
+  "azure/speech/azure-stt",
+  "azure/speech/azure-tts",
+  "azure/speech/azure-tts-hd",
+  "azure/standard/1024-x-1024/dall-e-2",
+  "azure/standard/1024-x-1024/dall-e-3",
+  "azure/standard/1024-x-1792/dall-e-3",
+  "azure/standard/1792-x-1024/dall-e-3",
+  "azure/text-embedding-3-large",
+  "azure/text-embedding-3-small",
+  "azure/text-embedding-ada-002",
+  "azure/tts-1",
+  "azure/tts-1-hd",
+  "azure/us/gpt-4.1-2025-04-14",
+  "azure/us/gpt-4.1-mini-2025-04-14",
+  "azure/us/gpt-4.1-nano-2025-04-14",
+  "azure/us/gpt-4o-2024-08-06",
+  "azure/us/gpt-4o-2024-11-20",
+  "azure/us/gpt-4o-mini-2024-07-18",
+  "azure/us/gpt-4o-mini-realtime-preview-2024-12-17",
+  "azure/us/gpt-4o-realtime-preview-2024-10-01",
+  "azure/us/gpt-4o-realtime-preview-2024-12-17",
+  "azure/us/gpt-5-2025-08-07",
+  "azure/us/gpt-5-mini-2025-08-07",
+  "azure/us/gpt-5-nano-2025-08-07",
+  "azure/us/gpt-5.1",
+  "azure/us/gpt-5.1-chat",
+  "azure/us/gpt-5.1-codex",
+  "azure/us/gpt-5.1-codex-mini",
+  "azure/us/gpt-5.4",
+  "azure/us/gpt-5.4-2026-03-05",
+  "azure/us/gpt-5.5",
+  "azure/us/gpt-5.5-2026-04-23",
+  "azure/us/gpt-5.6",
+  "azure/us/gpt-5.6-luna",
+  "azure/us/gpt-5.6-sol",
+  "azure/us/gpt-5.6-terra",
+  "azure/us/o1-2024-12-17",
+  "azure/us/o1-mini-2024-09-12",
+  "azure/us/o1-preview-2024-09-12",
+  "azure/us/o3-2025-04-16",
+  "azure/us/o3-mini-2025-01-31",
+  "azure/us/o4-mini-2025-04-16",
+  "azure/whisper-1",
+  "azure_ai/Cohere-embed-v3-english",
+  "azure_ai/Cohere-embed-v3-multilingual",
+  "azure_ai/FLUX-1.1-pro",
+  "azure_ai/FLUX.1-Kontext-pro",
+  "azure_ai/Llama-3.2-11B-Vision-Instruct",
+  "azure_ai/Llama-3.2-90B-Vision-Instruct",
+  "azure_ai/Llama-3.3-70B-Instruct",
+  "azure_ai/Llama-4-Maverick-17B-128E-Instruct-FP8",
+  "azure_ai/Llama-4-Scout-17B-16E-Instruct",
+  "azure_ai/MAI-DS-R1",
+  "azure_ai/MAI-Image-2.5",
+  "azure_ai/MAI-Image-2.5-Flash",
+  "azure_ai/MAI-Image-2e",
+  "azure_ai/Meta-Llama-3-70B-Instruct",
+  "azure_ai/Meta-Llama-3.1-405B-Instruct",
+  "azure_ai/Meta-Llama-3.1-70B-Instruct",
+  "azure_ai/Meta-Llama-3.1-8B-Instruct",
+  "azure_ai/Phi-3-medium-128k-instruct",
+  "azure_ai/Phi-3-medium-4k-instruct",
+  "azure_ai/Phi-3-mini-128k-instruct",
+  "azure_ai/Phi-3-mini-4k-instruct",
+  "azure_ai/Phi-3-small-128k-instruct",
+  "azure_ai/Phi-3-small-8k-instruct",
+  "azure_ai/Phi-3.5-MoE-instruct",
+  "azure_ai/Phi-3.5-mini-instruct",
+  "azure_ai/Phi-3.5-vision-instruct",
+  "azure_ai/Phi-4",
+  "azure_ai/Phi-4-mini-instruct",
+  "azure_ai/Phi-4-mini-reasoning",
+  "azure_ai/Phi-4-multimodal-instruct",
+  "azure_ai/Phi-4-reasoning",
+  "azure_ai/claude-fable-5",
+  "azure_ai/claude-haiku-4-5",
+  "azure_ai/claude-opus-4-1",
+  "azure_ai/claude-opus-4-5",
+  "azure_ai/claude-opus-4-6",
+  "azure_ai/claude-opus-4-7",
+  "azure_ai/claude-opus-4-8",
+  "azure_ai/claude-sonnet-4-5",
+  "azure_ai/claude-sonnet-4-6",
+  "azure_ai/claude-sonnet-5",
+  "azure_ai/cohere-rerank-v3-english",
+  "azure_ai/cohere-rerank-v3-multilingual",
+  "azure_ai/cohere-rerank-v3.5",
+  "azure_ai/cohere-rerank-v4.0-fast",
+  "azure_ai/cohere-rerank-v4.0-pro",
+  "azure_ai/deepseek-r1",
+  "azure_ai/deepseek-v3",
+  "azure_ai/deepseek-v3-0324",
+  "azure_ai/deepseek-v3.1",
+  "azure_ai/deepseek-v3.2",
+  "azure_ai/deepseek-v3.2-speciale",
+  "azure_ai/deepseek-v4-flash",
+  "azure_ai/deepseek-v4-pro",
+  "azure_ai/doc-intelligence/prebuilt-document",
+  "azure_ai/doc-intelligence/prebuilt-layout",
+  "azure_ai/doc-intelligence/prebuilt-read",
+  "azure_ai/embed-v-4-0",
+  "azure_ai/flux.2-pro",
+  "azure_ai/global/grok-3",
+  "azure_ai/global/grok-3-mini",
+  "azure_ai/gpt-5.4",
+  "azure_ai/gpt-5.4-2026-03-05",
+  "azure_ai/gpt-5.4-mini",
+  "azure_ai/gpt-5.4-mini-2026-03-17",
+  "azure_ai/gpt-5.4-nano",
+  "azure_ai/gpt-5.4-nano-2026-03-17",
+  "azure_ai/gpt-5.4-pro",
+  "azure_ai/gpt-5.4-pro-2026-03-05",
+  "azure_ai/gpt-5.5",
+  "azure_ai/gpt-5.5-2026-04-23",
+  "azure_ai/gpt-oss-120b",
+  "azure_ai/grok-3",
+  "azure_ai/grok-3-mini",
+  "azure_ai/grok-4",
+  "azure_ai/grok-4-1-fast-non-reasoning",
+  "azure_ai/grok-4-1-fast-reasoning",
+  "azure_ai/grok-4-fast-non-reasoning",
+  "azure_ai/grok-4-fast-reasoning",
+  "azure_ai/grok-code-fast-1",
+  "azure_ai/jais-30b-chat",
+  "azure_ai/jamba-instruct",
+  "azure_ai/kimi-k2.5",
+  "azure_ai/kimi-k2.6",
+  "azure_ai/ministral-3b",
+  "azure_ai/mistral-document-ai-2505",
+  "azure_ai/mistral-document-ai-2512",
+  "azure_ai/mistral-large",
+  "azure_ai/mistral-large-2407",
+  "azure_ai/mistral-large-3",
+  "azure_ai/mistral-large-latest",
+  "azure_ai/mistral-medium-2505",
+  "azure_ai/mistral-nemo",
+  "azure_ai/mistral-small",
+  "azure_ai/mistral-small-2503",
+  "azure_ai/model_router",
+  "babbage-002",
+  "bedrock/moonshotai.kimi-k2-thinking",
+  "bedrock/moonshotai.kimi-k2.5",
+  "bedrock/us.anthropic.claude-3-5-haiku-20241022-v1:0",
+  "bedrock_mantle/google.gemma-4-26b-a4b",
+  "bedrock_mantle/google.gemma-4-31b",
+  "bedrock_mantle/google.gemma-4-e2b",
+  "bedrock_mantle/openai.gpt-5.4",
+  "bedrock_mantle/openai.gpt-5.5",
+  "bedrock_mantle/openai.gpt-oss-120b",
+  "bedrock_mantle/openai.gpt-oss-20b",
+  "bedrock_mantle/openai.gpt-oss-safeguard-120b",
+  "bedrock_mantle/openai.gpt-oss-safeguard-20b",
+  "bedrock_mantle/xai.grok-4.3",
+  "black_forest_labs/flux-dev",
+  "black_forest_labs/flux-kontext-max",
+  "black_forest_labs/flux-kontext-pro",
+  "black_forest_labs/flux-pro",
+  "black_forest_labs/flux-pro-1.0-expand",
+  "black_forest_labs/flux-pro-1.0-fill",
+  "black_forest_labs/flux-pro-1.1",
+  "black_forest_labs/flux-pro-1.1-ultra",
+  "cerebras/gpt-oss-120b",
+  "cerebras/llama-3.3-70b",
+  "cerebras/llama3.1-70b",
+  "cerebras/llama3.1-8b",
+  "cerebras/qwen-3-32b",
+  "cerebras/zai-glm-4.6",
+  "cerebras/zai-glm-4.7",
+  "chatdolphin",
+  "chatgpt-4o-latest",
+  "chatgpt-image-latest",
+  "clarifai/anthropic.completion.claude-3_5-haiku",
+  "clarifai/anthropic.completion.claude-3_7-sonnet",
+  "clarifai/anthropic.completion.claude-opus-4",
+  "clarifai/anthropic.completion.claude-sonnet-4",
+  "clarifai/deepseek-ai.deepseek-chat.DeepSeek-R1-0528-Qwen3-8B",
+  "clarifai/gcp.generate.gemini-2_5-pro",
+  "clarifai/meta.Llama-3.Llama-3_2-3B-Instruct",
+  "clarifai/microsoft.text-generation.Phi-4-reasoning-plus",
+  "clarifai/microsoft.text-generation.phi-4",
+  "clarifai/openai.chat-completion.gpt-4o",
+  "clarifai/openai.chat-completion.gpt-5",
+  "clarifai/openai.chat-completion.gpt-5-mini",
+  "clarifai/openai.chat-completion.gpt-oss-120b",
+  "clarifai/openai.chat-completion.gpt-oss-20b",
+  "clarifai/openai.chat-completion.o3",
+  "clarifai/openbmb.miniCPM.MiniCPM-o-2_6-language",
+  "clarifai/openbmb.miniCPM.MiniCPM3-4B",
+  "clarifai/openbmb.miniCPM.MiniCPM4-8B",
+  "clarifai/qwen.qwen-VL.Qwen2_5-VL-7B-Instruct",
+  "clarifai/qwen.qwen3.qwen3-next-80B-A3B-Thinking",
+  "clarifai/qwen.qwenCoder.Qwen3-Coder-30B-A3B-Instruct",
+  "clarifai/qwen.qwenLM.QwQ-32B-AWQ",
+  "clarifai/qwen.qwenLM.Qwen3-14B",
+  "clarifai/qwen.qwenLM.Qwen3-30B-A3B-Instruct-2507",
+  "clarifai/qwen.qwenLM.Qwen3-30B-A3B-Thinking-2507clarifai/openai.chat-completion.gpt-5-nano",
+  "clarifai/xai.chat-completion.grok-2-1212",
+  "clarifai/xai.chat-completion.grok-2-vision-1212",
+  "clarifai/xai.chat-completion.grok-3",
+  "clarifai/xai.chat-completion.grok-code-fast-1",
+  "clarifai/xai.image-generation.grok-2-image-1212",
+  "claude-3-7-sonnet-20250219",
+  "claude-3-haiku-20240307",
+  "claude-3-opus-20240229",
+  "claude-4-opus-20250514",
+  "claude-4-sonnet-20250514",
+  "claude-fable-5",
+  "claude-haiku-4-5",
+  "claude-haiku-4-5-20251001",
+  "claude-opus-4-1",
+  "claude-opus-4-1-20250805",
+  "claude-opus-4-20250514",
+  "claude-opus-4-5",
+  "claude-opus-4-5-20251101",
+  "claude-opus-4-6",
+  "claude-opus-4-6-20260205",
+  "claude-opus-4-7",
+  "claude-opus-4-7-20260416",
+  "claude-opus-4-8",
+  "claude-sonnet-4-20250514",
+  "claude-sonnet-4-5",
+  "claude-sonnet-4-5-20250929",
+  "claude-sonnet-4-5-20250929-v1:0",
+  "claude-sonnet-4-6",
+  "claude-sonnet-5",
+  "cloudflare/@cf/aisingapore/gemma-sea-lion-v4-27b-it",
+  "cloudflare/@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
+  "cloudflare/@cf/google/gemma-2b-it-lora",
+  "cloudflare/@cf/google/gemma-4-26b-a4b-it",
+  "cloudflare/@cf/google/gemma-7b-it-lora",
+  "cloudflare/@cf/ibm-granite/granite-4.0-h-micro",
+  "cloudflare/@cf/meta-llama/llama-2-7b-chat-hf-lora",
+  "cloudflare/@cf/meta/llama-2-7b-chat-fp16",
+  "cloudflare/@cf/meta/llama-2-7b-chat-int8",
+  "cloudflare/@cf/meta/llama-3.1-8b-instruct-fp8",
+  "cloudflare/@cf/meta/llama-3.2-11b-vision-instruct",
+  "cloudflare/@cf/meta/llama-3.2-1b-instruct",
+  "cloudflare/@cf/meta/llama-3.2-3b-instruct",
+  "cloudflare/@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+  "cloudflare/@cf/meta/llama-4-scout-17b-16e-instruct",
+  "cloudflare/@cf/meta/llama-guard-3-8b",
+  "cloudflare/@cf/mistral/mistral-7b-instruct-v0.1",
+  "cloudflare/@cf/mistral/mistral-7b-instruct-v0.2-lora",
+  "cloudflare/@cf/mistralai/mistral-small-3.1-24b-instruct",
+  "cloudflare/@cf/moonshotai/kimi-k2.6",
+  "cloudflare/@cf/moonshotai/kimi-k2.7-code",
+  "cloudflare/@cf/nvidia/nemotron-3-120b-a12b",
+  "cloudflare/@cf/openai/gpt-oss-120b",
+  "cloudflare/@cf/openai/gpt-oss-20b",
+  "cloudflare/@cf/qwen/qwen2.5-coder-32b-instruct",
+  "cloudflare/@cf/qwen/qwen3-30b-a3b-fp8",
+  "cloudflare/@cf/qwen/qwq-32b",
+  "cloudflare/@cf/zai-org/glm-4.7-flash",
+  "cloudflare/@cf/zai-org/glm-5.2",
+  "cloudflare/@hf/thebloke/codellama-7b-instruct-awq",
+  "codestral/codestral-2405",
+  "codestral/codestral-latest",
+  "codex-mini-latest",
+  "cohere.command-light-text-v14",
+  "cohere.command-r-plus-v1:0",
+  "cohere.command-r-v1:0",
+  "cohere.command-text-v14",
+  "cohere.embed-english-v3",
+  "cohere.embed-multilingual-v3",
+  "cohere.embed-v4:0",
+  "cohere.rerank-v3-5:0",
+  "cohere/embed-v4.0",
+  "command",
+  "command-a-03-2025",
+  "command-light",
+  "command-nightly",
+  "command-r",
+  "command-r-08-2024",
+  "command-r-plus",
+  "command-r-plus-08-2024",
+  "command-r7b-12-2024",
+  "computer-use-preview",
+  "daanelson/flan-t5-large:ce962b3f6792a57074a601d3979db5839697add2e4e02696b3ced4c022d4767f",
+  "dall-e-2",
+  "dall-e-3",
+  "darkbloom/gemma-4-26b",
+  "darkbloom/gpt-oss-20b",
+  "dashscope/qwen-coder",
+  "dashscope/qwen-flash",
+  "dashscope/qwen-flash-2025-07-28",
+  "dashscope/qwen-image-2.0",
+  "dashscope/qwen-image-2.0-pro",
+  "dashscope/qwen-max",
+  "dashscope/qwen-plus",
+  "dashscope/qwen-plus-2025-01-25",
+  "dashscope/qwen-plus-2025-04-28",
+  "dashscope/qwen-plus-2025-07-14",
+  "dashscope/qwen-plus-2025-07-28",
+  "dashscope/qwen-plus-2025-09-11",
+  "dashscope/qwen-plus-latest",
+  "dashscope/qwen-turbo",
+  "dashscope/qwen-turbo-2024-11-01",
+  "dashscope/qwen-turbo-2025-04-28",
+  "dashscope/qwen-turbo-latest",
+  "dashscope/qwen3-30b-a3b",
+  "dashscope/qwen3-coder-flash",
+  "dashscope/qwen3-coder-flash-2025-07-28",
+  "dashscope/qwen3-coder-plus",
+  "dashscope/qwen3-coder-plus-2025-07-22",
+  "dashscope/qwen3-max",
+  "dashscope/qwen3-max-2026-01-23",
+  "dashscope/qwen3-max-preview",
+  "dashscope/qwen3-next-80b-a3b-instruct",
+  "dashscope/qwen3-next-80b-a3b-thinking",
+  "dashscope/qwen3-vl-235b-a22b-instruct",
+  "dashscope/qwen3-vl-235b-a22b-thinking",
+  "dashscope/qwen3-vl-32b-instruct",
+  "dashscope/qwen3-vl-32b-thinking",
+  "dashscope/qwen3-vl-plus",
+  "dashscope/qwen3.5-plus",
+  "dashscope/qwq-plus",
+  "databricks/databricks-bge-large-en",
+  "databricks/databricks-claude-3-7-sonnet",
+  "databricks/databricks-claude-haiku-4-5",
+  "databricks/databricks-claude-opus-4",
+  "databricks/databricks-claude-opus-4-1",
+  "databricks/databricks-claude-opus-4-5",
+  "databricks/databricks-claude-sonnet-4",
+  "databricks/databricks-claude-sonnet-4-1",
+  "databricks/databricks-claude-sonnet-4-5",
+  "databricks/databricks-gemini-2-5-flash",
+  "databricks/databricks-gemini-2-5-pro",
+  "databricks/databricks-gemma-3-12b",
+  "databricks/databricks-gpt-5",
+  "databricks/databricks-gpt-5-1",
+  "databricks/databricks-gpt-5-mini",
+  "databricks/databricks-gpt-5-nano",
+  "databricks/databricks-gpt-oss-120b",
+  "databricks/databricks-gpt-oss-20b",
+  "databricks/databricks-gte-large-en",
+  "databricks/databricks-llama-2-70b-chat",
+  "databricks/databricks-llama-4-maverick",
+  "databricks/databricks-meta-llama-3-1-405b-instruct",
+  "databricks/databricks-meta-llama-3-1-8b-instruct",
+  "databricks/databricks-meta-llama-3-3-70b-instruct",
+  "databricks/databricks-meta-llama-3-70b-instruct",
+  "databricks/databricks-mixtral-8x7b-instruct",
+  "databricks/databricks-mpt-30b-instruct",
+  "databricks/databricks-mpt-7b-instruct",
+  "davinci-002",
+  "deep-research-pro-preview-12-2025",
+  "deepgram/base",
+  "deepgram/base-conversationalai",
+  "deepgram/base-finance",
+  "deepgram/base-general",
+  "deepgram/base-meeting",
+  "deepgram/base-phonecall",
+  "deepgram/base-video",
+  "deepgram/base-voicemail",
+  "deepgram/enhanced",
+  "deepgram/enhanced-finance",
+  "deepgram/enhanced-general",
+  "deepgram/enhanced-meeting",
+  "deepgram/enhanced-phonecall",
+  "deepgram/nova",
+  "deepgram/nova-2",
+  "deepgram/nova-2-atc",
+  "deepgram/nova-2-automotive",
+  "deepgram/nova-2-conversationalai",
+  "deepgram/nova-2-drivethru",
+  "deepgram/nova-2-finance",
+  "deepgram/nova-2-general",
+  "deepgram/nova-2-meeting",
+  "deepgram/nova-2-phonecall",
+  "deepgram/nova-2-video",
+  "deepgram/nova-2-voicemail",
+  "deepgram/nova-3",
+  "deepgram/nova-3-general",
+  "deepgram/nova-3-medical",
+  "deepgram/nova-general",
+  "deepgram/nova-phonecall",
+  "deepgram/whisper",
+  "deepgram/whisper-base",
+  "deepgram/whisper-large",
+  "deepgram/whisper-medium",
+  "deepgram/whisper-small",
+  "deepgram/whisper-tiny",
+  "deepinfra/Gryphe/MythoMax-L2-13b",
+  "deepinfra/NousResearch/Hermes-3-Llama-3.1-405B",
+  "deepinfra/NousResearch/Hermes-3-Llama-3.1-70B",
+  "deepinfra/Qwen/QwQ-32B",
+  "deepinfra/Qwen/Qwen2.5-72B-Instruct",
+  "deepinfra/Qwen/Qwen2.5-7B-Instruct",
+  "deepinfra/Qwen/Qwen2.5-VL-32B-Instruct",
+  "deepinfra/Qwen/Qwen3-14B",
+  "deepinfra/Qwen/Qwen3-235B-A22B",
+  "deepinfra/Qwen/Qwen3-235B-A22B-Instruct-2507",
+  "deepinfra/Qwen/Qwen3-235B-A22B-Thinking-2507",
+  "deepinfra/Qwen/Qwen3-30B-A3B",
+  "deepinfra/Qwen/Qwen3-32B",
+  "deepinfra/Qwen/Qwen3-Coder-480B-A35B-Instruct",
+  "deepinfra/Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo",
+  "deepinfra/Qwen/Qwen3-Next-80B-A3B-Instruct",
+  "deepinfra/Qwen/Qwen3-Next-80B-A3B-Thinking",
+  "deepinfra/Sao10K/L3-8B-Lunaris-v1-Turbo",
+  "deepinfra/Sao10K/L3.1-70B-Euryale-v2.2",
+  "deepinfra/Sao10K/L3.3-70B-Euryale-v2.3",
+  "deepinfra/allenai/olmOCR-7B-0725-FP8",
+  "deepinfra/anthropic/claude-3-7-sonnet-latest",
+  "deepinfra/anthropic/claude-4-opus",
+  "deepinfra/anthropic/claude-4-sonnet",
+  "deepinfra/deepseek-ai/DeepSeek-R1",
+  "deepinfra/deepseek-ai/DeepSeek-R1-0528",
+  "deepinfra/deepseek-ai/DeepSeek-R1-0528-Turbo",
+  "deepinfra/deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+  "deepinfra/deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+  "deepinfra/deepseek-ai/DeepSeek-R1-Turbo",
+  "deepinfra/deepseek-ai/DeepSeek-V3",
+  "deepinfra/deepseek-ai/DeepSeek-V3-0324",
+  "deepinfra/deepseek-ai/DeepSeek-V3.1",
+  "deepinfra/deepseek-ai/DeepSeek-V3.1-Terminus",
+  "deepinfra/google/gemini-2.0-flash-001",
+  "deepinfra/google/gemini-2.5-flash",
+  "deepinfra/google/gemini-2.5-pro",
+  "deepinfra/google/gemma-3-12b-it",
+  "deepinfra/google/gemma-3-27b-it",
+  "deepinfra/google/gemma-3-4b-it",
+  "deepinfra/meta-llama/Llama-3.2-11B-Vision-Instruct",
+  "deepinfra/meta-llama/Llama-3.2-3B-Instruct",
+  "deepinfra/meta-llama/Llama-3.3-70B-Instruct",
+  "deepinfra/meta-llama/Llama-3.3-70B-Instruct-Turbo",
+  "deepinfra/meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+  "deepinfra/meta-llama/Llama-4-Scout-17B-16E-Instruct",
+  "deepinfra/meta-llama/Llama-Guard-3-8B",
+  "deepinfra/meta-llama/Llama-Guard-4-12B",
+  "deepinfra/meta-llama/Meta-Llama-3-8B-Instruct",
+  "deepinfra/meta-llama/Meta-Llama-3.1-70B-Instruct",
+  "deepinfra/meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+  "deepinfra/meta-llama/Meta-Llama-3.1-8B-Instruct",
+  "deepinfra/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+  "deepinfra/microsoft/WizardLM-2-8x22B",
+  "deepinfra/microsoft/phi-4",
+  "deepinfra/mistralai/Mistral-Nemo-Instruct-2407",
+  "deepinfra/mistralai/Mistral-Small-24B-Instruct-2501",
+  "deepinfra/mistralai/Mistral-Small-3.2-24B-Instruct-2506",
+  "deepinfra/mistralai/Mixtral-8x7B-Instruct-v0.1",
+  "deepinfra/moonshotai/Kimi-K2-Instruct",
+  "deepinfra/moonshotai/Kimi-K2-Instruct-0905",
+  "deepinfra/nvidia/Llama-3.1-Nemotron-70B-Instruct",
+  "deepinfra/nvidia/Llama-3.3-Nemotron-Super-49B-v1.5",
+  "deepinfra/nvidia/NVIDIA-Nemotron-Nano-9B-v2",
+  "deepinfra/openai/gpt-oss-120b",
+  "deepinfra/openai/gpt-oss-20b",
+  "deepinfra/zai-org/GLM-4.5",
+  "deepseek-ai/DeepSeek-R1-0528",
+  "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+  "deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+  "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+  "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
+  "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+  "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+  "deepseek-ai/DeepSeek-V3-0324",
+  "deepseek-ai/DeepSeek-V3.1",
+  "deepseek-ai/DeepSeek-V3.2",
+  "deepseek-ai/DeepSeek-V4-Flash",
+  "deepseek-chat",
+  "deepseek-reasoner",
+  "deepseek-v3-2-251201",
+  "deepseek-v4-flash",
+  "deepseek-v4-pro",
+  "deepseek/deepseek-chat",
+  "deepseek/deepseek-coder",
+  "deepseek/deepseek-r1",
+  "deepseek/deepseek-reasoner",
+  "deepseek/deepseek-v3",
+  "deepseek/deepseek-v3.2",
+  "deepseek/deepseek-v4-flash",
+  "deepseek/deepseek-v4-pro",
+  "defog/sqlcoder",
+  "dolphin",
+  "doubao-embedding",
+  "doubao-embedding-large",
+  "doubao-embedding-large-text-240915",
+  "doubao-embedding-large-text-250515",
+  "doubao-embedding-text-240715",
+  "elevenlabs/eleven_multilingual_v2",
+  "elevenlabs/eleven_v3",
+  "elevenlabs/scribe_v1",
+  "elevenlabs/scribe_v1_experimental",
+  "embed-english-light-v2.0",
+  "embed-english-light-v3.0",
+  "embed-english-v2.0",
+  "embed-english-v3.0",
+  "embed-multilingual-light-v3.0",
+  "embed-multilingual-v2.0",
+  "embed-multilingual-v3.0",
+  "eu.anthropic.claude-3-5-haiku-20241022-v1:0",
+  "eu.anthropic.claude-3-5-sonnet-20240620-v1:0",
+  "eu.anthropic.claude-3-5-sonnet-20241022-v2:0",
+  "eu.anthropic.claude-3-7-sonnet-20250219-v1:0",
+  "eu.anthropic.claude-3-haiku-20240307-v1:0",
+  "eu.anthropic.claude-3-opus-20240229-v1:0",
+  "eu.anthropic.claude-3-sonnet-20240229-v1:0",
+  "eu.meta.llama3-2-1b-instruct-v1:0",
+  "eu.meta.llama3-2-3b-instruct-v1:0",
+  "eu.twelvelabs.marengo-embed-2-7-v1:0",
+  "eu.twelvelabs.pegasus-1-2-v1:0",
+  "fal_ai/bria/text-to-image/3.2",
+  "fal_ai/fal-ai/bytedance/dreamina/v3.1/text-to-image",
+  "fal_ai/fal-ai/bytedance/seedream/v3/text-to-image",
+  "fal_ai/fal-ai/flux-pro/v1.1",
+  "fal_ai/fal-ai/flux-pro/v1.1-ultra",
+  "fal_ai/fal-ai/flux/schnell",
+  "fal_ai/fal-ai/gemini-25-flash-image",
+  "fal_ai/fal-ai/ideogram/v3",
+  "fal_ai/fal-ai/imagen4/preview",
+  "fal_ai/fal-ai/imagen4/preview/fast",
+  "fal_ai/fal-ai/imagen4/preview/ultra",
+  "fal_ai/fal-ai/nano-banana",
+  "fal_ai/fal-ai/recraft/v3/text-to-image",
+  "fal_ai/fal-ai/stable-diffusion-v35-medium",
+  "featherless_ai/featherless-ai/Qwerky-72B",
+  "featherless_ai/featherless-ai/Qwerky-QwQ-32B",
+  "friendliai/meta-llama-3.1-70b-instruct",
+  "friendliai/meta-llama-3.1-8b-instruct",
+  "ft:babbage-002",
+  "ft:davinci-002",
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-001",
+  "gemini-2.0-flash-exp-image-generation",
+  "gemini-2.0-flash-lite",
+  "gemini-2.0-flash-lite-001",
+  "gemini-2.5-computer-use-preview-10-2025",
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-image",
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-flash-lite-preview-06-17",
+  "gemini-2.5-flash-lite-preview-09-2025",
+  "gemini-2.5-flash-native-audio-latest",
+  "gemini-2.5-flash-native-audio-preview-09-2025",
+  "gemini-2.5-flash-native-audio-preview-12-2025",
+  "gemini-2.5-flash-preview-09-2025",
+  "gemini-2.5-flash-preview-tts",
+  "gemini-2.5-pro",
+  "gemini-2.5-pro-preview-tts",
+  "gemini-3-flash-preview",
+  "gemini-3-pro-image-preview",
+  "gemini-3-pro-preview",
+  "gemini-3.1-flash-image-preview",
+  "gemini-3.1-flash-lite",
+  "gemini-3.1-flash-lite-preview",
+  "gemini-3.1-flash-live-preview",
+  "gemini-3.1-pro-preview",
+  "gemini-3.1-pro-preview-customtools",
+  "gemini-3.5-flash",
+  "gemini-exp-1206",
+  "gemini-flash-experimental",
+  "gemini-flash-latest",
+  "gemini-flash-lite-latest",
+  "gemini-live-2.5-flash-preview-native-audio-09-2025",
+  "gemini-pro-latest",
+  "gemini-robotics-er-1.5-preview",
+  "gemini/deep-research-pro-preview-12-2025",
+  "gemini/gemini-1.5-flash",
+  "gemini/gemini-2.0-flash",
+  "gemini/gemini-2.0-flash-001",
+  "gemini/gemini-2.0-flash-exp-image-generation",
+  "gemini/gemini-2.0-flash-lite",
+  "gemini/gemini-2.0-flash-lite-001",
+  "gemini/gemini-2.5-computer-use-preview-10-2025",
+  "gemini/gemini-2.5-flash",
+  "gemini/gemini-2.5-flash-image",
+  "gemini/gemini-2.5-flash-lite",
+  "gemini/gemini-2.5-flash-lite-preview-06-17",
+  "gemini/gemini-2.5-flash-lite-preview-09-2025",
+  "gemini/gemini-2.5-flash-native-audio-latest",
+  "gemini/gemini-2.5-flash-native-audio-preview-09-2025",
+  "gemini/gemini-2.5-flash-native-audio-preview-12-2025",
+  "gemini/gemini-2.5-flash-preview-09-2025",
+  "gemini/gemini-2.5-flash-preview-tts",
+  "gemini/gemini-2.5-pro",
+  "gemini/gemini-2.5-pro-preview-tts",
+  "gemini/gemini-3-flash-preview",
+  "gemini/gemini-3-pro-image-preview",
+  "gemini/gemini-3-pro-preview",
+  "gemini/gemini-3.1-flash-image-preview",
+  "gemini/gemini-3.1-flash-lite",
+  "gemini/gemini-3.1-flash-lite-preview",
+  "gemini/gemini-3.1-flash-live-preview",
+  "gemini/gemini-3.1-pro-preview",
+  "gemini/gemini-3.1-pro-preview-customtools",
+  "gemini/gemini-3.5-flash",
+  "gemini/gemini-embedding-001",
+  "gemini/gemini-embedding-2",
+  "gemini/gemini-embedding-2-preview",
+  "gemini/gemini-exp-1114",
+  "gemini/gemini-exp-1206",
+  "gemini/gemini-flash-latest",
+  "gemini/gemini-flash-lite-latest",
+  "gemini/gemini-gemma-2-27b-it",
+  "gemini/gemini-gemma-2-9b-it",
+  "gemini/gemini-live-2.5-flash-preview-native-audio-09-2025",
+  "gemini/gemini-pro-latest",
+  "gemini/gemini-robotics-er-1.5-preview",
+  "gemini/gemma-3-27b-it",
+  "gemini/imagen-3.0-fast-generate-001",
+  "gemini/imagen-3.0-generate-001",
+  "gemini/imagen-3.0-generate-002",
+  "gemini/imagen-4.0-fast-generate-001",
+  "gemini/imagen-4.0-generate-001",
+  "gemini/imagen-4.0-ultra-generate-001",
+  "gemini/learnlm-1.5-pro-experimental",
+  "gemini/lyria-3-clip-preview",
+  "gemini/lyria-3-pro-preview",
+  "gemini/veo-2.0-generate-001",
+  "gemini/veo-3.1-fast-generate-001",
+  "gemini/veo-3.1-fast-generate-preview",
+  "gemini/veo-3.1-generate-001",
+  "gemini/veo-3.1-generate-preview",
+  "gemini/veo-3.1-lite-generate-preview",
+  "glm-4-7-251222",
+  "gpt-3.5-turbo",
+  "gpt-3.5-turbo-0125",
+  "gpt-3.5-turbo-1106",
+  "gpt-3.5-turbo-16k",
+  "gpt-3.5-turbo-instruct",
+  "gpt-3.5-turbo-instruct-0914",
+  "gpt-4",
+  "gpt-4-0125-preview",
+  "gpt-4-0314",
+  "gpt-4-0613",
+  "gpt-4-1106-preview",
+  "gpt-4-turbo",
+  "gpt-4-turbo-2024-04-09",
+  "gpt-4-turbo-preview",
+  "gpt-4.1",
+  "gpt-4.1-2025-04-14",
+  "gpt-4.1-mini",
+  "gpt-4.1-mini-2025-04-14",
+  "gpt-4.1-nano",
+  "gpt-4.1-nano-2025-04-14",
+  "gpt-4o",
+  "gpt-4o-2024-05-13",
+  "gpt-4o-2024-08-06",
+  "gpt-4o-2024-11-20",
+  "gpt-4o-audio-preview",
+  "gpt-4o-audio-preview-2024-12-17",
+  "gpt-4o-audio-preview-2025-06-03",
+  "gpt-4o-mini",
+  "gpt-4o-mini-2024-07-18",
+  "gpt-4o-mini-audio-preview",
+  "gpt-4o-mini-audio-preview-2024-12-17",
+  "gpt-4o-mini-realtime-preview",
+  "gpt-4o-mini-realtime-preview-2024-12-17",
+  "gpt-4o-mini-search-preview",
+  "gpt-4o-mini-search-preview-2025-03-11",
+  "gpt-4o-mini-transcribe",
+  "gpt-4o-mini-transcribe-2025-03-20",
+  "gpt-4o-mini-transcribe-2025-12-15",
+  "gpt-4o-mini-tts",
+  "gpt-4o-mini-tts-2025-03-20",
+  "gpt-4o-mini-tts-2025-12-15",
+  "gpt-4o-realtime-preview",
+  "gpt-4o-realtime-preview-2024-12-17",
+  "gpt-4o-realtime-preview-2025-06-03",
+  "gpt-4o-search-preview",
+  "gpt-4o-search-preview-2025-03-11",
+  "gpt-4o-transcribe",
+  "gpt-4o-transcribe-diarize",
+  "gpt-5",
+  "gpt-5-2025-08-07",
+  "gpt-5-chat",
+  "gpt-5-chat-latest",
+  "gpt-5-codex",
+  "gpt-5-mini",
+  "gpt-5-mini-2025-08-07",
+  "gpt-5-nano",
+  "gpt-5-nano-2025-08-07",
+  "gpt-5-pro",
+  "gpt-5-pro-2025-10-06",
+  "gpt-5-search-api",
+  "gpt-5-search-api-2025-10-14",
+  "gpt-5.1",
+  "gpt-5.1-2025-11-13",
+  "gpt-5.1-chat-latest",
+  "gpt-5.1-codex",
+  "gpt-5.1-codex-max",
+  "gpt-5.1-codex-mini",
+  "gpt-5.2",
+  "gpt-5.2-2025-12-11",
+  "gpt-5.2-chat-latest",
+  "gpt-5.2-codex",
+  "gpt-5.2-pro",
+  "gpt-5.2-pro-2025-12-11",
+  "gpt-5.3-chat-latest",
+  "gpt-5.3-codex",
+  "gpt-5.4",
+  "gpt-5.4-2026-03-05",
+  "gpt-5.4-mini",
+  "gpt-5.4-mini-2026-03-17",
+  "gpt-5.4-nano",
+  "gpt-5.4-nano-2026-03-17",
+  "gpt-5.4-pro",
+  "gpt-5.4-pro-2026-03-05",
+  "gpt-5.5",
+  "gpt-5.5-2026-04-23",
+  "gpt-5.5-pro",
+  "gpt-5.5-pro-2026-04-23",
+  "gpt-5.6",
+  "gpt-5.6-luna",
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-audio",
+  "gpt-audio-1.5",
+  "gpt-audio-2025-08-28",
+  "gpt-audio-mini",
+  "gpt-audio-mini-2025-10-06",
+  "gpt-audio-mini-2025-12-15",
+  "gpt-image-1",
+  "gpt-image-1-mini",
+  "gpt-image-1.5",
+  "gpt-image-1.5-2025-12-16",
+  "gpt-image-2",
+  "gpt-image-2-2026-04-21",
+  "gpt-realtime",
+  "gpt-realtime-1.5",
+  "gpt-realtime-2",
+  "gpt-realtime-2.1",
+  "gpt-realtime-2.1-mini",
+  "gpt-realtime-2025-08-28",
+  "gpt-realtime-mini",
+  "gpt-realtime-mini-2025-10-06",
+  "gpt-realtime-mini-2025-12-15",
+  "gpt-realtime-whisper",
+  "gradient_ai/alibaba-qwen3-32b",
+  "gradient_ai/anthropic-claude-3-opus",
+  "gradient_ai/anthropic-claude-3.5-haiku",
+  "gradient_ai/anthropic-claude-3.5-sonnet",
+  "gradient_ai/anthropic-claude-3.7-sonnet",
+  "gradient_ai/deepseek-r1-distill-llama-70b",
+  "gradient_ai/llama3-8b-instruct",
+  "gradient_ai/llama3.3-70b-instruct",
+  "gradient_ai/mistral-nemo-instruct-2407",
+  "gradient_ai/openai-gpt-4o",
+  "gradient_ai/openai-gpt-4o-mini",
+  "gradient_ai/openai-o3",
+  "gradient_ai/openai-o3-mini",
+  "groq/gemma-7b-it",
+  "groq/llama-3.1-8b-instant",
+  "groq/llama-3.3-70b-versatile",
+  "groq/meta-llama/llama-4-maverick-17b-128e-instruct",
+  "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+  "groq/meta-llama/llama-guard-4-12b",
+  "groq/moonshotai/kimi-k2-instruct-0905",
+  "groq/openai/gpt-oss-120b",
+  "groq/openai/gpt-oss-20b",
+  "groq/openai/gpt-oss-safeguard-20b",
+  "groq/playai-tts",
+  "groq/qwen/qwen3-32b",
+  "groq/whisper-large-v3",
+  "groq/whisper-large-v3-turbo",
+  "hd/1024-x-1024/dall-e-3",
+  "hd/1024-x-1792/dall-e-3",
+  "hd/1792-x-1024/dall-e-3",
+  "heroku/claude-3-5-haiku",
+  "heroku/claude-3-5-sonnet-latest",
+  "heroku/claude-3-7-sonnet",
+  "heroku/claude-4-sonnet",
+  "high/1024-x-1024/gpt-image-1",
+  "high/1024-x-1024/gpt-image-1.5",
+  "high/1024-x-1024/gpt-image-1.5-2025-12-16",
+  "high/1024-x-1536/gpt-image-1",
+  "high/1024-x-1536/gpt-image-1.5",
+  "high/1024-x-1536/gpt-image-1.5-2025-12-16",
+  "high/1536-x-1024/gpt-image-1",
+  "high/1536-x-1024/gpt-image-1.5",
+  "high/1536-x-1024/gpt-image-1.5-2025-12-16",
+  "inception/mercury-2",
+  "j2-light",
+  "j2-mid",
+  "j2-ultra",
+  "jamba-1.5",
+  "jamba-1.5-large",
+  "jamba-1.5-large@001",
+  "jamba-1.5-mini",
+  "jamba-1.5-mini@001",
+  "jamba-large-1.6",
+  "jamba-large-1.7",
+  "jamba-mini-1.6",
+  "jamba-mini-1.7",
+  "jina-reranker-v2-base-multilingual",
+  "joehoover/instructblip-vicuna13b:c4c54e3c8c97cd50c2d2fec9be3b6065563ccf7d43787fb99f84151b867178fe",
+  "kimi-k2-thinking-251104",
+  "lambda_ai/deepseek-llama3.3-70b",
+  "lambda_ai/deepseek-r1-0528",
+  "lambda_ai/deepseek-r1-671b",
+  "lambda_ai/deepseek-v3-0324",
+  "lambda_ai/hermes3-405b",
+  "lambda_ai/hermes3-70b",
+  "lambda_ai/hermes3-8b",
+  "lambda_ai/lfm-40b",
+  "lambda_ai/lfm-7b",
+  "lambda_ai/llama-4-maverick-17b-128e-instruct-fp8",
+  "lambda_ai/llama-4-scout-17b-16e-instruct",
+  "lambda_ai/llama3.1-405b-instruct-fp8",
+  "lambda_ai/llama3.1-70b-instruct-fp8",
+  "lambda_ai/llama3.1-8b-instruct",
+  "lambda_ai/llama3.1-nemotron-70b-instruct-fp8",
+  "lambda_ai/llama3.2-11b-vision-instruct",
+  "lambda_ai/llama3.2-3b-instruct",
+  "lambda_ai/llama3.3-70b-instruct-fp8",
+  "lambda_ai/qwen25-coder-32b-instruct",
+  "lambda_ai/qwen3-32b-fp8",
+  "lemonade/Gemma-3-4b-it-GGUF",
+  "lemonade/Qwen3-4B-Instruct-2507-GGUF",
+  "lemonade/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+  "lemonade/gpt-oss-120b-mxfp-GGUF",
+  "lemonade/gpt-oss-20b-mxfp4-GGUF",
+  "llama2",
+  "low/1024-x-1024/gpt-image-1",
+  "low/1024-x-1024/gpt-image-1-mini",
+  "low/1024-x-1024/gpt-image-1.5",
+  "low/1024-x-1024/gpt-image-1.5-2025-12-16",
+  "low/1024-x-1536/gpt-image-1",
+  "low/1024-x-1536/gpt-image-1-mini",
+  "low/1024-x-1536/gpt-image-1.5",
+  "low/1024-x-1536/gpt-image-1.5-2025-12-16",
+  "low/1536-x-1024/gpt-image-1",
+  "low/1536-x-1024/gpt-image-1-mini",
+  "low/1536-x-1024/gpt-image-1.5",
+  "low/1536-x-1024/gpt-image-1.5-2025-12-16",
+  "maritalk",
+  "max-x-max/50-steps/stability.stable-diffusion-xl-v0",
+  "max-x-max/max-steps/stability.stable-diffusion-xl-v0",
+  "medium/1024-x-1024/gpt-image-1",
+  "medium/1024-x-1024/gpt-image-1-mini",
+  "medium/1024-x-1024/gpt-image-1.5",
+  "medium/1024-x-1024/gpt-image-1.5-2025-12-16",
+  "medium/1024-x-1536/gpt-image-1",
+  "medium/1024-x-1536/gpt-image-1-mini",
+  "medium/1024-x-1536/gpt-image-1.5",
+  "medium/1024-x-1536/gpt-image-1.5-2025-12-16",
+  "medium/1536-x-1024/gpt-image-1",
+  "medium/1536-x-1024/gpt-image-1-mini",
+  "medium/1536-x-1024/gpt-image-1.5",
+  "medium/1536-x-1024/gpt-image-1.5-2025-12-16",
+  "medlm-large",
+  "medlm-medium",
+  "meta-llama/Llama-2-13b",
+  "meta-llama/Llama-2-13b-chat",
+  "meta-llama/Llama-2-13b-chat-hf",
+  "meta-llama/Llama-2-13b-hf",
+  "meta-llama/Llama-2-70b",
+  "meta-llama/Llama-2-70b-chat",
+  "meta-llama/Llama-2-70b-chat-hf",
+  "meta-llama/Llama-2-70b-hf",
+  "meta-llama/Llama-2-7b",
+  "meta-llama/Llama-2-7b-chat",
+  "meta-llama/Llama-2-7b-chat-hf",
+  "meta-llama/Llama-2-7b-hf",
+  "meta-llama/Llama-3.1-8B-Instruct",
+  "meta-llama/Llama-3.3-70B-Instruct",
+  "meta-llama/Llama-4-Scout-17B-16E-Instruct",
+  "meta.llama2-13b-chat-v1",
+  "meta.llama2-70b-chat-v1",
+  "meta.llama3-1-405b-instruct-v1:0",
+  "meta.llama3-1-70b-instruct-v1:0",
+  "meta.llama3-1-8b-instruct-v1:0",
+  "meta.llama3-2-11b-instruct-v1:0",
+  "meta.llama3-2-1b-instruct-v1:0",
+  "meta.llama3-2-3b-instruct-v1:0",
+  "meta.llama3-2-90b-instruct-v1:0",
+  "meta.llama3-70b-instruct-v1:0",
+  "meta.llama3-8b-instruct-v1:0",
+  "meta/codellama-13b:1c914d844307b0588599b8393480a3ba917b660c7e9dfae681542b5325f228db",
+  "meta_llama/Llama-3.3-70B-Instruct",
+  "meta_llama/Llama-3.3-8B-Instruct",
+  "meta_llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+  "meta_llama/Llama-4-Scout-17B-16E-Instruct-FP8",
+  "microsoft/Phi-4-mini-instruct",
+  "mistral.mistral-7b-instruct-v0:2",
+  "mistral.mistral-large-2402-v1:0",
+  "mistral.mistral-large-2407-v1:0",
+  "mistral.mistral-small-2402-v1:0",
+  "mistral.mixtral-8x7b-instruct-v0:1",
+  "moonshot/kimi-k2-0711-preview",
+  "moonshot/kimi-k2-0905-preview",
+  "moonshot/kimi-k2-thinking",
+  "moonshot/kimi-k2-thinking-turbo",
+  "moonshot/kimi-k2-turbo-preview",
+  "moonshot/kimi-k2.5",
+  "moonshot/kimi-k2.6",
+  "moonshot/kimi-latest",
+  "moonshot/kimi-latest-128k",
+  "moonshot/kimi-latest-32k",
+  "moonshot/kimi-latest-8k",
+  "moonshot/kimi-thinking-preview",
+  "moonshot/moonshot-v1-128k",
+  "moonshot/moonshot-v1-128k-0430",
+  "moonshot/moonshot-v1-128k-vision-preview",
+  "moonshot/moonshot-v1-32k",
+  "moonshot/moonshot-v1-32k-0430",
+  "moonshot/moonshot-v1-32k-vision-preview",
+  "moonshot/moonshot-v1-8k",
+  "moonshot/moonshot-v1-8k-0430",
+  "moonshot/moonshot-v1-8k-vision-preview",
+  "moonshot/moonshot-v1-auto",
+  "moonshotai/Kimi-K2-Instruct",
+  "moonshotai/Kimi-K2.5",
+  "morph/morph-v3-fast",
+  "morph/morph-v3-large",
+  "novita/Sao10K/L3-8B-Stheno-v3.2",
+  "novita/baai/bge-m3",
+  "novita/baai/bge-reranker-v2-m3",
+  "novita/baichuan/baichuan-m2-32b",
+  "novita/baidu/ernie-4.5-21B-a3b",
+  "novita/baidu/ernie-4.5-21B-a3b-thinking",
+  "novita/baidu/ernie-4.5-300b-a47b-paddle",
+  "novita/baidu/ernie-4.5-vl-28b-a3b",
+  "novita/baidu/ernie-4.5-vl-28b-a3b-thinking",
+  "novita/baidu/ernie-4.5-vl-424b-a47b",
+  "novita/deepseek/deepseek-ocr",
+  "novita/deepseek/deepseek-prover-v2-671b",
+  "novita/deepseek/deepseek-r1-0528",
+  "novita/deepseek/deepseek-r1-0528-qwen3-8b",
+  "novita/deepseek/deepseek-r1-distill-llama-70b",
+  "novita/deepseek/deepseek-r1-distill-qwen-14b",
+  "novita/deepseek/deepseek-r1-distill-qwen-32b",
+  "novita/deepseek/deepseek-r1-turbo",
+  "novita/deepseek/deepseek-v3-0324",
+  "novita/deepseek/deepseek-v3-turbo",
+  "novita/deepseek/deepseek-v3.1",
+  "novita/deepseek/deepseek-v3.1-terminus",
+  "novita/deepseek/deepseek-v3.2",
+  "novita/deepseek/deepseek-v3.2-exp",
+  "novita/google/gemma-3-12b-it",
+  "novita/google/gemma-3-27b-it",
+  "novita/gryphe/mythomax-l2-13b",
+  "novita/kwaipilot/kat-coder-pro",
+  "novita/meta-llama/llama-3-70b-instruct",
+  "novita/meta-llama/llama-3-8b-instruct",
+  "novita/meta-llama/llama-3.1-8b-instruct",
+  "novita/meta-llama/llama-3.2-3b-instruct",
+  "novita/meta-llama/llama-3.3-70b-instruct",
+  "novita/meta-llama/llama-4-maverick-17b-128e-instruct-fp8",
+  "novita/meta-llama/llama-4-scout-17b-16e-instruct",
+  "novita/microsoft/wizardlm-2-8x22b",
+  "novita/minimax/minimax-m2",
+  "novita/minimax/minimax-m2.1",
+  "novita/minimaxai/minimax-m1-80k",
+  "novita/mistralai/mistral-nemo",
+  "novita/moonshotai/kimi-k2-0905",
+  "novita/moonshotai/kimi-k2-instruct",
+  "novita/moonshotai/kimi-k2-thinking",
+  "novita/nousresearch/hermes-2-pro-llama-3-8b",
+  "novita/openai/gpt-oss-120b",
+  "novita/openai/gpt-oss-20b",
+  "novita/paddlepaddle/paddleocr-vl",
+  "novita/qwen/qwen-2.5-72b-instruct",
+  "novita/qwen/qwen-mt-plus",
+  "novita/qwen/qwen2.5-7b-instruct",
+  "novita/qwen/qwen2.5-vl-72b-instruct",
+  "novita/qwen/qwen3-235b-a22b-fp8",
+  "novita/qwen/qwen3-235b-a22b-instruct-2507",
+  "novita/qwen/qwen3-235b-a22b-thinking-2507",
+  "novita/qwen/qwen3-30b-a3b-fp8",
+  "novita/qwen/qwen3-32b-fp8",
+  "novita/qwen/qwen3-4b-fp8",
+  "novita/qwen/qwen3-8b-fp8",
+  "novita/qwen/qwen3-coder-30b-a3b-instruct",
+  "novita/qwen/qwen3-coder-480b-a35b-instruct",
+  "novita/qwen/qwen3-embedding-0.6b",
+  "novita/qwen/qwen3-embedding-8b",
+  "novita/qwen/qwen3-max",
+  "novita/qwen/qwen3-next-80b-a3b-instruct",
+  "novita/qwen/qwen3-next-80b-a3b-thinking",
+  "novita/qwen/qwen3-omni-30b-a3b-instruct",
+  "novita/qwen/qwen3-omni-30b-a3b-thinking",
+  "novita/qwen/qwen3-reranker-8b",
+  "novita/qwen/qwen3-vl-235b-a22b-instruct",
+  "novita/qwen/qwen3-vl-235b-a22b-thinking",
+  "novita/qwen/qwen3-vl-30b-a3b-instruct",
+  "novita/qwen/qwen3-vl-30b-a3b-thinking",
+  "novita/qwen/qwen3-vl-8b-instruct",
+  "novita/sao10k/l3-70b-euryale-v2.1",
+  "novita/sao10k/l3-8b-lunaris",
+  "novita/sao10k/l31-70b-euryale-v2.2",
+  "novita/skywork/r1v4-lite",
+  "novita/xiaomimimo/mimo-v2-flash",
+  "novita/zai-org/autoglm-phone-9b-multilingual",
+  "novita/zai-org/glm-4.5",
+  "novita/zai-org/glm-4.5-air",
+  "novita/zai-org/glm-4.5v",
+  "novita/zai-org/glm-4.6",
+  "novita/zai-org/glm-4.6v",
+  "novita/zai-org/glm-4.7",
+  "nscale/Qwen/QwQ-32B",
+  "nscale/Qwen/Qwen2.5-Coder-32B-Instruct",
+  "nscale/Qwen/Qwen2.5-Coder-3B-Instruct",
+  "nscale/Qwen/Qwen2.5-Coder-7B-Instruct",
+  "nscale/black-forest-labs/FLUX.1-schnell",
+  "nscale/deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+  "nscale/deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+  "nscale/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+  "nscale/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
+  "nscale/deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+  "nscale/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+  "nscale/meta-llama/Llama-3.1-8B-Instruct",
+  "nscale/meta-llama/Llama-3.3-70B-Instruct",
+  "nscale/meta-llama/Llama-4-Scout-17B-16E-Instruct",
+  "nscale/mistralai/mixtral-8x22b-instruct-v0.1",
+  "nscale/stabilityai/stable-diffusion-xl-base-1.0",
+  "nvidia_nim/nvidia/llama-3_2-nv-rerankqa-1b-v2",
+  "nvidia_nim/nvidia/nv-rerankqa-mistral-4b-v3",
+  "nvidia_nim/ranking/nvidia/llama-3.2-nv-rerankqa-1b-v2",
+  "o1",
+  "o1-2024-12-17",
+  "o1-pro",
+  "o1-pro-2025-03-19",
+  "o3",
+  "o3-2025-04-16",
+  "o3-deep-research",
+  "o3-deep-research-2025-06-26",
+  "o3-mini",
+  "o3-mini-2025-01-31",
+  "o3-pro",
+  "o3-pro-2025-06-10",
+  "o4-mini",
+  "o4-mini-2025-04-16",
+  "o4-mini-deep-research",
+  "o4-mini-deep-research-2025-06-26",
+  "oci/cohere.command-a-03-2025",
+  "oci/cohere.command-a-reasoning",
+  "oci/cohere.command-a-reasoning-08-2025",
+  "oci/cohere.command-a-translate-08-2025",
+  "oci/cohere.command-a-vision",
+  "oci/cohere.command-a-vision-07-2025",
+  "oci/cohere.command-latest",
+  "oci/cohere.command-plus-latest",
+  "oci/cohere.command-r-08-2024",
+  "oci/cohere.command-r-plus-08-2024",
+  "oci/cohere.embed-english-image-v3.0",
+  "oci/cohere.embed-english-light-image-v3.0",
+  "oci/cohere.embed-english-light-v3.0",
+  "oci/cohere.embed-english-v3.0",
+  "oci/cohere.embed-multilingual-image-v3.0",
+  "oci/cohere.embed-multilingual-light-image-v3.0",
+  "oci/cohere.embed-multilingual-light-v3.0",
+  "oci/cohere.embed-multilingual-v3.0",
+  "oci/cohere.embed-v4.0",
+  "oci/google.gemini-2.5-flash",
+  "oci/google.gemini-2.5-flash-lite",
+  "oci/google.gemini-2.5-pro",
+  "oci/meta.llama-3.1-405b-instruct",
+  "oci/meta.llama-3.1-70b-instruct",
+  "oci/meta.llama-3.1-8b-instruct",
+  "oci/meta.llama-3.2-11b-vision-instruct",
+  "oci/meta.llama-3.2-90b-vision-instruct",
+  "oci/meta.llama-3.3-70b-instruct",
+  "oci/meta.llama-3.3-70b-instruct-fp8-dynamic",
+  "oci/meta.llama-4-maverick-17b-128e-instruct-fp8",
+  "oci/meta.llama-4-scout-17b-16e-instruct",
+  "oci/openai.gpt-5",
+  "oci/openai.gpt-5-mini",
+  "oci/openai.gpt-5-nano",
+  "oci/xai.grok-3",
+  "oci/xai.grok-3-fast",
+  "oci/xai.grok-3-mini",
+  "oci/xai.grok-3-mini-fast",
+  "oci/xai.grok-4",
+  "oci/xai.grok-4-fast",
+  "oci/xai.grok-4.1-fast",
+  "oci/xai.grok-4.20",
+  "oci/xai.grok-4.20-multi-agent",
+  "oci/xai.grok-code-fast-1",
+  "omni-moderation-2024-09-26",
+  "omni-moderation-latest",
+  "openai/container",
+  "openai/gpt-oss-120b",
+  "openai/gpt-oss-20b",
+  "openai/sora-2",
+  "openai/sora-2-pro",
+  "openai/sora-2-pro-high-res",
+  "openrouter/anthropic/claude-3-haiku",
+  "openrouter/anthropic/claude-3.5-sonnet",
+  "openrouter/anthropic/claude-3.7-sonnet",
+  "openrouter/anthropic/claude-haiku-4.5",
+  "openrouter/anthropic/claude-opus-4",
+  "openrouter/anthropic/claude-opus-4.1",
+  "openrouter/anthropic/claude-opus-4.5",
+  "openrouter/anthropic/claude-opus-4.6",
+  "openrouter/anthropic/claude-opus-4.7",
+  "openrouter/anthropic/claude-sonnet-4",
+  "openrouter/anthropic/claude-sonnet-4.5",
+  "openrouter/anthropic/claude-sonnet-4.6",
+  "openrouter/bytedance/ui-tars-1.5-7b",
+  "openrouter/deepseek/deepseek-chat",
+  "openrouter/deepseek/deepseek-chat-v3-0324",
+  "openrouter/deepseek/deepseek-chat-v3.1",
+  "openrouter/deepseek/deepseek-r1",
+  "openrouter/deepseek/deepseek-r1-0528",
+  "openrouter/deepseek/deepseek-v3.2",
+  "openrouter/deepseek/deepseek-v3.2-exp",
+  "openrouter/google/gemini-2.0-flash-001",
+  "openrouter/google/gemini-2.5-flash",
+  "openrouter/google/gemini-2.5-pro",
+  "openrouter/google/gemini-3-flash-preview",
+  "openrouter/google/gemini-3-pro-preview",
+  "openrouter/google/gemini-3.1-flash-lite",
+  "openrouter/google/gemini-3.1-flash-lite-preview",
+  "openrouter/google/gemini-3.1-pro-preview",
+  "openrouter/gryphe/mythomax-l2-13b",
+  "openrouter/mancer/weaver",
+  "openrouter/meta-llama/llama-3-70b-instruct",
+  "openrouter/minimax/minimax-m2",
+  "openrouter/minimax/minimax-m2.1",
+  "openrouter/minimax/minimax-m2.5",
+  "openrouter/mistralai/devstral-2512",
+  "openrouter/mistralai/ministral-14b-2512",
+  "openrouter/mistralai/ministral-3b-2512",
+  "openrouter/mistralai/ministral-8b-2512",
+  "openrouter/mistralai/mistral-7b-instruct",
+  "openrouter/mistralai/mistral-large",
+  "openrouter/mistralai/mistral-large-2512",
+  "openrouter/mistralai/mistral-small-3.1-24b-instruct",
+  "openrouter/mistralai/mistral-small-3.2-24b-instruct",
+  "openrouter/mistralai/mixtral-8x22b-instruct",
+  "openrouter/moonshotai/kimi-k2.5",
+  "openrouter/openai/gpt-3.5-turbo",
+  "openrouter/openai/gpt-3.5-turbo-16k",
+  "openrouter/openai/gpt-4",
+  "openrouter/openai/gpt-4.1",
+  "openrouter/openai/gpt-4.1-mini",
+  "openrouter/openai/gpt-4.1-nano",
+  "openrouter/openai/gpt-4o",
+  "openrouter/openai/gpt-4o-2024-05-13",
+  "openrouter/openai/gpt-5",
+  "openrouter/openai/gpt-5-chat",
+  "openrouter/openai/gpt-5-codex",
+  "openrouter/openai/gpt-5-mini",
+  "openrouter/openai/gpt-5-nano",
+  "openrouter/openai/gpt-5.1-codex-max",
+  "openrouter/openai/gpt-5.2",
+  "openrouter/openai/gpt-5.2-chat",
+  "openrouter/openai/gpt-5.2-codex",
+  "openrouter/openai/gpt-5.2-pro",
+  "openrouter/openai/gpt-oss-120b",
+  "openrouter/openai/gpt-oss-20b",
+  "openrouter/openai/o1",
+  "openrouter/openai/o3-mini",
+  "openrouter/openai/o3-mini-high",
+  "openrouter/openrouter/auto",
+  "openrouter/openrouter/bodybuilder",
+  "openrouter/openrouter/free",
+  "openrouter/qwen/qwen-2.5-coder-32b-instruct",
+  "openrouter/qwen/qwen-vl-plus",
+  "openrouter/qwen/qwen3-235b-a22b-2507",
+  "openrouter/qwen/qwen3-235b-a22b-thinking-2507",
+  "openrouter/qwen/qwen3-coder",
+  "openrouter/qwen/qwen3-coder-plus",
+  "openrouter/qwen/qwen3.5-122b-a10b",
+  "openrouter/qwen/qwen3.5-27b",
+  "openrouter/qwen/qwen3.5-35b-a3b",
+  "openrouter/qwen/qwen3.5-397b-a17b",
+  "openrouter/qwen/qwen3.5-flash-02-23",
+  "openrouter/qwen/qwen3.5-plus-02-15",
+  "openrouter/qwen/qwen3.6-plus",
+  "openrouter/switchpoint/router",
+  "openrouter/undi95/remm-slerp-l2-13b",
+  "openrouter/x-ai/grok-4",
+  "openrouter/xiaomi/mimo-v2-flash",
+  "openrouter/xiaomi/mimo-v2.5",
+  "openrouter/xiaomi/mimo-v2.5-pro",
+  "openrouter/z-ai/glm-4.6",
+  "openrouter/z-ai/glm-4.6:exacto",
+  "openrouter/z-ai/glm-4.7",
+  "openrouter/z-ai/glm-4.7-flash",
+  "openrouter/z-ai/glm-5",
+  "ovhcloud/DeepSeek-R1-Distill-Llama-70B",
+  "ovhcloud/Llama-3.1-8B-Instruct",
+  "ovhcloud/Meta-Llama-3_1-70B-Instruct",
+  "ovhcloud/Meta-Llama-3_3-70B-Instruct",
+  "ovhcloud/Mistral-7B-Instruct-v0.3",
+  "ovhcloud/Mistral-Nemo-Instruct-2407",
+  "ovhcloud/Mistral-Small-3.2-24B-Instruct-2506",
+  "ovhcloud/Mixtral-8x7B-Instruct-v0.1",
+  "ovhcloud/Qwen2.5-Coder-32B-Instruct",
+  "ovhcloud/Qwen2.5-VL-72B-Instruct",
+  "ovhcloud/Qwen3-32B",
+  "ovhcloud/gpt-oss-120b",
+  "ovhcloud/gpt-oss-20b",
+  "ovhcloud/llava-v1.6-mistral-7b-hf",
+  "ovhcloud/mamba-codestral-7B-v0.1",
+  "palm/chat-bison",
+  "palm/chat-bison-001",
+  "palm/text-bison",
+  "palm/text-bison-001",
+  "palm/text-bison-safety-off",
+  "palm/text-bison-safety-recitation-off",
+  "perplexity/anthropic/claude-haiku-4-5",
+  "perplexity/anthropic/claude-opus-4-5",
+  "perplexity/anthropic/claude-opus-4-6",
+  "perplexity/anthropic/claude-opus-4-7",
+  "perplexity/anthropic/claude-sonnet-4-5",
+  "perplexity/codellama-34b-instruct",
+  "perplexity/codellama-70b-instruct",
+  "perplexity/google/gemini-2.5-flash",
+  "perplexity/google/gemini-2.5-pro",
+  "perplexity/google/gemini-3-flash-preview",
+  "perplexity/google/gemini-3-pro-preview",
+  "perplexity/llama-2-70b-chat",
+  "perplexity/llama-3.1-70b-instruct",
+  "perplexity/llama-3.1-8b-instruct",
+  "perplexity/mistral-7b-instruct",
+  "perplexity/mixtral-8x7b-instruct",
+  "perplexity/openai/gpt-5-mini",
+  "perplexity/openai/gpt-5.1",
+  "perplexity/openai/gpt-5.2",
+  "perplexity/perplexity/sonar",
+  "perplexity/pplx-70b-chat",
+  "perplexity/pplx-70b-online",
+  "perplexity/pplx-7b-chat",
+  "perplexity/pplx-7b-online",
+  "perplexity/pplx-embed-v1-0.6b",
+  "perplexity/pplx-embed-v1-4b",
+  "perplexity/preset/advanced-deep-research",
+  "perplexity/preset/deep-research",
+  "perplexity/preset/fast-search",
+  "perplexity/preset/pro-search",
+  "perplexity/search",
+  "perplexity/sonar",
+  "perplexity/sonar-deep-research",
+  "perplexity/sonar-medium-chat",
+  "perplexity/sonar-medium-online",
+  "perplexity/sonar-pro",
+  "perplexity/sonar-reasoning",
+  "perplexity/sonar-reasoning-pro",
+  "perplexity/sonar-small-chat",
+  "perplexity/sonar-small-online",
+  "perplexity/xai/grok-4-1-fast-non-reasoning",
+  "publicai/BSC-LT/ALIA-40b-instruct_Q8_0",
+  "publicai/BSC-LT/salamandra-7b-instruct-tools-16k",
+  "publicai/aisingapore/Gemma-SEA-LION-v4-27B-IT",
+  "publicai/aisingapore/Qwen-SEA-LION-v4-32B-IT",
+  "publicai/allenai/Olmo-3-32B-Think",
+  "publicai/allenai/Olmo-3-7B-Instruct",
+  "publicai/allenai/Olmo-3-7B-Think",
+  "publicai/swiss-ai/apertus-70b-instruct",
+  "publicai/swiss-ai/apertus-8b-instruct",
+  "q841o8w",
+  "qvv0xeq",
+  "recraft/recraftv2",
+  "recraft/recraftv3",
+  "reducto/parse-legacy",
+  "reducto/parse-v3",
+  "replicate/dolly-v2-12b:ef0e1aefc61f8e096ebe4db6b2bacc297daf2ef6899f0f7e001ec445893500e5",
+  "replicate/llama-2-70b-chat:2796ee9483c3fd7aa2e171d38f4ca12251a30609463dcfd4cd76703f22e96cdf",
+  "replicate/vicuna-13b:6282abe6a492de4145d7bb601023762212f9ddbbe78278bd6771c8b3b2f2a13b",
+  "replit/replit-code-v1-3b:b84f4c074b807211cd75e3e8b1589b6399052125b4c27106e43d47189e8415ad",
+  "rerank-english-v2.0",
+  "rerank-english-v3.0",
+  "rerank-multilingual-v2.0",
+  "rerank-multilingual-v3.0",
+  "rerank-v3.5",
+  "runwayml/eleven_multilingual_v2",
+  "runwayml/gen3a_turbo",
+  "runwayml/gen4_aleph",
+  "runwayml/gen4_image",
+  "runwayml/gen4_image_turbo",
+  "runwayml/gen4_turbo",
+  "sambanova/DeepSeek-R1",
+  "sambanova/DeepSeek-R1-Distill-Llama-70B",
+  "sambanova/DeepSeek-V3-0324",
+  "sambanova/DeepSeek-V3.1",
+  "sambanova/DeepSeek-V3.2",
+  "sambanova/Llama-4-Maverick-17B-128E-Instruct",
+  "sambanova/Llama-4-Scout-17B-16E-Instruct",
+  "sambanova/Meta-Llama-3.1-405B-Instruct",
+  "sambanova/Meta-Llama-3.1-8B-Instruct",
+  "sambanova/Meta-Llama-3.2-1B-Instruct",
+  "sambanova/Meta-Llama-3.2-3B-Instruct",
+  "sambanova/Meta-Llama-3.3-70B-Instruct",
+  "sambanova/Meta-Llama-Guard-3-8B",
+  "sambanova/MiniMax-M2.7",
+  "sambanova/QwQ-32B",
+  "sambanova/Qwen2-Audio-7B-Instruct",
+  "sambanova/Qwen3-32B",
+  "sambanova/gemma-4-31B-it",
+  "sambanova/gpt-oss-120b",
+  "snowflake/claude-3-5-sonnet",
+  "snowflake/claude-3-7-sonnet",
+  "snowflake/claude-4-opus",
+  "snowflake/claude-4-sonnet",
+  "snowflake/claude-haiku-4-5",
+  "snowflake/claude-sonnet-4-5",
+  "snowflake/claude-sonnet-4-6",
+  "snowflake/deepseek-r1",
+  "snowflake/gemma-7b",
+  "snowflake/jamba-1.5-large",
+  "snowflake/jamba-1.5-mini",
+  "snowflake/jamba-instruct",
+  "snowflake/llama2-70b-chat",
+  "snowflake/llama3-70b",
+  "snowflake/llama3-8b",
+  "snowflake/llama3.1-405b",
+  "snowflake/llama3.1-70b",
+  "snowflake/llama3.1-8b",
+  "snowflake/llama3.2-1b",
+  "snowflake/llama3.2-3b",
+  "snowflake/llama3.3-70b",
+  "snowflake/llama4-maverick",
+  "snowflake/mistral-7b",
+  "snowflake/mistral-large",
+  "snowflake/mistral-large2",
+  "snowflake/mixtral-8x7b",
+  "snowflake/openai-gpt-4.1",
+  "snowflake/openai-gpt-5",
+  "snowflake/openai-gpt-5-mini",
+  "snowflake/openai-gpt-5-nano",
+  "snowflake/reka-core",
+  "snowflake/reka-flash",
+  "snowflake/snowflake-arctic",
+  "snowflake/snowflake-arctic-embed-l-v2.0",
+  "snowflake/snowflake-arctic-embed-m-v2.0",
+  "snowflake/snowflake-llama-3.1-405b",
+  "snowflake/snowflake-llama-3.3-70b",
+  "soniox/stt-async-v4",
+  "soniox/stt-async-v5",
+  "sora-2",
+  "sora-2-pro",
+  "sora-2-pro-high-res",
+  "stability.sd3-5-large-v1:0",
+  "stability.sd3-large-v1:0",
+  "stability.stable-conservative-upscale-v1:0",
+  "stability.stable-creative-upscale-v1:0",
+  "stability.stable-fast-upscale-v1:0",
+  "stability.stable-image-control-sketch-v1:0",
+  "stability.stable-image-control-structure-v1:0",
+  "stability.stable-image-core-v1:0",
+  "stability.stable-image-core-v1:1",
+  "stability.stable-image-erase-object-v1:0",
+  "stability.stable-image-inpaint-v1:0",
+  "stability.stable-image-remove-background-v1:0",
+  "stability.stable-image-search-recolor-v1:0",
+  "stability.stable-image-search-replace-v1:0",
+  "stability.stable-image-style-guide-v1:0",
+  "stability.stable-image-ultra-v1:0",
+  "stability.stable-image-ultra-v1:1",
+  "stability.stable-outpaint-v1:0",
+  "stability.stable-style-transfer-v1:0",
+  "standard/1024-x-1024/dall-e-3",
+  "standard/1024-x-1024/gpt-image-1.5",
+  "standard/1024-x-1024/gpt-image-1.5-2025-12-16",
+  "standard/1024-x-1536/gpt-image-1.5",
+  "standard/1024-x-1536/gpt-image-1.5-2025-12-16",
+  "standard/1024-x-1792/dall-e-3",
+  "standard/1536-x-1024/gpt-image-1.5",
+  "standard/1536-x-1024/gpt-image-1.5-2025-12-16",
+  "standard/1792-x-1024/dall-e-3",
+  "text-completion-codestral/codestral-2405",
+  "text-completion-codestral/codestral-latest",
+  "text-completion-inception/mercury-edit-2",
+  "text-embedding-3-large",
+  "text-embedding-3-small",
+  "text-embedding-ada-002",
+  "text-embedding-ada-002-v2",
+  "text-moderation-007",
+  "text-moderation-latest",
+  "text-moderation-stable",
+  "text-unicorn",
+  "text-unicorn@001",
+  "togethercomputer/CodeLlama-34b",
+  "togethercomputer/CodeLlama-34b-Instruct",
+  "togethercomputer/CodeLlama-34b-Python",
+  "togethercomputer/LLaMA-2-7B-32K",
+  "togethercomputer/Llama-2-7B-32K-Instruct",
+  "togethercomputer/alpaca-7b",
+  "togethercomputer/falcon-40b-instruct",
+  "togethercomputer/falcon-7b-instruct",
+  "togethercomputer/llama-2-70b",
+  "togethercomputer/llama-2-70b-chat",
+  "togethercomputer/llama-2-7b",
+  "tts-1",
+  "tts-1-1106",
+  "tts-1-hd",
+  "tts-1-hd-1106",
+  "twelvelabs.marengo-embed-2-7-v1:0",
+  "twelvelabs.pegasus-1-2-v1:0",
+  "upstage/SOLAR-0-70b-16bit",
+  "us.amazon.nova-canvas-v1:0",
+  "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+  "us.anthropic.claude-3-5-sonnet-20240620-v1:0",
+  "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+  "us.anthropic.claude-3-haiku-20240307-v1:0",
+  "us.anthropic.claude-3-opus-20240229-v1:0",
+  "us.anthropic.claude-3-sonnet-20240229-v1:0",
+  "us.meta.llama3-1-405b-instruct-v1:0",
+  "us.meta.llama3-1-70b-instruct-v1:0",
+  "us.meta.llama3-1-8b-instruct-v1:0",
+  "us.meta.llama3-2-11b-instruct-v1:0",
+  "us.meta.llama3-2-1b-instruct-v1:0",
+  "us.meta.llama3-2-3b-instruct-v1:0",
+  "us.meta.llama3-2-90b-instruct-v1:0",
+  "us.twelvelabs.marengo-embed-2-7-v1:0",
+  "us.twelvelabs.pegasus-1-2-v1:0",
+  "v0/v0-1.0-md",
+  "v0/v0-1.5-lg",
+  "v0/v0-1.5-md",
+  "vercel_ai_gateway/alibaba/qwen-3-14b",
+  "vercel_ai_gateway/alibaba/qwen-3-235b",
+  "vercel_ai_gateway/alibaba/qwen-3-30b",
+  "vercel_ai_gateway/alibaba/qwen-3-32b",
+  "vercel_ai_gateway/alibaba/qwen3-coder",
+  "vercel_ai_gateway/amazon/nova-lite",
+  "vercel_ai_gateway/amazon/nova-micro",
+  "vercel_ai_gateway/amazon/nova-pro",
+  "vercel_ai_gateway/amazon/titan-embed-text-v2",
+  "vercel_ai_gateway/anthropic/claude-3-5-sonnet",
+  "vercel_ai_gateway/anthropic/claude-3-5-sonnet-20241022",
+  "vercel_ai_gateway/anthropic/claude-3-7-sonnet",
+  "vercel_ai_gateway/anthropic/claude-3-haiku",
+  "vercel_ai_gateway/anthropic/claude-3-opus",
+  "vercel_ai_gateway/anthropic/claude-3.5-haiku",
+  "vercel_ai_gateway/anthropic/claude-3.5-sonnet",
+  "vercel_ai_gateway/anthropic/claude-3.7-sonnet",
+  "vercel_ai_gateway/anthropic/claude-4-opus",
+  "vercel_ai_gateway/anthropic/claude-4-sonnet",
+  "vercel_ai_gateway/anthropic/claude-haiku-4.5",
+  "vercel_ai_gateway/anthropic/claude-opus-4",
+  "vercel_ai_gateway/anthropic/claude-opus-4.1",
+  "vercel_ai_gateway/anthropic/claude-opus-4.5",
+  "vercel_ai_gateway/anthropic/claude-opus-4.6",
+  "vercel_ai_gateway/anthropic/claude-sonnet-4",
+  "vercel_ai_gateway/anthropic/claude-sonnet-4.5",
+  "vercel_ai_gateway/cohere/command-a",
+  "vercel_ai_gateway/cohere/command-r",
+  "vercel_ai_gateway/cohere/command-r-plus",
+  "vercel_ai_gateway/cohere/embed-v4.0",
+  "vercel_ai_gateway/deepseek/deepseek-r1",
+  "vercel_ai_gateway/deepseek/deepseek-r1-distill-llama-70b",
+  "vercel_ai_gateway/deepseek/deepseek-v3",
+  "vercel_ai_gateway/google/gemini-2.0-flash",
+  "vercel_ai_gateway/google/gemini-2.0-flash-lite",
+  "vercel_ai_gateway/google/gemini-2.5-flash",
+  "vercel_ai_gateway/google/gemini-2.5-pro",
+  "vercel_ai_gateway/google/gemini-embedding-001",
+  "vercel_ai_gateway/google/gemma-2-9b",
+  "vercel_ai_gateway/google/text-embedding-005",
+  "vercel_ai_gateway/google/text-multilingual-embedding-002",
+  "vercel_ai_gateway/inception/mercury-coder-small",
+  "vercel_ai_gateway/meta/llama-3-70b",
+  "vercel_ai_gateway/meta/llama-3-8b",
+  "vercel_ai_gateway/meta/llama-3.1-70b",
+  "vercel_ai_gateway/meta/llama-3.1-8b",
+  "vercel_ai_gateway/meta/llama-3.2-11b",
+  "vercel_ai_gateway/meta/llama-3.2-1b",
+  "vercel_ai_gateway/meta/llama-3.2-3b",
+  "vercel_ai_gateway/meta/llama-3.2-90b",
+  "vercel_ai_gateway/meta/llama-3.3-70b",
+  "vercel_ai_gateway/meta/llama-4-maverick",
+  "vercel_ai_gateway/meta/llama-4-scout",
+  "vercel_ai_gateway/mistral/codestral",
+  "vercel_ai_gateway/mistral/codestral-embed",
+  "vercel_ai_gateway/mistral/devstral-small",
+  "vercel_ai_gateway/mistral/magistral-medium",
+  "vercel_ai_gateway/mistral/magistral-small",
+  "vercel_ai_gateway/mistral/ministral-3b",
+  "vercel_ai_gateway/mistral/ministral-8b",
+  "vercel_ai_gateway/mistral/mistral-embed",
+  "vercel_ai_gateway/mistral/mistral-large",
+  "vercel_ai_gateway/mistral/mistral-saba-24b",
+  "vercel_ai_gateway/mistral/mistral-small",
+  "vercel_ai_gateway/mistral/mixtral-8x22b-instruct",
+  "vercel_ai_gateway/mistral/pixtral-12b",
+  "vercel_ai_gateway/mistral/pixtral-large",
+  "vercel_ai_gateway/moonshotai/kimi-k2",
+  "vercel_ai_gateway/morph/morph-v3-fast",
+  "vercel_ai_gateway/morph/morph-v3-large",
+  "vercel_ai_gateway/openai/gpt-3.5-turbo",
+  "vercel_ai_gateway/openai/gpt-3.5-turbo-instruct",
+  "vercel_ai_gateway/openai/gpt-4-turbo",
+  "vercel_ai_gateway/openai/gpt-4.1",
+  "vercel_ai_gateway/openai/gpt-4.1-mini",
+  "vercel_ai_gateway/openai/gpt-4.1-nano",
+  "vercel_ai_gateway/openai/gpt-4o",
+  "vercel_ai_gateway/openai/gpt-4o-mini",
+  "vercel_ai_gateway/openai/o1",
+  "vercel_ai_gateway/openai/o3",
+  "vercel_ai_gateway/openai/o3-mini",
+  "vercel_ai_gateway/openai/o4-mini",
+  "vercel_ai_gateway/openai/text-embedding-3-large",
+  "vercel_ai_gateway/openai/text-embedding-3-small",
+  "vercel_ai_gateway/openai/text-embedding-ada-002",
+  "vercel_ai_gateway/perplexity/sonar",
+  "vercel_ai_gateway/perplexity/sonar-pro",
+  "vercel_ai_gateway/perplexity/sonar-reasoning",
+  "vercel_ai_gateway/perplexity/sonar-reasoning-pro",
+  "vercel_ai_gateway/vercel/v0-1.0-md",
+  "vercel_ai_gateway/vercel/v0-1.5-md",
+  "vercel_ai_gateway/xai/grok-2",
+  "vercel_ai_gateway/xai/grok-2-vision",
+  "vercel_ai_gateway/xai/grok-3",
+  "vercel_ai_gateway/xai/grok-3-fast",
+  "vercel_ai_gateway/xai/grok-3-mini",
+  "vercel_ai_gateway/xai/grok-3-mini-fast",
+  "vercel_ai_gateway/xai/grok-4",
+  "vercel_ai_gateway/zai/glm-4.5",
+  "vercel_ai_gateway/zai/glm-4.5-air",
+  "vercel_ai_gateway/zai/glm-4.6",
+  "vertex_ai/deep-research-pro-preview-12-2025",
+  "vertex_ai/gemini-2.5-flash-image",
+  "vertex_ai/gemini-3-pro-image-preview",
+  "vertex_ai/gemini-3.1-flash-image-preview",
+  "vertex_ai/gemini-3.1-flash-lite",
+  "vertex_ai/gemini-3.1-flash-lite-preview",
+  "volcengine/doubao-seed-2-0-code-preview-260215",
+  "volcengine/doubao-seed-2-0-lite-260215",
+  "volcengine/doubao-seed-2-0-mini-260215",
+  "volcengine/doubao-seed-2-0-pro-260215",
+  "voyage/rerank-2",
+  "voyage/rerank-2-lite",
+  "voyage/rerank-2.5",
+  "voyage/rerank-2.5-lite",
+  "voyage/voyage-2",
+  "voyage/voyage-3",
+  "voyage/voyage-3-large",
+  "voyage/voyage-3-lite",
+  "voyage/voyage-3.5",
+  "voyage/voyage-3.5-lite",
+  "voyage/voyage-code-2",
+  "voyage/voyage-code-3",
+  "voyage/voyage-context-3",
+  "voyage/voyage-finance-2",
+  "voyage/voyage-large-2",
+  "voyage/voyage-law-2",
+  "voyage/voyage-lite-01",
+  "voyage/voyage-lite-02-instruct",
+  "voyage/voyage-multimodal-3",
+  "wandb/MiniMaxAI/MiniMax-M2.5",
+  "wandb/Qwen/Qwen3-235B-A22B-Instruct-2507",
+  "wandb/Qwen/Qwen3-235B-A22B-Thinking-2507",
+  "wandb/Qwen/Qwen3-Coder-480B-A35B-Instruct",
+  "wandb/deepseek-ai/DeepSeek-R1-0528",
+  "wandb/deepseek-ai/DeepSeek-V3-0324",
+  "wandb/deepseek-ai/DeepSeek-V3.1",
+  "wandb/meta-llama/Llama-3.1-8B-Instruct",
+  "wandb/meta-llama/Llama-3.3-70B-Instruct",
+  "wandb/meta-llama/Llama-4-Scout-17B-16E-Instruct",
+  "wandb/microsoft/Phi-4-mini-instruct",
+  "wandb/moonshotai/Kimi-K2-Instruct",
+  "wandb/moonshotai/Kimi-K2.5",
+  "wandb/openai/gpt-oss-120b",
+  "wandb/openai/gpt-oss-20b",
+  "wandb/zai-org/GLM-4.5",
+  "watsonx/bigscience/mt0-xxl-13b",
+  "watsonx/core42/jais-13b-chat",
+  "watsonx/google/flan-t5-xl-3b",
+  "watsonx/ibm/granite-13b-chat-v2",
+  "watsonx/ibm/granite-13b-instruct-v2",
+  "watsonx/ibm/granite-3-3-8b-instruct",
+  "watsonx/ibm/granite-3-8b-instruct",
+  "watsonx/ibm/granite-4-h-small",
+  "watsonx/ibm/granite-guardian-3-2-2b",
+  "watsonx/ibm/granite-guardian-3-3-8b",
+  "watsonx/ibm/granite-ttm-1024-96-r2",
+  "watsonx/ibm/granite-ttm-1536-96-r2",
+  "watsonx/ibm/granite-ttm-512-96-r2",
+  "watsonx/ibm/granite-vision-3-2-2b",
+  "watsonx/meta-llama/llama-3-2-11b-vision-instruct",
+  "watsonx/meta-llama/llama-3-2-1b-instruct",
+  "watsonx/meta-llama/llama-3-2-3b-instruct",
+  "watsonx/meta-llama/llama-3-2-90b-vision-instruct",
+  "watsonx/meta-llama/llama-3-3-70b-instruct",
+  "watsonx/meta-llama/llama-4-maverick-17b",
+  "watsonx/meta-llama/llama-guard-3-11b-vision",
+  "watsonx/mistralai/mistral-large",
+  "watsonx/mistralai/mistral-medium-2505",
+  "watsonx/mistralai/mistral-small-2503",
+  "watsonx/mistralai/mistral-small-3-1-24b-instruct-2503",
+  "watsonx/mistralai/pixtral-12b-2409",
+  "watsonx/openai/gpt-oss-120b",
+  "watsonx/sdaia/allam-1-13b-instruct",
+  "watsonx/whisper-large-v3-turbo",
+  "whisper-1",
+  "xai/grok-2",
+  "xai/grok-2-1212",
+  "xai/grok-2-latest",
+  "xai/grok-2-vision",
+  "xai/grok-2-vision-1212",
+  "xai/grok-2-vision-latest",
+  "xai/grok-3",
+  "xai/grok-3-beta",
+  "xai/grok-3-fast-beta",
+  "xai/grok-3-fast-latest",
+  "xai/grok-3-latest",
+  "xai/grok-3-mini",
+  "xai/grok-3-mini-beta",
+  "xai/grok-3-mini-fast",
+  "xai/grok-3-mini-fast-beta",
+  "xai/grok-3-mini-fast-latest",
+  "xai/grok-3-mini-latest",
+  "xai/grok-4",
+  "xai/grok-4-0709",
+  "xai/grok-4-1-fast",
+  "xai/grok-4-1-fast-non-reasoning",
+  "xai/grok-4-1-fast-non-reasoning-latest",
+  "xai/grok-4-1-fast-reasoning",
+  "xai/grok-4-1-fast-reasoning-latest",
+  "xai/grok-4-fast-non-reasoning",
+  "xai/grok-4-fast-reasoning",
+  "xai/grok-4-latest",
+  "xai/grok-4.20-0309-reasoning",
+  "xai/grok-4.20-beta-0309-non-reasoning",
+  "xai/grok-4.20-beta-0309-reasoning",
+  "xai/grok-4.20-multi-agent-beta-0309",
+  "xai/grok-4.3",
+  "xai/grok-4.3-latest",
+  "xai/grok-4.5",
+  "xai/grok-4.5-latest",
+  "xai/grok-beta",
+  "xai/grok-code-fast",
+  "xai/grok-code-fast-1",
+  "xai/grok-code-fast-1-0825",
+  "xai/grok-vision-beta",
+  "zai-org/GLM-4.5",
+  "zai/glm-4-32b-0414-128k",
+  "zai/glm-4.5",
+  "zai/glm-4.5-air",
+  "zai/glm-4.5-airx",
+  "zai/glm-4.5-flash",
+  "zai/glm-4.5-x",
+  "zai/glm-4.5v",
+  "zai/glm-4.6",
+  "zai/glm-4.7",
+  "zai/glm-5",
+  "zai/glm-5-code"
+];
+var LOCKED_MODEL_COST_IDS = [
+  "1024-x-1024/50-steps/bedrock/amazon.nova-canvas-v1:0",
+  "1024-x-1024/50-steps/stability.stable-diffusion-xl-v1",
+  "1024-x-1024/dall-e-2",
+  "1024-x-1024/gpt-image-1.5",
+  "1024-x-1024/gpt-image-1.5-2025-12-16",
+  "1024-x-1024/max-steps/stability.stable-diffusion-xl-v1",
+  "1024-x-1536/gpt-image-1.5",
+  "1024-x-1536/gpt-image-1.5-2025-12-16",
+  "1536-x-1024/gpt-image-1.5",
+  "1536-x-1024/gpt-image-1.5-2025-12-16",
+  "256-x-256/dall-e-2",
+  "512-x-512/50-steps/stability.stable-diffusion-xl-v0",
+  "512-x-512/dall-e-2",
+  "512-x-512/max-steps/stability.stable-diffusion-xl-v0",
+  "ai21.j2-mid-v1",
+  "ai21.j2-ultra-v1",
+  "ai21.jamba-1-5-large-v1:0",
+  "ai21.jamba-1-5-mini-v1:0",
+  "ai21.jamba-instruct-v1:0",
+  "aiml/dall-e-2",
+  "aiml/dall-e-3",
+  "aiml/flux-pro",
+  "aiml/flux-pro/v1.1",
+  "aiml/flux-pro/v1.1-ultra",
+  "aiml/flux-realism",
+  "aiml/flux/dev",
+  "aiml/flux/kontext-max/text-to-image",
+  "aiml/flux/kontext-pro/text-to-image",
+  "aiml/flux/schnell",
+  "aiml/google/imagen-4.0-ultra-generate-001",
+  "aiml/google/nano-banana-pro",
+  "aiml/openai/gpt-image-2",
+  "amazon-nova/nova-lite-v1",
+  "amazon-nova/nova-micro-v1",
+  "amazon-nova/nova-premier-v1",
+  "amazon-nova/nova-pro-v1",
+  "amazon.nova-2-lite-v1:0",
+  "amazon.nova-2-multimodal-embeddings-v1:0",
+  "amazon.nova-2-pro-preview-20251202-v1:0",
+  "amazon.nova-canvas-v1:0",
+  "amazon.nova-lite-v1:0",
+  "amazon.nova-micro-v1:0",
+  "amazon.nova-pro-v1:0",
+  "amazon.rerank-v1:0",
+  "amazon.titan-embed-g1-text-02",
+  "amazon.titan-embed-image-v1",
+  "amazon.titan-embed-text-v1",
+  "amazon.titan-embed-text-v2:0",
+  "amazon.titan-image-generator-v1",
+  "amazon.titan-image-generator-v2",
+  "amazon.titan-image-generator-v2:0",
+  "amazon.titan-text-express-v1",
+  "amazon.titan-text-lite-v1",
+  "amazon.titan-text-premier-v1:0",
+  "anthropic.claude-3-5-haiku-20241022-v1:0",
+  "anthropic.claude-3-5-sonnet-20240620-v1:0",
+  "anthropic.claude-3-5-sonnet-20241022-v2:0",
+  "anthropic.claude-3-7-sonnet-20240620-v1:0",
+  "anthropic.claude-3-7-sonnet-20250219-v1:0",
+  "anthropic.claude-3-haiku-20240307-v1:0",
+  "anthropic.claude-3-opus-20240229-v1:0",
+  "anthropic.claude-3-sonnet-20240229-v1:0",
+  "anthropic.claude-fable-5",
+  "anthropic.claude-haiku-4-5-20251001-v1:0",
+  "anthropic.claude-haiku-4-5@20251001",
+  "anthropic.claude-instant-v1",
+  "anthropic.claude-mythos-preview",
+  "anthropic.claude-opus-4-1-20250805-v1:0",
+  "anthropic.claude-opus-4-20250514-v1:0",
+  "anthropic.claude-opus-4-5-20251101-v1:0",
+  "anthropic.claude-opus-4-6-v1",
+  "anthropic.claude-opus-4-7",
+  "anthropic.claude-opus-4-8",
+  "anthropic.claude-sonnet-4-20250514-v1:0",
+  "anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "anthropic.claude-sonnet-4-6",
+  "anthropic.claude-sonnet-5",
+  "anthropic.claude-v1",
+  "anthropic.claude-v2:1",
+  "anyscale/HuggingFaceH4/zephyr-7b-beta",
+  "anyscale/codellama/CodeLlama-34b-Instruct-hf",
+  "anyscale/codellama/CodeLlama-70b-Instruct-hf",
+  "anyscale/google/gemma-7b-it",
+  "anyscale/meta-llama/Llama-2-13b-chat-hf",
+  "anyscale/meta-llama/Llama-2-70b-chat-hf",
+  "anyscale/meta-llama/Llama-2-7b-chat-hf",
+  "anyscale/meta-llama/Meta-Llama-3-70B-Instruct",
+  "anyscale/meta-llama/Meta-Llama-3-8B-Instruct",
+  "anyscale/mistralai/Mistral-7B-Instruct-v0.1",
+  "anyscale/mistralai/Mixtral-8x22B-Instruct-v0.1",
+  "anyscale/mistralai/Mixtral-8x7B-Instruct-v0.1",
+  "apac.amazon.nova-2-lite-v1:0",
+  "apac.amazon.nova-2-pro-preview-20251202-v1:0",
+  "apac.amazon.nova-lite-v1:0",
+  "apac.amazon.nova-micro-v1:0",
+  "apac.amazon.nova-pro-v1:0",
+  "apac.anthropic.claude-3-5-sonnet-20240620-v1:0",
+  "apac.anthropic.claude-3-5-sonnet-20241022-v2:0",
+  "apac.anthropic.claude-3-haiku-20240307-v1:0",
+  "apac.anthropic.claude-3-sonnet-20240229-v1:0",
+  "apac.anthropic.claude-haiku-4-5-20251001-v1:0",
+  "apac.anthropic.claude-sonnet-4-20250514-v1:0",
+  "apiserpent/deep_search",
+  "apiserpent/search",
+  "assemblyai/best",
+  "assemblyai/nano",
+  "au.anthropic.claude-haiku-4-5-20251001-v1:0",
+  "au.anthropic.claude-opus-4-6-v1",
+  "au.anthropic.claude-opus-4-7",
+  "au.anthropic.claude-opus-4-8",
+  "au.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "au.anthropic.claude-sonnet-4-6",
+  "au.anthropic.claude-sonnet-5",
+  "aws_polly/generative",
+  "aws_polly/long-form",
+  "aws_polly/neural",
+  "aws_polly/standard",
+  "azure/ada",
+  "azure/codex-mini",
+  "azure/command-r-plus",
+  "azure/computer-use-preview",
+  "azure/container",
+  "azure/eu/gpt-4o-2024-08-06",
+  "azure/eu/gpt-4o-2024-11-20",
+  "azure/eu/gpt-4o-mini-2024-07-18",
+  "azure/eu/gpt-4o-mini-realtime-preview-2024-12-17",
+  "azure/eu/gpt-4o-realtime-preview-2024-10-01",
+  "azure/eu/gpt-4o-realtime-preview-2024-12-17",
+  "azure/eu/gpt-5-2025-08-07",
+  "azure/eu/gpt-5-mini-2025-08-07",
+  "azure/eu/gpt-5-nano-2025-08-07",
+  "azure/eu/gpt-5.1",
+  "azure/eu/gpt-5.1-chat",
+  "azure/eu/gpt-5.1-codex",
+  "azure/eu/gpt-5.1-codex-mini",
+  "azure/eu/gpt-5.4",
+  "azure/eu/gpt-5.4-2026-03-05",
+  "azure/eu/gpt-5.5",
+  "azure/eu/gpt-5.5-2026-04-23",
+  "azure/eu/gpt-5.6",
+  "azure/eu/gpt-5.6-luna",
+  "azure/eu/gpt-5.6-sol",
+  "azure/eu/gpt-5.6-terra",
+  "azure/eu/o1-2024-12-17",
+  "azure/eu/o1-mini-2024-09-12",
+  "azure/eu/o1-preview-2024-09-12",
+  "azure/eu/o3-mini-2025-01-31",
+  "azure/global-standard/gpt-4o-2024-08-06",
+  "azure/global-standard/gpt-4o-2024-11-20",
+  "azure/global-standard/gpt-4o-mini",
+  "azure/global/gpt-4o-2024-08-06",
+  "azure/global/gpt-4o-2024-11-20",
+  "azure/global/gpt-5.1",
+  "azure/global/gpt-5.1-chat",
+  "azure/global/gpt-5.1-codex",
+  "azure/global/gpt-5.1-codex-mini",
+  "azure/gpt-3.5-turbo",
+  "azure/gpt-3.5-turbo-0125",
+  "azure/gpt-3.5-turbo-instruct-0914",
+  "azure/gpt-35-turbo",
+  "azure/gpt-35-turbo-0125",
+  "azure/gpt-35-turbo-1106",
+  "azure/gpt-35-turbo-16k",
+  "azure/gpt-35-turbo-16k-0613",
+  "azure/gpt-35-turbo-instruct",
+  "azure/gpt-35-turbo-instruct-0914",
+  "azure/gpt-4",
+  "azure/gpt-4-0125-preview",
+  "azure/gpt-4-0613",
+  "azure/gpt-4-1106-preview",
+  "azure/gpt-4-32k",
+  "azure/gpt-4-32k-0613",
+  "azure/gpt-4-turbo",
+  "azure/gpt-4-turbo-2024-04-09",
+  "azure/gpt-4-turbo-vision-preview",
+  "azure/gpt-4.1",
+  "azure/gpt-4.1-2025-04-14",
+  "azure/gpt-4.1-mini",
+  "azure/gpt-4.1-mini-2025-04-14",
+  "azure/gpt-4.1-nano",
+  "azure/gpt-4.1-nano-2025-04-14",
+  "azure/gpt-4.5-preview",
+  "azure/gpt-4o",
+  "azure/gpt-4o-2024-05-13",
+  "azure/gpt-4o-2024-08-06",
+  "azure/gpt-4o-2024-11-20",
+  "azure/gpt-4o-audio-preview-2024-12-17",
+  "azure/gpt-4o-mini",
+  "azure/gpt-4o-mini-2024-07-18",
+  "azure/gpt-4o-mini-audio-preview-2024-12-17",
+  "azure/gpt-4o-mini-realtime-preview-2024-12-17",
+  "azure/gpt-4o-mini-transcribe",
+  "azure/gpt-4o-mini-tts",
+  "azure/gpt-4o-realtime-preview-2024-10-01",
+  "azure/gpt-4o-realtime-preview-2024-12-17",
+  "azure/gpt-4o-transcribe",
+  "azure/gpt-4o-transcribe-diarize",
+  "azure/gpt-5",
+  "azure/gpt-5-2025-08-07",
+  "azure/gpt-5-chat",
+  "azure/gpt-5-chat-latest",
+  "azure/gpt-5-codex",
+  "azure/gpt-5-mini",
+  "azure/gpt-5-mini-2025-08-07",
+  "azure/gpt-5-nano",
+  "azure/gpt-5-nano-2025-08-07",
+  "azure/gpt-5-pro",
+  "azure/gpt-5.1",
+  "azure/gpt-5.1-2025-11-13",
+  "azure/gpt-5.1-chat",
+  "azure/gpt-5.1-chat-2025-11-13",
+  "azure/gpt-5.1-codex",
+  "azure/gpt-5.1-codex-2025-11-13",
+  "azure/gpt-5.1-codex-max",
+  "azure/gpt-5.1-codex-mini",
+  "azure/gpt-5.1-codex-mini-2025-11-13",
+  "azure/gpt-5.2",
+  "azure/gpt-5.2-2025-12-11",
+  "azure/gpt-5.2-chat",
+  "azure/gpt-5.2-chat-2025-12-11",
+  "azure/gpt-5.2-codex",
+  "azure/gpt-5.2-pro",
+  "azure/gpt-5.2-pro-2025-12-11",
+  "azure/gpt-5.3-chat",
+  "azure/gpt-5.3-codex",
+  "azure/gpt-5.4",
+  "azure/gpt-5.4-2026-03-05",
+  "azure/gpt-5.4-mini",
+  "azure/gpt-5.4-mini-2026-03-17",
+  "azure/gpt-5.4-nano",
+  "azure/gpt-5.4-nano-2026-03-17",
+  "azure/gpt-5.4-pro",
+  "azure/gpt-5.4-pro-2026-03-05",
+  "azure/gpt-5.5",
+  "azure/gpt-5.5-2026-04-23",
+  "azure/gpt-5.5-pro",
+  "azure/gpt-5.5-pro-2026-04-23",
+  "azure/gpt-5.6",
+  "azure/gpt-5.6-luna",
+  "azure/gpt-5.6-sol",
+  "azure/gpt-5.6-terra",
+  "azure/gpt-audio-1.5-2026-02-23",
+  "azure/gpt-audio-2025-08-28",
+  "azure/gpt-audio-mini-2025-10-06",
+  "azure/gpt-image-1",
+  "azure/gpt-image-1-mini",
+  "azure/gpt-image-1.5",
+  "azure/gpt-image-1.5-2025-12-16",
+  "azure/gpt-image-2",
+  "azure/gpt-image-2-2026-04-21",
+  "azure/gpt-realtime-1.5-2026-02-23",
+  "azure/gpt-realtime-2025-08-28",
+  "azure/gpt-realtime-mini-2025-10-06",
+  "azure/gpt-realtime-whisper",
+  "azure/hd/1024-x-1024/dall-e-3",
+  "azure/hd/1024-x-1792/dall-e-3",
+  "azure/hd/1792-x-1024/dall-e-3",
+  "azure/high/1024-x-1024/gpt-image-1",
+  "azure/high/1024-x-1024/gpt-image-1-mini",
+  "azure/high/1024-x-1536/gpt-image-1",
+  "azure/high/1024-x-1536/gpt-image-1-mini",
+  "azure/high/1536-x-1024/gpt-image-1",
+  "azure/high/1536-x-1024/gpt-image-1-mini",
+  "azure/low/1024-x-1024/gpt-image-1",
+  "azure/low/1024-x-1024/gpt-image-1-mini",
+  "azure/low/1024-x-1536/gpt-image-1",
+  "azure/low/1024-x-1536/gpt-image-1-mini",
+  "azure/low/1536-x-1024/gpt-image-1",
+  "azure/low/1536-x-1024/gpt-image-1-mini",
+  "azure/medium/1024-x-1024/gpt-image-1",
+  "azure/medium/1024-x-1024/gpt-image-1-mini",
+  "azure/medium/1024-x-1536/gpt-image-1",
+  "azure/medium/1024-x-1536/gpt-image-1-mini",
+  "azure/medium/1536-x-1024/gpt-image-1",
+  "azure/medium/1536-x-1024/gpt-image-1-mini",
+  "azure/mistral-large-2402",
+  "azure/mistral-large-latest",
+  "azure/o1",
+  "azure/o1-2024-12-17",
+  "azure/o1-mini",
+  "azure/o1-mini-2024-09-12",
+  "azure/o1-preview",
+  "azure/o1-preview-2024-09-12",
+  "azure/o3",
+  "azure/o3-2025-04-16",
+  "azure/o3-deep-research",
+  "azure/o3-mini",
+  "azure/o3-mini-2025-01-31",
+  "azure/o3-pro",
+  "azure/o3-pro-2025-06-10",
+  "azure/o4-mini",
+  "azure/o4-mini-2025-04-16",
+  "azure/sora-2",
+  "azure/sora-2-pro",
+  "azure/sora-2-pro-high-res",
+  "azure/speech/azure-stt",
+  "azure/speech/azure-tts",
+  "azure/speech/azure-tts-hd",
+  "azure/standard/1024-x-1024/dall-e-2",
+  "azure/standard/1024-x-1024/dall-e-3",
+  "azure/standard/1024-x-1792/dall-e-3",
+  "azure/standard/1792-x-1024/dall-e-3",
+  "azure/text-embedding-3-large",
+  "azure/text-embedding-3-small",
+  "azure/text-embedding-ada-002",
+  "azure/tts-1",
+  "azure/tts-1-hd",
+  "azure/us/gpt-4.1-2025-04-14",
+  "azure/us/gpt-4.1-mini-2025-04-14",
+  "azure/us/gpt-4.1-nano-2025-04-14",
+  "azure/us/gpt-4o-2024-08-06",
+  "azure/us/gpt-4o-2024-11-20",
+  "azure/us/gpt-4o-mini-2024-07-18",
+  "azure/us/gpt-4o-mini-realtime-preview-2024-12-17",
+  "azure/us/gpt-4o-realtime-preview-2024-10-01",
+  "azure/us/gpt-4o-realtime-preview-2024-12-17",
+  "azure/us/gpt-5-2025-08-07",
+  "azure/us/gpt-5-mini-2025-08-07",
+  "azure/us/gpt-5-nano-2025-08-07",
+  "azure/us/gpt-5.1",
+  "azure/us/gpt-5.1-chat",
+  "azure/us/gpt-5.1-codex",
+  "azure/us/gpt-5.1-codex-mini",
+  "azure/us/gpt-5.4",
+  "azure/us/gpt-5.4-2026-03-05",
+  "azure/us/gpt-5.5",
+  "azure/us/gpt-5.5-2026-04-23",
+  "azure/us/gpt-5.6",
+  "azure/us/gpt-5.6-luna",
+  "azure/us/gpt-5.6-sol",
+  "azure/us/gpt-5.6-terra",
+  "azure/us/o1-2024-12-17",
+  "azure/us/o1-mini-2024-09-12",
+  "azure/us/o1-preview-2024-09-12",
+  "azure/us/o3-2025-04-16",
+  "azure/us/o3-mini-2025-01-31",
+  "azure/us/o4-mini-2025-04-16",
+  "azure/whisper-1",
+  "azure_ai/Cohere-embed-v3-english",
+  "azure_ai/Cohere-embed-v3-multilingual",
+  "azure_ai/FLUX-1.1-pro",
+  "azure_ai/FLUX.1-Kontext-pro",
+  "azure_ai/Llama-3.2-11B-Vision-Instruct",
+  "azure_ai/Llama-3.2-90B-Vision-Instruct",
+  "azure_ai/Llama-3.3-70B-Instruct",
+  "azure_ai/Llama-4-Maverick-17B-128E-Instruct-FP8",
+  "azure_ai/Llama-4-Scout-17B-16E-Instruct",
+  "azure_ai/MAI-DS-R1",
+  "azure_ai/MAI-Image-2.5",
+  "azure_ai/MAI-Image-2.5-Flash",
+  "azure_ai/MAI-Image-2e",
+  "azure_ai/Meta-Llama-3-70B-Instruct",
+  "azure_ai/Meta-Llama-3.1-405B-Instruct",
+  "azure_ai/Meta-Llama-3.1-70B-Instruct",
+  "azure_ai/Meta-Llama-3.1-8B-Instruct",
+  "azure_ai/Phi-3-medium-128k-instruct",
+  "azure_ai/Phi-3-medium-4k-instruct",
+  "azure_ai/Phi-3-mini-128k-instruct",
+  "azure_ai/Phi-3-mini-4k-instruct",
+  "azure_ai/Phi-3-small-128k-instruct",
+  "azure_ai/Phi-3-small-8k-instruct",
+  "azure_ai/Phi-3.5-MoE-instruct",
+  "azure_ai/Phi-3.5-mini-instruct",
+  "azure_ai/Phi-3.5-vision-instruct",
+  "azure_ai/Phi-4",
+  "azure_ai/Phi-4-mini-instruct",
+  "azure_ai/Phi-4-mini-reasoning",
+  "azure_ai/Phi-4-multimodal-instruct",
+  "azure_ai/Phi-4-reasoning",
+  "azure_ai/claude-fable-5",
+  "azure_ai/claude-haiku-4-5",
+  "azure_ai/claude-opus-4-1",
+  "azure_ai/claude-opus-4-5",
+  "azure_ai/claude-opus-4-6",
+  "azure_ai/claude-opus-4-7",
+  "azure_ai/claude-opus-4-8",
+  "azure_ai/claude-sonnet-4-5",
+  "azure_ai/claude-sonnet-4-6",
+  "azure_ai/claude-sonnet-5",
+  "azure_ai/cohere-rerank-v3-english",
+  "azure_ai/cohere-rerank-v3-multilingual",
+  "azure_ai/cohere-rerank-v3.5",
+  "azure_ai/cohere-rerank-v4.0-fast",
+  "azure_ai/cohere-rerank-v4.0-pro",
+  "azure_ai/deepseek-r1",
+  "azure_ai/deepseek-v3",
+  "azure_ai/deepseek-v3-0324",
+  "azure_ai/deepseek-v3.1",
+  "azure_ai/deepseek-v3.2",
+  "azure_ai/deepseek-v3.2-speciale",
+  "azure_ai/deepseek-v4-flash",
+  "azure_ai/deepseek-v4-pro",
+  "azure_ai/doc-intelligence/prebuilt-document",
+  "azure_ai/doc-intelligence/prebuilt-layout",
+  "azure_ai/doc-intelligence/prebuilt-read",
+  "azure_ai/embed-v-4-0",
+  "azure_ai/flux.2-pro",
+  "azure_ai/global/grok-3",
+  "azure_ai/global/grok-3-mini",
+  "azure_ai/gpt-5.4",
+  "azure_ai/gpt-5.4-2026-03-05",
+  "azure_ai/gpt-5.4-mini",
+  "azure_ai/gpt-5.4-mini-2026-03-17",
+  "azure_ai/gpt-5.4-nano",
+  "azure_ai/gpt-5.4-nano-2026-03-17",
+  "azure_ai/gpt-5.4-pro",
+  "azure_ai/gpt-5.4-pro-2026-03-05",
+  "azure_ai/gpt-5.5",
+  "azure_ai/gpt-5.5-2026-04-23",
+  "azure_ai/gpt-oss-120b",
+  "azure_ai/grok-3",
+  "azure_ai/grok-3-mini",
+  "azure_ai/grok-4",
+  "azure_ai/grok-4-1-fast-non-reasoning",
+  "azure_ai/grok-4-1-fast-reasoning",
+  "azure_ai/grok-4-fast-non-reasoning",
+  "azure_ai/grok-4-fast-reasoning",
+  "azure_ai/grok-code-fast-1",
+  "azure_ai/jais-30b-chat",
+  "azure_ai/jamba-instruct",
+  "azure_ai/kimi-k2.5",
+  "azure_ai/kimi-k2.6",
+  "azure_ai/ministral-3b",
+  "azure_ai/mistral-document-ai-2505",
+  "azure_ai/mistral-document-ai-2512",
+  "azure_ai/mistral-large",
+  "azure_ai/mistral-large-2407",
+  "azure_ai/mistral-large-3",
+  "azure_ai/mistral-large-latest",
+  "azure_ai/mistral-medium-2505",
+  "azure_ai/mistral-nemo",
+  "azure_ai/mistral-small",
+  "azure_ai/mistral-small-2503",
+  "azure_ai/model_router",
+  "babbage-002",
+  "baseten/MiniMaxAI/MiniMax-M2.5",
+  "baseten/deepseek-ai/DeepSeek-V3-0324",
+  "baseten/deepseek-ai/DeepSeek-V3.1",
+  "baseten/moonshotai/Kimi-K2-Instruct-0905",
+  "baseten/moonshotai/Kimi-K2-Thinking",
+  "baseten/moonshotai/Kimi-K2.5",
+  "baseten/nvidia/Nemotron-120B-A12B",
+  "baseten/openai/gpt-oss-120b",
+  "baseten/zai-org/GLM-4.6",
+  "baseten/zai-org/GLM-4.7",
+  "baseten/zai-org/GLM-5",
+  "bedrock/*/1-month-commitment/cohere.command-light-text-v14",
+  "bedrock/*/1-month-commitment/cohere.command-text-v14",
+  "bedrock/*/6-month-commitment/cohere.command-light-text-v14",
+  "bedrock/*/6-month-commitment/cohere.command-text-v14",
+  "bedrock/ap-northeast-1/1-month-commitment/anthropic.claude-instant-v1",
+  "bedrock/ap-northeast-1/1-month-commitment/anthropic.claude-v1",
+  "bedrock/ap-northeast-1/1-month-commitment/anthropic.claude-v2:1",
+  "bedrock/ap-northeast-1/6-month-commitment/anthropic.claude-instant-v1",
+  "bedrock/ap-northeast-1/6-month-commitment/anthropic.claude-v1",
+  "bedrock/ap-northeast-1/6-month-commitment/anthropic.claude-v2:1",
+  "bedrock/ap-northeast-1/anthropic.claude-instant-v1",
+  "bedrock/ap-northeast-1/anthropic.claude-v1",
+  "bedrock/ap-northeast-1/anthropic.claude-v2:1",
+  "bedrock/ap-northeast-1/deepseek.v3.2",
+  "bedrock/ap-northeast-1/minimax.minimax-m2.1",
+  "bedrock/ap-northeast-1/minimax.minimax-m2.5",
+  "bedrock/ap-northeast-1/moonshotai.kimi-k2-thinking",
+  "bedrock/ap-northeast-1/moonshotai.kimi-k2.5",
+  "bedrock/ap-northeast-1/qwen.qwen3-coder-next",
+  "bedrock/ap-south-1/deepseek.v3.2",
+  "bedrock/ap-south-1/meta.llama3-70b-instruct-v1:0",
+  "bedrock/ap-south-1/meta.llama3-8b-instruct-v1:0",
+  "bedrock/ap-south-1/minimax.minimax-m2.1",
+  "bedrock/ap-south-1/minimax.minimax-m2.5",
+  "bedrock/ap-south-1/moonshotai.kimi-k2-thinking",
+  "bedrock/ap-south-1/moonshotai.kimi-k2.5",
+  "bedrock/ap-south-1/qwen.qwen3-coder-next",
+  "bedrock/ap-southeast-2/minimax.minimax-m2.5",
+  "bedrock/ap-southeast-3/deepseek.v3.2",
+  "bedrock/ap-southeast-3/minimax.minimax-m2.1",
+  "bedrock/ap-southeast-3/minimax.minimax-m2.5",
+  "bedrock/ap-southeast-3/moonshotai.kimi-k2.5",
+  "bedrock/ap-southeast-3/qwen.qwen3-coder-next",
+  "bedrock/ca-central-1/meta.llama3-70b-instruct-v1:0",
+  "bedrock/ca-central-1/meta.llama3-8b-instruct-v1:0",
+  "bedrock/eu-central-1/1-month-commitment/anthropic.claude-instant-v1",
+  "bedrock/eu-central-1/1-month-commitment/anthropic.claude-v1",
+  "bedrock/eu-central-1/1-month-commitment/anthropic.claude-v2:1",
+  "bedrock/eu-central-1/6-month-commitment/anthropic.claude-instant-v1",
+  "bedrock/eu-central-1/6-month-commitment/anthropic.claude-v1",
+  "bedrock/eu-central-1/6-month-commitment/anthropic.claude-v2:1",
+  "bedrock/eu-central-1/anthropic.claude-instant-v1",
+  "bedrock/eu-central-1/anthropic.claude-v1",
+  "bedrock/eu-central-1/anthropic.claude-v2:1",
+  "bedrock/eu-central-1/minimax.minimax-m2.1",
+  "bedrock/eu-central-1/minimax.minimax-m2.5",
+  "bedrock/eu-central-1/qwen.qwen3-coder-next",
+  "bedrock/eu-north-1/deepseek.v3.2",
+  "bedrock/eu-north-1/minimax.minimax-m2.1",
+  "bedrock/eu-north-1/minimax.minimax-m2.5",
+  "bedrock/eu-north-1/moonshotai.kimi-k2.5",
+  "bedrock/eu-south-1/minimax.minimax-m2.1",
+  "bedrock/eu-south-1/minimax.minimax-m2.5",
+  "bedrock/eu-south-1/qwen.qwen3-coder-next",
+  "bedrock/eu-west-1/meta.llama3-70b-instruct-v1:0",
+  "bedrock/eu-west-1/meta.llama3-8b-instruct-v1:0",
+  "bedrock/eu-west-1/minimax.minimax-m2.1",
+  "bedrock/eu-west-1/minimax.minimax-m2.5",
+  "bedrock/eu-west-1/qwen.qwen3-coder-next",
+  "bedrock/eu-west-2/meta.llama3-70b-instruct-v1:0",
+  "bedrock/eu-west-2/meta.llama3-8b-instruct-v1:0",
+  "bedrock/eu-west-2/minimax.minimax-m2.1",
+  "bedrock/eu-west-2/minimax.minimax-m2.5",
+  "bedrock/eu-west-2/qwen.qwen3-coder-next",
+  "bedrock/eu-west-3/mistral.mistral-7b-instruct-v0:2",
+  "bedrock/eu-west-3/mistral.mistral-large-2402-v1:0",
+  "bedrock/eu-west-3/mistral.mixtral-8x7b-instruct-v0:1",
+  "bedrock/invoke/anthropic.claude-3-5-sonnet-20240620-v1:0",
+  "bedrock/moonshotai.kimi-k2-thinking",
+  "bedrock/moonshotai.kimi-k2.5",
+  "bedrock/sa-east-1/deepseek.v3.2",
+  "bedrock/sa-east-1/meta.llama3-70b-instruct-v1:0",
+  "bedrock/sa-east-1/meta.llama3-8b-instruct-v1:0",
+  "bedrock/sa-east-1/minimax.minimax-m2.1",
+  "bedrock/sa-east-1/minimax.minimax-m2.5",
+  "bedrock/sa-east-1/moonshotai.kimi-k2-thinking",
+  "bedrock/sa-east-1/moonshotai.kimi-k2.5",
+  "bedrock/sa-east-1/qwen.qwen3-coder-next",
+  "bedrock/us-east-1/1-month-commitment/anthropic.claude-instant-v1",
+  "bedrock/us-east-1/1-month-commitment/anthropic.claude-v1",
+  "bedrock/us-east-1/1-month-commitment/anthropic.claude-v2:1",
+  "bedrock/us-east-1/6-month-commitment/anthropic.claude-instant-v1",
+  "bedrock/us-east-1/6-month-commitment/anthropic.claude-v1",
+  "bedrock/us-east-1/6-month-commitment/anthropic.claude-v2:1",
+  "bedrock/us-east-1/anthropic.claude-instant-v1",
+  "bedrock/us-east-1/anthropic.claude-v1",
+  "bedrock/us-east-1/anthropic.claude-v2:1",
+  "bedrock/us-east-1/deepseek.v3.2",
+  "bedrock/us-east-1/meta.llama3-70b-instruct-v1:0",
+  "bedrock/us-east-1/meta.llama3-8b-instruct-v1:0",
+  "bedrock/us-east-1/minimax.minimax-m2.1",
+  "bedrock/us-east-1/minimax.minimax-m2.5",
+  "bedrock/us-east-1/mistral.mistral-7b-instruct-v0:2",
+  "bedrock/us-east-1/mistral.mistral-large-2402-v1:0",
+  "bedrock/us-east-1/mistral.mixtral-8x7b-instruct-v0:1",
+  "bedrock/us-east-1/moonshotai.kimi-k2-thinking",
+  "bedrock/us-east-1/moonshotai.kimi-k2.5",
+  "bedrock/us-east-1/qwen.qwen3-coder-next",
+  "bedrock/us-east-1/zai.glm-5",
+  "bedrock/us-east-2/deepseek.v3.2",
+  "bedrock/us-east-2/minimax.minimax-m2.1",
+  "bedrock/us-east-2/minimax.minimax-m2.5",
+  "bedrock/us-east-2/moonshotai.kimi-k2-thinking",
+  "bedrock/us-east-2/moonshotai.kimi-k2.5",
+  "bedrock/us-east-2/qwen.qwen3-coder-next",
+  "bedrock/us-gov-east-1/amazon.nova-pro-v1:0",
+  "bedrock/us-gov-east-1/amazon.titan-embed-text-v1",
+  "bedrock/us-gov-east-1/amazon.titan-embed-text-v2:0",
+  "bedrock/us-gov-east-1/amazon.titan-text-express-v1",
+  "bedrock/us-gov-east-1/amazon.titan-text-lite-v1",
+  "bedrock/us-gov-east-1/amazon.titan-text-premier-v1:0",
+  "bedrock/us-gov-east-1/anthropic.claude-3-5-sonnet-20240620-v1:0",
+  "bedrock/us-gov-east-1/anthropic.claude-3-haiku-20240307-v1:0",
+  "bedrock/us-gov-east-1/anthropic.claude-haiku-4-5-20251001-v1:0",
+  "bedrock/us-gov-east-1/anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "bedrock/us-gov-east-1/claude-sonnet-4-5-20250929-v1:0",
+  "bedrock/us-gov-east-1/meta.llama3-70b-instruct-v1:0",
+  "bedrock/us-gov-east-1/meta.llama3-8b-instruct-v1:0",
+  "bedrock/us-gov-west-1/amazon.nova-pro-v1:0",
+  "bedrock/us-gov-west-1/amazon.titan-embed-text-v1",
+  "bedrock/us-gov-west-1/amazon.titan-embed-text-v2:0",
+  "bedrock/us-gov-west-1/amazon.titan-text-express-v1",
+  "bedrock/us-gov-west-1/amazon.titan-text-lite-v1",
+  "bedrock/us-gov-west-1/amazon.titan-text-premier-v1:0",
+  "bedrock/us-gov-west-1/anthropic.claude-3-5-sonnet-20240620-v1:0",
+  "bedrock/us-gov-west-1/anthropic.claude-3-7-sonnet-20250219-v1:0",
+  "bedrock/us-gov-west-1/anthropic.claude-3-haiku-20240307-v1:0",
+  "bedrock/us-gov-west-1/anthropic.claude-haiku-4-5-20251001-v1:0",
+  "bedrock/us-gov-west-1/anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "bedrock/us-gov-west-1/claude-sonnet-4-5-20250929-v1:0",
+  "bedrock/us-gov-west-1/meta.llama3-70b-instruct-v1:0",
+  "bedrock/us-gov-west-1/meta.llama3-8b-instruct-v1:0",
+  "bedrock/us-west-1/meta.llama3-70b-instruct-v1:0",
+  "bedrock/us-west-1/meta.llama3-8b-instruct-v1:0",
+  "bedrock/us-west-2/1-month-commitment/anthropic.claude-instant-v1",
+  "bedrock/us-west-2/1-month-commitment/anthropic.claude-v1",
+  "bedrock/us-west-2/1-month-commitment/anthropic.claude-v2:1",
+  "bedrock/us-west-2/6-month-commitment/anthropic.claude-instant-v1",
+  "bedrock/us-west-2/6-month-commitment/anthropic.claude-v1",
+  "bedrock/us-west-2/6-month-commitment/anthropic.claude-v2:1",
+  "bedrock/us-west-2/anthropic.claude-instant-v1",
+  "bedrock/us-west-2/anthropic.claude-v1",
+  "bedrock/us-west-2/anthropic.claude-v2:1",
+  "bedrock/us-west-2/deepseek.v3.2",
+  "bedrock/us-west-2/minimax.minimax-m2.1",
+  "bedrock/us-west-2/minimax.minimax-m2.5",
+  "bedrock/us-west-2/mistral.mistral-7b-instruct-v0:2",
+  "bedrock/us-west-2/mistral.mistral-large-2402-v1:0",
+  "bedrock/us-west-2/mistral.mixtral-8x7b-instruct-v0:1",
+  "bedrock/us-west-2/moonshotai.kimi-k2-thinking",
+  "bedrock/us-west-2/moonshotai.kimi-k2.5",
+  "bedrock/us-west-2/qwen.qwen3-coder-next",
+  "bedrock/us-west-2/zai.glm-5",
+  "bedrock/us.anthropic.claude-3-5-haiku-20241022-v1:0",
+  "bedrock_mantle/google.gemma-4-26b-a4b",
+  "bedrock_mantle/google.gemma-4-31b",
+  "bedrock_mantle/google.gemma-4-e2b",
+  "bedrock_mantle/openai.gpt-5.4",
+  "bedrock_mantle/openai.gpt-5.5",
+  "bedrock_mantle/openai.gpt-oss-120b",
+  "bedrock_mantle/openai.gpt-oss-20b",
+  "bedrock_mantle/openai.gpt-oss-safeguard-120b",
+  "bedrock_mantle/openai.gpt-oss-safeguard-20b",
+  "bedrock_mantle/xai.grok-4.3",
+  "black_forest_labs/flux-dev",
+  "black_forest_labs/flux-kontext-max",
+  "black_forest_labs/flux-kontext-pro",
+  "black_forest_labs/flux-pro",
+  "black_forest_labs/flux-pro-1.0-expand",
+  "black_forest_labs/flux-pro-1.0-fill",
+  "black_forest_labs/flux-pro-1.1",
+  "black_forest_labs/flux-pro-1.1-ultra",
+  "cerebras/gpt-oss-120b",
+  "cerebras/llama-3.3-70b",
+  "cerebras/llama3.1-70b",
+  "cerebras/llama3.1-8b",
+  "cerebras/qwen-3-32b",
+  "cerebras/zai-glm-4.6",
+  "cerebras/zai-glm-4.7",
+  "chatdolphin",
+  "chatgpt-4o-latest",
+  "chatgpt-image-latest",
+  "chatgpt/gpt-5.1-codex-max",
+  "chatgpt/gpt-5.1-codex-mini",
+  "chatgpt/gpt-5.2",
+  "chatgpt/gpt-5.2-codex",
+  "chatgpt/gpt-5.3-chat-latest",
+  "chatgpt/gpt-5.3-codex",
+  "chatgpt/gpt-5.3-codex-spark",
+  "chatgpt/gpt-5.3-instant",
+  "chatgpt/gpt-5.4",
+  "chatgpt/gpt-5.4-pro",
+  "claude-3-7-sonnet-20250219",
+  "claude-3-haiku-20240307",
+  "claude-3-opus-20240229",
+  "claude-4-opus-20250514",
+  "claude-4-sonnet-20250514",
+  "claude-fable-5",
+  "claude-haiku-4-5",
+  "claude-haiku-4-5-20251001",
+  "claude-opus-4-1",
+  "claude-opus-4-1-20250805",
+  "claude-opus-4-20250514",
+  "claude-opus-4-5",
+  "claude-opus-4-5-20251101",
+  "claude-opus-4-6",
+  "claude-opus-4-6-20260205",
+  "claude-opus-4-7",
+  "claude-opus-4-7-20260416",
+  "claude-opus-4-8",
+  "claude-sonnet-4-20250514",
+  "claude-sonnet-4-5",
+  "claude-sonnet-4-5-20250929",
+  "claude-sonnet-4-5-20250929-v1:0",
+  "claude-sonnet-4-6",
+  "claude-sonnet-5",
+  "cloudflare/@cf/aisingapore/gemma-sea-lion-v4-27b-it",
+  "cloudflare/@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
+  "cloudflare/@cf/google/gemma-2b-it-lora",
+  "cloudflare/@cf/google/gemma-4-26b-a4b-it",
+  "cloudflare/@cf/google/gemma-7b-it-lora",
+  "cloudflare/@cf/ibm-granite/granite-4.0-h-micro",
+  "cloudflare/@cf/meta-llama/llama-2-7b-chat-hf-lora",
+  "cloudflare/@cf/meta/llama-2-7b-chat-fp16",
+  "cloudflare/@cf/meta/llama-2-7b-chat-int8",
+  "cloudflare/@cf/meta/llama-3.1-8b-instruct-fp8",
+  "cloudflare/@cf/meta/llama-3.2-11b-vision-instruct",
+  "cloudflare/@cf/meta/llama-3.2-1b-instruct",
+  "cloudflare/@cf/meta/llama-3.2-3b-instruct",
+  "cloudflare/@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+  "cloudflare/@cf/meta/llama-4-scout-17b-16e-instruct",
+  "cloudflare/@cf/meta/llama-guard-3-8b",
+  "cloudflare/@cf/mistral/mistral-7b-instruct-v0.1",
+  "cloudflare/@cf/mistral/mistral-7b-instruct-v0.2-lora",
+  "cloudflare/@cf/mistralai/mistral-small-3.1-24b-instruct",
+  "cloudflare/@cf/moonshotai/kimi-k2.6",
+  "cloudflare/@cf/moonshotai/kimi-k2.7-code",
+  "cloudflare/@cf/nvidia/nemotron-3-120b-a12b",
+  "cloudflare/@cf/openai/gpt-oss-120b",
+  "cloudflare/@cf/openai/gpt-oss-20b",
+  "cloudflare/@cf/qwen/qwen2.5-coder-32b-instruct",
+  "cloudflare/@cf/qwen/qwen3-30b-a3b-fp8",
+  "cloudflare/@cf/qwen/qwq-32b",
+  "cloudflare/@cf/zai-org/glm-4.7-flash",
+  "cloudflare/@cf/zai-org/glm-5.2",
+  "cloudflare/@hf/thebloke/codellama-7b-instruct-awq",
+  "codestral/codestral-2405",
+  "codestral/codestral-latest",
+  "codex-mini-latest",
+  "cohere.command-light-text-v14",
+  "cohere.command-r-plus-v1:0",
+  "cohere.command-r-v1:0",
+  "cohere.command-text-v14",
+  "cohere.embed-english-v3",
+  "cohere.embed-multilingual-v3",
+  "cohere.embed-v4:0",
+  "cohere.rerank-v3-5:0",
+  "cohere/embed-v4.0",
+  "command",
+  "command-a-03-2025",
+  "command-light",
+  "command-nightly",
+  "command-r",
+  "command-r-08-2024",
+  "command-r-plus",
+  "command-r-plus-08-2024",
+  "command-r7b-12-2024",
+  "computer-use-preview",
+  "crusoe/Qwen/Qwen3-235B-A22B-Instruct-2507",
+  "crusoe/deepseek-ai/DeepSeek-R1-0528",
+  "crusoe/deepseek-ai/DeepSeek-V3-0324",
+  "crusoe/google/gemma-3-12b-it",
+  "crusoe/meta-llama/Llama-3.3-70B-Instruct",
+  "crusoe/moonshotai/Kimi-K2-Thinking",
+  "crusoe/openai/gpt-oss-120b",
+  "dall-e-2",
+  "dall-e-3",
+  "darkbloom/gemma-4-26b",
+  "darkbloom/gpt-oss-20b",
+  "dashscope/qwen-coder",
+  "dashscope/qwen-flash",
+  "dashscope/qwen-flash-2025-07-28",
+  "dashscope/qwen-image-2.0",
+  "dashscope/qwen-image-2.0-pro",
+  "dashscope/qwen-max",
+  "dashscope/qwen-plus",
+  "dashscope/qwen-plus-2025-01-25",
+  "dashscope/qwen-plus-2025-04-28",
+  "dashscope/qwen-plus-2025-07-14",
+  "dashscope/qwen-plus-2025-07-28",
+  "dashscope/qwen-plus-2025-09-11",
+  "dashscope/qwen-plus-latest",
+  "dashscope/qwen-turbo",
+  "dashscope/qwen-turbo-2024-11-01",
+  "dashscope/qwen-turbo-2025-04-28",
+  "dashscope/qwen-turbo-latest",
+  "dashscope/qwen3-30b-a3b",
+  "dashscope/qwen3-coder-flash",
+  "dashscope/qwen3-coder-flash-2025-07-28",
+  "dashscope/qwen3-coder-plus",
+  "dashscope/qwen3-coder-plus-2025-07-22",
+  "dashscope/qwen3-max",
+  "dashscope/qwen3-max-2026-01-23",
+  "dashscope/qwen3-max-preview",
+  "dashscope/qwen3-next-80b-a3b-instruct",
+  "dashscope/qwen3-next-80b-a3b-thinking",
+  "dashscope/qwen3-vl-235b-a22b-instruct",
+  "dashscope/qwen3-vl-235b-a22b-thinking",
+  "dashscope/qwen3-vl-32b-instruct",
+  "dashscope/qwen3-vl-32b-thinking",
+  "dashscope/qwen3-vl-plus",
+  "dashscope/qwen3.5-plus",
+  "dashscope/qwq-plus",
+  "databricks/databricks-bge-large-en",
+  "databricks/databricks-claude-3-7-sonnet",
+  "databricks/databricks-claude-haiku-4-5",
+  "databricks/databricks-claude-opus-4",
+  "databricks/databricks-claude-opus-4-1",
+  "databricks/databricks-claude-opus-4-5",
+  "databricks/databricks-claude-sonnet-4",
+  "databricks/databricks-claude-sonnet-4-1",
+  "databricks/databricks-claude-sonnet-4-5",
+  "databricks/databricks-gemini-2-5-flash",
+  "databricks/databricks-gemini-2-5-pro",
+  "databricks/databricks-gemma-3-12b",
+  "databricks/databricks-gpt-5",
+  "databricks/databricks-gpt-5-1",
+  "databricks/databricks-gpt-5-mini",
+  "databricks/databricks-gpt-5-nano",
+  "databricks/databricks-gpt-oss-120b",
+  "databricks/databricks-gpt-oss-20b",
+  "databricks/databricks-gte-large-en",
+  "databricks/databricks-llama-2-70b-chat",
+  "databricks/databricks-llama-4-maverick",
+  "databricks/databricks-meta-llama-3-1-405b-instruct",
+  "databricks/databricks-meta-llama-3-1-8b-instruct",
+  "databricks/databricks-meta-llama-3-3-70b-instruct",
+  "databricks/databricks-meta-llama-3-70b-instruct",
+  "databricks/databricks-mixtral-8x7b-instruct",
+  "databricks/databricks-mpt-30b-instruct",
+  "databricks/databricks-mpt-7b-instruct",
+  "dataforseo/search",
+  "davinci-002",
+  "deep-research-pro-preview-12-2025",
+  "deepgram/base",
+  "deepgram/base-conversationalai",
+  "deepgram/base-finance",
+  "deepgram/base-general",
+  "deepgram/base-meeting",
+  "deepgram/base-phonecall",
+  "deepgram/base-video",
+  "deepgram/base-voicemail",
+  "deepgram/enhanced",
+  "deepgram/enhanced-finance",
+  "deepgram/enhanced-general",
+  "deepgram/enhanced-meeting",
+  "deepgram/enhanced-phonecall",
+  "deepgram/nova",
+  "deepgram/nova-2",
+  "deepgram/nova-2-atc",
+  "deepgram/nova-2-automotive",
+  "deepgram/nova-2-conversationalai",
+  "deepgram/nova-2-drivethru",
+  "deepgram/nova-2-finance",
+  "deepgram/nova-2-general",
+  "deepgram/nova-2-meeting",
+  "deepgram/nova-2-phonecall",
+  "deepgram/nova-2-video",
+  "deepgram/nova-2-voicemail",
+  "deepgram/nova-3",
+  "deepgram/nova-3-general",
+  "deepgram/nova-3-medical",
+  "deepgram/nova-general",
+  "deepgram/nova-phonecall",
+  "deepgram/whisper",
+  "deepgram/whisper-base",
+  "deepgram/whisper-large",
+  "deepgram/whisper-medium",
+  "deepgram/whisper-small",
+  "deepgram/whisper-tiny",
+  "deepinfra/Gryphe/MythoMax-L2-13b",
+  "deepinfra/NousResearch/Hermes-3-Llama-3.1-405B",
+  "deepinfra/NousResearch/Hermes-3-Llama-3.1-70B",
+  "deepinfra/Qwen/QwQ-32B",
+  "deepinfra/Qwen/Qwen2.5-72B-Instruct",
+  "deepinfra/Qwen/Qwen2.5-7B-Instruct",
+  "deepinfra/Qwen/Qwen2.5-VL-32B-Instruct",
+  "deepinfra/Qwen/Qwen3-14B",
+  "deepinfra/Qwen/Qwen3-235B-A22B",
+  "deepinfra/Qwen/Qwen3-235B-A22B-Instruct-2507",
+  "deepinfra/Qwen/Qwen3-235B-A22B-Thinking-2507",
+  "deepinfra/Qwen/Qwen3-30B-A3B",
+  "deepinfra/Qwen/Qwen3-32B",
+  "deepinfra/Qwen/Qwen3-Coder-480B-A35B-Instruct",
+  "deepinfra/Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo",
+  "deepinfra/Qwen/Qwen3-Next-80B-A3B-Instruct",
+  "deepinfra/Qwen/Qwen3-Next-80B-A3B-Thinking",
+  "deepinfra/Sao10K/L3-8B-Lunaris-v1-Turbo",
+  "deepinfra/Sao10K/L3.1-70B-Euryale-v2.2",
+  "deepinfra/Sao10K/L3.3-70B-Euryale-v2.3",
+  "deepinfra/allenai/olmOCR-7B-0725-FP8",
+  "deepinfra/anthropic/claude-3-7-sonnet-latest",
+  "deepinfra/anthropic/claude-4-opus",
+  "deepinfra/anthropic/claude-4-sonnet",
+  "deepinfra/deepseek-ai/DeepSeek-R1",
+  "deepinfra/deepseek-ai/DeepSeek-R1-0528",
+  "deepinfra/deepseek-ai/DeepSeek-R1-0528-Turbo",
+  "deepinfra/deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+  "deepinfra/deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+  "deepinfra/deepseek-ai/DeepSeek-R1-Turbo",
+  "deepinfra/deepseek-ai/DeepSeek-V3",
+  "deepinfra/deepseek-ai/DeepSeek-V3-0324",
+  "deepinfra/deepseek-ai/DeepSeek-V3.1",
+  "deepinfra/deepseek-ai/DeepSeek-V3.1-Terminus",
+  "deepinfra/google/gemini-2.0-flash-001",
+  "deepinfra/google/gemini-2.5-flash",
+  "deepinfra/google/gemini-2.5-pro",
+  "deepinfra/google/gemma-3-12b-it",
+  "deepinfra/google/gemma-3-27b-it",
+  "deepinfra/google/gemma-3-4b-it",
+  "deepinfra/meta-llama/Llama-3.2-11B-Vision-Instruct",
+  "deepinfra/meta-llama/Llama-3.2-3B-Instruct",
+  "deepinfra/meta-llama/Llama-3.3-70B-Instruct",
+  "deepinfra/meta-llama/Llama-3.3-70B-Instruct-Turbo",
+  "deepinfra/meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+  "deepinfra/meta-llama/Llama-4-Scout-17B-16E-Instruct",
+  "deepinfra/meta-llama/Llama-Guard-3-8B",
+  "deepinfra/meta-llama/Llama-Guard-4-12B",
+  "deepinfra/meta-llama/Meta-Llama-3-8B-Instruct",
+  "deepinfra/meta-llama/Meta-Llama-3.1-70B-Instruct",
+  "deepinfra/meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+  "deepinfra/meta-llama/Meta-Llama-3.1-8B-Instruct",
+  "deepinfra/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+  "deepinfra/microsoft/WizardLM-2-8x22B",
+  "deepinfra/microsoft/phi-4",
+  "deepinfra/mistralai/Mistral-Nemo-Instruct-2407",
+  "deepinfra/mistralai/Mistral-Small-24B-Instruct-2501",
+  "deepinfra/mistralai/Mistral-Small-3.2-24B-Instruct-2506",
+  "deepinfra/mistralai/Mixtral-8x7B-Instruct-v0.1",
+  "deepinfra/moonshotai/Kimi-K2-Instruct",
+  "deepinfra/moonshotai/Kimi-K2-Instruct-0905",
+  "deepinfra/nvidia/Llama-3.1-Nemotron-70B-Instruct",
+  "deepinfra/nvidia/Llama-3.3-Nemotron-Super-49B-v1.5",
+  "deepinfra/nvidia/NVIDIA-Nemotron-Nano-9B-v2",
+  "deepinfra/openai/gpt-oss-120b",
+  "deepinfra/openai/gpt-oss-20b",
+  "deepinfra/zai-org/GLM-4.5",
+  "deepseek-chat",
+  "deepseek-reasoner",
+  "deepseek-v3-2-251201",
+  "deepseek-v4-flash",
+  "deepseek-v4-pro",
+  "deepseek.v3-v1:0",
+  "deepseek.v3.2",
+  "deepseek/deepseek-chat",
+  "deepseek/deepseek-coder",
+  "deepseek/deepseek-r1",
+  "deepseek/deepseek-reasoner",
+  "deepseek/deepseek-v3",
+  "deepseek/deepseek-v3.2",
+  "deepseek/deepseek-v4-flash",
+  "deepseek/deepseek-v4-pro",
+  "dolphin",
+  "doubao-embedding",
+  "doubao-embedding-large",
+  "doubao-embedding-large-text-240915",
+  "doubao-embedding-large-text-250515",
+  "doubao-embedding-text-240715",
+  "duckduckgo/search",
+  "elevenlabs/eleven_multilingual_v2",
+  "elevenlabs/eleven_v3",
+  "elevenlabs/scribe_v1",
+  "elevenlabs/scribe_v1_experimental",
+  "embed-english-light-v2.0",
+  "embed-english-light-v3.0",
+  "embed-english-v2.0",
+  "embed-english-v3.0",
+  "embed-multilingual-light-v3.0",
+  "embed-multilingual-v2.0",
+  "embed-multilingual-v3.0",
+  "eu.amazon.nova-2-lite-v1:0",
+  "eu.amazon.nova-2-pro-preview-20251202-v1:0",
+  "eu.amazon.nova-lite-v1:0",
+  "eu.amazon.nova-micro-v1:0",
+  "eu.amazon.nova-pro-v1:0",
+  "eu.anthropic.claude-3-5-haiku-20241022-v1:0",
+  "eu.anthropic.claude-3-5-sonnet-20240620-v1:0",
+  "eu.anthropic.claude-3-5-sonnet-20241022-v2:0",
+  "eu.anthropic.claude-3-7-sonnet-20250219-v1:0",
+  "eu.anthropic.claude-3-haiku-20240307-v1:0",
+  "eu.anthropic.claude-3-opus-20240229-v1:0",
+  "eu.anthropic.claude-3-sonnet-20240229-v1:0",
+  "eu.anthropic.claude-fable-5",
+  "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+  "eu.anthropic.claude-opus-4-1-20250805-v1:0",
+  "eu.anthropic.claude-opus-4-20250514-v1:0",
+  "eu.anthropic.claude-opus-4-5-20251101-v1:0",
+  "eu.anthropic.claude-opus-4-6-v1",
+  "eu.anthropic.claude-opus-4-7",
+  "eu.anthropic.claude-opus-4-8",
+  "eu.anthropic.claude-sonnet-4-20250514-v1:0",
+  "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "eu.anthropic.claude-sonnet-4-6",
+  "eu.anthropic.claude-sonnet-5",
+  "eu.deepseek.v3.2",
+  "eu.meta.llama3-2-1b-instruct-v1:0",
+  "eu.meta.llama3-2-3b-instruct-v1:0",
+  "eu.mistral.pixtral-large-2502-v1:0",
+  "eu.twelvelabs.marengo-embed-2-7-v1:0",
+  "eu.twelvelabs.pegasus-1-2-v1:0",
+  "exa_ai/search",
+  "fal_ai/bria/text-to-image/3.2",
+  "fal_ai/fal-ai/bytedance/dreamina/v3.1/text-to-image",
+  "fal_ai/fal-ai/bytedance/seedream/v3/text-to-image",
+  "fal_ai/fal-ai/flux-pro/v1.1",
+  "fal_ai/fal-ai/flux-pro/v1.1-ultra",
+  "fal_ai/fal-ai/flux/schnell",
+  "fal_ai/fal-ai/gemini-25-flash-image",
+  "fal_ai/fal-ai/ideogram/v3",
+  "fal_ai/fal-ai/imagen4/preview",
+  "fal_ai/fal-ai/imagen4/preview/fast",
+  "fal_ai/fal-ai/imagen4/preview/ultra",
+  "fal_ai/fal-ai/nano-banana",
+  "fal_ai/fal-ai/recraft/v3/text-to-image",
+  "fal_ai/fal-ai/stable-diffusion-v35-medium",
+  "featherless_ai/featherless-ai/Qwerky-72B",
+  "featherless_ai/featherless-ai/Qwerky-QwQ-32B",
+  "firecrawl/search",
+  "fireworks-ai-4.1b-to-16b",
+  "fireworks-ai-56b-to-176b",
+  "fireworks-ai-above-16b",
+  "fireworks-ai-default",
+  "fireworks-ai-embedding-150m-to-350m",
+  "fireworks-ai-embedding-up-to-150m",
+  "fireworks-ai-moe-up-to-56b",
+  "fireworks-ai-up-to-4b",
+  "fireworks_ai/WhereIsAI/UAE-Large-V1",
+  "fireworks_ai/accounts/fireworks/models/",
+  "fireworks_ai/accounts/fireworks/models/SSD-1B",
+  "fireworks_ai/accounts/fireworks/models/chronos-hermes-13b-v2",
+  "fireworks_ai/accounts/fireworks/models/code-llama-13b",
+  "fireworks_ai/accounts/fireworks/models/code-llama-13b-instruct",
+  "fireworks_ai/accounts/fireworks/models/code-llama-13b-python",
+  "fireworks_ai/accounts/fireworks/models/code-llama-34b",
+  "fireworks_ai/accounts/fireworks/models/code-llama-34b-instruct",
+  "fireworks_ai/accounts/fireworks/models/code-llama-34b-python",
+  "fireworks_ai/accounts/fireworks/models/code-llama-70b",
+  "fireworks_ai/accounts/fireworks/models/code-llama-70b-instruct",
+  "fireworks_ai/accounts/fireworks/models/code-llama-70b-python",
+  "fireworks_ai/accounts/fireworks/models/code-llama-7b",
+  "fireworks_ai/accounts/fireworks/models/code-llama-7b-instruct",
+  "fireworks_ai/accounts/fireworks/models/code-llama-7b-python",
+  "fireworks_ai/accounts/fireworks/models/code-qwen-1p5-7b",
+  "fireworks_ai/accounts/fireworks/models/codegemma-2b",
+  "fireworks_ai/accounts/fireworks/models/codegemma-7b",
+  "fireworks_ai/accounts/fireworks/models/cogito-671b-v2-p1",
+  "fireworks_ai/accounts/fireworks/models/cogito-v1-preview-llama-3b",
+  "fireworks_ai/accounts/fireworks/models/cogito-v1-preview-llama-70b",
+  "fireworks_ai/accounts/fireworks/models/cogito-v1-preview-llama-8b",
+  "fireworks_ai/accounts/fireworks/models/cogito-v1-preview-qwen-14b",
+  "fireworks_ai/accounts/fireworks/models/cogito-v1-preview-qwen-32b",
+  "fireworks_ai/accounts/fireworks/models/dbrx-instruct",
+  "fireworks_ai/accounts/fireworks/models/deepseek-coder-1b-base",
+  "fireworks_ai/accounts/fireworks/models/deepseek-coder-33b-instruct",
+  "fireworks_ai/accounts/fireworks/models/deepseek-coder-7b-base",
+  "fireworks_ai/accounts/fireworks/models/deepseek-coder-7b-base-v1p5",
+  "fireworks_ai/accounts/fireworks/models/deepseek-coder-7b-instruct-v1p5",
+  "fireworks_ai/accounts/fireworks/models/deepseek-coder-v2-instruct",
+  "fireworks_ai/accounts/fireworks/models/deepseek-coder-v2-lite-base",
+  "fireworks_ai/accounts/fireworks/models/deepseek-coder-v2-lite-instruct",
+  "fireworks_ai/accounts/fireworks/models/deepseek-prover-v2",
+  "fireworks_ai/accounts/fireworks/models/deepseek-r1",
+  "fireworks_ai/accounts/fireworks/models/deepseek-r1-0528",
+  "fireworks_ai/accounts/fireworks/models/deepseek-r1-0528-distill-qwen3-8b",
+  "fireworks_ai/accounts/fireworks/models/deepseek-r1-basic",
+  "fireworks_ai/accounts/fireworks/models/deepseek-r1-distill-llama-70b",
+  "fireworks_ai/accounts/fireworks/models/deepseek-r1-distill-llama-8b",
+  "fireworks_ai/accounts/fireworks/models/deepseek-r1-distill-qwen-14b",
+  "fireworks_ai/accounts/fireworks/models/deepseek-r1-distill-qwen-1p5b",
+  "fireworks_ai/accounts/fireworks/models/deepseek-r1-distill-qwen-32b",
+  "fireworks_ai/accounts/fireworks/models/deepseek-r1-distill-qwen-7b",
+  "fireworks_ai/accounts/fireworks/models/deepseek-v2-lite-chat",
+  "fireworks_ai/accounts/fireworks/models/deepseek-v2p5",
+  "fireworks_ai/accounts/fireworks/models/deepseek-v3",
+  "fireworks_ai/accounts/fireworks/models/deepseek-v3-0324",
+  "fireworks_ai/accounts/fireworks/models/deepseek-v3p1",
+  "fireworks_ai/accounts/fireworks/models/deepseek-v3p1-terminus",
+  "fireworks_ai/accounts/fireworks/models/deepseek-v3p2",
+  "fireworks_ai/accounts/fireworks/models/deepseek-v4-flash",
+  "fireworks_ai/accounts/fireworks/models/deepseek-v4-pro",
+  "fireworks_ai/accounts/fireworks/models/devstral-small-2505",
+  "fireworks_ai/accounts/fireworks/models/dobby-mini-unhinged-plus-llama-3-1-8b",
+  "fireworks_ai/accounts/fireworks/models/dobby-unhinged-llama-3-3-70b-new",
+  "fireworks_ai/accounts/fireworks/models/dolphin-2-9-2-qwen2-72b",
+  "fireworks_ai/accounts/fireworks/models/dolphin-2p6-mixtral-8x7b",
+  "fireworks_ai/accounts/fireworks/models/ernie-4p5-21b-a3b-pt",
+  "fireworks_ai/accounts/fireworks/models/ernie-4p5-300b-a47b-pt",
+  "fireworks_ai/accounts/fireworks/models/fare-20b",
+  "fireworks_ai/accounts/fireworks/models/firefunction-v1",
+  "fireworks_ai/accounts/fireworks/models/firefunction-v2",
+  "fireworks_ai/accounts/fireworks/models/firellava-13b",
+  "fireworks_ai/accounts/fireworks/models/firesearch-ocr-v6",
+  "fireworks_ai/accounts/fireworks/models/fireworks-asr-large",
+  "fireworks_ai/accounts/fireworks/models/fireworks-asr-v2",
+  "fireworks_ai/accounts/fireworks/models/flux-1-dev",
+  "fireworks_ai/accounts/fireworks/models/flux-1-dev-controlnet-union",
+  "fireworks_ai/accounts/fireworks/models/flux-1-dev-fp8",
+  "fireworks_ai/accounts/fireworks/models/flux-1-schnell",
+  "fireworks_ai/accounts/fireworks/models/flux-1-schnell-fp8",
+  "fireworks_ai/accounts/fireworks/models/flux-kontext-max",
+  "fireworks_ai/accounts/fireworks/models/flux-kontext-pro",
+  "fireworks_ai/accounts/fireworks/models/gemma-2b-it",
+  "fireworks_ai/accounts/fireworks/models/gemma-3-27b-it",
+  "fireworks_ai/accounts/fireworks/models/gemma-7b",
+  "fireworks_ai/accounts/fireworks/models/gemma-7b-it",
+  "fireworks_ai/accounts/fireworks/models/gemma2-9b-it",
+  "fireworks_ai/accounts/fireworks/models/glm-4p5",
+  "fireworks_ai/accounts/fireworks/models/glm-4p5-air",
+  "fireworks_ai/accounts/fireworks/models/glm-4p5v",
+  "fireworks_ai/accounts/fireworks/models/glm-4p6",
+  "fireworks_ai/accounts/fireworks/models/glm-4p7",
+  "fireworks_ai/accounts/fireworks/models/glm-5p1",
+  "fireworks_ai/accounts/fireworks/models/glm-5p2",
+  "fireworks_ai/accounts/fireworks/models/gpt-oss-120b",
+  "fireworks_ai/accounts/fireworks/models/gpt-oss-20b",
+  "fireworks_ai/accounts/fireworks/models/gpt-oss-safeguard-120b",
+  "fireworks_ai/accounts/fireworks/models/gpt-oss-safeguard-20b",
+  "fireworks_ai/accounts/fireworks/models/hermes-2-pro-mistral-7b",
+  "fireworks_ai/accounts/fireworks/models/internvl3-38b",
+  "fireworks_ai/accounts/fireworks/models/internvl3-78b",
+  "fireworks_ai/accounts/fireworks/models/internvl3-8b",
+  "fireworks_ai/accounts/fireworks/models/japanese-stable-diffusion-xl",
+  "fireworks_ai/accounts/fireworks/models/kat-coder",
+  "fireworks_ai/accounts/fireworks/models/kat-dev-32b",
+  "fireworks_ai/accounts/fireworks/models/kat-dev-72b-exp",
+  "fireworks_ai/accounts/fireworks/models/kimi-k2-instruct",
+  "fireworks_ai/accounts/fireworks/models/kimi-k2-instruct-0905",
+  "fireworks_ai/accounts/fireworks/models/kimi-k2-thinking",
+  "fireworks_ai/accounts/fireworks/models/kimi-k2p5",
+  "fireworks_ai/accounts/fireworks/models/kimi-k2p6",
+  "fireworks_ai/accounts/fireworks/models/kimi-k2p7-code",
+  "fireworks_ai/accounts/fireworks/models/llama-guard-2-8b",
+  "fireworks_ai/accounts/fireworks/models/llama-guard-3-1b",
+  "fireworks_ai/accounts/fireworks/models/llama-guard-3-8b",
+  "fireworks_ai/accounts/fireworks/models/llama-v2-13b",
+  "fireworks_ai/accounts/fireworks/models/llama-v2-13b-chat",
+  "fireworks_ai/accounts/fireworks/models/llama-v2-70b",
+  "fireworks_ai/accounts/fireworks/models/llama-v2-70b-chat",
+  "fireworks_ai/accounts/fireworks/models/llama-v2-7b",
+  "fireworks_ai/accounts/fireworks/models/llama-v2-7b-chat",
+  "fireworks_ai/accounts/fireworks/models/llama-v3-70b-instruct",
+  "fireworks_ai/accounts/fireworks/models/llama-v3-70b-instruct-hf",
+  "fireworks_ai/accounts/fireworks/models/llama-v3-8b",
+  "fireworks_ai/accounts/fireworks/models/llama-v3-8b-instruct-hf",
+  "fireworks_ai/accounts/fireworks/models/llama-v3p1-405b-instruct",
+  "fireworks_ai/accounts/fireworks/models/llama-v3p1-405b-instruct-long",
+  "fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct",
+  "fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct-1b",
+  "fireworks_ai/accounts/fireworks/models/llama-v3p1-8b-instruct",
+  "fireworks_ai/accounts/fireworks/models/llama-v3p1-nemotron-70b-instruct",
+  "fireworks_ai/accounts/fireworks/models/llama-v3p2-11b-vision-instruct",
+  "fireworks_ai/accounts/fireworks/models/llama-v3p2-1b",
+  "fireworks_ai/accounts/fireworks/models/llama-v3p2-1b-instruct",
+  "fireworks_ai/accounts/fireworks/models/llama-v3p2-3b",
+  "fireworks_ai/accounts/fireworks/models/llama-v3p2-3b-instruct",
+  "fireworks_ai/accounts/fireworks/models/llama-v3p2-90b-vision-instruct",
+  "fireworks_ai/accounts/fireworks/models/llama-v3p3-70b-instruct",
+  "fireworks_ai/accounts/fireworks/models/llama4-maverick-instruct-basic",
+  "fireworks_ai/accounts/fireworks/models/llama4-scout-instruct-basic",
+  "fireworks_ai/accounts/fireworks/models/llamaguard-7b",
+  "fireworks_ai/accounts/fireworks/models/llava-yi-34b",
+  "fireworks_ai/accounts/fireworks/models/minimax-m1-80k",
+  "fireworks_ai/accounts/fireworks/models/minimax-m2",
+  "fireworks_ai/accounts/fireworks/models/minimax-m2p1",
+  "fireworks_ai/accounts/fireworks/models/minimax-m2p7",
+  "fireworks_ai/accounts/fireworks/models/minimax-m3",
+  "fireworks_ai/accounts/fireworks/models/ministral-3-14b-instruct-2512",
+  "fireworks_ai/accounts/fireworks/models/ministral-3-3b-instruct-2512",
+  "fireworks_ai/accounts/fireworks/models/ministral-3-8b-instruct-2512",
+  "fireworks_ai/accounts/fireworks/models/mistral-7b",
+  "fireworks_ai/accounts/fireworks/models/mistral-7b-instruct-4k",
+  "fireworks_ai/accounts/fireworks/models/mistral-7b-instruct-v0p2",
+  "fireworks_ai/accounts/fireworks/models/mistral-7b-instruct-v3",
+  "fireworks_ai/accounts/fireworks/models/mistral-7b-v0p2",
+  "fireworks_ai/accounts/fireworks/models/mistral-large-3-fp8",
+  "fireworks_ai/accounts/fireworks/models/mistral-nemo-base-2407",
+  "fireworks_ai/accounts/fireworks/models/mistral-nemo-instruct-2407",
+  "fireworks_ai/accounts/fireworks/models/mistral-small-24b-instruct-2501",
+  "fireworks_ai/accounts/fireworks/models/mixtral-8x22b",
+  "fireworks_ai/accounts/fireworks/models/mixtral-8x22b-instruct",
+  "fireworks_ai/accounts/fireworks/models/mixtral-8x22b-instruct-hf",
+  "fireworks_ai/accounts/fireworks/models/mixtral-8x7b",
+  "fireworks_ai/accounts/fireworks/models/mixtral-8x7b-instruct",
+  "fireworks_ai/accounts/fireworks/models/mixtral-8x7b-instruct-hf",
+  "fireworks_ai/accounts/fireworks/models/mythomax-l2-13b",
+  "fireworks_ai/accounts/fireworks/models/nemotron-nano-v2-12b-vl",
+  "fireworks_ai/accounts/fireworks/models/nous-capybara-7b-v1p9",
+  "fireworks_ai/accounts/fireworks/models/nous-hermes-2-mixtral-8x7b-dpo",
+  "fireworks_ai/accounts/fireworks/models/nous-hermes-2-yi-34b",
+  "fireworks_ai/accounts/fireworks/models/nous-hermes-llama2-13b",
+  "fireworks_ai/accounts/fireworks/models/nous-hermes-llama2-70b",
+  "fireworks_ai/accounts/fireworks/models/nous-hermes-llama2-7b",
+  "fireworks_ai/accounts/fireworks/models/nvidia-nemotron-nano-12b-v2",
+  "fireworks_ai/accounts/fireworks/models/nvidia-nemotron-nano-9b-v2",
+  "fireworks_ai/accounts/fireworks/models/openchat-3p5-0106-7b",
+  "fireworks_ai/accounts/fireworks/models/openhermes-2-mistral-7b",
+  "fireworks_ai/accounts/fireworks/models/openhermes-2p5-mistral-7b",
+  "fireworks_ai/accounts/fireworks/models/openorca-7b",
+  "fireworks_ai/accounts/fireworks/models/phi-2-3b",
+  "fireworks_ai/accounts/fireworks/models/phi-3-mini-128k-instruct",
+  "fireworks_ai/accounts/fireworks/models/phi-3-vision-128k-instruct",
+  "fireworks_ai/accounts/fireworks/models/phind-code-llama-34b-python-v1",
+  "fireworks_ai/accounts/fireworks/models/phind-code-llama-34b-v1",
+  "fireworks_ai/accounts/fireworks/models/phind-code-llama-34b-v2",
+  "fireworks_ai/accounts/fireworks/models/playground-v2-1024px-aesthetic",
+  "fireworks_ai/accounts/fireworks/models/playground-v2-5-1024px-aesthetic",
+  "fireworks_ai/accounts/fireworks/models/pythia-12b",
+  "fireworks_ai/accounts/fireworks/models/qwen-qwq-32b-preview",
+  "fireworks_ai/accounts/fireworks/models/qwen-v2p5-14b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen-v2p5-7b",
+  "fireworks_ai/accounts/fireworks/models/qwen1p5-72b-chat",
+  "fireworks_ai/accounts/fireworks/models/qwen2-72b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen2-7b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen2-vl-2b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen2-vl-72b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen2-vl-7b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-0p5b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-14b",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-1p5b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-32b",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-32b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-72b",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-72b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-7b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-0p5b",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-0p5b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-14b",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-14b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-1p5b",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-1p5b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-32b",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-32b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-32b-instruct-128k",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-32b-instruct-32k-rope",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-32b-instruct-64k",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-3b",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-3b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-7b",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-7b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-math-72b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-vl-32b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-vl-3b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-vl-72b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-vl-7b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen3-0p6b",
+  "fireworks_ai/accounts/fireworks/models/qwen3-14b",
+  "fireworks_ai/accounts/fireworks/models/qwen3-1p7b",
+  "fireworks_ai/accounts/fireworks/models/qwen3-1p7b-fp8-draft",
+  "fireworks_ai/accounts/fireworks/models/qwen3-1p7b-fp8-draft-131072",
+  "fireworks_ai/accounts/fireworks/models/qwen3-1p7b-fp8-draft-40960",
+  "fireworks_ai/accounts/fireworks/models/qwen3-235b-a22b",
+  "fireworks_ai/accounts/fireworks/models/qwen3-235b-a22b-instruct-2507",
+  "fireworks_ai/accounts/fireworks/models/qwen3-235b-a22b-thinking-2507",
+  "fireworks_ai/accounts/fireworks/models/qwen3-30b-a3b",
+  "fireworks_ai/accounts/fireworks/models/qwen3-30b-a3b-instruct-2507",
+  "fireworks_ai/accounts/fireworks/models/qwen3-30b-a3b-thinking-2507",
+  "fireworks_ai/accounts/fireworks/models/qwen3-32b",
+  "fireworks_ai/accounts/fireworks/models/qwen3-4b",
+  "fireworks_ai/accounts/fireworks/models/qwen3-4b-instruct-2507",
+  "fireworks_ai/accounts/fireworks/models/qwen3-8b",
+  "fireworks_ai/accounts/fireworks/models/qwen3-coder-30b-a3b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen3-coder-480b-a35b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen3-coder-480b-instruct-bf16",
+  "fireworks_ai/accounts/fireworks/models/qwen3-embedding-0p6b",
+  "fireworks_ai/accounts/fireworks/models/qwen3-embedding-4b",
+  "fireworks_ai/accounts/fireworks/models/qwen3-next-80b-a3b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen3-next-80b-a3b-thinking",
+  "fireworks_ai/accounts/fireworks/models/qwen3-reranker-0p6b",
+  "fireworks_ai/accounts/fireworks/models/qwen3-reranker-4b",
+  "fireworks_ai/accounts/fireworks/models/qwen3-reranker-8b",
+  "fireworks_ai/accounts/fireworks/models/qwen3-vl-235b-a22b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen3-vl-235b-a22b-thinking",
+  "fireworks_ai/accounts/fireworks/models/qwen3-vl-30b-a3b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen3-vl-30b-a3b-thinking",
+  "fireworks_ai/accounts/fireworks/models/qwen3-vl-32b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen3-vl-8b-instruct",
+  "fireworks_ai/accounts/fireworks/models/qwen3p7-plus",
+  "fireworks_ai/accounts/fireworks/models/qwq-32b",
+  "fireworks_ai/accounts/fireworks/models/rolm-ocr",
+  "fireworks_ai/accounts/fireworks/models/snorkel-mistral-7b-pairrm-dpo",
+  "fireworks_ai/accounts/fireworks/models/stable-diffusion-xl-1024-v1-0",
+  "fireworks_ai/accounts/fireworks/models/stablecode-3b",
+  "fireworks_ai/accounts/fireworks/models/starcoder-16b",
+  "fireworks_ai/accounts/fireworks/models/starcoder-7b",
+  "fireworks_ai/accounts/fireworks/models/starcoder2-15b",
+  "fireworks_ai/accounts/fireworks/models/starcoder2-3b",
+  "fireworks_ai/accounts/fireworks/models/starcoder2-7b",
+  "fireworks_ai/accounts/fireworks/models/toppy-m-7b",
+  "fireworks_ai/accounts/fireworks/models/yi-34b",
+  "fireworks_ai/accounts/fireworks/models/yi-34b-200k-capybara",
+  "fireworks_ai/accounts/fireworks/models/yi-34b-chat",
+  "fireworks_ai/accounts/fireworks/models/yi-6b",
+  "fireworks_ai/accounts/fireworks/models/yi-large",
+  "fireworks_ai/accounts/fireworks/models/zephyr-7b-beta",
+  "fireworks_ai/accounts/fireworks/routers/glm-5p1-fast",
+  "fireworks_ai/accounts/fireworks/routers/kimi-k2p6-fast",
+  "fireworks_ai/accounts/fireworks/routers/kimi-k2p7-code-fast",
+  "fireworks_ai/deepseek-v4-flash",
+  "fireworks_ai/deepseek-v4-pro",
+  "fireworks_ai/glm-4p7",
+  "fireworks_ai/glm-5p1",
+  "fireworks_ai/glm-5p1-fast",
+  "fireworks_ai/glm-5p2",
+  "fireworks_ai/gpt-oss-120b",
+  "fireworks_ai/gpt-oss-20b",
+  "fireworks_ai/kimi-k2p5",
+  "fireworks_ai/kimi-k2p6",
+  "fireworks_ai/kimi-k2p6-fast",
+  "fireworks_ai/kimi-k2p7-code",
+  "fireworks_ai/kimi-k2p7-code-fast",
+  "fireworks_ai/minimax-m2p1",
+  "fireworks_ai/minimax-m2p7",
+  "fireworks_ai/minimax-m3",
+  "fireworks_ai/nomic-ai/nomic-embed-text-v1",
+  "fireworks_ai/nomic-ai/nomic-embed-text-v1.5",
+  "fireworks_ai/qwen3p7-plus",
+  "fireworks_ai/thenlper/gte-base",
+  "fireworks_ai/thenlper/gte-large",
+  "friendliai/meta-llama-3.1-70b-instruct",
+  "friendliai/meta-llama-3.1-8b-instruct",
+  "ft:babbage-002",
+  "ft:davinci-002",
+  "ft:gpt-3.5-turbo",
+  "ft:gpt-3.5-turbo-0125",
+  "ft:gpt-3.5-turbo-0613",
+  "ft:gpt-3.5-turbo-1106",
+  "ft:gpt-4-0613",
+  "ft:gpt-4.1-2025-04-14",
+  "ft:gpt-4.1-mini-2025-04-14",
+  "ft:gpt-4.1-nano-2025-04-14",
+  "ft:gpt-4o-2024-08-06",
+  "ft:gpt-4o-2024-11-20",
+  "ft:gpt-4o-mini-2024-07-18",
+  "ft:o4-mini-2025-04-16",
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-001",
+  "gemini-2.0-flash-exp-image-generation",
+  "gemini-2.0-flash-lite",
+  "gemini-2.0-flash-lite-001",
+  "gemini-2.5-computer-use-preview-10-2025",
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-image",
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-flash-lite-preview-06-17",
+  "gemini-2.5-flash-lite-preview-09-2025",
+  "gemini-2.5-flash-native-audio-latest",
+  "gemini-2.5-flash-native-audio-preview-09-2025",
+  "gemini-2.5-flash-native-audio-preview-12-2025",
+  "gemini-2.5-flash-preview-09-2025",
+  "gemini-2.5-flash-preview-tts",
+  "gemini-2.5-pro",
+  "gemini-2.5-pro-preview-tts",
+  "gemini-3-flash-preview",
+  "gemini-3-pro-image-preview",
+  "gemini-3-pro-preview",
+  "gemini-3.1-flash-image-preview",
+  "gemini-3.1-flash-lite",
+  "gemini-3.1-flash-lite-preview",
+  "gemini-3.1-flash-live-preview",
+  "gemini-3.1-pro-preview",
+  "gemini-3.1-pro-preview-customtools",
+  "gemini-3.5-flash",
+  "gemini-embedding-001",
+  "gemini-embedding-2",
+  "gemini-embedding-2-preview",
+  "gemini-exp-1206",
+  "gemini-flash-experimental",
+  "gemini-flash-latest",
+  "gemini-flash-lite-latest",
+  "gemini-live-2.5-flash-preview-native-audio-09-2025",
+  "gemini-pro-latest",
+  "gemini-robotics-er-1.5-preview",
+  "gemini/deep-research-pro-preview-12-2025",
+  "gemini/gemini-1.5-flash",
+  "gemini/gemini-2.0-flash",
+  "gemini/gemini-2.0-flash-001",
+  "gemini/gemini-2.0-flash-exp-image-generation",
+  "gemini/gemini-2.0-flash-lite",
+  "gemini/gemini-2.0-flash-lite-001",
+  "gemini/gemini-2.5-computer-use-preview-10-2025",
+  "gemini/gemini-2.5-flash",
+  "gemini/gemini-2.5-flash-image",
+  "gemini/gemini-2.5-flash-lite",
+  "gemini/gemini-2.5-flash-lite-preview-06-17",
+  "gemini/gemini-2.5-flash-lite-preview-09-2025",
+  "gemini/gemini-2.5-flash-native-audio-latest",
+  "gemini/gemini-2.5-flash-native-audio-preview-09-2025",
+  "gemini/gemini-2.5-flash-native-audio-preview-12-2025",
+  "gemini/gemini-2.5-flash-preview-09-2025",
+  "gemini/gemini-2.5-flash-preview-tts",
+  "gemini/gemini-2.5-pro",
+  "gemini/gemini-2.5-pro-preview-tts",
+  "gemini/gemini-3-flash-preview",
+  "gemini/gemini-3-pro-image-preview",
+  "gemini/gemini-3-pro-preview",
+  "gemini/gemini-3.1-flash-image-preview",
+  "gemini/gemini-3.1-flash-lite",
+  "gemini/gemini-3.1-flash-lite-preview",
+  "gemini/gemini-3.1-flash-live-preview",
+  "gemini/gemini-3.1-pro-preview",
+  "gemini/gemini-3.1-pro-preview-customtools",
+  "gemini/gemini-3.5-flash",
+  "gemini/gemini-embedding-001",
+  "gemini/gemini-embedding-2",
+  "gemini/gemini-embedding-2-preview",
+  "gemini/gemini-exp-1114",
+  "gemini/gemini-exp-1206",
+  "gemini/gemini-flash-latest",
+  "gemini/gemini-flash-lite-latest",
+  "gemini/gemini-gemma-2-27b-it",
+  "gemini/gemini-gemma-2-9b-it",
+  "gemini/gemini-live-2.5-flash-preview-native-audio-09-2025",
+  "gemini/gemini-pro-latest",
+  "gemini/gemini-robotics-er-1.5-preview",
+  "gemini/gemma-3-27b-it",
+  "gemini/imagen-3.0-fast-generate-001",
+  "gemini/imagen-3.0-generate-001",
+  "gemini/imagen-3.0-generate-002",
+  "gemini/imagen-4.0-fast-generate-001",
+  "gemini/imagen-4.0-generate-001",
+  "gemini/imagen-4.0-ultra-generate-001",
+  "gemini/learnlm-1.5-pro-experimental",
+  "gemini/lyria-3-clip-preview",
+  "gemini/lyria-3-pro-preview",
+  "gemini/veo-2.0-generate-001",
+  "gemini/veo-3.1-fast-generate-001",
+  "gemini/veo-3.1-fast-generate-preview",
+  "gemini/veo-3.1-generate-001",
+  "gemini/veo-3.1-generate-preview",
+  "gemini/veo-3.1-lite-generate-preview",
+  "gigachat/Embeddings",
+  "gigachat/Embeddings-2",
+  "gigachat/EmbeddingsGigaR",
+  "gigachat/GigaChat-2-Lite",
+  "gigachat/GigaChat-2-Max",
+  "gigachat/GigaChat-2-Pro",
+  "github_copilot/claude-haiku-4.5",
+  "github_copilot/claude-opus-4.5",
+  "github_copilot/claude-opus-4.6-fast",
+  "github_copilot/claude-opus-41",
+  "github_copilot/claude-sonnet-4",
+  "github_copilot/claude-sonnet-4.5",
+  "github_copilot/gemini-2.5-pro",
+  "github_copilot/gemini-3-pro-preview",
+  "github_copilot/gpt-3.5-turbo",
+  "github_copilot/gpt-3.5-turbo-0613",
+  "github_copilot/gpt-4",
+  "github_copilot/gpt-4-0613",
+  "github_copilot/gpt-4-o-preview",
+  "github_copilot/gpt-4.1",
+  "github_copilot/gpt-4.1-2025-04-14",
+  "github_copilot/gpt-41-copilot",
+  "github_copilot/gpt-4o",
+  "github_copilot/gpt-4o-2024-05-13",
+  "github_copilot/gpt-4o-2024-08-06",
+  "github_copilot/gpt-4o-2024-11-20",
+  "github_copilot/gpt-4o-mini",
+  "github_copilot/gpt-4o-mini-2024-07-18",
+  "github_copilot/gpt-5",
+  "github_copilot/gpt-5-mini",
+  "github_copilot/gpt-5.1",
+  "github_copilot/gpt-5.1-codex-max",
+  "github_copilot/gpt-5.2",
+  "github_copilot/gpt-5.3-codex",
+  "github_copilot/mai-code-1-flash",
+  "github_copilot/mai-code-1-flash-internal",
+  "github_copilot/text-embedding-3-small",
+  "github_copilot/text-embedding-3-small-inference",
+  "github_copilot/text-embedding-ada-002",
+  "glm-4-7-251222",
+  "global.amazon.nova-2-lite-v1:0",
+  "global.anthropic.claude-fable-5",
+  "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+  "global.anthropic.claude-opus-4-5-20251101-v1:0",
+  "global.anthropic.claude-opus-4-6-v1",
+  "global.anthropic.claude-opus-4-7",
+  "global.anthropic.claude-opus-4-8",
+  "global.anthropic.claude-sonnet-4-20250514-v1:0",
+  "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "global.anthropic.claude-sonnet-4-6",
+  "global.anthropic.claude-sonnet-5",
+  "gmi/MiniMaxAI/MiniMax-M2.1",
+  "gmi/Qwen/Qwen3-VL-235B-A22B-Instruct-FP8",
+  "gmi/anthropic/claude-opus-4",
+  "gmi/anthropic/claude-opus-4.5",
+  "gmi/anthropic/claude-sonnet-4",
+  "gmi/anthropic/claude-sonnet-4.5",
+  "gmi/deepseek-ai/DeepSeek-V3-0324",
+  "gmi/deepseek-ai/DeepSeek-V3.2",
+  "gmi/google/gemini-3-flash-preview",
+  "gmi/google/gemini-3-pro-preview",
+  "gmi/moonshotai/Kimi-K2-Thinking",
+  "gmi/openai/gpt-4o",
+  "gmi/openai/gpt-4o-mini",
+  "gmi/openai/gpt-5",
+  "gmi/openai/gpt-5.1",
+  "gmi/openai/gpt-5.2",
+  "gmi/zai-org/GLM-4.7-FP8",
+  "google.gemma-3-12b-it",
+  "google.gemma-3-27b-it",
+  "google.gemma-3-4b-it",
+  "google_pse/search",
+  "gpt-3.5-turbo",
+  "gpt-3.5-turbo-0125",
+  "gpt-3.5-turbo-1106",
+  "gpt-3.5-turbo-16k",
+  "gpt-3.5-turbo-instruct",
+  "gpt-3.5-turbo-instruct-0914",
+  "gpt-4",
+  "gpt-4-0125-preview",
+  "gpt-4-0314",
+  "gpt-4-0613",
+  "gpt-4-1106-preview",
+  "gpt-4-turbo",
+  "gpt-4-turbo-2024-04-09",
+  "gpt-4-turbo-preview",
+  "gpt-4.1",
+  "gpt-4.1-2025-04-14",
+  "gpt-4.1-mini",
+  "gpt-4.1-mini-2025-04-14",
+  "gpt-4.1-nano",
+  "gpt-4.1-nano-2025-04-14",
+  "gpt-4o",
+  "gpt-4o-2024-05-13",
+  "gpt-4o-2024-08-06",
+  "gpt-4o-2024-11-20",
+  "gpt-4o-audio-preview",
+  "gpt-4o-audio-preview-2024-12-17",
+  "gpt-4o-audio-preview-2025-06-03",
+  "gpt-4o-mini",
+  "gpt-4o-mini-2024-07-18",
+  "gpt-4o-mini-audio-preview",
+  "gpt-4o-mini-audio-preview-2024-12-17",
+  "gpt-4o-mini-realtime-preview",
+  "gpt-4o-mini-realtime-preview-2024-12-17",
+  "gpt-4o-mini-search-preview",
+  "gpt-4o-mini-search-preview-2025-03-11",
+  "gpt-4o-mini-transcribe",
+  "gpt-4o-mini-transcribe-2025-03-20",
+  "gpt-4o-mini-transcribe-2025-12-15",
+  "gpt-4o-mini-tts",
+  "gpt-4o-mini-tts-2025-03-20",
+  "gpt-4o-mini-tts-2025-12-15",
+  "gpt-4o-realtime-preview",
+  "gpt-4o-realtime-preview-2024-12-17",
+  "gpt-4o-realtime-preview-2025-06-03",
+  "gpt-4o-search-preview",
+  "gpt-4o-search-preview-2025-03-11",
+  "gpt-4o-transcribe",
+  "gpt-4o-transcribe-diarize",
+  "gpt-5",
+  "gpt-5-2025-08-07",
+  "gpt-5-chat",
+  "gpt-5-chat-latest",
+  "gpt-5-codex",
+  "gpt-5-mini",
+  "gpt-5-mini-2025-08-07",
+  "gpt-5-nano",
+  "gpt-5-nano-2025-08-07",
+  "gpt-5-pro",
+  "gpt-5-pro-2025-10-06",
+  "gpt-5-search-api",
+  "gpt-5-search-api-2025-10-14",
+  "gpt-5.1",
+  "gpt-5.1-2025-11-13",
+  "gpt-5.1-chat-latest",
+  "gpt-5.1-codex",
+  "gpt-5.1-codex-max",
+  "gpt-5.1-codex-mini",
+  "gpt-5.2",
+  "gpt-5.2-2025-12-11",
+  "gpt-5.2-chat-latest",
+  "gpt-5.2-codex",
+  "gpt-5.2-pro",
+  "gpt-5.2-pro-2025-12-11",
+  "gpt-5.3-chat-latest",
+  "gpt-5.3-codex",
+  "gpt-5.4",
+  "gpt-5.4-2026-03-05",
+  "gpt-5.4-mini",
+  "gpt-5.4-mini-2026-03-17",
+  "gpt-5.4-nano",
+  "gpt-5.4-nano-2026-03-17",
+  "gpt-5.4-pro",
+  "gpt-5.4-pro-2026-03-05",
+  "gpt-5.5",
+  "gpt-5.5-2026-04-23",
+  "gpt-5.5-pro",
+  "gpt-5.5-pro-2026-04-23",
+  "gpt-5.6",
+  "gpt-5.6-luna",
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-audio",
+  "gpt-audio-1.5",
+  "gpt-audio-2025-08-28",
+  "gpt-audio-mini",
+  "gpt-audio-mini-2025-10-06",
+  "gpt-audio-mini-2025-12-15",
+  "gpt-image-1",
+  "gpt-image-1-mini",
+  "gpt-image-1.5",
+  "gpt-image-1.5-2025-12-16",
+  "gpt-image-2",
+  "gpt-image-2-2026-04-21",
+  "gpt-realtime",
+  "gpt-realtime-1.5",
+  "gpt-realtime-2",
+  "gpt-realtime-2.1",
+  "gpt-realtime-2.1-mini",
+  "gpt-realtime-2025-08-28",
+  "gpt-realtime-mini",
+  "gpt-realtime-mini-2025-10-06",
+  "gpt-realtime-mini-2025-12-15",
+  "gpt-realtime-whisper",
+  "gradient_ai/alibaba-qwen3-32b",
+  "gradient_ai/anthropic-claude-3-opus",
+  "gradient_ai/anthropic-claude-3.5-haiku",
+  "gradient_ai/anthropic-claude-3.5-sonnet",
+  "gradient_ai/anthropic-claude-3.7-sonnet",
+  "gradient_ai/deepseek-r1-distill-llama-70b",
+  "gradient_ai/llama3-8b-instruct",
+  "gradient_ai/llama3.3-70b-instruct",
+  "gradient_ai/mistral-nemo-instruct-2407",
+  "gradient_ai/openai-gpt-4o",
+  "gradient_ai/openai-gpt-4o-mini",
+  "gradient_ai/openai-o3",
+  "gradient_ai/openai-o3-mini",
+  "groq/gemma-7b-it",
+  "groq/llama-3.1-8b-instant",
+  "groq/llama-3.3-70b-versatile",
+  "groq/meta-llama/llama-4-maverick-17b-128e-instruct",
+  "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+  "groq/meta-llama/llama-guard-4-12b",
+  "groq/moonshotai/kimi-k2-instruct-0905",
+  "groq/openai/gpt-oss-120b",
+  "groq/openai/gpt-oss-20b",
+  "groq/openai/gpt-oss-safeguard-20b",
+  "groq/playai-tts",
+  "groq/qwen/qwen3-32b",
+  "groq/whisper-large-v3",
+  "groq/whisper-large-v3-turbo",
+  "hd/1024-x-1024/dall-e-3",
+  "hd/1024-x-1792/dall-e-3",
+  "hd/1792-x-1024/dall-e-3",
+  "heroku/claude-3-5-haiku",
+  "heroku/claude-3-5-sonnet-latest",
+  "heroku/claude-3-7-sonnet",
+  "heroku/claude-4-sonnet",
+  "high/1024-x-1024/gpt-image-1",
+  "high/1024-x-1024/gpt-image-1.5",
+  "high/1024-x-1024/gpt-image-1.5-2025-12-16",
+  "high/1024-x-1536/gpt-image-1",
+  "high/1024-x-1536/gpt-image-1.5",
+  "high/1024-x-1536/gpt-image-1.5-2025-12-16",
+  "high/1536-x-1024/gpt-image-1",
+  "high/1536-x-1024/gpt-image-1.5",
+  "high/1536-x-1024/gpt-image-1.5-2025-12-16",
+  "hyperbolic/NousResearch/Hermes-3-Llama-3.1-70B",
+  "hyperbolic/Qwen/QwQ-32B",
+  "hyperbolic/Qwen/Qwen2.5-72B-Instruct",
+  "hyperbolic/Qwen/Qwen2.5-Coder-32B-Instruct",
+  "hyperbolic/Qwen/Qwen3-235B-A22B",
+  "hyperbolic/deepseek-ai/DeepSeek-R1",
+  "hyperbolic/deepseek-ai/DeepSeek-R1-0528",
+  "hyperbolic/deepseek-ai/DeepSeek-V3",
+  "hyperbolic/deepseek-ai/DeepSeek-V3-0324",
+  "hyperbolic/meta-llama/Llama-3.2-3B-Instruct",
+  "hyperbolic/meta-llama/Llama-3.3-70B-Instruct",
+  "hyperbolic/meta-llama/Meta-Llama-3-70B-Instruct",
+  "hyperbolic/meta-llama/Meta-Llama-3.1-405B-Instruct",
+  "hyperbolic/meta-llama/Meta-Llama-3.1-70B-Instruct",
+  "hyperbolic/meta-llama/Meta-Llama-3.1-8B-Instruct",
+  "hyperbolic/moonshotai/Kimi-K2-Instruct",
+  "inception/mercury-2",
+  "j2-light",
+  "j2-mid",
+  "j2-ultra",
+  "jamba-1.5",
+  "jamba-1.5-large",
+  "jamba-1.5-large@001",
+  "jamba-1.5-mini",
+  "jamba-1.5-mini@001",
+  "jamba-large-1.6",
+  "jamba-large-1.7",
+  "jamba-mini-1.6",
+  "jamba-mini-1.7",
+  "jina-reranker-v2-base-multilingual",
+  "jp.anthropic.claude-haiku-4-5-20251001-v1:0",
+  "jp.anthropic.claude-opus-4-7",
+  "jp.anthropic.claude-opus-4-8",
+  "jp.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "jp.anthropic.claude-sonnet-4-6",
+  "jp.anthropic.claude-sonnet-5",
+  "kimi-k2-thinking-251104",
+  "lambda_ai/deepseek-llama3.3-70b",
+  "lambda_ai/deepseek-r1-0528",
+  "lambda_ai/deepseek-r1-671b",
+  "lambda_ai/deepseek-v3-0324",
+  "lambda_ai/hermes3-405b",
+  "lambda_ai/hermes3-70b",
+  "lambda_ai/hermes3-8b",
+  "lambda_ai/lfm-40b",
+  "lambda_ai/lfm-7b",
+  "lambda_ai/llama-4-maverick-17b-128e-instruct-fp8",
+  "lambda_ai/llama-4-scout-17b-16e-instruct",
+  "lambda_ai/llama3.1-405b-instruct-fp8",
+  "lambda_ai/llama3.1-70b-instruct-fp8",
+  "lambda_ai/llama3.1-8b-instruct",
+  "lambda_ai/llama3.1-nemotron-70b-instruct-fp8",
+  "lambda_ai/llama3.2-11b-vision-instruct",
+  "lambda_ai/llama3.2-3b-instruct",
+  "lambda_ai/llama3.3-70b-instruct-fp8",
+  "lambda_ai/qwen25-coder-32b-instruct",
+  "lambda_ai/qwen3-32b-fp8",
+  "lemonade/Gemma-3-4b-it-GGUF",
+  "lemonade/Qwen3-4B-Instruct-2507-GGUF",
+  "lemonade/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+  "lemonade/gpt-oss-120b-mxfp-GGUF",
+  "lemonade/gpt-oss-20b-mxfp4-GGUF",
+  "libertai/bge-m3",
+  "libertai/deepseek-v4-flash",
+  "libertai/deepseek-v4-flash-thinking",
+  "libertai/gemma-4-31b-it",
+  "libertai/gemma-4-31b-it-thinking",
+  "libertai/hermes-3-8b-tee",
+  "libertai/qwen3.5-122b-a10b",
+  "libertai/qwen3.5-122b-a10b-thinking",
+  "libertai/qwen3.6-27b",
+  "libertai/qwen3.6-27b-thinking",
+  "libertai/qwen3.6-35b-a3b",
+  "libertai/qwen3.6-35b-a3b-thinking",
+  "linkup/search",
+  "linkup/search-deep",
+  "llamagate/codellama-7b",
+  "llamagate/deepseek-coder-6.7b",
+  "llamagate/deepseek-r1-7b-qwen",
+  "llamagate/deepseek-r1-8b",
+  "llamagate/dolphin3-8b",
+  "llamagate/gemma3-4b",
+  "llamagate/llama-3.1-8b",
+  "llamagate/llama-3.2-3b",
+  "llamagate/llava-7b",
+  "llamagate/mistral-7b-v0.3",
+  "llamagate/nomic-embed-text",
+  "llamagate/openthinker-7b",
+  "llamagate/qwen2.5-coder-7b",
+  "llamagate/qwen3-8b",
+  "llamagate/qwen3-embedding-8b",
+  "llamagate/qwen3-vl-8b",
+  "low/1024-x-1024/gpt-image-1",
+  "low/1024-x-1024/gpt-image-1-mini",
+  "low/1024-x-1024/gpt-image-1.5",
+  "low/1024-x-1024/gpt-image-1.5-2025-12-16",
+  "low/1024-x-1536/gpt-image-1",
+  "low/1024-x-1536/gpt-image-1-mini",
+  "low/1024-x-1536/gpt-image-1.5",
+  "low/1024-x-1536/gpt-image-1.5-2025-12-16",
+  "low/1536-x-1024/gpt-image-1",
+  "low/1536-x-1024/gpt-image-1-mini",
+  "low/1536-x-1024/gpt-image-1.5",
+  "low/1536-x-1024/gpt-image-1.5-2025-12-16",
+  "max-x-max/50-steps/stability.stable-diffusion-xl-v0",
+  "max-x-max/max-steps/stability.stable-diffusion-xl-v0",
+  "medium/1024-x-1024/gpt-image-1",
+  "medium/1024-x-1024/gpt-image-1-mini",
+  "medium/1024-x-1024/gpt-image-1.5",
+  "medium/1024-x-1024/gpt-image-1.5-2025-12-16",
+  "medium/1024-x-1536/gpt-image-1",
+  "medium/1024-x-1536/gpt-image-1-mini",
+  "medium/1024-x-1536/gpt-image-1.5",
+  "medium/1024-x-1536/gpt-image-1.5-2025-12-16",
+  "medium/1536-x-1024/gpt-image-1",
+  "medium/1536-x-1024/gpt-image-1-mini",
+  "medium/1536-x-1024/gpt-image-1.5",
+  "medium/1536-x-1024/gpt-image-1.5-2025-12-16",
+  "medlm-large",
+  "medlm-medium",
+  "meta.llama2-13b-chat-v1",
+  "meta.llama2-70b-chat-v1",
+  "meta.llama3-1-405b-instruct-v1:0",
+  "meta.llama3-1-70b-instruct-v1:0",
+  "meta.llama3-1-8b-instruct-v1:0",
+  "meta.llama3-2-11b-instruct-v1:0",
+  "meta.llama3-2-1b-instruct-v1:0",
+  "meta.llama3-2-3b-instruct-v1:0",
+  "meta.llama3-2-90b-instruct-v1:0",
+  "meta.llama3-3-70b-instruct-v1:0",
+  "meta.llama3-70b-instruct-v1:0",
+  "meta.llama3-8b-instruct-v1:0",
+  "meta.llama4-maverick-17b-instruct-v1:0",
+  "meta.llama4-scout-17b-instruct-v1:0",
+  "meta/muse-spark-1.1",
+  "meta_llama/Llama-3.3-70B-Instruct",
+  "meta_llama/Llama-3.3-8B-Instruct",
+  "meta_llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+  "meta_llama/Llama-4-Scout-17B-16E-Instruct-FP8",
+  "minimax.minimax-m2",
+  "minimax.minimax-m2.1",
+  "minimax.minimax-m2.5",
+  "minimax/MiniMax-M2",
+  "minimax/MiniMax-M2.1",
+  "minimax/MiniMax-M2.1-lightning",
+  "minimax/MiniMax-M2.5",
+  "minimax/MiniMax-M2.5-lightning",
+  "minimax/MiniMax-M3",
+  "minimax/speech-02-hd",
+  "minimax/speech-02-turbo",
+  "minimax/speech-2.6-hd",
+  "minimax/speech-2.6-turbo",
+  "mistral.devstral-2-123b",
+  "mistral.magistral-small-2509",
+  "mistral.ministral-3-14b-instruct",
+  "mistral.ministral-3-3b-instruct",
+  "mistral.ministral-3-8b-instruct",
+  "mistral.mistral-7b-instruct-v0:2",
+  "mistral.mistral-large-2402-v1:0",
+  "mistral.mistral-large-2407-v1:0",
+  "mistral.mistral-large-3-675b-instruct",
+  "mistral.mistral-small-2402-v1:0",
+  "mistral.mixtral-8x7b-instruct-v0:1",
+  "mistral.voxtral-mini-3b-2507",
+  "mistral.voxtral-small-24b-2507",
+  "mistral/codestral-2405",
+  "mistral/codestral-2508",
+  "mistral/codestral-embed",
+  "mistral/codestral-embed-2505",
+  "mistral/codestral-latest",
+  "mistral/codestral-mamba-latest",
+  "mistral/devstral-2512",
+  "mistral/devstral-latest",
+  "mistral/devstral-medium-2507",
+  "mistral/devstral-medium-latest",
+  "mistral/devstral-small-2505",
+  "mistral/devstral-small-2507",
+  "mistral/devstral-small-latest",
+  "mistral/labs-devstral-small-2512",
+  "mistral/magistral-medium-1-2-2509",
+  "mistral/magistral-medium-2506",
+  "mistral/magistral-medium-2509",
+  "mistral/magistral-medium-latest",
+  "mistral/magistral-small-1-2-2509",
+  "mistral/magistral-small-2506",
+  "mistral/magistral-small-latest",
+  "mistral/ministral-3-14b-2512",
+  "mistral/ministral-3-3b-2512",
+  "mistral/ministral-3-8b-2512",
+  "mistral/ministral-8b-2512",
+  "mistral/ministral-8b-latest",
+  "mistral/mistral-embed",
+  "mistral/mistral-large-2402",
+  "mistral/mistral-large-2407",
+  "mistral/mistral-large-2411",
+  "mistral/mistral-large-2512",
+  "mistral/mistral-large-3",
+  "mistral/mistral-large-latest",
+  "mistral/mistral-medium",
+  "mistral/mistral-medium-2312",
+  "mistral/mistral-medium-2505",
+  "mistral/mistral-medium-2508",
+  "mistral/mistral-medium-2604",
+  "mistral/mistral-medium-3-1-2508",
+  "mistral/mistral-medium-3-5",
+  "mistral/mistral-medium-latest",
+  "mistral/mistral-ocr-2505-completion",
+  "mistral/mistral-ocr-2512",
+  "mistral/mistral-ocr-4-0",
+  "mistral/mistral-ocr-latest",
+  "mistral/mistral-small",
+  "mistral/mistral-small-3-2-2506",
+  "mistral/mistral-small-latest",
+  "mistral/mistral-tiny",
+  "mistral/open-codestral-mamba",
+  "mistral/open-mistral-7b",
+  "mistral/open-mistral-nemo",
+  "mistral/open-mistral-nemo-2407",
+  "mistral/open-mixtral-8x22b",
+  "mistral/open-mixtral-8x7b",
+  "mistral/pixtral-12b-2409",
+  "mistral/pixtral-large-2411",
+  "mistral/pixtral-large-latest",
+  "moonshot.kimi-k2-thinking",
+  "moonshot/kimi-k2-0711-preview",
+  "moonshot/kimi-k2-0905-preview",
+  "moonshot/kimi-k2-thinking",
+  "moonshot/kimi-k2-thinking-turbo",
+  "moonshot/kimi-k2-turbo-preview",
+  "moonshot/kimi-k2.5",
+  "moonshot/kimi-k2.6",
+  "moonshot/kimi-latest",
+  "moonshot/kimi-latest-128k",
+  "moonshot/kimi-latest-32k",
+  "moonshot/kimi-latest-8k",
+  "moonshot/kimi-thinking-preview",
+  "moonshot/moonshot-v1-128k",
+  "moonshot/moonshot-v1-128k-0430",
+  "moonshot/moonshot-v1-128k-vision-preview",
+  "moonshot/moonshot-v1-32k",
+  "moonshot/moonshot-v1-32k-0430",
+  "moonshot/moonshot-v1-32k-vision-preview",
+  "moonshot/moonshot-v1-8k",
+  "moonshot/moonshot-v1-8k-0430",
+  "moonshot/moonshot-v1-8k-vision-preview",
+  "moonshot/moonshot-v1-auto",
+  "moonshotai.kimi-k2.5",
+  "morph/morph-v3-fast",
+  "morph/morph-v3-large",
+  "multimodalembedding",
+  "multimodalembedding@001",
+  "nebius/BAAI/bge-en-icl",
+  "nebius/BAAI/bge-multilingual-gemma2",
+  "nebius/NousResearch/Hermes-3-Llama-3.1-405B",
+  "nebius/Qwen/QwQ-32B",
+  "nebius/Qwen/Qwen2-VL-72B-Instruct",
+  "nebius/Qwen/Qwen2-VL-7B-Instruct",
+  "nebius/Qwen/Qwen2.5-32B-Instruct",
+  "nebius/Qwen/Qwen2.5-72B-Instruct",
+  "nebius/Qwen/Qwen2.5-Coder-7B",
+  "nebius/Qwen/Qwen2.5-VL-72B-Instruct",
+  "nebius/Qwen/Qwen3-14B",
+  "nebius/Qwen/Qwen3-235B-A22B",
+  "nebius/Qwen/Qwen3-30B-A3B",
+  "nebius/Qwen/Qwen3-32B",
+  "nebius/Qwen/Qwen3-4B",
+  "nebius/deepseek-ai/DeepSeek-R1",
+  "nebius/deepseek-ai/DeepSeek-R1-0528",
+  "nebius/deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+  "nebius/deepseek-ai/DeepSeek-V3",
+  "nebius/deepseek-ai/DeepSeek-V3-0324",
+  "nebius/google/gemma-3-27b-it",
+  "nebius/intfloat/e5-mistral-7b-instruct",
+  "nebius/meta-llama/Llama-3.3-70B-Instruct",
+  "nebius/meta-llama/Llama-Guard-3-8B",
+  "nebius/meta-llama/Meta-Llama-3.1-405B-Instruct",
+  "nebius/meta-llama/Meta-Llama-3.1-70B-Instruct",
+  "nebius/meta-llama/Meta-Llama-3.1-8B-Instruct",
+  "nebius/mistralai/Mistral-Nemo-Instruct-2407",
+  "nebius/nvidia/Llama-3.1-Nemotron-Ultra-253B-v1",
+  "nebius/nvidia/Llama-3.3-Nemotron-Super-49B-v1",
+  "novita/Sao10K/L3-8B-Stheno-v3.2",
+  "novita/baai/bge-m3",
+  "novita/baai/bge-reranker-v2-m3",
+  "novita/baichuan/baichuan-m2-32b",
+  "novita/baidu/ernie-4.5-21B-a3b",
+  "novita/baidu/ernie-4.5-21B-a3b-thinking",
+  "novita/baidu/ernie-4.5-300b-a47b-paddle",
+  "novita/baidu/ernie-4.5-vl-28b-a3b",
+  "novita/baidu/ernie-4.5-vl-28b-a3b-thinking",
+  "novita/baidu/ernie-4.5-vl-424b-a47b",
+  "novita/deepseek/deepseek-ocr",
+  "novita/deepseek/deepseek-prover-v2-671b",
+  "novita/deepseek/deepseek-r1-0528",
+  "novita/deepseek/deepseek-r1-0528-qwen3-8b",
+  "novita/deepseek/deepseek-r1-distill-llama-70b",
+  "novita/deepseek/deepseek-r1-distill-qwen-14b",
+  "novita/deepseek/deepseek-r1-distill-qwen-32b",
+  "novita/deepseek/deepseek-r1-turbo",
+  "novita/deepseek/deepseek-v3-0324",
+  "novita/deepseek/deepseek-v3-turbo",
+  "novita/deepseek/deepseek-v3.1",
+  "novita/deepseek/deepseek-v3.1-terminus",
+  "novita/deepseek/deepseek-v3.2",
+  "novita/deepseek/deepseek-v3.2-exp",
+  "novita/google/gemma-3-12b-it",
+  "novita/google/gemma-3-27b-it",
+  "novita/gryphe/mythomax-l2-13b",
+  "novita/kwaipilot/kat-coder-pro",
+  "novita/meta-llama/llama-3-70b-instruct",
+  "novita/meta-llama/llama-3-8b-instruct",
+  "novita/meta-llama/llama-3.1-8b-instruct",
+  "novita/meta-llama/llama-3.2-3b-instruct",
+  "novita/meta-llama/llama-3.3-70b-instruct",
+  "novita/meta-llama/llama-4-maverick-17b-128e-instruct-fp8",
+  "novita/meta-llama/llama-4-scout-17b-16e-instruct",
+  "novita/microsoft/wizardlm-2-8x22b",
+  "novita/minimax/minimax-m2",
+  "novita/minimax/minimax-m2.1",
+  "novita/minimaxai/minimax-m1-80k",
+  "novita/mistralai/mistral-nemo",
+  "novita/moonshotai/kimi-k2-0905",
+  "novita/moonshotai/kimi-k2-instruct",
+  "novita/moonshotai/kimi-k2-thinking",
+  "novita/nousresearch/hermes-2-pro-llama-3-8b",
+  "novita/openai/gpt-oss-120b",
+  "novita/openai/gpt-oss-20b",
+  "novita/paddlepaddle/paddleocr-vl",
+  "novita/qwen/qwen-2.5-72b-instruct",
+  "novita/qwen/qwen-mt-plus",
+  "novita/qwen/qwen2.5-7b-instruct",
+  "novita/qwen/qwen2.5-vl-72b-instruct",
+  "novita/qwen/qwen3-235b-a22b-fp8",
+  "novita/qwen/qwen3-235b-a22b-instruct-2507",
+  "novita/qwen/qwen3-235b-a22b-thinking-2507",
+  "novita/qwen/qwen3-30b-a3b-fp8",
+  "novita/qwen/qwen3-32b-fp8",
+  "novita/qwen/qwen3-4b-fp8",
+  "novita/qwen/qwen3-8b-fp8",
+  "novita/qwen/qwen3-coder-30b-a3b-instruct",
+  "novita/qwen/qwen3-coder-480b-a35b-instruct",
+  "novita/qwen/qwen3-embedding-0.6b",
+  "novita/qwen/qwen3-embedding-8b",
+  "novita/qwen/qwen3-max",
+  "novita/qwen/qwen3-next-80b-a3b-instruct",
+  "novita/qwen/qwen3-next-80b-a3b-thinking",
+  "novita/qwen/qwen3-omni-30b-a3b-instruct",
+  "novita/qwen/qwen3-omni-30b-a3b-thinking",
+  "novita/qwen/qwen3-reranker-8b",
+  "novita/qwen/qwen3-vl-235b-a22b-instruct",
+  "novita/qwen/qwen3-vl-235b-a22b-thinking",
+  "novita/qwen/qwen3-vl-30b-a3b-instruct",
+  "novita/qwen/qwen3-vl-30b-a3b-thinking",
+  "novita/qwen/qwen3-vl-8b-instruct",
+  "novita/sao10k/l3-70b-euryale-v2.1",
+  "novita/sao10k/l3-8b-lunaris",
+  "novita/sao10k/l31-70b-euryale-v2.2",
+  "novita/skywork/r1v4-lite",
+  "novita/xiaomimimo/mimo-v2-flash",
+  "novita/zai-org/autoglm-phone-9b-multilingual",
+  "novita/zai-org/glm-4.5",
+  "novita/zai-org/glm-4.5-air",
+  "novita/zai-org/glm-4.5v",
+  "novita/zai-org/glm-4.6",
+  "novita/zai-org/glm-4.6v",
+  "novita/zai-org/glm-4.7",
+  "nscale/Qwen/QwQ-32B",
+  "nscale/Qwen/Qwen2.5-Coder-32B-Instruct",
+  "nscale/Qwen/Qwen2.5-Coder-3B-Instruct",
+  "nscale/Qwen/Qwen2.5-Coder-7B-Instruct",
+  "nscale/black-forest-labs/FLUX.1-schnell",
+  "nscale/deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+  "nscale/deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+  "nscale/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+  "nscale/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
+  "nscale/deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+  "nscale/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+  "nscale/meta-llama/Llama-3.1-8B-Instruct",
+  "nscale/meta-llama/Llama-3.3-70B-Instruct",
+  "nscale/meta-llama/Llama-4-Scout-17B-16E-Instruct",
+  "nscale/mistralai/mixtral-8x22b-instruct-v0.1",
+  "nscale/stabilityai/stable-diffusion-xl-base-1.0",
+  "nvidia.nemotron-nano-12b-v2",
+  "nvidia.nemotron-nano-3-30b",
+  "nvidia.nemotron-nano-9b-v2",
+  "nvidia.nemotron-super-3-120b",
+  "nvidia_nim/nvidia/llama-3_2-nv-rerankqa-1b-v2",
+  "nvidia_nim/nvidia/nv-rerankqa-mistral-4b-v3",
+  "nvidia_nim/ranking/nvidia/llama-3.2-nv-rerankqa-1b-v2",
+  "o1",
+  "o1-2024-12-17",
+  "o1-pro",
+  "o1-pro-2025-03-19",
+  "o3",
+  "o3-2025-04-16",
+  "o3-deep-research",
+  "o3-deep-research-2025-06-26",
+  "o3-mini",
+  "o3-mini-2025-01-31",
+  "o3-pro",
+  "o3-pro-2025-06-10",
+  "o4-mini",
+  "o4-mini-2025-04-16",
+  "o4-mini-deep-research",
+  "o4-mini-deep-research-2025-06-26",
+  "oci/cohere.command-a-03-2025",
+  "oci/cohere.command-a-reasoning",
+  "oci/cohere.command-a-reasoning-08-2025",
+  "oci/cohere.command-a-translate-08-2025",
+  "oci/cohere.command-a-vision",
+  "oci/cohere.command-a-vision-07-2025",
+  "oci/cohere.command-latest",
+  "oci/cohere.command-plus-latest",
+  "oci/cohere.command-r-08-2024",
+  "oci/cohere.command-r-plus-08-2024",
+  "oci/cohere.embed-english-image-v3.0",
+  "oci/cohere.embed-english-light-image-v3.0",
+  "oci/cohere.embed-english-light-v3.0",
+  "oci/cohere.embed-english-v3.0",
+  "oci/cohere.embed-multilingual-image-v3.0",
+  "oci/cohere.embed-multilingual-light-image-v3.0",
+  "oci/cohere.embed-multilingual-light-v3.0",
+  "oci/cohere.embed-multilingual-v3.0",
+  "oci/cohere.embed-v4.0",
+  "oci/google.gemini-2.5-flash",
+  "oci/google.gemini-2.5-flash-lite",
+  "oci/google.gemini-2.5-pro",
+  "oci/meta.llama-3.1-405b-instruct",
+  "oci/meta.llama-3.1-70b-instruct",
+  "oci/meta.llama-3.1-8b-instruct",
+  "oci/meta.llama-3.2-11b-vision-instruct",
+  "oci/meta.llama-3.2-90b-vision-instruct",
+  "oci/meta.llama-3.3-70b-instruct",
+  "oci/meta.llama-3.3-70b-instruct-fp8-dynamic",
+  "oci/meta.llama-4-maverick-17b-128e-instruct-fp8",
+  "oci/meta.llama-4-scout-17b-16e-instruct",
+  "oci/openai.gpt-5",
+  "oci/openai.gpt-5-mini",
+  "oci/openai.gpt-5-nano",
+  "oci/xai.grok-3",
+  "oci/xai.grok-3-fast",
+  "oci/xai.grok-3-mini",
+  "oci/xai.grok-3-mini-fast",
+  "oci/xai.grok-4",
+  "oci/xai.grok-4-fast",
+  "oci/xai.grok-4.1-fast",
+  "oci/xai.grok-4.20",
+  "oci/xai.grok-4.20-multi-agent",
+  "oci/xai.grok-code-fast-1",
+  "ollama/codegeex4",
+  "ollama/codegemma",
+  "ollama/codellama",
+  "ollama/deepseek-coder-v2-base",
+  "ollama/deepseek-coder-v2-instruct",
+  "ollama/deepseek-coder-v2-lite-base",
+  "ollama/deepseek-coder-v2-lite-instruct",
+  "ollama/deepseek-v3.1:671b-cloud",
+  "ollama/gpt-oss:120b-cloud",
+  "ollama/gpt-oss:20b-cloud",
+  "ollama/internlm2_5-20b-chat",
+  "ollama/llama2",
+  "ollama/llama2-uncensored",
+  "ollama/llama2:13b",
+  "ollama/llama2:70b",
+  "ollama/llama2:7b",
+  "ollama/llama3",
+  "ollama/llama3.1",
+  "ollama/llama3:70b",
+  "ollama/llama3:8b",
+  "ollama/mistral",
+  "ollama/mistral-7B-Instruct-v0.1",
+  "ollama/mistral-7B-Instruct-v0.2",
+  "ollama/mistral-large-instruct-2407",
+  "ollama/mixtral-8x22B-Instruct-v0.1",
+  "ollama/mixtral-8x7B-Instruct-v0.1",
+  "ollama/orca-mini",
+  "ollama/qwen3-coder:480b-cloud",
+  "ollama/vicuna",
+  "omni-moderation-2024-09-26",
+  "omni-moderation-latest",
+  "openai.gpt-oss-120b-1:0",
+  "openai.gpt-oss-20b-1:0",
+  "openai.gpt-oss-safeguard-120b",
+  "openai.gpt-oss-safeguard-20b",
+  "openai/container",
+  "openai/sora-2",
+  "openai/sora-2-pro",
+  "openai/sora-2-pro-high-res",
+  "openrouter/anthropic/claude-3-haiku",
+  "openrouter/anthropic/claude-3.5-sonnet",
+  "openrouter/anthropic/claude-3.7-sonnet",
+  "openrouter/anthropic/claude-haiku-4.5",
+  "openrouter/anthropic/claude-opus-4",
+  "openrouter/anthropic/claude-opus-4.1",
+  "openrouter/anthropic/claude-opus-4.5",
+  "openrouter/anthropic/claude-opus-4.6",
+  "openrouter/anthropic/claude-opus-4.7",
+  "openrouter/anthropic/claude-sonnet-4",
+  "openrouter/anthropic/claude-sonnet-4.5",
+  "openrouter/anthropic/claude-sonnet-4.6",
+  "openrouter/bytedance/ui-tars-1.5-7b",
+  "openrouter/deepseek/deepseek-chat",
+  "openrouter/deepseek/deepseek-chat-v3-0324",
+  "openrouter/deepseek/deepseek-chat-v3.1",
+  "openrouter/deepseek/deepseek-r1",
+  "openrouter/deepseek/deepseek-r1-0528",
+  "openrouter/deepseek/deepseek-v3.2",
+  "openrouter/deepseek/deepseek-v3.2-exp",
+  "openrouter/google/gemini-2.0-flash-001",
+  "openrouter/google/gemini-2.5-flash",
+  "openrouter/google/gemini-2.5-pro",
+  "openrouter/google/gemini-3-flash-preview",
+  "openrouter/google/gemini-3-pro-preview",
+  "openrouter/google/gemini-3.1-flash-lite",
+  "openrouter/google/gemini-3.1-flash-lite-preview",
+  "openrouter/google/gemini-3.1-pro-preview",
+  "openrouter/gryphe/mythomax-l2-13b",
+  "openrouter/mancer/weaver",
+  "openrouter/meta-llama/llama-3-70b-instruct",
+  "openrouter/minimax/minimax-m2",
+  "openrouter/minimax/minimax-m2.1",
+  "openrouter/minimax/minimax-m2.5",
+  "openrouter/mistralai/devstral-2512",
+  "openrouter/mistralai/ministral-14b-2512",
+  "openrouter/mistralai/ministral-3b-2512",
+  "openrouter/mistralai/ministral-8b-2512",
+  "openrouter/mistralai/mistral-7b-instruct",
+  "openrouter/mistralai/mistral-large",
+  "openrouter/mistralai/mistral-large-2512",
+  "openrouter/mistralai/mistral-small-3.1-24b-instruct",
+  "openrouter/mistralai/mistral-small-3.2-24b-instruct",
+  "openrouter/mistralai/mixtral-8x22b-instruct",
+  "openrouter/moonshotai/kimi-k2.5",
+  "openrouter/openai/gpt-3.5-turbo",
+  "openrouter/openai/gpt-3.5-turbo-16k",
+  "openrouter/openai/gpt-4",
+  "openrouter/openai/gpt-4.1",
+  "openrouter/openai/gpt-4.1-mini",
+  "openrouter/openai/gpt-4.1-nano",
+  "openrouter/openai/gpt-4o",
+  "openrouter/openai/gpt-4o-2024-05-13",
+  "openrouter/openai/gpt-5",
+  "openrouter/openai/gpt-5-chat",
+  "openrouter/openai/gpt-5-codex",
+  "openrouter/openai/gpt-5-mini",
+  "openrouter/openai/gpt-5-nano",
+  "openrouter/openai/gpt-5.1-codex-max",
+  "openrouter/openai/gpt-5.2",
+  "openrouter/openai/gpt-5.2-chat",
+  "openrouter/openai/gpt-5.2-codex",
+  "openrouter/openai/gpt-5.2-pro",
+  "openrouter/openai/gpt-oss-120b",
+  "openrouter/openai/gpt-oss-20b",
+  "openrouter/openai/o1",
+  "openrouter/openai/o3-mini",
+  "openrouter/openai/o3-mini-high",
+  "openrouter/openrouter/auto",
+  "openrouter/openrouter/bodybuilder",
+  "openrouter/openrouter/free",
+  "openrouter/qwen/qwen-2.5-coder-32b-instruct",
+  "openrouter/qwen/qwen-vl-plus",
+  "openrouter/qwen/qwen3-235b-a22b-2507",
+  "openrouter/qwen/qwen3-235b-a22b-thinking-2507",
+  "openrouter/qwen/qwen3-coder",
+  "openrouter/qwen/qwen3-coder-plus",
+  "openrouter/qwen/qwen3.5-122b-a10b",
+  "openrouter/qwen/qwen3.5-27b",
+  "openrouter/qwen/qwen3.5-35b-a3b",
+  "openrouter/qwen/qwen3.5-397b-a17b",
+  "openrouter/qwen/qwen3.5-flash-02-23",
+  "openrouter/qwen/qwen3.5-plus-02-15",
+  "openrouter/qwen/qwen3.6-plus",
+  "openrouter/switchpoint/router",
+  "openrouter/undi95/remm-slerp-l2-13b",
+  "openrouter/x-ai/grok-4",
+  "openrouter/xiaomi/mimo-v2-flash",
+  "openrouter/xiaomi/mimo-v2.5",
+  "openrouter/xiaomi/mimo-v2.5-pro",
+  "openrouter/z-ai/glm-4.6",
+  "openrouter/z-ai/glm-4.6:exacto",
+  "openrouter/z-ai/glm-4.7",
+  "openrouter/z-ai/glm-4.7-flash",
+  "openrouter/z-ai/glm-5",
+  "ovhcloud/DeepSeek-R1-Distill-Llama-70B",
+  "ovhcloud/Llama-3.1-8B-Instruct",
+  "ovhcloud/Meta-Llama-3_1-70B-Instruct",
+  "ovhcloud/Meta-Llama-3_3-70B-Instruct",
+  "ovhcloud/Mistral-7B-Instruct-v0.3",
+  "ovhcloud/Mistral-Nemo-Instruct-2407",
+  "ovhcloud/Mistral-Small-3.2-24B-Instruct-2506",
+  "ovhcloud/Mixtral-8x7B-Instruct-v0.1",
+  "ovhcloud/Qwen2.5-Coder-32B-Instruct",
+  "ovhcloud/Qwen2.5-VL-72B-Instruct",
+  "ovhcloud/Qwen3-32B",
+  "ovhcloud/gpt-oss-120b",
+  "ovhcloud/gpt-oss-20b",
+  "ovhcloud/llava-v1.6-mistral-7b-hf",
+  "ovhcloud/mamba-codestral-7B-v0.1",
+  "palm/chat-bison",
+  "palm/chat-bison-001",
+  "palm/text-bison",
+  "palm/text-bison-001",
+  "palm/text-bison-safety-off",
+  "palm/text-bison-safety-recitation-off",
+  "parallel_ai/search",
+  "parallel_ai/search-pro",
+  "perplexity/anthropic/claude-haiku-4-5",
+  "perplexity/anthropic/claude-opus-4-5",
+  "perplexity/anthropic/claude-opus-4-6",
+  "perplexity/anthropic/claude-opus-4-7",
+  "perplexity/anthropic/claude-sonnet-4-5",
+  "perplexity/codellama-34b-instruct",
+  "perplexity/codellama-70b-instruct",
+  "perplexity/google/gemini-2.5-flash",
+  "perplexity/google/gemini-2.5-pro",
+  "perplexity/google/gemini-3-flash-preview",
+  "perplexity/google/gemini-3-pro-preview",
+  "perplexity/llama-2-70b-chat",
+  "perplexity/llama-3.1-70b-instruct",
+  "perplexity/llama-3.1-8b-instruct",
+  "perplexity/mistral-7b-instruct",
+  "perplexity/mixtral-8x7b-instruct",
+  "perplexity/openai/gpt-5-mini",
+  "perplexity/openai/gpt-5.1",
+  "perplexity/openai/gpt-5.2",
+  "perplexity/perplexity/sonar",
+  "perplexity/pplx-70b-chat",
+  "perplexity/pplx-70b-online",
+  "perplexity/pplx-7b-chat",
+  "perplexity/pplx-7b-online",
+  "perplexity/pplx-embed-v1-0.6b",
+  "perplexity/pplx-embed-v1-4b",
+  "perplexity/preset/advanced-deep-research",
+  "perplexity/preset/deep-research",
+  "perplexity/preset/fast-search",
+  "perplexity/preset/pro-search",
+  "perplexity/search",
+  "perplexity/sonar",
+  "perplexity/sonar-deep-research",
+  "perplexity/sonar-medium-chat",
+  "perplexity/sonar-medium-online",
+  "perplexity/sonar-pro",
+  "perplexity/sonar-reasoning",
+  "perplexity/sonar-reasoning-pro",
+  "perplexity/sonar-small-chat",
+  "perplexity/sonar-small-online",
+  "perplexity/xai/grok-4-1-fast-non-reasoning",
+  "pinstripes/ps/deepseek-v4-flash",
+  "pinstripes/ps/glm-4.5-air",
+  "pinstripes/ps/minimax-m2.7",
+  "pinstripes/ps/qwen3-30b-a3b",
+  "pinstripes/ps/qwen3-coder-30b-a3b",
+  "pinstripes/ps/qwen3.6-35b-a3b",
+  "publicai/BSC-LT/ALIA-40b-instruct_Q8_0",
+  "publicai/BSC-LT/salamandra-7b-instruct-tools-16k",
+  "publicai/aisingapore/Gemma-SEA-LION-v4-27B-IT",
+  "publicai/aisingapore/Qwen-SEA-LION-v4-32B-IT",
+  "publicai/allenai/Olmo-3-32B-Think",
+  "publicai/allenai/Olmo-3-7B-Instruct",
+  "publicai/allenai/Olmo-3-7B-Think",
+  "publicai/swiss-ai/apertus-70b-instruct",
+  "publicai/swiss-ai/apertus-8b-instruct",
+  "qwen.qwen3-235b-a22b-2507-v1:0",
+  "qwen.qwen3-32b-v1:0",
+  "qwen.qwen3-coder-30b-a3b-v1:0",
+  "qwen.qwen3-coder-480b-a35b-v1:0",
+  "qwen.qwen3-coder-next",
+  "qwen.qwen3-next-80b-a3b",
+  "qwen.qwen3-vl-235b-a22b",
+  "recraft/recraftv2",
+  "recraft/recraftv3",
+  "reducto/parse-legacy",
+  "reducto/parse-v3",
+  "replicate/anthropic/claude-3.5-haiku",
+  "replicate/anthropic/claude-3.5-sonnet",
+  "replicate/anthropic/claude-3.7-sonnet",
+  "replicate/anthropic/claude-4-sonnet",
+  "replicate/anthropic/claude-4.5-haiku",
+  "replicate/anthropic/claude-4.5-sonnet",
+  "replicate/deepseek-ai/deepseek-r1",
+  "replicate/deepseek-ai/deepseek-v3",
+  "replicate/deepseek-ai/deepseek-v3.1",
+  "replicate/google/gemini-2.5-flash",
+  "replicate/google/gemini-3-pro",
+  "replicate/ibm-granite/granite-3.3-8b-instruct",
+  "replicate/meta/llama-2-13b",
+  "replicate/meta/llama-2-13b-chat",
+  "replicate/meta/llama-2-70b",
+  "replicate/meta/llama-2-70b-chat",
+  "replicate/meta/llama-2-7b",
+  "replicate/meta/llama-2-7b-chat",
+  "replicate/meta/llama-3-70b",
+  "replicate/meta/llama-3-70b-instruct",
+  "replicate/meta/llama-3-8b",
+  "replicate/meta/llama-3-8b-instruct",
+  "replicate/mistralai/mistral-7b-instruct-v0.2",
+  "replicate/mistralai/mistral-7b-v0.1",
+  "replicate/mistralai/mixtral-8x7b-instruct-v0.1",
+  "replicate/openai/gpt-4.1",
+  "replicate/openai/gpt-4.1-mini",
+  "replicate/openai/gpt-4.1-nano",
+  "replicate/openai/gpt-4o",
+  "replicate/openai/gpt-4o-mini",
+  "replicate/openai/gpt-5",
+  "replicate/openai/gpt-5-mini",
+  "replicate/openai/gpt-5-nano",
+  "replicate/openai/gpt-oss-120b",
+  "replicate/openai/o1",
+  "replicate/openai/o1-mini",
+  "replicate/openai/o4-mini",
+  "replicate/qwen/qwen3-235b-a22b-instruct-2507",
+  "replicate/xai/grok-4",
+  "replicateopenai/gpt-oss-20b",
+  "rerank-english-v2.0",
+  "rerank-english-v3.0",
+  "rerank-multilingual-v2.0",
+  "rerank-multilingual-v3.0",
+  "rerank-v3.5",
+  "runwayml/eleven_multilingual_v2",
+  "runwayml/gen3a_turbo",
+  "runwayml/gen4_aleph",
+  "runwayml/gen4_image",
+  "runwayml/gen4_image_turbo",
+  "runwayml/gen4_turbo",
+  "sagemaker/meta-textgeneration-llama-2-13b",
+  "sagemaker/meta-textgeneration-llama-2-13b-f",
+  "sagemaker/meta-textgeneration-llama-2-70b",
+  "sagemaker/meta-textgeneration-llama-2-70b-b-f",
+  "sagemaker/meta-textgeneration-llama-2-7b",
+  "sagemaker/meta-textgeneration-llama-2-7b-f",
+  "sambanova/DeepSeek-R1",
+  "sambanova/DeepSeek-R1-Distill-Llama-70B",
+  "sambanova/DeepSeek-V3-0324",
+  "sambanova/DeepSeek-V3.1",
+  "sambanova/DeepSeek-V3.2",
+  "sambanova/Llama-4-Maverick-17B-128E-Instruct",
+  "sambanova/Llama-4-Scout-17B-16E-Instruct",
+  "sambanova/Meta-Llama-3.1-405B-Instruct",
+  "sambanova/Meta-Llama-3.1-8B-Instruct",
+  "sambanova/Meta-Llama-3.2-1B-Instruct",
+  "sambanova/Meta-Llama-3.2-3B-Instruct",
+  "sambanova/Meta-Llama-3.3-70B-Instruct",
+  "sambanova/Meta-Llama-Guard-3-8B",
+  "sambanova/MiniMax-M2.7",
+  "sambanova/QwQ-32B",
+  "sambanova/Qwen2-Audio-7B-Instruct",
+  "sambanova/Qwen3-32B",
+  "sambanova/gemma-4-31B-it",
+  "sambanova/gpt-oss-120b",
+  "sample_spec",
+  "sarvam/sarvam-m",
+  "scaleway/BAAI/bge-multilingual-gemma2",
+  "scaleway/google/gemma-3-27b-it",
+  "scaleway/google/gemma-4-26b-a4b-it",
+  "scaleway/hcompany/holo2-30b-a3b",
+  "scaleway/meta/llama-3.3-70b-instruct",
+  "scaleway/mistralai/devstral-2-123b-instruct-2512",
+  "scaleway/mistralai/mistral-medium-3.5-128b",
+  "scaleway/mistralai/mistral-small-3.2-24b-instruct-2506",
+  "scaleway/mistralai/pixtral-12b-2409",
+  "scaleway/mistralai/voxtral-small-24b-2507",
+  "scaleway/openai/gpt-oss-120b",
+  "scaleway/openai/whisper-large-v3",
+  "scaleway/qwen/qwen3-235b-a22b-instruct-2507",
+  "scaleway/qwen/qwen3-coder-30b-a3b-instruct",
+  "scaleway/qwen/qwen3-embedding-8b",
+  "scaleway/qwen/qwen3.5-397b-a17b",
+  "scaleway/qwen/qwen3.6-35b-a3b",
+  "searxng/search",
+  "serper/search",
+  "snowflake/claude-3-5-sonnet",
+  "snowflake/claude-3-7-sonnet",
+  "snowflake/claude-4-opus",
+  "snowflake/claude-4-sonnet",
+  "snowflake/claude-haiku-4-5",
+  "snowflake/claude-sonnet-4-5",
+  "snowflake/claude-sonnet-4-6",
+  "snowflake/deepseek-r1",
+  "snowflake/gemma-7b",
+  "snowflake/jamba-1.5-large",
+  "snowflake/jamba-1.5-mini",
+  "snowflake/jamba-instruct",
+  "snowflake/llama2-70b-chat",
+  "snowflake/llama3-70b",
+  "snowflake/llama3-8b",
+  "snowflake/llama3.1-405b",
+  "snowflake/llama3.1-70b",
+  "snowflake/llama3.1-8b",
+  "snowflake/llama3.2-1b",
+  "snowflake/llama3.2-3b",
+  "snowflake/llama3.3-70b",
+  "snowflake/llama4-maverick",
+  "snowflake/mistral-7b",
+  "snowflake/mistral-large",
+  "snowflake/mistral-large2",
+  "snowflake/mixtral-8x7b",
+  "snowflake/openai-gpt-4.1",
+  "snowflake/openai-gpt-5",
+  "snowflake/openai-gpt-5-mini",
+  "snowflake/openai-gpt-5-nano",
+  "snowflake/reka-core",
+  "snowflake/reka-flash",
+  "snowflake/snowflake-arctic",
+  "snowflake/snowflake-arctic-embed-l-v2.0",
+  "snowflake/snowflake-arctic-embed-m-v2.0",
+  "snowflake/snowflake-llama-3.1-405b",
+  "snowflake/snowflake-llama-3.3-70b",
+  "soniox/stt-async-v4",
+  "soniox/stt-async-v5",
+  "sora-2",
+  "sora-2-pro",
+  "sora-2-pro-high-res",
+  "stability.sd3-5-large-v1:0",
+  "stability.sd3-large-v1:0",
+  "stability.stable-conservative-upscale-v1:0",
+  "stability.stable-creative-upscale-v1:0",
+  "stability.stable-fast-upscale-v1:0",
+  "stability.stable-image-control-sketch-v1:0",
+  "stability.stable-image-control-structure-v1:0",
+  "stability.stable-image-core-v1:0",
+  "stability.stable-image-core-v1:1",
+  "stability.stable-image-erase-object-v1:0",
+  "stability.stable-image-inpaint-v1:0",
+  "stability.stable-image-remove-background-v1:0",
+  "stability.stable-image-search-recolor-v1:0",
+  "stability.stable-image-search-replace-v1:0",
+  "stability.stable-image-style-guide-v1:0",
+  "stability.stable-image-ultra-v1:0",
+  "stability.stable-image-ultra-v1:1",
+  "stability.stable-outpaint-v1:0",
+  "stability.stable-style-transfer-v1:0",
+  "stability/conservative",
+  "stability/creative",
+  "stability/erase",
+  "stability/fast",
+  "stability/inpaint",
+  "stability/outpaint",
+  "stability/remove-background",
+  "stability/replace-background-and-relight",
+  "stability/sd3",
+  "stability/sd3-large",
+  "stability/sd3-large-turbo",
+  "stability/sd3-medium",
+  "stability/sd3.5-large",
+  "stability/sd3.5-large-turbo",
+  "stability/sd3.5-medium",
+  "stability/search-and-recolor",
+  "stability/search-and-replace",
+  "stability/sketch",
+  "stability/stable-image-core",
+  "stability/stable-image-ultra",
+  "stability/structure",
+  "stability/style",
+  "stability/style-transfer",
+  "standard/1024-x-1024/dall-e-3",
+  "standard/1024-x-1024/gpt-image-1.5",
+  "standard/1024-x-1024/gpt-image-1.5-2025-12-16",
+  "standard/1024-x-1536/gpt-image-1.5",
+  "standard/1024-x-1536/gpt-image-1.5-2025-12-16",
+  "standard/1024-x-1792/dall-e-3",
+  "standard/1536-x-1024/gpt-image-1.5",
+  "standard/1536-x-1024/gpt-image-1.5-2025-12-16",
+  "standard/1792-x-1024/dall-e-3",
+  "tavily/search",
+  "tavily/search-advanced",
+  "tencent/deepseek-v4-flash",
+  "tencent/deepseek-v4-pro",
+  "tensormesh/MiniMaxAI/MiniMax-M2.5",
+  "tensormesh/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
+  "tensormesh/Qwen/Qwen3.5-397B-A17B-FP8",
+  "tensormesh/Qwen/Qwen3.6-27B-FP8",
+  "tensormesh/deepseek-ai/DeepSeek-V4-Flash",
+  "tensormesh/google/gemma-4-31B-it",
+  "tensormesh/lukealonso/GLM-5.1-NVFP4-MTP",
+  "tensormesh/moonshotai/Kimi-K2.6",
+  "tensormesh/openai/gpt-oss-120b",
+  "tensormesh/openai/gpt-oss-20b",
+  "text-completion-codestral/codestral-2405",
+  "text-completion-codestral/codestral-latest",
+  "text-completion-inception/mercury-edit-2",
+  "text-embedding-004",
+  "text-embedding-005",
+  "text-embedding-3-large",
+  "text-embedding-3-small",
+  "text-embedding-ada-002",
+  "text-embedding-ada-002-v2",
+  "text-embedding-large-exp-03-07",
+  "text-embedding-preview-0409",
+  "text-moderation-007",
+  "text-moderation-latest",
+  "text-moderation-stable",
+  "text-multilingual-embedding-002",
+  "text-unicorn",
+  "text-unicorn@001",
+  "tinyfish/search",
+  "together-ai-21.1b-41b",
+  "together-ai-4.1b-8b",
+  "together-ai-41.1b-80b",
+  "together-ai-8.1b-21b",
+  "together-ai-81.1b-110b",
+  "together-ai-embedding-151m-to-350m",
+  "together-ai-embedding-up-to-150m",
+  "together-ai-up-to-4b",
+  "together_ai/BAAI/bge-base-en-v1.5",
+  "together_ai/Qwen/Qwen2.5-72B-Instruct-Turbo",
+  "together_ai/Qwen/Qwen2.5-7B-Instruct-Turbo",
+  "together_ai/Qwen/Qwen3-235B-A22B-Instruct-2507-tput",
+  "together_ai/Qwen/Qwen3-235B-A22B-Thinking-2507",
+  "together_ai/Qwen/Qwen3-235B-A22B-fp8-tput",
+  "together_ai/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
+  "together_ai/Qwen/Qwen3-Next-80B-A3B-Instruct",
+  "together_ai/Qwen/Qwen3-Next-80B-A3B-Thinking",
+  "together_ai/Qwen/Qwen3.5-397B-A17B",
+  "together_ai/baai/bge-base-en-v1.5",
+  "together_ai/deepseek-ai/DeepSeek-R1",
+  "together_ai/deepseek-ai/DeepSeek-R1-0528-tput",
+  "together_ai/deepseek-ai/DeepSeek-V3",
+  "together_ai/deepseek-ai/DeepSeek-V3.1",
+  "together_ai/meta-llama/Llama-3.2-3B-Instruct-Turbo",
+  "together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo",
+  "together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+  "together_ai/meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+  "together_ai/meta-llama/Llama-4-Scout-17B-16E-Instruct",
+  "together_ai/meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
+  "together_ai/meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+  "together_ai/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+  "together_ai/mistralai/Mistral-7B-Instruct-v0.1",
+  "together_ai/mistralai/Mistral-Small-24B-Instruct-2501",
+  "together_ai/mistralai/Mixtral-8x7B-Instruct-v0.1",
+  "together_ai/moonshotai/Kimi-K2-Instruct",
+  "together_ai/moonshotai/Kimi-K2-Instruct-0905",
+  "together_ai/moonshotai/Kimi-K2.5",
+  "together_ai/openai/gpt-oss-120b",
+  "together_ai/openai/gpt-oss-20b",
+  "together_ai/togethercomputer/CodeLlama-34b-Instruct",
+  "together_ai/zai-org/GLM-4.5-Air-FP8",
+  "together_ai/zai-org/GLM-4.6",
+  "together_ai/zai-org/GLM-4.7",
+  "tts-1",
+  "tts-1-1106",
+  "tts-1-hd",
+  "tts-1-hd-1106",
+  "twelvelabs.marengo-embed-2-7-v1:0",
+  "twelvelabs.pegasus-1-2-v1:0",
+  "us-gov.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "us.amazon.nova-2-lite-v1:0",
+  "us.amazon.nova-2-pro-preview-20251202-v1:0",
+  "us.amazon.nova-canvas-v1:0",
+  "us.amazon.nova-lite-v1:0",
+  "us.amazon.nova-micro-v1:0",
+  "us.amazon.nova-premier-v1:0",
+  "us.amazon.nova-pro-v1:0",
+  "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+  "us.anthropic.claude-3-5-sonnet-20240620-v1:0",
+  "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+  "us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+  "us.anthropic.claude-3-haiku-20240307-v1:0",
+  "us.anthropic.claude-3-opus-20240229-v1:0",
+  "us.anthropic.claude-3-sonnet-20240229-v1:0",
+  "us.anthropic.claude-fable-5",
+  "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+  "us.anthropic.claude-opus-4-1-20250805-v1:0",
+  "us.anthropic.claude-opus-4-20250514-v1:0",
+  "us.anthropic.claude-opus-4-5-20251101-v1:0",
+  "us.anthropic.claude-opus-4-6-v1",
+  "us.anthropic.claude-opus-4-7",
+  "us.anthropic.claude-opus-4-8",
+  "us.anthropic.claude-sonnet-4-20250514-v1:0",
+  "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "us.anthropic.claude-sonnet-4-6",
+  "us.anthropic.claude-sonnet-5",
+  "us.deepseek.r1-v1:0",
+  "us.deepseek.v3.2",
+  "us.meta.llama3-1-405b-instruct-v1:0",
+  "us.meta.llama3-1-70b-instruct-v1:0",
+  "us.meta.llama3-1-8b-instruct-v1:0",
+  "us.meta.llama3-2-11b-instruct-v1:0",
+  "us.meta.llama3-2-1b-instruct-v1:0",
+  "us.meta.llama3-2-3b-instruct-v1:0",
+  "us.meta.llama3-2-90b-instruct-v1:0",
+  "us.meta.llama3-3-70b-instruct-v1:0",
+  "us.meta.llama4-maverick-17b-instruct-v1:0",
+  "us.meta.llama4-scout-17b-instruct-v1:0",
+  "us.mistral.pixtral-large-2502-v1:0",
+  "us.twelvelabs.marengo-embed-2-7-v1:0",
+  "us.twelvelabs.pegasus-1-2-v1:0",
+  "us.writer.palmyra-x4-v1:0",
+  "us.writer.palmyra-x5-v1:0",
+  "v0/v0-1.0-md",
+  "v0/v0-1.5-lg",
+  "v0/v0-1.5-md",
+  "vercel_ai_gateway/alibaba/qwen-3-14b",
+  "vercel_ai_gateway/alibaba/qwen-3-235b",
+  "vercel_ai_gateway/alibaba/qwen-3-30b",
+  "vercel_ai_gateway/alibaba/qwen-3-32b",
+  "vercel_ai_gateway/alibaba/qwen3-coder",
+  "vercel_ai_gateway/amazon/nova-lite",
+  "vercel_ai_gateway/amazon/nova-micro",
+  "vercel_ai_gateway/amazon/nova-pro",
+  "vercel_ai_gateway/amazon/titan-embed-text-v2",
+  "vercel_ai_gateway/anthropic/claude-3-5-sonnet",
+  "vercel_ai_gateway/anthropic/claude-3-5-sonnet-20241022",
+  "vercel_ai_gateway/anthropic/claude-3-7-sonnet",
+  "vercel_ai_gateway/anthropic/claude-3-haiku",
+  "vercel_ai_gateway/anthropic/claude-3-opus",
+  "vercel_ai_gateway/anthropic/claude-3.5-haiku",
+  "vercel_ai_gateway/anthropic/claude-3.5-sonnet",
+  "vercel_ai_gateway/anthropic/claude-3.7-sonnet",
+  "vercel_ai_gateway/anthropic/claude-4-opus",
+  "vercel_ai_gateway/anthropic/claude-4-sonnet",
+  "vercel_ai_gateway/anthropic/claude-haiku-4.5",
+  "vercel_ai_gateway/anthropic/claude-opus-4",
+  "vercel_ai_gateway/anthropic/claude-opus-4.1",
+  "vercel_ai_gateway/anthropic/claude-opus-4.5",
+  "vercel_ai_gateway/anthropic/claude-opus-4.6",
+  "vercel_ai_gateway/anthropic/claude-sonnet-4",
+  "vercel_ai_gateway/anthropic/claude-sonnet-4.5",
+  "vercel_ai_gateway/cohere/command-a",
+  "vercel_ai_gateway/cohere/command-r",
+  "vercel_ai_gateway/cohere/command-r-plus",
+  "vercel_ai_gateway/cohere/embed-v4.0",
+  "vercel_ai_gateway/deepseek/deepseek-r1",
+  "vercel_ai_gateway/deepseek/deepseek-r1-distill-llama-70b",
+  "vercel_ai_gateway/deepseek/deepseek-v3",
+  "vercel_ai_gateway/google/gemini-2.0-flash",
+  "vercel_ai_gateway/google/gemini-2.0-flash-lite",
+  "vercel_ai_gateway/google/gemini-2.5-flash",
+  "vercel_ai_gateway/google/gemini-2.5-pro",
+  "vercel_ai_gateway/google/gemini-embedding-001",
+  "vercel_ai_gateway/google/gemma-2-9b",
+  "vercel_ai_gateway/google/text-embedding-005",
+  "vercel_ai_gateway/google/text-multilingual-embedding-002",
+  "vercel_ai_gateway/inception/mercury-coder-small",
+  "vercel_ai_gateway/meta/llama-3-70b",
+  "vercel_ai_gateway/meta/llama-3-8b",
+  "vercel_ai_gateway/meta/llama-3.1-70b",
+  "vercel_ai_gateway/meta/llama-3.1-8b",
+  "vercel_ai_gateway/meta/llama-3.2-11b",
+  "vercel_ai_gateway/meta/llama-3.2-1b",
+  "vercel_ai_gateway/meta/llama-3.2-3b",
+  "vercel_ai_gateway/meta/llama-3.2-90b",
+  "vercel_ai_gateway/meta/llama-3.3-70b",
+  "vercel_ai_gateway/meta/llama-4-maverick",
+  "vercel_ai_gateway/meta/llama-4-scout",
+  "vercel_ai_gateway/mistral/codestral",
+  "vercel_ai_gateway/mistral/codestral-embed",
+  "vercel_ai_gateway/mistral/devstral-small",
+  "vercel_ai_gateway/mistral/magistral-medium",
+  "vercel_ai_gateway/mistral/magistral-small",
+  "vercel_ai_gateway/mistral/ministral-3b",
+  "vercel_ai_gateway/mistral/ministral-8b",
+  "vercel_ai_gateway/mistral/mistral-embed",
+  "vercel_ai_gateway/mistral/mistral-large",
+  "vercel_ai_gateway/mistral/mistral-saba-24b",
+  "vercel_ai_gateway/mistral/mistral-small",
+  "vercel_ai_gateway/mistral/mixtral-8x22b-instruct",
+  "vercel_ai_gateway/mistral/pixtral-12b",
+  "vercel_ai_gateway/mistral/pixtral-large",
+  "vercel_ai_gateway/moonshotai/kimi-k2",
+  "vercel_ai_gateway/morph/morph-v3-fast",
+  "vercel_ai_gateway/morph/morph-v3-large",
+  "vercel_ai_gateway/openai/gpt-3.5-turbo",
+  "vercel_ai_gateway/openai/gpt-3.5-turbo-instruct",
+  "vercel_ai_gateway/openai/gpt-4-turbo",
+  "vercel_ai_gateway/openai/gpt-4.1",
+  "vercel_ai_gateway/openai/gpt-4.1-mini",
+  "vercel_ai_gateway/openai/gpt-4.1-nano",
+  "vercel_ai_gateway/openai/gpt-4o",
+  "vercel_ai_gateway/openai/gpt-4o-mini",
+  "vercel_ai_gateway/openai/o1",
+  "vercel_ai_gateway/openai/o3",
+  "vercel_ai_gateway/openai/o3-mini",
+  "vercel_ai_gateway/openai/o4-mini",
+  "vercel_ai_gateway/openai/text-embedding-3-large",
+  "vercel_ai_gateway/openai/text-embedding-3-small",
+  "vercel_ai_gateway/openai/text-embedding-ada-002",
+  "vercel_ai_gateway/perplexity/sonar",
+  "vercel_ai_gateway/perplexity/sonar-pro",
+  "vercel_ai_gateway/perplexity/sonar-reasoning",
+  "vercel_ai_gateway/perplexity/sonar-reasoning-pro",
+  "vercel_ai_gateway/vercel/v0-1.0-md",
+  "vercel_ai_gateway/vercel/v0-1.5-md",
+  "vercel_ai_gateway/xai/grok-2",
+  "vercel_ai_gateway/xai/grok-2-vision",
+  "vercel_ai_gateway/xai/grok-3",
+  "vercel_ai_gateway/xai/grok-3-fast",
+  "vercel_ai_gateway/xai/grok-3-mini",
+  "vercel_ai_gateway/xai/grok-3-mini-fast",
+  "vercel_ai_gateway/xai/grok-4",
+  "vercel_ai_gateway/zai/glm-4.5",
+  "vercel_ai_gateway/zai/glm-4.5-air",
+  "vercel_ai_gateway/zai/glm-4.6",
+  "vertex_ai/chirp",
+  "vertex_ai/chirp_3",
+  "vertex_ai/claude-3-5-haiku",
+  "vertex_ai/claude-3-5-haiku@20241022",
+  "vertex_ai/claude-3-5-sonnet",
+  "vertex_ai/claude-3-5-sonnet@20240620",
+  "vertex_ai/claude-3-7-sonnet@20250219",
+  "vertex_ai/claude-3-haiku",
+  "vertex_ai/claude-3-haiku@20240307",
+  "vertex_ai/claude-3-opus",
+  "vertex_ai/claude-3-opus@20240229",
+  "vertex_ai/claude-3-sonnet",
+  "vertex_ai/claude-3-sonnet@20240229",
+  "vertex_ai/claude-fable-5",
+  "vertex_ai/claude-fable-5@default",
+  "vertex_ai/claude-haiku-4-5",
+  "vertex_ai/claude-haiku-4-5@20251001",
+  "vertex_ai/claude-opus-4",
+  "vertex_ai/claude-opus-4-1",
+  "vertex_ai/claude-opus-4-1@20250805",
+  "vertex_ai/claude-opus-4-5",
+  "vertex_ai/claude-opus-4-5@20251101",
+  "vertex_ai/claude-opus-4-6",
+  "vertex_ai/claude-opus-4-6@default",
+  "vertex_ai/claude-opus-4-7",
+  "vertex_ai/claude-opus-4-7@default",
+  "vertex_ai/claude-opus-4-8",
+  "vertex_ai/claude-opus-4-8@default",
+  "vertex_ai/claude-opus-4@20250514",
+  "vertex_ai/claude-sonnet-4",
+  "vertex_ai/claude-sonnet-4-5",
+  "vertex_ai/claude-sonnet-4-5@20250929",
+  "vertex_ai/claude-sonnet-4-6",
+  "vertex_ai/claude-sonnet-4-6@default",
+  "vertex_ai/claude-sonnet-4@20250514",
+  "vertex_ai/claude-sonnet-5",
+  "vertex_ai/claude-sonnet-5@default",
+  "vertex_ai/codestral-2",
+  "vertex_ai/codestral-2501",
+  "vertex_ai/codestral-2@001",
+  "vertex_ai/codestral@2405",
+  "vertex_ai/codestral@latest",
+  "vertex_ai/deep-research-pro-preview-12-2025",
+  "vertex_ai/deepseek-ai/deepseek-ocr-maas",
+  "vertex_ai/deepseek-ai/deepseek-r1-0528-maas",
+  "vertex_ai/deepseek-ai/deepseek-v3.1-maas",
+  "vertex_ai/deepseek-ai/deepseek-v3.2-maas",
+  "vertex_ai/gemini-2.5-flash-image",
+  "vertex_ai/gemini-3-flash-preview",
+  "vertex_ai/gemini-3-pro-image-preview",
+  "vertex_ai/gemini-3-pro-preview",
+  "vertex_ai/gemini-3.1-flash-image-preview",
+  "vertex_ai/gemini-3.1-flash-lite",
+  "vertex_ai/gemini-3.1-flash-lite-preview",
+  "vertex_ai/gemini-3.1-pro-preview",
+  "vertex_ai/gemini-3.1-pro-preview-customtools",
+  "vertex_ai/gemini-3.5-flash",
+  "vertex_ai/gemini-embedding-2",
+  "vertex_ai/gemini-embedding-2-preview",
+  "vertex_ai/google/gemma-4-26b-a4b-it-maas",
+  "vertex_ai/imagegeneration@006",
+  "vertex_ai/imagen-3.0-capability-001",
+  "vertex_ai/imagen-3.0-fast-generate-001",
+  "vertex_ai/imagen-3.0-generate-001",
+  "vertex_ai/imagen-3.0-generate-002",
+  "vertex_ai/imagen-4.0-fast-generate-001",
+  "vertex_ai/imagen-4.0-generate-001",
+  "vertex_ai/imagen-4.0-ultra-generate-001",
+  "vertex_ai/jamba-1.5",
+  "vertex_ai/jamba-1.5-large",
+  "vertex_ai/jamba-1.5-large@001",
+  "vertex_ai/jamba-1.5-mini",
+  "vertex_ai/jamba-1.5-mini@001",
+  "vertex_ai/meta/llama-3.1-405b-instruct-maas",
+  "vertex_ai/meta/llama-3.1-70b-instruct-maas",
+  "vertex_ai/meta/llama-3.1-8b-instruct-maas",
+  "vertex_ai/meta/llama-3.2-90b-vision-instruct-maas",
+  "vertex_ai/meta/llama-4-maverick-17b-128e-instruct-maas",
+  "vertex_ai/meta/llama-4-maverick-17b-16e-instruct-maas",
+  "vertex_ai/meta/llama-4-scout-17b-128e-instruct-maas",
+  "vertex_ai/meta/llama-4-scout-17b-16e-instruct-maas",
+  "vertex_ai/meta/llama3-405b-instruct-maas",
+  "vertex_ai/meta/llama3-70b-instruct-maas",
+  "vertex_ai/meta/llama3-8b-instruct-maas",
+  "vertex_ai/minimaxai/minimax-m2-maas",
+  "vertex_ai/mistral-large-2411",
+  "vertex_ai/mistral-large@2407",
+  "vertex_ai/mistral-large@2411-001",
+  "vertex_ai/mistral-large@latest",
+  "vertex_ai/mistral-medium-3",
+  "vertex_ai/mistral-medium-3@001",
+  "vertex_ai/mistral-nemo@2407",
+  "vertex_ai/mistral-nemo@latest",
+  "vertex_ai/mistral-ocr-2505",
+  "vertex_ai/mistral-small-2503",
+  "vertex_ai/mistral-small-2503@001",
+  "vertex_ai/mistralai/codestral-2",
+  "vertex_ai/mistralai/codestral-2@001",
+  "vertex_ai/mistralai/mistral-medium-3",
+  "vertex_ai/mistralai/mistral-medium-3@001",
+  "vertex_ai/moonshotai/kimi-k2-thinking-maas",
+  "vertex_ai/openai/gpt-oss-120b-maas",
+  "vertex_ai/openai/gpt-oss-20b-maas",
+  "vertex_ai/qwen/qwen3-235b-a22b-instruct-2507-maas",
+  "vertex_ai/qwen/qwen3-coder-480b-a35b-instruct-maas",
+  "vertex_ai/qwen/qwen3-next-80b-a3b-instruct-maas",
+  "vertex_ai/qwen/qwen3-next-80b-a3b-thinking-maas",
+  "vertex_ai/search_api",
+  "vertex_ai/veo-2.0-generate-001",
+  "vertex_ai/veo-3.0-fast-generate-001",
+  "vertex_ai/veo-3.0-generate-001",
+  "vertex_ai/veo-3.1-fast-generate-001",
+  "vertex_ai/veo-3.1-fast-generate-preview",
+  "vertex_ai/veo-3.1-generate-001",
+  "vertex_ai/veo-3.1-generate-preview",
+  "vertex_ai/xai/grok-4.1-fast-non-reasoning",
+  "vertex_ai/xai/grok-4.1-fast-reasoning",
+  "vertex_ai/xai/grok-4.20-non-reasoning",
+  "vertex_ai/xai/grok-4.20-reasoning",
+  "vertex_ai/zai-org/glm-4.7-maas",
+  "vertex_ai/zai-org/glm-5-maas",
+  "volcengine/doubao-seed-2-0-code-preview-260215",
+  "volcengine/doubao-seed-2-0-lite-260215",
+  "volcengine/doubao-seed-2-0-mini-260215",
+  "volcengine/doubao-seed-2-0-pro-260215",
+  "voyage/rerank-2",
+  "voyage/rerank-2-lite",
+  "voyage/rerank-2.5",
+  "voyage/rerank-2.5-lite",
+  "voyage/voyage-2",
+  "voyage/voyage-3",
+  "voyage/voyage-3-large",
+  "voyage/voyage-3-lite",
+  "voyage/voyage-3.5",
+  "voyage/voyage-3.5-lite",
+  "voyage/voyage-code-2",
+  "voyage/voyage-code-3",
+  "voyage/voyage-context-3",
+  "voyage/voyage-finance-2",
+  "voyage/voyage-large-2",
+  "voyage/voyage-law-2",
+  "voyage/voyage-lite-01",
+  "voyage/voyage-lite-02-instruct",
+  "voyage/voyage-multimodal-3",
+  "wandb/MiniMaxAI/MiniMax-M2.5",
+  "wandb/Qwen/Qwen3-235B-A22B-Instruct-2507",
+  "wandb/Qwen/Qwen3-235B-A22B-Thinking-2507",
+  "wandb/Qwen/Qwen3-Coder-480B-A35B-Instruct",
+  "wandb/deepseek-ai/DeepSeek-R1-0528",
+  "wandb/deepseek-ai/DeepSeek-V3-0324",
+  "wandb/deepseek-ai/DeepSeek-V3.1",
+  "wandb/meta-llama/Llama-3.1-8B-Instruct",
+  "wandb/meta-llama/Llama-3.3-70B-Instruct",
+  "wandb/meta-llama/Llama-4-Scout-17B-16E-Instruct",
+  "wandb/microsoft/Phi-4-mini-instruct",
+  "wandb/moonshotai/Kimi-K2-Instruct",
+  "wandb/moonshotai/Kimi-K2.5",
+  "wandb/openai/gpt-oss-120b",
+  "wandb/openai/gpt-oss-20b",
+  "wandb/zai-org/GLM-4.5",
+  "watsonx/bigscience/mt0-xxl-13b",
+  "watsonx/core42/jais-13b-chat",
+  "watsonx/google/flan-t5-xl-3b",
+  "watsonx/ibm/granite-13b-chat-v2",
+  "watsonx/ibm/granite-13b-instruct-v2",
+  "watsonx/ibm/granite-3-3-8b-instruct",
+  "watsonx/ibm/granite-3-8b-instruct",
+  "watsonx/ibm/granite-4-h-small",
+  "watsonx/ibm/granite-guardian-3-2-2b",
+  "watsonx/ibm/granite-guardian-3-3-8b",
+  "watsonx/ibm/granite-ttm-1024-96-r2",
+  "watsonx/ibm/granite-ttm-1536-96-r2",
+  "watsonx/ibm/granite-ttm-512-96-r2",
+  "watsonx/ibm/granite-vision-3-2-2b",
+  "watsonx/meta-llama/llama-3-2-11b-vision-instruct",
+  "watsonx/meta-llama/llama-3-2-1b-instruct",
+  "watsonx/meta-llama/llama-3-2-3b-instruct",
+  "watsonx/meta-llama/llama-3-2-90b-vision-instruct",
+  "watsonx/meta-llama/llama-3-3-70b-instruct",
+  "watsonx/meta-llama/llama-4-maverick-17b",
+  "watsonx/meta-llama/llama-guard-3-11b-vision",
+  "watsonx/mistralai/mistral-large",
+  "watsonx/mistralai/mistral-medium-2505",
+  "watsonx/mistralai/mistral-small-2503",
+  "watsonx/mistralai/mistral-small-3-1-24b-instruct-2503",
+  "watsonx/mistralai/pixtral-12b-2409",
+  "watsonx/openai/gpt-oss-120b",
+  "watsonx/sdaia/allam-1-13b-instruct",
+  "watsonx/whisper-large-v3-turbo",
+  "whisper-1",
+  "writer.palmyra-x4-v1:0",
+  "writer.palmyra-x5-v1:0",
+  "xai/grok-2",
+  "xai/grok-2-1212",
+  "xai/grok-2-latest",
+  "xai/grok-2-vision",
+  "xai/grok-2-vision-1212",
+  "xai/grok-2-vision-latest",
+  "xai/grok-3",
+  "xai/grok-3-beta",
+  "xai/grok-3-fast-beta",
+  "xai/grok-3-fast-latest",
+  "xai/grok-3-latest",
+  "xai/grok-3-mini",
+  "xai/grok-3-mini-beta",
+  "xai/grok-3-mini-fast",
+  "xai/grok-3-mini-fast-beta",
+  "xai/grok-3-mini-fast-latest",
+  "xai/grok-3-mini-latest",
+  "xai/grok-4",
+  "xai/grok-4-0709",
+  "xai/grok-4-1-fast",
+  "xai/grok-4-1-fast-non-reasoning",
+  "xai/grok-4-1-fast-non-reasoning-latest",
+  "xai/grok-4-1-fast-reasoning",
+  "xai/grok-4-1-fast-reasoning-latest",
+  "xai/grok-4-fast-non-reasoning",
+  "xai/grok-4-fast-reasoning",
+  "xai/grok-4-latest",
+  "xai/grok-4.20-0309-reasoning",
+  "xai/grok-4.20-beta-0309-non-reasoning",
+  "xai/grok-4.20-beta-0309-reasoning",
+  "xai/grok-4.20-multi-agent-beta-0309",
+  "xai/grok-4.3",
+  "xai/grok-4.3-latest",
+  "xai/grok-4.5",
+  "xai/grok-4.5-latest",
+  "xai/grok-beta",
+  "xai/grok-code-fast",
+  "xai/grok-code-fast-1",
+  "xai/grok-code-fast-1-0825",
+  "xai/grok-vision-beta",
+  "you_com/search",
+  "zai.glm-4.7",
+  "zai.glm-4.7-flash",
+  "zai.glm-5",
+  "zai/glm-4-32b-0414-128k",
+  "zai/glm-4.5",
+  "zai/glm-4.5-air",
+  "zai/glm-4.5-airx",
+  "zai/glm-4.5-flash",
+  "zai/glm-4.5-x",
+  "zai/glm-4.5v",
+  "zai/glm-4.6",
+  "zai/glm-4.7",
+  "zai/glm-5",
+  "zai/glm-5-code"
+];
+
+// src/llm/model-discovery.ts
+function getSupportedLLMModels(options = {}) {
+  return [
+    ...options.modelIds ?? LOCKED_MODEL_IDS,
+    ...options.modelCostIds ?? LOCKED_MODEL_COST_IDS,
+    ...VERIFIED_MODELS.openrouter.map((model) => `openrouter/${model}`)
+  ].filter((model) => !model.startsWith("bedrock")).concat(options.bedrockModelIds ?? []);
+}
 
 // src/index.ts
 var VERSION = "0.4.0";
 
-export { AGENT_OUTCOME, AGENT_PROFILE_SCHEMA_VERSION, AGENT_SETTINGS_SCHEMA_VERSION, Agent, AgentContext, AgentControlledCondensationError, AgentDefinition, AgentFinishedCritic, AgentLaunchError, AgentResetCondenser, AnthropicMessagesClient, AsyncCallbackWrapper, AsyncProcessManager, BROWSER_TOOL_NAME, BUILT_IN_TOOLS, BUILT_IN_TOOL_FACTORIES, BrowserTool, CANCEL_TASK_TOOL_NAME, CLIENT_ID, CODEX_API_ENDPOINT, CONSENT_BANNER, CONTENT_POLICY_NUDGE, CONVERSATION_SETTINGS_SCHEMA_VERSION, CORRECTIVE_NUDGE, CancelTaskTool, ClassifyAndSwitchLLMTool, CondenseTool, CondenserCompletionCallbackError, ConversationState, CredentialStore, CriticBase, CriticResult, DEFAULT_CONTEXT_WARNING_THRESHOLDS, DEFAULT_EXEC_TOOL_NAMES, DEFAULT_OAUTH_PORT, DEFAULT_SYSTEM_MESSAGE, DEFAULT_TERMINAL_TIMEOUT_SECONDS, DEFAULT_TEXT_CONTENT_LIMIT, DEFAULT_TRUNCATE_NOTICE, DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST, DELEGATION_TOOL_NAMES, DEVICE_CODE_TIMEOUT_SECONDS, DuplicateEventError, EVENTS_DIR, EVENT_FILE_PATTERN, EmptyPatchCritic, EventLog, ExtensionFetchError, FULL_STATE_KEY, FileEditorExecutor, FileEditorTool, FileEncodingManager, FinishTool, GIT_EMPTY_TREE_HASH, GeminiClient, GitChangeStatus, GitCommandError, GitError, GitPathError, GitRepositoryError, GlobExecutor, GlobTool, GrepExecutor, GrepTool, HookConfig, HookDecision, HookDefinition, HookExecutor, HookManager, HookMatcher, HookResult, HookEventType as HookTriggerEventType, HookType, ISSUER, InMemoryFileStore, InMemorySecretStore, InstallationInfo, InstallationMetadata, LAUNCH_FIELD_OWNERSHIP, LIST_TASKS_TOOL_NAME, LLMAuthenticationError, LLMBadRequestError, LLMBudgetExceededError, LLMCallContext, LLMConnectionError, LLMContentPolicyViolationError, LLMContextWindowExceedError, LLMHttpError, LLMMalformedConversationHistoryError, LLMRateLimitError, LLMResponseError, LLMSummarizingCondenser, LLMTimeoutError, LLMUsagePersistenceError, LLM_HISTORY_ORIGIN_KEY, LLM_METRICS_RESET_KEY, LLM_PROFILE_ID_PATTERN, LLM_USAGE_KEY, LOCK_FILE_NAME, LOCK_TIMEOUT_SECONDS, LaunchStoreError, LaunchedAgent, ListTasksTool, LocalConversation, LocalFileStore, LocalWorkspace, LogLevel, MAX_CMD_OUTPUT_SIZE, MAX_FILE_SIZE_FOR_GIT_DIFF, MCPError, MCPTimeoutError, MCPToolAction, MCPToolDefinition, MCPToolExecutor, MCPToolObservation, MacOSKeychainSecretStore, ManipulationIndices, MemoryLRUCache, MetaProfileLimitExceeded, MetaProfileStore, MetaProfileStoreTimeoutError, NATIVE_TOOL_MODULE_QUALNAMES, N_CHAR_PREVIEW, NoCondensationAvailableError, NoOpCondenser, OAUTH_TIMEOUT_SECONDS, OAuthCredentials, OPENAI_CODEX_MODELS, OPENHANDS_KEYRING_SERVICE, OpenAIChatClient, OpenAIResponsesClient, OpenAISubscriptionAuth, PAUSE_TASK_TOOL_NAME, ParallelToolExecutor, PassCritic, PauseTaskTool, PendingActionsQueue, PipelineCondenser, ProfileNotFound, RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED, RESUME_TASK_TOOL_NAME, ROOT_PARENT_ID, RemoteConversation, RemoteWorkspace, RepoSource, ResolvedLaunch, ResumeTaskTool, RollingCondenser, RootSpan, SCHEDULE_TASK_TOOL_NAME, SECRET_KEY_PATTERNS, SEND_MESSAGE_TOOL_NAME, SENSITIVE_URL_PARAMS, SUB_AGENT_SCOPE_PARAM, SUB_AGENT_TOOL_NAME, SWITCH_LLM_TOOL_NAME, ScheduleTaskTool, SendMediaTool, SendMessageTool, Skill, StuckDetector, SubAgentScope, SwitchLLMTool, TASK_SCHEDULER_TOOL_FACTORIES, TaskTrackerExecutor, TaskTrackerTool, TerminalExecutor, TerminalTool, TestLLM, TestLLMExhaustedError, ThinkTool, ToolDefinition, ToolRegistry, UnresolvedProfileReferences, UpdateTaskTool, VERIFIED_ANTHROPIC_MODELS, VERIFIED_DEEPSEEK_MODELS, VERIFIED_GEMINI_MODELS, VERIFIED_GLM_MODELS, VERIFIED_MINIMAX_MODELS, VERIFIED_MISTRAL_MODELS, VERIFIED_MODELS, VERIFIED_MODELS_PROVENANCE, VERIFIED_MOONSHOT_MODELS, VERIFIED_NVIDIA_MODELS, VERIFIED_OPENAI_MODELS, VERIFIED_OPENHANDS_MODELS, VERIFIED_OPENROUTER_MODELS, VERIFIED_QWEN_MODELS, VERSION, ValueError, View, acpAgentProfileSchema, acpAgentSettingsSchema, acpServerKindSchema, acpToolCallEventSchema, actionEventSchema, actionEventsFromMessage, agentErrorEventSchema, agentLaunchAdditionsSchema, agentProfileSchema, agentResetCondenserSettingsSchema, agentSettingsSchema, anthropicCacheTtlSchema, applyLLMCallContextHeaders, assertSupportedResponseSchema, automationConversationKwargs, automationConversationOptions, automationConversationTags, automationObservabilityContext, automationObservabilityHeaders, baseObservationSchema, baseToolObservationSchema, browserActionSchema, browserObservationSchema, buildAnthropicMessagesBody, buildAuthorizeUrl, buildChatCompletionsBody, buildClassifierMessages, buildClassifierPrompt, buildCloneUrl, buildGeminiInteractionsBody, buildOpenAIResponsesBody, cancellationToken, canonicalToolName, checkScheduleValue, classifyAndSwitchLLMActionSchema, classifyAndSwitchLLMObservationSchema, classifyAndSwitchLLMParamsSchema, classifyError, classifyResponse, cleanTraceMetadata, clearRawLlmFieldsWhenProfileSelected, condensationOperationFailureSchema, condensationRequestDetailsSchema, condensationRequestSchema, condensationRequirement, condensationResetSchema, condensationSchema, condensationSummaryEventSchema, condenseActionSchema, condenseObservationSchema, condenserSettingsSchema, contentSchema, contentToString, contextWarningThresholdsSchema, conversationErrorEventSchema, conversationExecutionStatus, conversationSettingsSchema, conversationStateUpdateEventSchema, createAnthropicClientFromProfile, createClientFromProfile, createGeminiClientFromProfile, createLlmUsageEvent, createMcpTools, createMetricsResetEvent, createOpenAIChatClientFromProfile, createOpenAIResponsesClientFromProfile, criticModeSchema, defaultAgentSettings, defaultCondenser, defaultMetaProfileDir, defaultObservabilitySpanNameFromEnv, defaultToolSpecs, detectFileEncoding, detectProviderFromBaseUrl, disableLogger, discoverAgents, dispatchLlmResponse, displayJson, dumps, endRootSpan, ensureLlmHistoryOrigin, errorClassificationSchema, eventSchema, eventsToMessages, executeCommand, extractActionName, extractRepoName, failureActionSchema, failureKindSchema, fetchExtension, fetchWithResolution, fileEditorActionSchema, fileEditorObservationSchema, finalizeLaunch, finishActionSchema, foldDeprecatedToolSwitches, foldRetiredToolSwitches, generatePKCE, getAgentFactory, getCachePath, getChangesInRepo, getClosestGitRepo, getCommitChanges, getCommitFileDiff, getCredentialsDir, getDisplayBaseRef, getEnv, getFactoryInfo, getGitCommits, getGitDiff, getGitRepositoryMetadata, getLLMCallContext, getLlmApiKey, getLogger, getRegisteredAgentDefinitions, getReposContext, getShortestPrefixAboveTokenCount, getSuffixLengthForTokenReduction, getToolCatalog, getToolModuleQualnames, getTotalTokenCount, getUserPersistenceDir, getValidRef, gitProviderRepositoryPageSchema, gitProviderRepositorySchema, globActionSchema, globObservationSchema, globalToolRegistry, grepActionSchema, grepMatchSchema, grepObservationSchema, handleDeprecatedModelFields, hardCondenserSettingsSchema, historyForProfile, hookEventSchema, hookEventTypeSchema, hookExecutionEventSchema, imageContent, imageContentSchema, injectSystemPrefix, inputMetadataSchema, interruptEventSchema, isAbsolutePathSource, isAcpPatchEdit, isContentPolicyViolation, isContextWindowExceeded, isConversationStateUpdateEvent, isEnabledFor, isGitUrl, isHostAbsolutePath, isLLMAuthenticationError, isLocalPathSource, isMessageEvent, isSecretKey, isToolAvailable, isTransientProviderError, keywordTriggerSchema, launchToolSpecs, legacyOrigin, listRegisteredTools, listTasksActionSchema, listUsableTools, llmCompletionLogEventSchema, llmCompletionResponseSchema, llmConvertibleEventSchema, llmHistoryOrigin, llmProfileIdSchema, llmProfileSchema, llmProfileSecretRef, llmProviderIdSchema, llmProviderSecretRef, llmResponseMetadataSchema, llmResponseType, llmSummarizingCondenserSettingsSchema, llmUsageSchema, loadAgentsFromDir, loadAgentsFromDirs, loadProjectAgents, loadSkillsFromDir, loadUserAgents, loads, looksLikeMalformedConversationHistoryError, mapProviderException, materializeCondenser, materializeHardCondenser, maybeInitLaminar, maybeTruncate, mergeDuplicateTools, mergeObservabilityMetadata, mergeSkillsByName, messageEventSchema, messageSchema, messageToolCallSchema, metaProfileClassSchema, metaProfileLlmsSchema, metaProfileSchema, metricsSnapshot, noOpCondenserSettingsSchema, normalizeGitUrl, normalizeLaunchSource, normalizeMcpToolWire, normalizeToolSpecs, oauthCredentialsSchema, observabilityEnvKeys, observabilityHeaders, observabilityHeadersFromEnv, observabilityMetadataFromEnv, observabilityMetadataSchema, observabilityParentSpanContextFromEnv, observabilitySpanNameSchema, observabilityTagsFromEnv, observabilityTagsSchema, observationEventSchema, observe, openAiApiModeSchema, openHandsAgentProfileSchema, openHandsAgentSettingsSchema, pageIterator, parseClassIndex, parseDirectModel, parseExtensionSource, parseLlmResponseWithMetadata, pathMatchesGlob, pathTriggerSchema, pauseEventSchema, persistedToolSpecsSchema, posixPathName, previewLaunch, profileVerificationSettingsSchema, promptCacheRetentionSchema, providerResponseError, readLlmUsageEvent, reasoningEffortSchema, reasoningItemSchema, reasoningSummarySchema, recentMessagesText, redactTextSecrets, redactUrlCredentials, redactUrlCredentialsInText, redactUrlParams, redactedThinkingBlockSchema, reduceTextContent, registerAgent, registerAgentIfAbsent, registerBuiltinResolver, registerTool, registerToolFactory, rejectBuiltinParams, renderCondenserEvent, renderDirectPrompt, renderStaticSystemPrompt, renderSummarizingEventsPrompt, renderSummarizingPrompt, renderSummarizingSystemPrompt, resetAgentRegistryForTests, resolveConversationObservability, resolveLaunch, resolveLlmApiKeyRef, resolveLlmProfileApiKeyRef, resolveProviderFromProfile, resolveSettingsLaunch, resolveTool, resolveToolSpecs, restoreConversationState, resumeTranscriptEventSchema, runGitCommand, sanitizeOpenHandsMentions, sanitizedEnv, scheduleTaskActionSchema, scopeDelegationTools, sealToolCatalog, secretRefSchema, sendMediaActionSchema, sendMessageActionSchema, sendMessageObservationSchema, setupLogging, shouldEnableObservability, skillResourcesSchema, skillSchema, skillsToPrompt, sourceTypeSchema, startChildSpan, startConversationSpan, startRootSpan, statsForEvents, statsSnapshot, streamingDeltaEventSchema, subAgentScopeSchema, switchLLMActionSchema, switchLLMObservationSchema, systemPromptEventSchema, taskItemSchema, taskMutationActionSchema, taskTrackerActionSchema, taskTrackerObservationSchema, taskTriggerSchema, terminalActionSchema, terminalMetadataSchema, terminalObservationSchema, textContent, textContentSchema, thinkActionSchema, thinkingBlockSchema, throwProviderErrorWithMetadata, toCamelCase, toLLMMessage, toPosixPath, tokenEventSchema, toolAnnotationsSchema, toolPromptGuidance, toolSpecSchema, transformForSubscription, triggerSchema, truncateCondenserEvent, unsealToolCatalog, updateTaskActionSchema, userRejectObservationSchema, utcNow, validateAgentProfile, validateAgentSettings, validateConversationSettings, validateExtensionName, validateGitRepository, validateToolSpecsForPersistence, verbositySchema, withLLMCallContext, workspace };
+export { AGENT_OUTCOME, AGENT_PROFILE_SCHEMA_VERSION, AGENT_SETTINGS_SCHEMA_VERSION, Agent, AgentContext, AgentControlledCondensationError, AgentDefinition, AgentFinishedCritic, AgentLaunchError, AgentResetCondenser, AnthropicMessagesClient, AsyncCallbackWrapper, AsyncProcessManager, BROWSER_TOOL_NAME, BUILTIN_AGENT_SOURCE, BUILT_IN_TOOLS, BUILT_IN_TOOL_FACTORIES, BrowserTool, CANCEL_TASK_TOOL_NAME, CLIENT_ID, CODEX_API_ENDPOINT, CONSENT_BANNER, CONTENT_POLICY_NUDGE, CONVERSATION_SETTINGS_SCHEMA_VERSION, CORRECTIVE_NUDGE, CancelTaskTool, ClassifyAndSwitchLLMTool, CondenseTool, CondenserCompletionCallbackError, ConversationState, CredentialStore, CriticBase, CriticResult, DEFAULT_CONTEXT_WARNING_THRESHOLDS, DEFAULT_EXEC_TOOL_NAMES, DEFAULT_MARKETPLACE_PATH, DEFAULT_OAUTH_PORT, DEFAULT_SYSTEM_MESSAGE, DEFAULT_TERMINAL_TIMEOUT_SECONDS, DEFAULT_TEXT_CONTENT_LIMIT, DEFAULT_TRUNCATE_NOTICE, DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST, DELEGATION_TOOL_NAMES, DEVICE_CODE_TIMEOUT_SECONDS, DuplicateEventError, EVENTS_DIR, EVENT_FILE_PATTERN, EmptyPatchCritic, EventLog, ExtensionFetchError, FULL_STATE_KEY, FileEditorExecutor, FileEditorTool, FileEncodingManager, FinishTool, GIT_EMPTY_TREE_HASH, GeminiClient, GitChangeStatus, GitCommandError, GitError, GitPathError, GitRepositoryError, GlobExecutor, GlobTool, GrepExecutor, GrepTool, HookConfig, HookDecision, HookDefinition, HookExecutor, HookManager, HookMatcher, HookResult, HookEventType as HookTriggerEventType, HookType, ISSUER, InMemoryFileStore, InMemorySecretStore, InstallationInfo, InstallationMetadata, LAUNCH_FIELD_OWNERSHIP, LIST_TASKS_TOOL_NAME, LLMAuthenticationError, LLMBadRequestError, LLMBudgetExceededError, LLMCallContext, LLMConnectionError, LLMContentPolicyViolationError, LLMContextWindowExceedError, LLMHttpError, LLMMalformedConversationHistoryError, LLMRateLimitError, LLMResponseError, LLMSummarizingCondenser, LLMTimeoutError, LLMUsagePersistenceError, LLM_HISTORY_ORIGIN_KEY, LLM_METRICS_RESET_KEY, LLM_PROFILE_ID_PATTERN, LLM_USAGE_KEY, LOCK_FILE_NAME, LOCK_TIMEOUT_SECONDS, LaunchStoreError, LaunchedAgent, ListTasksTool, LocalConversation, LocalFileStore, LocalWorkspace, LogLevel, MAX_CMD_OUTPUT_SIZE, MAX_FILE_SIZE_FOR_GIT_DIFF, MCPError, MCPTimeoutError, MCPToolAction, MCPToolDefinition, MCPToolExecutor, MCPToolObservation, MODEL_DISCOVERY_PROVENANCE, MacOSKeychainSecretStore, ManipulationIndices, MemoryLRUCache, MetaProfileLimitExceeded, MetaProfileStore, MetaProfileStoreTimeoutError, NATIVE_TOOL_MODULE_QUALNAMES, N_CHAR_PREVIEW, NoCondensationAvailableError, NoOpCondenser, OAUTH_TIMEOUT_SECONDS, OAuthCredentials, OPENAI_CODEX_MODELS, OPENHANDS_KEYRING_SERVICE, OpenAIChatClient, OpenAIResponsesClient, OpenAISubscriptionAuth, PAUSE_TASK_TOOL_NAME, PUBLIC_SKILLS_REPO, ParallelToolExecutor, PassCritic, PauseTaskTool, PendingActionsQueue, PipelineCondenser, ProfileNotFound, RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED, RESUME_TASK_TOOL_NAME, ROOT_PARENT_ID, RemoteConversation, RemoteWorkspace, RepoSource, ResolvedLaunch, ResumeTaskTool, RollingCondenser, RootSpan, SCHEDULE_TASK_TOOL_NAME, SECRET_KEY_PATTERNS, SEED_PROFILE_NAME, SEND_MESSAGE_TOOL_NAME, SENSITIVE_URL_PARAMS, SUB_AGENT_SCOPE_PARAM, SUB_AGENT_TOOL_NAME, SWITCH_LLM_TOOL_NAME, ScheduleTaskTool, SendMediaTool, SendMessageTool, Skill, StuckDetector, SubAgentScope, SwitchLLMTool, TASK_SCHEDULER_TOOL_FACTORIES, TaskTrackerExecutor, TaskTrackerTool, TerminalExecutor, TerminalTool, TestLLM, TestLLMExhaustedError, ThinkTool, ToolDefinition, ToolRegistry, UnresolvedProfileReferences, UpdateTaskTool, VERIFIED_ANTHROPIC_MODELS, VERIFIED_DEEPSEEK_MODELS, VERIFIED_DIGITALOCEAN_MODELS, VERIFIED_GEMINI_MODELS, VERIFIED_GLM_MODELS, VERIFIED_MINIMAX_MODELS, VERIFIED_MISTRAL_MODELS, VERIFIED_MODELS, VERIFIED_MODELS_PROVENANCE, VERIFIED_MOONSHOT_MODELS, VERIFIED_NVIDIA_MODELS, VERIFIED_OPENAI_MODELS, VERIFIED_OPENHANDS_MODELS, VERIFIED_OPENROUTER_MODELS, VERIFIED_QWEN_MODELS, VERSION, ValueError, View, acpAgentProfileSchema, acpAgentSettingsSchema, acpServerKindSchema, acpToolCallEventSchema, actionEventSchema, actionEventsFromMessage, agentErrorEventSchema, agentLaunchAdditionsSchema, agentProfileSchema, agentResetCondenserSettingsSchema, agentSettingsSchema, anthropicCacheTtlSchema, applyLLMCallContextHeaders, assertSupportedResponseSchema, atomicWriteText, automationConversationKwargs, automationConversationOptions, automationConversationTags, automationObservabilityContext, automationObservabilityHeaders, baseObservationSchema, baseToolObservationSchema, browserActionSchema, browserObservationSchema, buildAnthropicMessagesBody, buildAuthorizeUrl, buildChatCompletionsBody, buildClassifierMessages, buildClassifierPrompt, buildCloneUrl, buildGeminiInteractionsBody, buildOpenAIResponsesBody, buildSeedProfile, cachedGitFetcher, cancellationToken, canonicalToolName, checkScheduleValue, classifyAndSwitchLLMActionSchema, classifyAndSwitchLLMObservationSchema, classifyAndSwitchLLMParamsSchema, classifyError, classifyResponse, cleanTraceMetadata, clearRawLlmFieldsWhenProfileSelected, condensationOperationFailureSchema, condensationRequestDetailsSchema, condensationRequestSchema, condensationRequirement, condensationResetSchema, condensationSchema, condensationSummaryEventSchema, condenseActionSchema, condenseObservationSchema, condenserSettingsSchema, contentSchema, contentToString, contextWarningThresholdsSchema, conversationErrorEventSchema, conversationExecutionStatus, conversationSettingsSchema, conversationStateUpdateEventSchema, createAnthropicClientFromProfile, createClientFromProfile, createGeminiClientFromProfile, createLlmUsageEvent, createMcpTools, createMetricsResetEvent, createOpenAIChatClientFromProfile, createOpenAIResponsesClientFromProfile, criticModeSchema, defaultAgentSettings, defaultCondenser, defaultMetaProfileDir, defaultObservabilitySpanNameFromEnv, defaultToolSpecs, detectFileEncoding, detectProviderFromBaseUrl, disableLogger, discoverAgents, discoverBuiltinAgents, dispatchLlmResponse, displayJson, dumps, endRootSpan, ensureLlmHistoryOrigin, errorClassificationSchema, eventSchema, eventsToMessages, executeCommand, extractActionName, extractRepoName, failureActionSchema, failureKindSchema, fetchExtension, fetchWithResolution, fileEditorActionSchema, fileEditorObservationSchema, finalizeLaunch, finishActionSchema, foldDeprecatedToolSwitches, foldRetiredToolSwitches, generatePKCE, getAgentFactory, getCachePath, getChangesInRepo, getClosestGitRepo, getCommitChanges, getCommitFileDiff, getCredentialsDir, getDisplayBaseRef, getEnv, getFactoryInfo, getGitCommits, getGitDiff, getGitRepositoryMetadata, getLLMCallContext, getLlmApiKey, getLogger, getRegisteredAgentDefinitions, getReposContext, getShortestPrefixAboveTokenCount, getSuffixLengthForTokenReduction, getSupportedLLMModels, getToolCatalog, getToolModuleQualnames, getTotalTokenCount, getUserPersistenceDir, getValidRef, gitProviderRepositoryPageSchema, gitProviderRepositorySchema, globActionSchema, globObservationSchema, globalToolRegistry, grepActionSchema, grepMatchSchema, grepObservationSchema, handleDeprecatedModelFields, hardCondenserSettingsSchema, historyForProfile, hookEventSchema, hookEventTypeSchema, hookExecutionEventSchema, imageContent, imageContentSchema, inheritMcpConfig, injectSystemPrefix, inputMetadataSchema, interruptEventSchema, invalidatePublicSkillsCache, isAbsolutePathSource, isAcpPatchEdit, isCachedGitPinned, isContentPolicyViolation, isContextWindowExceeded, isConversationLocalTool, isConversationStateUpdateEvent, isEnabledFor, isGitUrl, isHostAbsolutePath, isLLMAuthenticationError, isLocalPathSource, isMessageEvent, isSecretKey, isTempFile, isToolAvailable, isTransientProviderError, keywordTriggerSchema, launchToolSpecs, legacyOrigin, listRegisteredTools, listTasksActionSchema, listUsableTools, llmCompletionLogEventSchema, llmCompletionResponseSchema, llmConvertibleEventSchema, llmHistoryOrigin, llmProfileIdSchema, llmProfileSchema, llmProfileSecretRef, llmProviderIdSchema, llmProviderSecretRef, llmResponseMetadataSchema, llmResponseType, llmSummarizingCondenserSettingsSchema, llmUsageSchema, loadAgentsFromDir, loadAgentsFromDirs, loadProjectAgents, loadPublicSkills, loadSkillsFromDir, loadUserAgents, loadUserSkills, loads, looksLikeMalformedConversationHistoryError, mapProviderException, materializeCondenser, materializeHardCondenser, maybeInitLaminar, maybeTruncate, mergeDuplicateTools, mergeObservabilityMetadata, mergeSkillsByName, messageEventSchema, messageSchema, messageToolCallSchema, metaProfileClassSchema, metaProfileLlmsSchema, metaProfileSchema, metricsSnapshot, noOpCondenserSettingsSchema, normalizeGitUrl, normalizeLaunchSource, normalizeMcpToolWire, normalizeToolSpecs, oauthCredentialsSchema, observabilityEnvKeys, observabilityHeaders, observabilityHeadersFromEnv, observabilityMetadataFromEnv, observabilityMetadataSchema, observabilityParentSpanContextFromEnv, observabilitySpanNameSchema, observabilityTagsFromEnv, observabilityTagsSchema, observationEventSchema, observe, openAiApiModeSchema, openHandsAgentProfileSchema, openHandsAgentSettingsSchema, pageIterator, parseClassIndex, parseDirectModel, parseExtensionSource, parseLlmResponseWithMetadata, parseSkillsMarketplace, pathMatchesGlob, pathTriggerSchema, pauseEventSchema, persistedToolSpecsSchema, posixPathName, previewLaunch, profileVerificationSettingsSchema, promptCacheRetentionSchema, providerResponseError, readLlmUsageEvent, reasoningEffortSchema, reasoningItemSchema, reasoningSummarySchema, recentMessagesText, redactTextSecrets, redactUrlCredentials, redactUrlCredentialsInText, redactUrlParams, redactedThinkingBlockSchema, reduceTextContent, registerAgent, registerAgentIfAbsent, registerBuiltinResolver, registerTool, registerToolFactory, rejectBuiltinParams, renderCondenserEvent, renderDirectPrompt, renderStaticSystemPrompt, renderSummarizingEventsPrompt, renderSummarizingPrompt, renderSummarizingSystemPrompt, resetAgentRegistryForTests, resolveConversationObservability, resolveLaunch, resolveLlmApiKeyRef, resolveLlmProfileApiKeyRef, resolveProviderFromProfile, resolveSettingsLaunch, resolveTool, resolveToolSpecs, restoreConversationState, resumeTranscriptEventSchema, runGitCommand, sanitizeOpenHandsMentions, sanitizedEnv, scheduleTaskActionSchema, scopeDelegationTools, sealToolCatalog, secretRefSchema, securityAnalysisEventSchema, sendMediaActionSchema, sendMessageActionSchema, sendMessageObservationSchema, setupLogging, shouldEnableObservability, skillResourcesSchema, skillSchema, skillsToPrompt, sourceTypeSchema, startChildSpan, startConversationSpan, startRootSpan, statsForEvents, statsSnapshot, streamingDeltaEventSchema, subAgentScopeSchema, switchLLMActionSchema, switchLLMObservationSchema, syncPublicSkills, systemPromptEventSchema, taskItemSchema, taskMutationActionSchema, taskTrackerActionSchema, taskTrackerObservationSchema, taskTriggerSchema, terminalActionSchema, terminalMetadataSchema, terminalObservationSchema, textContent, textContentSchema, thinkActionSchema, thinkingBlockSchema, throwProviderErrorWithMetadata, toCamelCase, toLLMMessage, toPosixPath, tokenEventSchema, toolAnnotationsSchema, toolPromptGuidance, toolSpecSchema, transformForSubscription, triggerSchema, truncateCondenserEvent, unsealToolCatalog, updateTaskActionSchema, userRejectObservationSchema, utcNow, validateAgentProfile, validateAgentSettings, validateConversationSettings, validateExtensionName, validateGitRepository, validateToolSpecsForPersistence, verbositySchema, withLLMCallContext, workspace };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

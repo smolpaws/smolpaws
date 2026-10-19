@@ -116,11 +116,6 @@
       "tracking": "OPENAPI-DEFERRED-001",
       "reason": "Installed-plugin management is not yet ported to the TypeScript server package."
     },
-    "POST /api/sub-agents": {
-      "disposition": "DEFERRED",
-      "tracking": "OPENAPI-DEFERRED-001",
-      "reason": "Sub-agent catalog discovery is not yet ported to the TypeScript server package."
-    },
     "GET /api/vscode/status": {
       "disposition": "DEFERRED",
       "tracking": "OPENAPI-DEFERRED-001",
@@ -360,6 +355,16 @@
       "disposition": "DEFERRED",
       "tracking": "smolpaws-09ou",
       "reason": "Conversation-runtime-scoped Bash ownership and routing are not yet implemented. Global stop is ported; this mirror must stop only the selected runtime command after that scoped service exists."
+    },
+    "GET /api/canvas-extensions/installed/{extension_name}/icon": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Bounded229b2b92..fd387b58 Canvas manifest SVG icon route requires the absent owned Canvas install subsystem, contained SVG validation and response CSP/nosniff/cache headers."
+    },
+    "POST /api/acp/models": {
+      "disposition": "DEVIATION",
+      "policy": "DEV-SERVER-001",
+      "reason": "ACP runtime/default and available-model discovery remains the named native deviation."
     }
   },
   "contractExemptions": {

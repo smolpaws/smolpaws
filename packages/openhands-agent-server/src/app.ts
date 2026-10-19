@@ -3,7 +3,7 @@ import websocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
-import { AgentControlledCondensationError, MacOSKeychainSecretStore, OpenAISubscriptionAuth, createClientFromProfile, type MetaProfileStore, type SecretStore } from '@smolpaws/openhands-agent';
+import { AgentControlledCondensationError, BROWSER_TOOL_NAME, isToolAvailable, MacOSKeychainSecretStore, OpenAISubscriptionAuth, createClientFromProfile, type MetaProfileStore, type SecretStore } from '@smolpaws/openhands-agent';
 
 import { launchHttpError, previewClient } from './launch.js';
 import { createProfileToolMaterializer } from './profileTools.js';
@@ -29,6 +29,8 @@ import { McpServerNotFoundError, ServerStateService } from './serverState.js';
 import { registerSettingsRoutes } from './settingsRouter.js';
 import { registerToolRoutes } from './toolRouter.js';
 import { registerSkillsRoutes } from './skillsRouter.js';
+import { SkillsCatalogService } from './skillsService.js';
+import { registerSubAgentRoutes, usableServerTools } from './subAgentsRouter.js';
 import { registerSessionSocket } from './sessionSocket.js';
 import { registerSocketRoutes } from './sockets.js';
 import type { ProfileSelectionResolver } from './profileRuntime.js';
@@ -38,6 +40,7 @@ const startedAt = Date.now();
 export interface AgentServerAppOptions extends ConversationServiceOptions {
   readonly config?: Partial<AgentServerConfig>;
   readonly gitProviderFetch?: typeof fetch;
+  readonly skillsCatalogService?: SkillsCatalogService;
   readonly conversationService?: ConversationService;
   readonly secretStore?: SecretStore;
   readonly serverStateService?: ServerStateService;
@@ -97,6 +100,9 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
     && options.serverStateService.metaProfileStore !== options.metaProfileStore) throw new Error('serverStateService and metaProfileStore must share the same store');
   const serverStateService = options.serverStateService ?? new ServerStateService({ stateDir: config.statePath, secretStore,
     ...(options.metaProfileStore === undefined ? {} : { metaProfileStore: options.metaProfileStore }) });
+  const skillsCatalogService = options.skillsCatalogService ?? new SkillsCatalogService({ stateDir: config.statePath, workspaceRoot: config.workspaceRoot });
+  const profileCatalog = () => skillsCatalogService.discoverProfileCatalog();
+  const browserAvailable = config.enableBrowser !== false && isToolAvailable(BROWSER_TOOL_NAME);
   const subscriptionAuth = options.subscriptionAuth ?? new OpenAISubscriptionAuth();
   const llmClientFactory: ProfileLlmClientFactory = (profile, store) => {
     const apiKeyRefreshHook = createManagedLlmKeyRefreshHook(profile);
@@ -113,6 +119,7 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
   const agentFactory = options.agentFactory ?? createProfileAgentFactory({
     state: serverStateService,
     conversationsPath: config.conversationsPath,
+    browserAvailable,
     metaProfileStore: serverStateService.metaProfileStore,
     secretStore,
     ...(options.configureTools === undefined ? {} : { configureTools: options.configureTools }),
@@ -164,6 +171,7 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
   registerConversationRoutes(app, conversationService, usesProfileAgentFactory ? {
     prepareStartRequest: (input) => prepareProfileStartRequest(input, serverStateService, {
       deferCondenserResolution: options.resolveCondenserProfileSelection !== undefined,
+      profileCatalog,
     }),
   } : {});
   registerEventRoutes(app, conversationService);
@@ -178,14 +186,16 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
   registerProfileRoutes(app, serverStateService, llmClientFactory, secretStore);
   registerMetaProfileRoutes(app, serverStateService);
   registerToolRoutes(app);
-  registerAgentProfileRoutes(app, serverStateService, { runtime: {
+  registerSubAgentRoutes(app, config);
+  registerAgentProfileRoutes(app, serverStateService, { launchOptions: { profileCatalog }, runtime: {
+    browserAvailable,
     createClient: previewClient,
     materializeTools: createProfileToolMaterializer({
       state: serverStateService, secretStore, metaProfileStore: serverStateService.metaProfileStore,
       llmClientFactory: async profile => previewClient(profile), workingDir: config.workspaceRoot, persistenceDir: null,
     }),
   } });
-  registerSkillsRoutes(app, { stateDir: config.statePath, workspaceRoot: config.workspaceRoot });
+  registerSkillsRoutes(app, { service: skillsCatalogService });
   registerSocketRoutes(app, { config, conversationService, bashEventService });
   registerSessionSocket(app, { config, conversationService });
   app.addHook('onClose', async () => {
@@ -272,7 +282,7 @@ function serverInfo(config: AgentServerConfig) {
     build_git_ref: process.env.OPENHANDS_BUILD_GIT_REF ?? 'unknown',
     python_version: 'not-applicable',
     node_version: process.version,
-    usable_tools: ['bash', 'file', 'git'],
+    usable_tools: usableServerTools(config),
     runtime_idle_timeout_seconds: null,
     max_foreground_terminal_timeout_seconds: null,
     docs: '/docs',

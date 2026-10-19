@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { DEVICE_CODE_TIMEOUT_SECONDS, OPENAI_CODEX_MODELS, VERIFIED_MODELS, type OpenAISubscriptionAuth, type DeviceCode, type OAuthCredentials } from '@smolpaws/openhands-agent';
+import { DEVICE_CODE_TIMEOUT_SECONDS, OPENAI_CODEX_MODELS, VERIFIED_MODELS, getSupportedLLMModels, type OpenAISubscriptionAuth, type DeviceCode, type OAuthCredentials } from '@smolpaws/openhands-agent';
+import { MODEL_PROVIDER_NAMES } from './llmProviderNames.js';
 
 /** Only the SDK owns OAuth credentials, refresh and provider requests. */
 export type SubscriptionAuth = Pick<OpenAISubscriptionAuth, 'getCredentials' | 'refreshIfNeeded' | 'startDeviceLogin' | 'pollDeviceLogin' | 'saveCredentials' | 'logout'>;
@@ -25,14 +26,16 @@ export function registerLlmRoutes(app: FastifyInstance, auth: SubscriptionAuth):
     for (const [token, login] of pending) if (login.expiresAt <= Date.now()) pending.delete(token);
   };
   const catalog: Readonly<Record<string, readonly string[]>> = VERIFIED_MODELS;
-  // OpenRouter verified IDs are provider-relative and may collide with direct
-  // provider IDs. Discovery returns routes; the verified endpoint stays exact.
-  const routes = (provider: string): readonly string[] => provider === 'openrouter'
-    ? (catalog[provider] ?? []).map(model => `openrouter/${model}`) : catalog[provider] ?? [];
   app.get('/api/llm/providers', async () => ({ providers: Object.keys(catalog).sort() }));
   app.get('/api/llm/models', async (request) => {
     const { provider } = z.object({ provider: z.string().optional() }).parse(request.query);
-    return { models: [...new Set(provider === undefined ? Object.keys(catalog).flatMap(routes) : routes(provider))].sort() };
+    const supported = getSupportedLLMModels();
+    const verified = new Set(provider === undefined ? [] : catalog[provider] ?? []);
+    const selected = provider === undefined ? supported : supported.filter(model => {
+      const extracted = modelProvider(model);
+      return extracted === provider || (verified.has(model) && !(model.includes('/') && extracted && extracted !== provider));
+    });
+    return { models: [...new Set(selected)].sort() };
   });
   app.get('/api/llm/models/verified', async () => ({ models: catalog }));
   app.get('/api/llm/subscription/openai/models', async () => ({ vendor: 'openai', models: [...OPENAI_CODEX_MODELS].sort() }));
@@ -97,4 +100,17 @@ export function registerLlmRoutes(app: FastifyInstance, auth: SubscriptionAuth):
     }
   });
   app.addHook('onClose', async () => { epoch += 1; pending.clear(); });
+}
+
+const providerNames = new Set(MODEL_PROVIDER_NAMES);
+/** Source conservative parser over the locked SDK model catalog; no transport inference. */
+function modelProvider(model: string): string {
+  let parts = model.split('/');
+  if (parts.length === 1) {
+    parts = model.split('.');
+    // Catalog versions are ASCII numeric components, e.g. gpt-5.6.
+    if (parts.length > 1 && /^[0-9]/u.test(parts[1]!)) parts = [model];
+  }
+  if (parts.length === 1) return Object.entries(VERIFIED_MODELS).find(([, models]) => (models as readonly string[]).includes(model))?.[0] ?? '';
+  return providerNames.has(parts[0]!) ? parts[0]! : '';
 }

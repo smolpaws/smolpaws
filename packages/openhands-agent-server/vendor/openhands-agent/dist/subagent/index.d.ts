@@ -13,6 +13,9 @@ export interface AgentDefinitionOptions {
     readonly max_iteration_per_run?: number | null;
     readonly max_budget_per_run?: number | null;
     readonly mcp_servers?: Record<string, unknown> | null;
+    readonly mcp_config?: Record<string, unknown> | null;
+    /** Metadata only; native confirmation execution remains disabled. */
+    readonly permission_mode?: string | null;
     readonly profile_store_dir?: string | null;
     readonly condenser?: unknown;
     readonly metadata?: Record<string, unknown>;
@@ -31,12 +34,15 @@ export declare class AgentDefinition {
     readonly hooks: unknown;
     readonly max_iteration_per_run: number | null;
     readonly max_budget_per_run: number | null;
-    readonly mcp_servers: Record<string, unknown> | null;
+    readonly mcp_config: Record<string, unknown> | null;
+    readonly permission_mode: string | null;
     readonly profile_store_dir: string | null;
     readonly condenser: unknown;
     readonly metadata: Record<string, unknown>;
     readonly level: AgentDefinitionLevel | null;
     constructor(options: AgentDefinitionOptions);
+    /** Deprecated read alias; canonical JSON carries mcp_config only. */
+    get mcp_servers(): Record<string, unknown> | null;
     static load(agentPath: string): Promise<AgentDefinition>;
 }
 export declare function loadProjectAgents(projectDir: string): Promise<AgentDefinition[]>;

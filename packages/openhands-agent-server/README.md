@@ -145,3 +145,19 @@ Conversation creation accepts the four `X-OpenHands-Observability-*` headers for
 span name, tags, metadata and parent span context. Body values take precedence;
 metadata merges with body keys winning. Invalid metadata is rejected before launch.
 These fields carry tracing context and never grant access.
+
+Profile list reads seed or select a valid active agent profile without changing
+the active LLM profile. Unreadable saved entries remain on disk; the 50-profile
+limit includes them. Public creation accepts a saved `agent_profile_id` and an
+optional `agent_launch_additions` object (additional skills, suffix, main LLM
+profile override). Inline `agent_profile` launch input is rejected. The override
+requires a saved agent profile and leaves auxiliary LLM roles unchanged.
+
+HTTP skills discovery and profile materialization/launch use one catalog service.
+Profile `public_skills` selects only public catalog winners; user skills retain
+precedence and the disabled-skills list applies globally. Launch captures one
+immutable catalog snapshot. Hosts can inject `skillsCatalogService` for a custom
+or offline catalog. Local installed-skill refresh replaces the complete resource
+tree; failed public sync preserves cached catalogs. Generic remote installation
+and organization/registered marketplace loading without an adapter remain explicit
+unsupported operations. `/api/sub-agents` lists definitions without executing them.

@@ -4,7 +4,7 @@ export interface FileEncodingGuess {
     readonly confidence: number | null;
 }
 export type FileEncodingDetector = (sample: Uint8Array) => FileEncodingGuess | null | Promise<FileEncodingGuess | null>;
-export type FileTextEncoding = 'utf-8' | 'cp1252' | 'latin-1' | 'cp1251';
+export type FileTextEncoding = 'utf-8' | 'utf-8-sig' | 'cp1252' | 'latin-1' | 'cp1251';
 export interface EncodedTextFile {
     readonly text: string;
     readonly bytes: Buffer;

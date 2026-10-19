@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 
 import { agentProfilePayloadSchema, renameProfileRequestSchema } from './models.js';
 import { param, parseBody } from './routeUtils.js';
-import type { ServerStateService } from './serverState.js';
+import { AgentProfileLimitExceeded, InvalidStoredAgentProfile, type ServerStateService } from './serverState.js';
 import { previewClient, previewServerProfile, type ServerLaunchOptions } from './launch.js';
 
 export function registerAgentProfileRoutes(app: FastifyInstance, state: ServerStateService, options: {
@@ -13,7 +13,12 @@ export function registerAgentProfileRoutes(app: FastifyInstance, state: ServerSt
 } = {}): void {
   app.get('/api/agent-profiles', async () => state.listAgentProfiles());
   app.get('/api/agent-profiles/:name', async (request, reply) => {
-    const profile = await state.getAgentProfile(param(request, 'name'));
+    let profile;
+    try { profile = await state.getAgentProfile(param(request, 'name')); }
+    catch (error) {
+      if (error instanceof InvalidStoredAgentProfile) return reply.status(400).send({ detail: error.message });
+      throw error;
+    }
     if (profile === null) {
       reply.status(404).send({ detail: 'Agent profile not found' });
       return undefined;
@@ -24,7 +29,12 @@ export function registerAgentProfileRoutes(app: FastifyInstance, state: ServerSt
     let payload;
     try { payload = validateAgentProfile(parseBody(agentProfilePayloadSchema, request.body)); }
     catch { return reply.status(422).send({ detail: 'Invalid agent profile' }); }
-    const profile = await state.saveAgentProfile(payload);
+    let profile;
+    try { profile = await state.saveAgentProfile(payload); }
+    catch (error) {
+      if (error instanceof AgentProfileLimitExceeded) return reply.status(409).send({ detail: error.message });
+      throw error;
+    }
     reply.status(201);
     return profile;
   });
@@ -33,7 +43,12 @@ export function registerAgentProfileRoutes(app: FastifyInstance, state: ServerSt
     let payload;
     try { payload = validateAgentProfile(parseBody(agentProfilePayloadSchema, { ...(isRecord(request.body) ? request.body : {}), name })); }
     catch { return reply.status(422).send({ detail: 'Invalid agent profile' }); }
-    const profile = await state.saveAgentProfile(payload);
+    let profile;
+    try { profile = await state.saveAgentProfile(payload); }
+    catch (error) {
+      if (error instanceof AgentProfileLimitExceeded) return reply.status(409).send({ detail: error.message });
+      throw error;
+    }
     reply.status(201);
     return profile;
   });
@@ -71,6 +86,7 @@ export function registerAgentProfileRoutes(app: FastifyInstance, state: ServerSt
     if (parsed.data.profile === null || parsed.data.profile === undefined) {
       try { profile = await state.getAgentProfile(name); }
       catch (error) {
+        if (error instanceof InvalidStoredAgentProfile) return reply.status(400).send({ detail: error.message });
         const busy = error instanceof LaunchStoreError && error.retryable;
         return reply.status(busy ? 503 : 500).send({ detail: busy ? 'Profile store is busy. Please retry.' : 'Could not load agent profile' });
       }

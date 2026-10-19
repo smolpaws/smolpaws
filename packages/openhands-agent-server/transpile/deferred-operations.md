@@ -89,3 +89,35 @@ not close that missing compatibility route. Delegated child execution and its
 new tool/MCP confinement scope remain tracked with SDK `openhands-agent-wlw.8`
 and `.14`. Revisit both when their runtime prerequisites are implemented,
 carrying the source regression cases before claiming parity.
+
+## Bounded v1.55.0 lifecycle expansion
+
+The `229b2b92..fd387b58` record keeps missing runtimes visible even where a local
+counterpart is now ported. Active-profile seeding, launch overrides, additional
+skills and public selection work in native launch/materialization. The missing
+OpenAI-compatible `/v1` gateway and Docker forwarding still need those semantics;
+`OPENAPI-DEFERRED-001` covers them even though the comparator scans `/api` only.
+The global upload path now returns 400 for directory/parent-file conflicts; its
+conversation-runtime mirror remains deferred. Read-only subagent metadata does
+not implement delegated child execution or exact inherited MCP confinement.
+
+Canvas debt now includes contained manifest-declared SVG icons with the required
+headers, requested versus resolved references, checksum-pinned remote backend
+artifacts, descendant/orphan reaping, missed-health re-probes, root query forwarding,
+crashed-backend refusal and proxy body framing/trust/IPv6 cookie behavior. Docker
+debt includes owned cache reclamation, disabled core dumps, stopped-workspace disk
+budgets, durable archival markers and a real storage-reclaim scenario. These all
+require their actual runtime owner and source regressions before closure.
+
+Bead `smolpaws-09ou` also carries trajectory ZIP exclusion of credential/transient
+files, races with state saves and exact inspected JSON bytes; managed-worktree
+last-reference cleanup, symlink refusal and retained branches; and live-process
+plus token gating of VSCode URLs. Provider-connection plaintext reads remain
+subject to the secret-storage deviation and missing connection resolution.
+
+Skills discovery/sync and local installed refresh are ported. Generic remote
+extension installation/refresh remains SDK `openhands-agent-wlw.19`; effective
+organization and registered-marketplace loading requires a host adapter and
+returns explicit unsupported errors when requested without one. Full project
+skill discovery, critic activation and `invoke_skill` remain `.15`. A successful
+catalog response or local refresh does not close these runtime gaps.

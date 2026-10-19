@@ -53,7 +53,11 @@ export function registerSettingsRoutes(app: FastifyInstance, state: ServerStateS
     const allowedNames = new Set(allowed);
     return { secrets: secrets.filter((secret) => allowedNames.has(secret.name)) };
   });
-  app.put('/api/settings/secrets', async (request) => state.setSecret(...secretArgs(parseBody(secretCreateRequestSchema, request.body))));
+  app.put('/api/settings/secrets', async (request, reply) => {
+    const body = parseBody(secretCreateRequestSchema, request.body);
+    if (!body.value.trim() || body.value === '**********') return reply.status(422).send({ detail: 'Secret value must not be empty or redacted' });
+    return state.setSecret(...secretArgs(body));
+  });
   app.get('/api/settings/secrets/:name', async (request, reply) => {
     const item = await state.getSecretMetadata(param(request, 'name'));
     if (item === null) {

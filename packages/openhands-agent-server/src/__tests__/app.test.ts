@@ -9,6 +9,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 
 import { createAgentServerApp } from '../app.js';
+import { SkillsCatalogService } from '../skillsService.js';
 import { BashEventService } from '../bashService.js';
 import { getDefaultConfig } from '../config.js';
 import { leaseFileName } from '../conversationLease.js';
@@ -1173,7 +1174,8 @@ describe('createAgentServerApp', () => {
   test('serves settings, profiles, agent-profiles, and secret metadata without plaintext persistence', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
     const statePath = path.join(root, 'state');
-    const { app } = await createAgentServerApp({ config: { conversationsPath: path.join(root, 'conversations'), statePath }, secretStore: new InMemorySecretStore() });
+    const skillsCatalogService = new SkillsCatalogService({ stateDir: statePath, workspaceRoot: root, loadPublic: async () => [], loadUser: async () => [] });
+    const { app } = await createAgentServerApp({ config: { conversationsPath: path.join(root, 'conversations'), statePath }, secretStore: new InMemorySecretStore(), skillsCatalogService });
     try {
       const profile = await app.inject({ method: 'POST', url: '/api/profiles', payload: { profileId: 'audit', providerId: 'openai', model: 'gpt-5-nano', baseUrl: null, openAiApiMode: 'responses' } });
       expect(profile.statusCode).toBe(201);
@@ -1492,7 +1494,7 @@ describe('createAgentServerApp', () => {
     await writeFile(localSkill, '---\nname: installed-demo\ndescription: Installed skill\n---\nInstalled content.\n', 'utf8');
     const { app } = await createAgentServerApp({ config: { conversationsPath: path.join(root, 'conversations'), statePath: path.join(root, 'state'), workspaceRoot: path.join(root, 'project') }, secretStore: new InMemorySecretStore() });
     try {
-      const loaded = await app.inject({ method: 'POST', url: '/api/skills', payload: { load_user: false, load_project: true, project_dir: path.join(root, 'project') } });
+      const loaded = await app.inject({ method: 'POST', url: '/api/skills', payload: { load_public: false, load_user: false, load_project: true, project_dir: path.join(root, 'project') } });
       expect(loaded.statusCode).toBe(200);
       expect(loaded.json<{ skills: Array<{ name: string }> }>().skills.some((skill) => skill.name === 'demo')).toBe(true);
       const installed = await app.inject({ method: 'POST', url: '/api/skills/install', payload: { source: path.dirname(localSkill) } });

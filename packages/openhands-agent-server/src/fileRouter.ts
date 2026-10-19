@@ -25,16 +25,22 @@ export function registerFileRoutes(app: FastifyInstance, config: AgentServerConf
 }
 
 async function uploadFile(reply: ReplyLike, rawPath: string | null, request: FastifyRequest, config: AgentServerConfig): Promise<unknown> {
-  const targetPath = await resolveAllowedAbsolutePath(reply, rawPath, config, 'write');
-  if (targetPath === null) return undefined;
-  const bytes = await uploadBytes(request);
-  if (bytes === null) {
-    reply.status(400).send({ detail: 'Missing file upload payload' });
-    return undefined;
+  try {
+    const targetPath = await resolveAllowedAbsolutePath(reply, rawPath, config, 'write');
+    if (targetPath === null) return undefined;
+    const bytes = await uploadBytes(request);
+    if (bytes === null) {
+      reply.status(400).send({ detail: 'Missing file upload payload' });
+      return undefined;
+    }
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    await fs.writeFile(targetPath, bytes);
+    return { success: true };
+  } catch (error) {
+    if (isErrno(error, 'EISDIR')) return reply.status(400).send({ detail: 'Path is a directory' });
+    if (isErrno(error, 'EEXIST') || isErrno(error, 'ENOTDIR')) return reply.status(400).send({ detail: 'A parent of the path is not a directory' });
+    throw error;
   }
-  await fs.mkdir(path.dirname(targetPath), { recursive: true });
-  await fs.writeFile(targetPath, bytes);
-  return { success: true };
 }
 
 async function downloadFile(reply: ReplyLike, rawPath: string | null, config: AgentServerConfig): Promise<unknown> {

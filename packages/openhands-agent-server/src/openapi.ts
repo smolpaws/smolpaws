@@ -65,6 +65,8 @@ import {
   validateProfileResponseSchema,
 } from './models.js';
 
+import { subAgentsRequestSchema, subAgentsResponseSchema } from './subAgentsRouter.js';
+
 import { subscriptionStatusSchema, subscriptionDeviceStartSchema, subscriptionDevicePollSchema, subscriptionModelsSchema, providersSchema, modelsSchema, verifiedModelsSchema } from './llmRouter.js';
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
@@ -112,6 +114,7 @@ const openApiStartConversationRequestSchema = z
     agent: z.unknown().optional(),
     agent_settings: z.unknown().optional(),
     agent_profile_id: z.string().uuid().nullable().optional(),
+    agent_launch_additions: z.object({ system_message_suffix_append: z.string().max(32768).nullable().default(null), llm_profile_ref: z.string().min(1).nullable().default(null), skills: z.array(z.object({ name: z.string(), content: z.string() }).passthrough()).nullable().optional() }).strict().nullable().optional(),
     tool_module_qualnames: z.record(z.string(), z.string()).default({}),
     client_tools: z.array(z.unknown()).default([]),
     user_id: z.string().nullable().default(null),
@@ -186,6 +189,7 @@ const idListBodySchema = z.array(z.string());
 const conversationBatchSchema = z.array(conversationInfoSchema.nullable());
 
 export const routeSpecs = [
+  { method: 'post', path: '/api/sub-agents', tags: ['Sub Agents'], summary: 'Discover read-only subagent definitions', requestBody: subAgentsRequestSchema, responses: { 200: subAgentsResponseSchema, 422: null } },
   { method: 'get', path: '/api/llm/providers', tags: ['LLM'], summary: 'List curated providers', responses: { 200: providersSchema } },
   { method: 'get', path: '/api/llm/models', tags: ['LLM'], summary: 'List curated models', query: [{ name: 'provider', schema: { type: 'string' }, description: 'Filter models by provider' }], responses: { 200: modelsSchema, 422: null } },
   { method: 'get', path: '/api/llm/models/verified', tags: ['LLM'], summary: 'List upstream verified models', responses: { 200: verifiedModelsSchema } },

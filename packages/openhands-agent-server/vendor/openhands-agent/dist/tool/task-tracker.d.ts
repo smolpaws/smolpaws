@@ -3,11 +3,11 @@ import { ToolDefinition } from './index.js';
 export declare const taskItemSchema: z.ZodObject<{
     title: z.ZodString;
     notes: z.ZodDefault<z.ZodString>;
-    status: z.ZodDefault<z.ZodEnum<{
+    status: z.ZodDefault<z.ZodPreprocess<z.ZodEnum<{
         todo: "todo";
         in_progress: "in_progress";
         done: "done";
-    }>>;
+    }>>>;
 }, z.core.$strip>;
 export declare const taskTrackerActionSchema: z.ZodObject<{
     command: z.ZodDefault<z.ZodEnum<{
@@ -17,11 +17,11 @@ export declare const taskTrackerActionSchema: z.ZodObject<{
     task_list: z.ZodDefault<z.ZodArray<z.ZodObject<{
         title: z.ZodString;
         notes: z.ZodDefault<z.ZodString>;
-        status: z.ZodDefault<z.ZodEnum<{
+        status: z.ZodDefault<z.ZodPreprocess<z.ZodEnum<{
             todo: "todo";
             in_progress: "in_progress";
             done: "done";
-        }>>;
+        }>>>;
     }, z.core.$strip>>>;
 }, z.core.$strict>;
 export declare const taskTrackerObservationSchema: z.ZodObject<{
@@ -34,11 +34,11 @@ export declare const taskTrackerObservationSchema: z.ZodObject<{
     task_list: z.ZodDefault<z.ZodArray<z.ZodObject<{
         title: z.ZodString;
         notes: z.ZodDefault<z.ZodString>;
-        status: z.ZodDefault<z.ZodEnum<{
+        status: z.ZodDefault<z.ZodPreprocess<z.ZodEnum<{
             todo: "todo";
             in_progress: "in_progress";
             done: "done";
-        }>>;
+        }>>>;
     }, z.core.$strip>>>;
 }, z.core.$strict>;
 export type TaskItem = z.infer<typeof taskItemSchema>;

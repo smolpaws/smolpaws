@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import {
+  agentLaunchAdditionsSchema as sdkAgentLaunchAdditionsSchema,
   contentSchema,
   conversationExecutionStatus,
   eventSchema,
@@ -73,11 +74,7 @@ export type SendMessageResponse = z.infer<typeof sendMessageResponseSchema>;
  * Upstream `AgentLaunchAdditions`: deployment-controlled context applied after agent/profile resolution.
  * The stored profile is not modified; the text is appended to the resolved agent's system-message suffix.
  */
-export const agentLaunchAdditionsSchema = z
-  .object({
-    system_message_suffix_append: z.string().max(32768).nullable().default(null),
-  })
-  .strict();
+export const agentLaunchAdditionsSchema = sdkAgentLaunchAdditionsSchema;
 export type AgentLaunchAdditions = z.infer<typeof agentLaunchAdditionsSchema>;
 
 // JSON numbers have one finite JavaScript category: lexical 1 and 1.0 cannot be
@@ -135,7 +132,7 @@ export const hardCondenserBindingSchema = z.object({
 }).strict().refine(binding => binding.profile.profileId === binding.settings.llm_profile_ref, 'Hard condenser binding profile reference mismatch');
 export type HardCondenserBinding = z.infer<typeof hardCondenserBindingSchema>;
 
-export const launchedAgentProfileSchema = z.object({ agent_profile_id: z.string().uuid(), revision: z.number().int().nonnegative(), secret_refs: z.array(z.string()).nullable() }).strict();
+export const launchedAgentProfileSchema = z.object({ agent_profile_id: z.string().uuid(), revision: z.number().int().nonnegative(), secret_refs: z.array(z.string()).nullable(), llm_profile_ref: z.string().nullable().default(null) }).strict();
 const launchContextSchema = z.object({
   skills: z.array(z.record(z.string(), z.unknown())).default([]), disabledSkills: z.array(z.string()).default([]),
   systemMessageSuffix: z.string().nullable().default(null), userMessageSuffix: z.string().nullable().default(null),
@@ -151,6 +148,8 @@ export type ResolvedLaunchSnapshot = z.infer<typeof resolvedLaunchSnapshotSchema
 const stagedLaunchSourceSchema = z.object({ kind: z.literal('missing_condenser_ref') }).strict();
 
 export const publicStartConversationRequestSchema = startConversationRequestBaseSchema.superRefine((request, context) => {
+  if (request.agent_profile !== undefined && request.agent_profile !== null) context.addIssue({ code: 'custom', message: 'Inline agent_profile is not a launch source', path: ['agent_profile'] });
+  if (request.agent_launch_additions?.llm_profile_ref && !request.agent_profile_id) context.addIssue({ code: 'custom', message: 'llm_profile_ref override requires agent_profile_id', path: ['agent_launch_additions', 'llm_profile_ref'] });
   const hasAgent = request.agent !== null && request.agent !== undefined;
   const hasSettings = request.agent_settings !== null && request.agent_settings !== undefined;
   if (request.agent_profile_id !== null && request.agent_profile_id !== undefined && (hasAgent || hasSettings)) {
@@ -546,54 +545,7 @@ export type SecretCreateRequest = z.infer<typeof secretCreateRequestSchema>;
 export const secretItemResponseSchema = z.object({ name: z.string(), created_at: z.string(), updated_at: z.string(), value: z.string().optional() }).strict();
 export const secretsListResponseSchema = z.object({ secrets: z.array(secretItemResponseSchema.omit({ value: true })) }).strict();
 
-export const skillInfoSchema = z
-  .object({
-    name: z.string(),
-    type: z.enum(['repo', 'knowledge', 'agentskills']),
-    content: z.string(),
-    triggers: z.array(z.string()).default([]),
-    source: z.string().nullable().default(null),
-    description: z.string().nullable().default(null),
-    is_agentskills_format: z.boolean().default(false),
-    disable_model_invocation: z.boolean().default(false),
-  })
-  .strict();
-export const skillsRequestSchema = z
-  .object({
-    load_public: z.boolean().default(false),
-    load_user: z.boolean().default(true),
-    load_project: z.boolean().default(true),
-    load_org: z.boolean().default(false),
-    project_dir: z.string().nullable().default(null),
-    marketplace_path: z.string().nullable().default(null),
-    sandbox_config: z.unknown().nullable().default(null),
-    org_configs: z.array(z.unknown()).nullable().default(null),
-  })
-  .passthrough();
-export type SkillsRequest = z.infer<typeof skillsRequestSchema>;
-export const skillsResponseSchema = z.object({ skills: z.array(skillInfoSchema), sources: z.record(z.string(), z.number().int().nonnegative()).default({}) }).strict();
-export const syncResponseSchema = z.object({ status: z.enum(['success', 'error']), message: z.string() }).strict();
-export const installSkillRequestSchema = z.object({ source: z.string().min(1), ref: z.string().nullable().default(null), repo_path: z.string().nullable().default(null), force: z.boolean().default(false) }).strict();
-export type InstallSkillRequest = z.infer<typeof installSkillRequestSchema>;
-export const installedSkillResponseSchema = z
-  .object({
-    name: z.string(),
-    version: z.string().default(''),
-    description: z.string().default(''),
-    enabled: z.boolean().default(true),
-    source: z.string(),
-    resolved_ref: z.string().nullable().default(null),
-    repo_path: z.string().nullable().default(null),
-    installed_at: z.string(),
-    install_path: z.string(),
-  })
-  .strict();
-export const installedSkillsListResponseSchema = z.object({ skills: z.array(installedSkillResponseSchema) }).strict();
-export const updateSkillStateRequestSchema = z.object({ enabled: z.boolean() }).strict();
-export const updateSkillStateResponseSchema = z.object({ name: z.string(), enabled: z.boolean() }).strict();
-export const uninstallSkillResponseSchema = z.object({ message: z.string() }).strict();
-export const updateSkillResponseSchema = z.object({ message: z.string(), skill: installedSkillResponseSchema }).strict();
-export const marketplaceCatalogResponseSchema = z.object({ skills: z.array(z.unknown()).default([]) }).strict();
+export * from './skillsModels.js';
 
 export const agentProfilePayloadSchema = z.object({}).catchall(z.unknown());
 export const agentProfileListResponseSchema = z.object({ profiles: z.array(agentProfilePayloadSchema), active_agent_profile_id: z.string().nullable().default(null) }).strict();

@@ -849,6 +849,209 @@
         "title": "ACPAgentProfile",
         "type": "object"
       },
+      "ACPAgentSettings": {
+        "description": "Settings for an ACP (Agent Client Protocol) agent.\n\n``create_agent()`` returns an :class:`ACPAgent` that delegates to a\nsubprocess ACP server.  The ACP server manages its own system prompt,\ntools, MCP, and (primary) LLM calls; those fields from\n:class:`OpenHandsAgentSettings` do not apply here.\n\n:attr:`acp_model` is the model identity. The created ``ACPAgent`` keeps its\nown metrics LLM, so title generation can tell it is never callable.\nProvider credentials ride the conversation secrets channel\n(``request.secrets`` / ``agent_context.secrets`` → ``state.secret_registry``)\nkeyed by the provider's env var name (:attr:`api_key_env_var`).",
+        "properties": {
+          "acp_args": {
+            "description": "Additional arguments appended to the ACP server command.",
+            "items": {
+              "type": "string"
+            },
+            "openhands_settings": {
+              "depends_on": [],
+              "label": "ACP extra args",
+              "prominence": "minor"
+            },
+            "openhands_settings_section": {
+              "key": "acp",
+              "label": "ACP (Agent Client Protocol)",
+              "variant": "acp"
+            },
+            "title": "Acp Args",
+            "type": "array"
+          },
+          "acp_command": {
+            "description": "Optional explicit command to launch the ACP subprocess. Leave empty to use the default for :attr:`acp_server` (e.g. ``npx -y @agentclientprotocol/claude-agent-acp`` for ``claude-code``). Must be set when :attr:`acp_server` is ``'custom'``.",
+            "items": {
+              "type": "string"
+            },
+            "openhands_settings": {
+              "depends_on": [],
+              "label": "ACP command (custom override)",
+              "prominence": "minor"
+            },
+            "openhands_settings_section": {
+              "key": "acp",
+              "label": "ACP (Agent Client Protocol)",
+              "variant": "acp"
+            },
+            "title": "Acp Command",
+            "type": "array"
+          },
+          "acp_file_secrets": {
+            "description": "Reserved 'file-content' credential secrets the SDK materialises to disk before launching the ACP subprocess (e.g. Codex auth.json, Gemini Vertex SA JSON). Defaults to the built-in supported providers; override to support other ACP servers with different file-auth schemes.",
+            "items": {
+              "$ref": "#/components/schemas/ACPFileSecretSpec"
+            },
+            "title": "Acp File Secrets",
+            "type": "array"
+          },
+          "acp_isolate_data_dir": {
+            "default": false,
+            "description": "Give the ACP subprocess a per-conversation CLI data/config root instead of the shared user HOME. Forwarded to :attr:`~openhands.sdk.agent.ACPAgent.acp_isolate_data_dir`; off by default. Enable from the deploying application when several conversations share one sandbox (see #1019).",
+            "title": "Acp Isolate Data Dir",
+            "type": "boolean"
+          },
+          "acp_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Model identifier for the ACP server to use (e.g. ``'sonnet'`` or ``'gpt-5.5'``). Applied via the protocol — set_config_option(model) for configOptions-based servers (codex, claude), else set_session_model. Leave blank to let the server pick its default.",
+            "openhands_settings": {
+              "depends_on": [],
+              "label": "ACP model",
+              "prominence": "critical"
+            },
+            "openhands_settings_section": {
+              "key": "acp",
+              "label": "ACP (Agent Client Protocol)",
+              "variant": "acp"
+            },
+            "title": "Acp Model"
+          },
+          "acp_prompt_timeout": {
+            "default": 1800,
+            "description": "Inactivity timeout (seconds) for a single ACP prompt() round-trip. The deadline resets on every update from the ACP server, so a steadily-progressing agent keeps running; the prompt is only aborted after this many seconds with no activity at all.",
+            "exclusiveMinimum": 0,
+            "openhands_settings": {
+              "depends_on": [],
+              "label": "ACP prompt inactivity timeout (seconds)",
+              "prominence": "minor"
+            },
+            "openhands_settings_section": {
+              "key": "acp",
+              "label": "ACP (Agent Client Protocol)",
+              "variant": "acp"
+            },
+            "title": "Acp Prompt Timeout",
+            "type": "number"
+          },
+          "acp_server": {
+            "default": "claude-code",
+            "description": "Which ACP-compatible backend to launch. Each choice maps to a default subprocess command (see ``acp_command`` to override).",
+            "enum": [
+              "claude-code",
+              "codex",
+              "gemini-cli",
+              "kimi-code",
+              "pi",
+              "opencode",
+              "custom"
+            ],
+            "openhands_settings": {
+              "depends_on": [],
+              "label": "ACP server",
+              "prominence": "critical"
+            },
+            "openhands_settings_section": {
+              "key": "acp",
+              "label": "ACP (Agent Client Protocol)",
+              "variant": "acp"
+            },
+            "title": "Acp Server",
+            "type": "string"
+          },
+          "acp_session_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Session mode ID (e.g. ``bypassPermissions``). Leave blank to auto-detect from the ACP server type.",
+            "openhands_settings": {
+              "depends_on": [],
+              "label": "ACP session mode",
+              "prominence": "minor"
+            },
+            "openhands_settings_section": {
+              "key": "acp",
+              "label": "ACP (Agent Client Protocol)",
+              "variant": "acp"
+            },
+            "title": "Acp Session Mode"
+          },
+          "acp_startup_timeout": {
+            "default": 90,
+            "description": "Timeout (seconds) for ACP server startup: spawning the subprocess, the initialize/authenticate handshake, and new_session()/load_session(). A hard deadline, unlike acp_prompt_timeout, since startup has no intermediate progress signal to reset it against.",
+            "exclusiveMinimum": 0,
+            "openhands_settings": {
+              "depends_on": [],
+              "label": "ACP startup timeout (seconds)",
+              "prominence": "minor"
+            },
+            "openhands_settings_section": {
+              "key": "acp",
+              "label": "ACP (Agent Client Protocol)",
+              "variant": "acp"
+            },
+            "title": "Acp Startup Timeout",
+            "type": "number"
+          },
+          "agent_context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentContext-Input"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Prompt-only context for the ACP server. ``secrets`` here are advertised to the agent (names/descriptions) and reach the subprocess env through ``state.secret_registry``: ``LocalConversation`` seeds ``agent_context.secrets`` into the registry at conversation init (below ``request.secrets``), so callers that build the request outside Python (e.g. canvas-local) are covered too, not just the ``create_request`` path. Provider credentials belong here (or in ``request.secrets``) keyed by the provider's env var name."
+          },
+          "agent_kind": {
+            "const": "acp",
+            "default": "acp",
+            "description": "Discriminator for the ``AgentSettings`` union. ``'acp'`` selects an ACP-delegating agent.",
+            "title": "Agent Kind",
+            "type": "string"
+          },
+          "llm": {
+            "$ref": "#/components/schemas/LLM-Input",
+            "deprecated": true,
+            "description": "Deprecated since v1.51.0 and scheduled for removal in v1.56.0. Ignored and not serialized: the ACP subprocess makes its own model calls and ``acp_model`` is the model identity. Route provider credentials through the conversation secrets channel, keyed by the provider's env var name."
+          },
+          "mcp_config": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/MCPServer-Input"
+            },
+            "description": "MCP servers to make available to the ACP subprocess. Unlike the OpenHands agent — where these become in-process MCP tools — the servers are forwarded to the ACP server at session creation and it owns the connection. Remote (http/sse) servers are only forwarded when the ACP server advertises support for that transport; stdio servers (which run inside the runtime) are always forwarded.",
+            "openhands_settings": {
+              "depends_on": [],
+              "label": "MCP servers",
+              "prominence": "minor",
+              "variant": "acp"
+            },
+            "title": "Mcp Config",
+            "type": "object"
+          },
+          "schema_version": {
+            "default": 8,
+            "minimum": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "title": "ACPAgentSettings",
+        "type": "object"
+      },
       "ACPFileSecretSpec": {
         "description": "Declarative mapping from a reserved \"file-content\" secret to a credential\nfile the ACP subprocess authenticates from.\n\nSome providers read their credential from a *file on disk* rather than an\nenv var: Codex reads ``$CODEX_HOME/auth.json``; Gemini (Vertex AI) reads a\nservice-account JSON pointed at by ``GOOGLE_APPLICATION_CREDENTIALS``. The\nuser supplies that credential as a pasted blob — a reserved secret named\n:attr:`secret_name` — and :class:`~openhands.sdk.agent.ACPAgent` materialises\nit to :attr:`filename` under the conversation's durable per-conversation root\n(seed-if-absent), then sets :attr:`env_var` so the CLI can find it.\n\nMaterialisation is keyed off :attr:`secret_name` (not the launch command),\nso a custom or aliased ``acp_command`` still works as long as the reserved\nsecret is supplied.\n\nThe SDK owns the *mechanism* (writing the file in the runtime pod, setting\nthe env var, seed-if-absent, permissions); the *policy* — which secrets map\nto which files for which CLIs — lives in these specs. Built-in defaults\ncover the supported providers, but downstream applications can override\n:attr:`~openhands.sdk.agent.ACPAgent.acp_file_secrets` to support other ACP\nservers with different file-auth schemes without an SDK change.",
         "properties": {
@@ -897,6 +1100,122 @@
           "subdir"
         ],
         "title": "ACPFileSecretSpec",
+        "type": "object"
+      },
+      "ACPModelDiscovery": {
+        "description": "What an ACP server reports for a fresh session, before any conversation.",
+        "properties": {
+          "agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Server name from ``initialize``.",
+            "title": "Agent Name"
+          },
+          "agent_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Server version from ``initialize``.",
+            "title": "Agent Version"
+          },
+          "available_models": {
+            "description": "Models the server offers for the given credentials. Empty when the server does not report any.",
+            "items": {
+              "$ref": "#/components/schemas/ACPModelInfo"
+            },
+            "title": "Available Models",
+            "type": "array"
+          },
+          "current_model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Model the server picks when none is requested — its own default for the given credentials. May be an opaque alias such as ``\"default\"``; match it against ``available_models`` for a label.",
+            "title": "Current Model Id"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ACPModelDiscoveryError"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when the server could not start a session."
+          },
+          "supports_runtime_model_switch": {
+            "default": false,
+            "description": "Whether a conversation can switch among these models live.",
+            "title": "Supports Runtime Model Switch",
+            "type": "boolean"
+          }
+        },
+        "title": "ACPModelDiscovery",
+        "type": "object"
+      },
+      "ACPModelDiscoveryError": {
+        "description": "Why an ACP server could not report its models.",
+        "properties": {
+          "code": {
+            "description": "Same codes as a conversation's cold-start ``ConversationErrorEvent``: ``ACPAuthRequired``, ``ACPStartupTimeout``, ``ACPSpawnError`` or ``ACPInitError``.",
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "description": "Human-readable, secret-free cause.",
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "detail"
+        ],
+        "title": "ACPModelDiscoveryError",
+        "type": "object"
+      },
+      "ACPModelDiscoveryRequest": {
+        "properties": {
+          "agent_settings": {
+            "$ref": "#/components/schemas/ACPAgentSettings",
+            "description": "The ACP agent to ask. Only the launch fields are used; ``acp_model``, MCP servers and agent context are ignored."
+          },
+          "refresh": {
+            "default": false,
+            "description": "Ask the server again instead of reusing a result.",
+            "title": "Refresh",
+            "type": "boolean"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SecretSource-Input"
+            },
+            "description": "Credentials for the server, in the same shape as a conversation start request's ``secrets`` (typically ``LookupSecret`` references to this server's stored secrets).",
+            "title": "Secrets",
+            "type": "object"
+          }
+        },
+        "required": [
+          "agent_settings"
+        ],
+        "title": "ACPModelDiscoveryRequest",
         "type": "object"
       },
       "ACPModelInfo": {
@@ -2346,7 +2665,7 @@
                 "type": "null"
               }
             ],
-            "description": "MCP servers for this agent.",
+            "description": "MCP servers for this agent. Ignored when it runs as a delegated sub-agent, which always inherits its parent's MCP servers.",
             "examples": [
               {
                 "fetch": {
@@ -2602,6 +2921,34 @@
         "additionalProperties": false,
         "description": "Add deployment context after agent resolution.",
         "properties": {
+          "llm_profile_ref": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "LLM profile to launch an OpenHands Agent Profile with instead of its own `llm_profile_ref`. Recorded in `launched_agent_profile`; the stored profile is not modified. Only valid with `agent_profile_id`.",
+            "title": "Llm Profile Ref"
+          },
+          "skills": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Skill-Input"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deployment-supplied skills merged into the resolved agent's context. For a client that ships its own skill catalog and so cannot rely on the server's: an ``agent_profile_id`` launch sends no ``agent_settings``, leaving it no other way to supply them. Merged by name — a skill the resolved agent already carries wins, and the profile's ``disabled_skills`` deny-list still applies, so this cannot reintroduce something the profile turned off. None (the default) adds nothing.",
+            "title": "Skills"
+          },
           "system_message_suffix_append": {
             "anyOf": [
               {
@@ -2758,6 +3105,20 @@
               }
             ],
             "title": "Meta Profile Ref"
+          },
+          "public_skills": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Skills"
           },
           "resolved_mcp_config_keys": {
             "items": {
@@ -5350,7 +5711,7 @@
         "type": "object"
       },
       "CanvasExtensionBackendArtifact": {
-        "description": "Immutable backend artifact for one supported platform.",
+        "description": "Immutable local or HTTPS backend artifact for one platform.",
         "properties": {
           "path": {
             "description": "Package-relative .tar.gz artifact path",
@@ -5362,6 +5723,26 @@
             "pattern": "^[0-9a-f]{64}$",
             "title": "Sha256",
             "type": "string"
+          },
+          "strip_components": {
+            "default": 0,
+            "description": "Leading archive path components to remove",
+            "maximum": 16,
+            "minimum": 0,
+            "title": "Strip Components",
+            "type": "integer"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Public HTTPS .tar.gz artifact URL",
+            "title": "Url"
           }
         },
         "required": [
@@ -5446,6 +5827,18 @@
             "description": "Path, relative to the extension package root, to the bundle entry file",
             "title": "Entrypoint",
             "type": "string"
+          },
+          "icon": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path, relative to the extension package root, to an SVG icon",
+            "title": "Icon"
           },
           "name": {
             "description": "Extension name (kebab-case)",
@@ -7412,6 +7805,7 @@
             "openhands__sdk__event__llm_convertible__observation__ObservationEvent-Output__1": "#/components/schemas/ObservationEvent",
             "openhands__sdk__event__llm_convertible__observation__UserRejectObservation-Output__1": "#/components/schemas/UserRejectObservation",
             "openhands__sdk__event__llm_convertible__system__SystemPromptEvent-Output__1": "#/components/schemas/SystemPromptEvent",
+            "openhands__sdk__event__security__SecurityAnalysisEvent-Output__1": "#/components/schemas/SecurityAnalysisEvent",
             "openhands__sdk__event__streaming_delta__StreamingDeltaEvent-Output__1": "#/components/schemas/StreamingDeltaEvent",
             "openhands__sdk__event__token__TokenEvent-Output__1": "#/components/schemas/TokenEvent",
             "openhands__sdk__event__user_action__InterruptEvent-Output__1": "#/components/schemas/InterruptEvent",
@@ -7464,6 +7858,9 @@
           },
           {
             "$ref": "#/components/schemas/SystemPromptEvent"
+          },
+          {
+            "$ref": "#/components/schemas/SecurityAnalysisEvent"
           },
           {
             "$ref": "#/components/schemas/StreamingDeltaEvent"
@@ -9606,6 +10003,18 @@
             "description": "Subdirectory path within the repository",
             "title": "Repo Path"
           },
+          "requested_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Branch, tag, or commit requested at install time. None means no ref was requested (tracking the source's default branch).",
+            "title": "Requested Ref"
+          },
           "resolved_ref": {
             "anyOf": [
               {
@@ -9904,7 +10313,7 @@
             "title": "Repo Path"
           },
           "source": {
-            "description": "Plugin source - git URL, GitHub shorthand, or local path. Examples: 'github:OpenHands/extensions/plugins/city-weather', '/path/to/plugin'",
+            "description": "Plugin source - git URL, GitHub shorthand (github:owner/repo, optionally followed by the plugin's path in the repository), or local path. Examples: 'github:OpenHands/extensions/plugins/city-weather', '/path/to/plugin'",
             "minLength": 1,
             "title": "Source",
             "type": "string"
@@ -9950,7 +10359,7 @@
             "title": "Repo Path"
           },
           "source": {
-            "description": "Skill source - git URL, GitHub shorthand, or local path. Examples: 'https://github.com/OpenHands/extensions/tree/main/skills/github', 'github:OpenHands/extensions/skills/github', '/path/to/skill'",
+            "description": "Skill source - git URL, GitHub shorthand (github:owner/repo, optionally followed by the skill's path in the repository), or local path. Examples: 'github:OpenHands/extensions/skills/github', 'https://github.com/OpenHands/extensions.git' with repo_path 'skills/github', '/path/to/skill'",
             "minLength": 1,
             "title": "Source",
             "type": "string"
@@ -10191,6 +10600,18 @@
             "format": "uuid",
             "title": "Agent Profile Id",
             "type": "string"
+          },
+          "llm_profile_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per-launch LLM profile override from `agent_launch_additions`. null means the profile's own `llm_profile_ref` was used.",
+            "title": "Llm Profile Ref"
           },
           "revision": {
             "description": "Revision of the agent profile at launch time.",
@@ -16125,6 +16546,21 @@
             "description": "Persona text that replaces OpenHands' built-in persona and coding-workflow guidance. Capability and policy guidance (memory, security policy, risk assessment, browser, external services, process management, model-specific notes) and the dynamic context are still included. None keeps the built-in persona.",
             "title": "Persona"
           },
+          "public_skills": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which public-catalog skills to load. null = all; [] = none; a list = only the named skills, ignoring names the catalog lacks. User and project skills are not affected, and `disabled_skills` still applies to every skill.",
+            "title": "Public Skills"
+          },
           "revision": {
             "default": 0,
             "description": "Monotonic revision counter, bumped on each saved edit.",
@@ -16325,7 +16761,7 @@
         "type": "object"
       },
       "PatternSecurityAnalyzer-Input": {
-        "description": "Catch dangerous agent actions through deterministic signature scanning.\n\nUse this when you want fast, local, no-network threat detection at the\naction boundary. It returns ``SecurityRisk.HIGH``, ``MEDIUM``, or ``LOW``\n-- pair it with ``ConfirmRisky`` to decide what gets confirmed.\n\nThe key design choice: shell-destructive patterns only scan what the\nagent will *execute* (tool arguments), never what it *thought about*\n(reasoning text). Injection patterns scan everything, because\n\"ignore all previous instructions\" is dangerous wherever it appears.\n\nNormalization is always on -- invisible characters and fullwidth\nsubstitutions are collapsed before matching.\n\nExample::\n\n    from openhands.sdk.security import PatternSecurityAnalyzer, ConfirmRisky\n\n    analyzer = PatternSecurityAnalyzer()\n    policy = ConfirmRisky(threshold=SecurityRisk.MEDIUM)",
+        "description": "Catch dangerous agent actions through deterministic signature scanning.\n\nUse this when you want fast, local, no-network threat detection at the\naction boundary. It returns ``SecurityRisk.HIGH``, ``MEDIUM``, or ``LOW``.\nIt returns ``UNKNOWN`` when the shell scan cannot resolve relevant\ndestructive structure. Pair it with ``ConfirmRisky`` to decide what gets\nconfirmed.\n\nThe key design choice: shell-destructive patterns only scan what the\nagent will *execute* (tool arguments), never what it *thought about*\n(reasoning text). Injection patterns scan everything, because\n\"ignore all previous instructions\" is dangerous wherever it appears.\n\nNormalization is always on -- invisible characters and fullwidth\nsubstitutions are collapsed before matching.\n\nExample::\n\n    from openhands.sdk.security import PatternSecurityAnalyzer, ConfirmRisky\n\n    analyzer = PatternSecurityAnalyzer()\n    policy = ConfirmRisky(threshold=SecurityRisk.MEDIUM)",
         "properties": {
           "high_patterns": {
             "description": "HIGH patterns scanned against executable fields only",
@@ -16421,7 +16857,7 @@
         "type": "object"
       },
       "PatternSecurityAnalyzer-Output": {
-        "description": "Catch dangerous agent actions through deterministic signature scanning.\n\nUse this when you want fast, local, no-network threat detection at the\naction boundary. It returns ``SecurityRisk.HIGH``, ``MEDIUM``, or ``LOW``\n-- pair it with ``ConfirmRisky`` to decide what gets confirmed.\n\nThe key design choice: shell-destructive patterns only scan what the\nagent will *execute* (tool arguments), never what it *thought about*\n(reasoning text). Injection patterns scan everything, because\n\"ignore all previous instructions\" is dangerous wherever it appears.\n\nNormalization is always on -- invisible characters and fullwidth\nsubstitutions are collapsed before matching.\n\nExample::\n\n    from openhands.sdk.security import PatternSecurityAnalyzer, ConfirmRisky\n\n    analyzer = PatternSecurityAnalyzer()\n    policy = ConfirmRisky(threshold=SecurityRisk.MEDIUM)",
+        "description": "Catch dangerous agent actions through deterministic signature scanning.\n\nUse this when you want fast, local, no-network threat detection at the\naction boundary. It returns ``SecurityRisk.HIGH``, ``MEDIUM``, or ``LOW``.\nIt returns ``UNKNOWN`` when the shell scan cannot resolve relevant\ndestructive structure. Pair it with ``ConfirmRisky`` to decide what gets\nconfirmed.\n\nThe key design choice: shell-destructive patterns only scan what the\nagent will *execute* (tool arguments), never what it *thought about*\n(reasoning text). Injection patterns scan everything, because\n\"ignore all previous instructions\" is dangerous wherever it appears.\n\nNormalization is always on -- invisible characters and fullwidth\nsubstitutions are collapsed before matching.\n\nExample::\n\n    from openhands.sdk.security import PatternSecurityAnalyzer, ConfirmRisky\n\n    analyzer = PatternSecurityAnalyzer()\n    policy = ConfirmRisky(threshold=SecurityRisk.MEDIUM)",
         "properties": {
           "high_patterns": {
             "description": "HIGH patterns scanned against executable fields only",
@@ -17027,7 +17463,7 @@
         "type": "object"
       },
       "PolicyRailSecurityAnalyzer-Input": {
-        "description": "Catch composed threats that plain regex signatures would miss.\n\nUse this when you need to detect threats defined by *combinations*\nof tokens (e.g., ``curl`` piped to ``bash``) rather than individual\nsignatures. While these rails *could* each be expressed as a single\nregex, keeping them as named rules with per-segment evaluation makes\nthe threat model more interpretable, the rules easier to maintain,\nand the audit trail clearer than a flat pattern list.\n\nEvaluates normalized executable segments only -- reasoning text is\nnever scanned.\n\nReturns ``SecurityRisk.HIGH`` when a rail fires, ``LOW`` otherwise.\nPair with ``ConfirmRisky`` and compose via ``EnsembleSecurityAnalyzer``.\n\nv1 rails: fetch-to-exec, raw-disk-op, catastrophic-delete.\n\nExample::\n\n    from openhands.sdk.security import PolicyRailSecurityAnalyzer\n\n    analyzer = PolicyRailSecurityAnalyzer()\n    # risk = analyzer.security_risk(action)",
+        "description": "Catch threats defined by shell command structure.\n\nNamed rails use shell syntax to detect dangerous operations, such as a\nnetwork fetch piped to a downstream command. Per-segment evaluation keeps\nthe threat model interpretable and prevents text from separate fields from\nforming one match.\n\nEvaluates original executable segments only -- reasoning text is never\nscanned.\n\nReturns ``SecurityRisk.HIGH`` when a rail fires and ``UNKNOWN`` when a\nrelevant shell structure cannot be resolved. ``LOW`` means that no\nconfigured rail matched and no relevant uncertainty remained. It does not\nestablish general safety or authorization. Pair with ``ConfirmRisky`` and\ncompose via ``EnsembleSecurityAnalyzer``.\n\nv1 rails: fetch-to-exec, raw-disk-op, catastrophic-delete.\n\nExample::\n\n    from openhands.sdk.security import PolicyRailSecurityAnalyzer\n\n    analyzer = PolicyRailSecurityAnalyzer()\n    # risk = analyzer.security_risk(action)",
         "properties": {
           "kind": {
             "const": "PolicyRailSecurityAnalyzer",
@@ -17039,7 +17475,7 @@
         "type": "object"
       },
       "PolicyRailSecurityAnalyzer-Output": {
-        "description": "Catch composed threats that plain regex signatures would miss.\n\nUse this when you need to detect threats defined by *combinations*\nof tokens (e.g., ``curl`` piped to ``bash``) rather than individual\nsignatures. While these rails *could* each be expressed as a single\nregex, keeping them as named rules with per-segment evaluation makes\nthe threat model more interpretable, the rules easier to maintain,\nand the audit trail clearer than a flat pattern list.\n\nEvaluates normalized executable segments only -- reasoning text is\nnever scanned.\n\nReturns ``SecurityRisk.HIGH`` when a rail fires, ``LOW`` otherwise.\nPair with ``ConfirmRisky`` and compose via ``EnsembleSecurityAnalyzer``.\n\nv1 rails: fetch-to-exec, raw-disk-op, catastrophic-delete.\n\nExample::\n\n    from openhands.sdk.security import PolicyRailSecurityAnalyzer\n\n    analyzer = PolicyRailSecurityAnalyzer()\n    # risk = analyzer.security_risk(action)",
+        "description": "Catch threats defined by shell command structure.\n\nNamed rails use shell syntax to detect dangerous operations, such as a\nnetwork fetch piped to a downstream command. Per-segment evaluation keeps\nthe threat model interpretable and prevents text from separate fields from\nforming one match.\n\nEvaluates original executable segments only -- reasoning text is never\nscanned.\n\nReturns ``SecurityRisk.HIGH`` when a rail fires and ``UNKNOWN`` when a\nrelevant shell structure cannot be resolved. ``LOW`` means that no\nconfigured rail matched and no relevant uncertainty remained. It does not\nestablish general safety or authorization. Pair with ``ConfirmRisky`` and\ncompose via ``EnsembleSecurityAnalyzer``.\n\nv1 rails: fetch-to-exec, raw-disk-op, catastrophic-delete.\n\nExample::\n\n    from openhands.sdk.security import PolicyRailSecurityAnalyzer\n\n    analyzer = PolicyRailSecurityAnalyzer()\n    # risk = analyzer.security_risk(action)",
         "properties": {
           "kind": {
             "const": "PolicyRailSecurityAnalyzer",
@@ -17054,7 +17490,7 @@
         "type": "object"
       },
       "ProfileDetailResponse": {
-        "description": "``config.api_key`` is always nulled; use ``api_key_set`` instead.",
+        "description": "Secrets are nulled unless explicitly requested via X-Expose-Secrets.",
         "properties": {
           "api_key_set": {
             "default": false,
@@ -18053,6 +18489,85 @@
             "$ref": "#/components/schemas/StaticSecret-Output"
           }
         ]
+      },
+      "SecurityAnalysisEvent": {
+        "additionalProperties": false,
+        "description": "Risk levels the configured security analyzer assigned to pending actions.\n\nEmitted once per batch of actions the agent is about to execute, whenever a\nsecurity analyzer is configured on the conversation, regardless of whether\nthe confirmation policy then asks for confirmation. This makes the\nanalyzer's verdict visible in the event log and UI even when the policy\n(for example ``NeverConfirm``) never consults it.\n\nThis event is not sent to the LLM.",
+        "properties": {
+          "analyzer": {
+            "description": "Kind of the security analyzer that produced these risks.",
+            "title": "Analyzer",
+            "type": "string"
+          },
+          "details": {
+            "additionalProperties": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "description": "Optional analyzer-specific detail per action, keyed by ActionEvent id (for example probabilities, confidence, or a rationale).",
+            "title": "Details",
+            "type": "object"
+          },
+          "id": {
+            "description": "Unique event id (ULID/UUID)",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "SecurityAnalysisEvent",
+            "title": "Kind",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent event id in the conversation tree. None for the root, or for legacy events predating the tree (see EventLog's effective-parent rule). Events sharing a parent_id are sibling branches.",
+            "title": "Parent Id"
+          },
+          "policy": {
+            "description": "Kind of the confirmation policy in force when the actions were analyzed.",
+            "title": "Policy",
+            "type": "string"
+          },
+          "risks": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SecurityRisk"
+            },
+            "description": "Risk level per analyzed action, keyed by ActionEvent id.",
+            "title": "Risks",
+            "type": "object"
+          },
+          "source": {
+            "default": "environment",
+            "enum": [
+              "agent",
+              "user",
+              "environment",
+              "hook"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "Event timestamp",
+            "title": "Timestamp",
+            "type": "string"
+          }
+        },
+        "required": [
+          "analyzer",
+          "policy",
+          "risks",
+          "kind"
+        ],
+        "title": "SecurityAnalysisEvent",
+        "type": "object"
       },
       "SecurityAnalyzerBase-Input": {
         "discriminator": {
@@ -19234,7 +19749,7 @@
         "type": "object"
       },
       "StartConversationRequest": {
-        "description": "Payload to create a new conversation.\n\nExtends :class:`ConversationConfig` with the agent source: a stored Agent\nProfile (``agent_profile_id``), resolved agent settings (``agent_settings``),\nor an ``agent`` built in code. The server builds the conversation's agent\nfrom that source at launch; this model only validates it.\n\nNote: the agent lives here on the *request*, deliberately not on\n``ConversationConfig``. The persisted record (``StoredConversation``) does\nnot carry the agent — its single source of truth is ``ConversationState`` /\n``base_state.json``.",
+        "description": "Payload to create a new conversation.\n\nExtends :class:`ConversationConfig` with the agent source: a stored Agent\nProfile (``agent_profile_id``), resolved agent settings\n(``agent_settings``), or an ``agent`` built in code. The\nserver turns the source into the conversation's agent at launch; this model\nonly checks that exactly one source is given.\n\nNote: the agent lives here on the *request*, deliberately not on\n``ConversationConfig``. The persisted record (``StoredConversation``) does\nnot carry the agent — its single source of truth is ``ConversationState`` /\n``base_state.json``.",
         "properties": {
           "agent": {
             "$ref": "#/components/schemas/AgentBase-Input"
@@ -19268,7 +19783,7 @@
                 "type": "null"
               }
             ],
-            "description": "Stored Agent Profile to launch. The server resolves it with its own stores. Mutually exclusive with `agent` and `agent_settings`.",
+            "description": "Stored Agent Profile to launch. The server resolves it with its own stores. Mutually exclusive with the other agent sources.",
             "title": "Agent Profile Id"
           },
           "agent_settings": {
@@ -19810,6 +20325,7 @@
                 "type": "null"
               }
             ],
+            "description": "MCP servers the definition declares. A delegated sub-agent ignores them and inherits its parent's MCP servers.",
             "title": "Mcp Config"
           },
           "mcp_servers": {
@@ -23107,13 +23623,60 @@
   "info": {
     "description": "OpenHands Agent Server - REST/WebSocket interface for OpenHands AI Agent",
     "title": "OpenHands Agent Server",
-    "version": "1.52.0"
+    "version": "1.55.0"
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/acp/models": {
+      "post": {
+        "description": "Start the ACP server in a throwaway session and report its models.\n\nThe server answers with its default model and the models it offers for the\ngiven credentials; a launch or authentication failure comes back in\n``error`` rather than as an HTTP error.",
+        "operationId": "discover_models_api_acp_models_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ACPModelDiscoveryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ACPModelDiscovery"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Discover Models",
+        "tags": [
+          "ACP"
+        ]
+      }
+    },
     "/api/agent-profiles": {
       "get": {
-        "description": "List all stored agent profiles and the active pointer.\n\nOn the first call against an empty store with no active pointer, lazily\nseeds one default profile from the current ``agent_settings`` and activates\nit (the one-time migration that replaces a dedicated seed step).",
+        "description": "List all stored agent profiles and the active pointer.\n\nSome profile is always active: with no valid pointer, ``default`` is\nactivated, and seeded from the current ``agent_settings`` when absent.",
         "operationId": "list_agent_profiles_api_agent_profiles_get",
         "responses": {
           "200": {
@@ -23140,7 +23703,7 @@
     },
     "/api/agent-profiles/{name}": {
       "delete": {
-        "description": "Delete a stored profile (idempotent).\n\nIf the deleted profile was the active one, ``active_agent_profile_id`` is\ncleared. If ``agent_settings`` is itself left on a non-OpenHands variant,\nit is reset to default OpenHands agent settings so stale ACP configuration\ndoes not outlive the profile it came from; the server-wide ``mcp_config``\nis carried over.",
+        "description": "Delete a stored profile (idempotent).\n\nIf the deleted profile was the active one, ``default`` becomes active,\nreseeded from the settings when it was the one deleted. If\n``agent_settings`` is itself left on a non-OpenHands variant, it is first\nreset to default OpenHands agent settings so stale ACP configuration does\nnot outlive the profile it came from; the server-wide ``mcp_config`` is\ncarried over.",
         "operationId": "delete_agent_profile_api_agent_profiles__name__delete",
         "parameters": [
           {
@@ -24629,6 +25192,63 @@
           }
         ],
         "summary": "Get Canvas Extension Bundle Endpoint",
+        "tags": [
+          "Canvas Extensions"
+        ]
+      }
+    },
+    "/api/canvas-extensions/installed/{extension_name}/icon": {
+      "get": {
+        "description": "Serve the SVG icon declared by an installed canvas extension's manifest.\n\nThe path comes from the manifest, never the request. The CSP sandbox keeps\na directly opened SVG from running scripts on the agent-server origin.",
+        "operationId": "get_canvas_extension_icon_endpoint_api_canvas_extensions_installed__extension_name__icon_get",
+        "parameters": [
+          {
+            "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+            "in": "path",
+            "name": "extension_name",
+            "required": true,
+            "schema": {
+              "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "title": "Extension Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/svg+xml": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Canvas extension or icon not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Canvas Extension Icon Endpoint",
         "tags": [
           "Canvas Extensions"
         ]
@@ -30775,7 +31395,7 @@
         ]
       },
       "get": {
-        "description": "Get a profile's configuration.\n\nUse the ``X-Expose-Secrets`` header to control secret exposure:\n- ``encrypted``: Returns cipher-encrypted values (safe for frontend clients)\n- ``plaintext``: Returns raw secret values (backend clients only!)\n- (absent): Returns nulled ``api_key`` with ``api_key_set`` indicator",
+        "description": "Get a profile's configuration.\n\nUse the ``X-Expose-Secrets`` header to control secret exposure:\n- ``encrypted``: Returns cipher-encrypted values (safe for frontend clients)\n- ``plaintext``: Resolves linked providers and returns raw secret values\n  for backend clients constructing a runnable LLM configuration\n- (absent): Returns nulled ``api_key`` with ``api_key_set`` indicator",
         "operationId": "get_profile_api_profiles__name__get",
         "parameters": [
           {
@@ -31397,7 +32017,7 @@
         ]
       },
       "put": {
-        "description": "Create or update a custom secret (upsert).\n\nRaises:\n    HTTPException: 400 if secret name format is invalid, 500 if file is corrupted.",
+        "description": "Create or update a custom secret (upsert).\n\nRaises:\n    HTTPException: 422 if the name or value is invalid, 500 if file is corrupted.",
         "operationId": "create_secret_api_settings_secrets_put",
         "requestBody": {
           "content": {
@@ -31944,7 +32564,7 @@
     },
     "/api/sub-agents": {
       "post": {
-        "description": "List file-based and built-in sub-agents for the workspace.\n\nMerged first-wins by name with precedence project > user > builtin. Read-only:\nit registers nothing into the conversation registry.",
+        "description": "List file-based and built-in sub-agents for the workspace.\n\nMerged first-wins by name with precedence project > user > builtin. Read-only:\nit registers nothing into the conversation registry. Browser-only built-ins\nare left out when the server's config disables the browser.",
         "operationId": "get_sub_agents_api_sub_agents_post",
         "requestBody": {
           "content": {

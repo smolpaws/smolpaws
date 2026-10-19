@@ -9,6 +9,7 @@ import { Agent, FinishTool, InMemorySecretStore, TestLLM, ToolDefinition, llmPro
 import { z } from 'zod';
 
 import { createAgentServerApp } from '../src/app.js';
+import { SkillsCatalogService } from '../src/skillsService.js';
 
 const execFileAsync = promisify(execFile);
 const sessionApiKey = 'local-endpoint-smoke';
@@ -56,6 +57,7 @@ let conversationsPath = '';
 let statePath = '';
 let bashEventsPath = '';
 let secretStore = new InMemorySecretStore();
+let skillsCatalogService: SkillsCatalogService;
 let server: Awaited<ReturnType<typeof createAgentServerApp>> | null = null;
 let host = '';
 
@@ -68,10 +70,20 @@ async function main(): Promise<void> {
     bashEventsPath = path.join(root, 'bash-events');
     await mkdir(workspaceRoot, { recursive: true });
 
+    const publicSkillsOrigin = path.join(root, 'skills-origin');
+    await mkdir(path.join(publicSkillsOrigin, 'marketplaces'), { recursive: true });
+    await mkdir(path.join(publicSkillsOrigin, 'skills', 'smoke-public'), { recursive: true });
+    await writeFile(path.join(publicSkillsOrigin, 'marketplaces', 'default.json'), JSON.stringify({ name: 'local-smoke', owner: { name: 'Fixture' }, plugins: [{ name: 'smoke-public', source: './skills/smoke-public' }] }));
+    await writeFile(path.join(publicSkillsOrigin, 'skills', 'smoke-public', 'SKILL.md'), '---\nname: smoke-public\ndescription: Local Git catalog fixture\n---\nPublic fixture content.\n');
+    const fixtureGit = (...args: string[]) => execFileAsync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'user.name=Local Smoke', '-c', 'user.email=local-smoke@example.invalid', '-C', publicSkillsOrigin, ...args]);
+    await fixtureGit('init', '-b', 'main'); await fixtureGit('add', '.'); await fixtureGit('commit', '-m', 'local skills fixture');
+    skillsCatalogService = new SkillsCatalogService({ stateDir: statePath, workspaceRoot, userDirectories: [], publicOptions: { repoUrl: publicSkillsOrigin, ref: 'main' } });
+
     secretStore = new InMemorySecretStore();
     server = await createAgentServerApp({
       agentFactory: localAgentFactory,
       secretStore,
+      skillsCatalogService,
       config: {
         conversationsPath,
         statePath,
@@ -124,7 +136,7 @@ async function coverServerDetails(client: LocalClient): Promise<void> {
   assertEqual(info.status, 'ok', 'server_info status');
   assertEqual(info.python_version, 'not-applicable', 'server_info python_version');
   assertEqual(info.node_version, process.version, 'server_info node_version');
-  assert(info.usable_tools.includes('bash'), 'server_info exposes bash tool');
+  assert(info.usable_tools.includes('terminal'), 'server_info exposes registered terminal tool');
   const openapi = await client.getJson<{ paths: Record<string, unknown> }>('/openapi.json', false);
   assert(openapi.paths['/api/conversations/{conversation_id}/run'] !== undefined, 'OpenAPI includes run route');
   const unauthorized = await client.raw('/api/conversations/count', { auth: false });
@@ -182,8 +194,9 @@ async function coverSkills(client: LocalClient): Promise<void> {
 
   const loaded = await client.postJson<{ skills: Array<{ name: string }>; sources: Record<string, number> }>('/api/skills', { load_user: false, load_project: true, project_dir: workspaceRoot });
   assert(loaded.skills.some((skill) => skill.name === 'demo'), 'project skill is loaded');
+  assert(loaded.skills.some((skill) => skill.name === 'smoke-public'), 'public skill loads from the local Git fixture');
   assert((loaded.sources.project ?? 0) >= 1, 'project skill source count is set');
-  assertEqual((await client.postJson<{ status: string }>('/api/skills/sync', {})).status, 'success', 'skills sync compatibility response');
+  assertEqual((await client.postJson<{ status: string }>('/api/skills/sync', {})).status, 'success', 'skills sync updates the local Git catalog');
   const installed = await client.postJson<{ name: string; enabled: boolean }>('/api/skills/install', { source: path.dirname(localSkill) }, 200);
   assertEqual(installed.name, 'installed-demo', 'local skill installed');
   assertEqual((await client.getJson<{ name: string }>('/api/skills/installed/installed-demo')).name, 'installed-demo', 'installed skill get');
@@ -191,7 +204,7 @@ async function coverSkills(client: LocalClient): Promise<void> {
   assertEqual(disabled.enabled, false, 'installed skill disabled');
   assert((await client.getJson<{ skills: Array<{ name: string; enabled: boolean }> }>('/api/skills/installed')).skills.some((skill) => skill.name === 'installed-demo' && !skill.enabled), 'installed skill list reflects disabled state');
   assert((await client.postJson<{ message: string }>('/api/skills/installed/installed-demo/refresh', {})).message.includes('updated'), 'installed skill refresh');
-  assert(Array.isArray((await client.getJson<{ skills: unknown[] }>('/api/skills/marketplace')).skills), 'marketplace returns list');
+  assert((await client.getJson<{ skills: Array<{ name: string }> }>('/api/skills/marketplace')).skills.some(skill => skill.name === 'smoke-public'), 'marketplace returns the local Git fixture');
   assert((await client.deleteJson<{ message: string }>('/api/skills/installed/installed-demo')).message.includes('uninstalled'), 'installed skill deleted');
   covered.add('skills/load-sync-install-list-get-patch-refresh-marketplace-delete');
 }
@@ -347,6 +360,7 @@ async function coverForkDeleteLeaseAndRestart(client: LocalClient, conversationI
   const second = await createAgentServerApp({
     agentFactory: localAgentFactory,
     secretStore,
+    skillsCatalogService,
     config: { conversationsPath, statePath, bashEventsPath: path.join(root, 'second-bash-events'), workspaceRoot, allowedFileRoots: [workspaceRoot], sessionApiKey },
   });
   try {
@@ -362,6 +376,7 @@ async function coverForkDeleteLeaseAndRestart(client: LocalClient, conversationI
   server = await createAgentServerApp({
     agentFactory: localAgentFactory,
     secretStore,
+    skillsCatalogService,
     config: { conversationsPath, statePath, bashEventsPath, workspaceRoot, allowedFileRoots: [workspaceRoot], sessionApiKey },
   });
   host = await listen(server.app);

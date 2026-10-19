@@ -22,6 +22,7 @@ export type ProfileToolConfigurator = (tools: readonly ToolDefinition[], context
 /** Compose deployment-owned context after profile resolution and launch additions. */
 export type ProfileContextConfigurator = (existingContext: AgentContext | null, factoryContext: AgentFactoryContext) => AgentContext | null | Promise<AgentContext | null>;
 interface ProfileAgentFactoryOptions {
+  readonly browserAvailable?: boolean;
   readonly configureTools?: ProfileToolConfigurator;
   readonly configureContext?: ProfileContextConfigurator;
   readonly state: ServerStateService;
@@ -89,6 +90,7 @@ export function createProfileAgentFactory(options: ProfileAgentFactoryOptions): 
       onResolvedTool: (spec, tool, module) => { if (module !== undefined) identities.set(tool, { name: spec.name, module }); },
     });
     const launched = await finalizeLaunch(resolved, {
+      ...(options.browserAvailable === undefined ? {} : { browserAvailable: options.browserAvailable }),
       createClient: (selected, role) => role === 'main' ? llm : createLlmClient(selected, options.secretStore), materializeTools,
     }, { additions: context.stored.request.agent_launch_additions ?? null });
     const tools = options.configureTools?.(launched.agent.tools, context) ?? launched.agent.tools;

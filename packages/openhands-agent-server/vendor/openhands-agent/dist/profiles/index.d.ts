@@ -22,7 +22,14 @@ export declare const openHandsAgentProfileSchema: z.ZodPreprocess<z.ZodObject<{
     persona: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     system_message_suffix: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     disabled_skills: z.ZodDefault<z.ZodArray<z.ZodString>>;
+    public_skills: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
     condenser: z.ZodDefault<z.ZodUnknown>;
+    hard_condenser: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        condenser_kind: z.ZodLiteral<"llm_summarizing">;
+        llm_profile_ref: z.ZodString;
+        hard_context_reset_max_retries: z.ZodDefault<z.ZodNumber>;
+        hard_context_reset_context_scaling: z.ZodDefault<z.ZodNumber>;
+    }, z.core.$strict>>>;
     verification: z.ZodDefault<z.ZodObject<{
         critic_enabled: z.ZodDefault<z.ZodBoolean>;
         critic_mode: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"finish_and_message">, z.ZodLiteral<"all_actions">]>>;
@@ -69,7 +76,14 @@ export declare const agentProfileSchema: z.ZodUnion<readonly [z.ZodPreprocess<z.
     persona: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     system_message_suffix: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     disabled_skills: z.ZodDefault<z.ZodArray<z.ZodString>>;
+    public_skills: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
     condenser: z.ZodDefault<z.ZodUnknown>;
+    hard_condenser: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        condenser_kind: z.ZodLiteral<"llm_summarizing">;
+        llm_profile_ref: z.ZodString;
+        hard_context_reset_max_retries: z.ZodDefault<z.ZodNumber>;
+        hard_context_reset_context_scaling: z.ZodDefault<z.ZodNumber>;
+    }, z.core.$strict>>>;
     verification: z.ZodDefault<z.ZodObject<{
         critic_enabled: z.ZodDefault<z.ZodBoolean>;
         critic_mode: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"finish_and_message">, z.ZodLiteral<"all_actions">]>>;

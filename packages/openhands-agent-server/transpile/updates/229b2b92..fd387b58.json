@@ -1,0 +1,630 @@
+{
+  "schemaVersion": 1,
+  "repository": "OpenHands/software-agent-sdk",
+  "from": "229b2b920d4541eab7a34b051a1f6f2bca5ebabf",
+  "to": "fd387b58dc7b707b73c159845c0396a17000be24",
+  "inventorySha256": "12b7bf4f17045ad55e8d3577db70575ecf6d354852c135fd1ae590de9b3e5924",
+  "items": {
+    "eeba47cd6f17758f20e651074f2d47b5d7fc5822:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Canvas extension install/manifest/icon lifecycle is absent; preserve explicit SVG containment/CSP and requested_ref versus resolved_ref requirements in existing Canvas debt. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "c980344bc78e21d5625ec4e987680d87c6c56f7f:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Canvas extension install/manifest/icon lifecycle is absent; preserve explicit SVG containment/CSP and requested_ref versus resolved_ref requirements in existing Canvas debt. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "6be29df9939e61851a8f18df9f9a401cecac4544:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Checksum-pinned remote Canvas backend artifacts require a real bounded HTTPS/download/extraction/launch lifecycle, not the SDK generic Git fetch helper. Track digest, traversal/link refusal, isolation and immutable artifact identity. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "c0471362d340ade1e334595ba98417108b415e88:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Absent Canvas backend runtime must reap descendants after leader exit; no native successful proxy or lifecycle claim. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "6a298a48fcdb06c3bf5835d648a7d8b4d3d31cf5:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Absent Canvas backend runtime must re-probe health after a missed probe; no native successful proxy or lifecycle claim. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "1a0fd91ad03d6a9f51ea38aa53fb60b848b56d20:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Absent Canvas backend runtime must forward bare-root query path; no native successful proxy or lifecycle claim. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "1c34a84ccea3aa3f7bdc44ba7a19a88f872fcf08:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Absent Canvas backend runtime must recheck live backend before bridging; no native successful proxy or lifecycle claim. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "91b89bdc6f33d185a1da85e9da54c521e53fcdec:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Absent Canvas backend runtime must reap crash-orphaned process groups with persisted process identity; no native successful proxy or lifecycle claim. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "92e1424adb317b931f1d8f44d16da2c81bfb09bc:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Native Docker runtime ownership/storage prerequisite remains missing; reclaim owned runtime caches with rename-under-lock/delete-outside-lock, and disable Docker core dumps. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "1561ae055d49c4e4cb961f2de6c2dd68a17b5bca:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Native Docker runtime ownership/storage prerequisite remains missing; shed only gitignored owned stopped-workspace directories above disk budget. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "0c0c48810d27583e4f3427ed2c93e0dcb3c1c1ce:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Native Docker runtime ownership/storage prerequisite remains missing; archive long-inactive runtimes with durable markers and non-resumable status. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "91ac058a08fd6365286fc8c5628f35a5f41ff300:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Native Docker runtime ownership/storage prerequisite remains missing; execute real Docker reclaim/archive/resume scenario. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "250dd4817c7174e349f5872e70f5b5a5c17de79d:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Owned trajectory ZIP export remains absent. Must omit credential/transient directories, tolerate disappearing entries and archive the exact inspected JSON bytes. Existing atomic metadata save is covered, but does not implement archive safety. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "smolpaws-09ou"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "69e26889401fe69157fff536e6a69049e6644cb3:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Owned trajectory ZIP export remains absent. Must omit credential/transient directories, tolerate disappearing entries and archive the exact inspected JSON bytes. Existing atomic metadata save is covered, but does not implement archive safety. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "smolpaws-09ou"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "0bb7b525c75f4a9a0606844fc4a2579106b08d32:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Managed-worktree provisioning/ownership inventory is absent; deletion cannot safely infer ownership from caller workspace paths. Need last-reference check, symlink refusal, keep-branch/prune behavior. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "smolpaws-09ou"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "1045bdffdb8dfc30f575645c7d2dfccf61f8e644:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Native Fastify defaults do not trust forwarded headers, but missing Canvas HTTP/WebSocket ingress has no equivalent framing, trusted-origin or secure-loopback cookie behavior. Keep exact proxy trust/framing/IPv6 requirements in ingress debt. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "f67cba804501fb95af486ccb9f8157b81a283dae:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Native Fastify defaults do not trust forwarded headers, but missing Canvas HTTP/WebSocket ingress has no equivalent framing, trusted-origin or secure-loopback cookie behavior. Keep exact proxy trust/framing/IPv6 requirements in ingress debt. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "4dc42d3a2b65c4f674ad0fc149477a583a9c4419:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Native Fastify defaults do not trust forwarded headers, but missing Canvas HTTP/WebSocket ingress has no equivalent framing, trusted-origin or secure-loopback cookie behavior. Keep exact proxy trust/framing/IPv6 requirements in ingress debt. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "4e32a3adb05250477e936481acc77b403c48cba7:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Native standalone VSCode lifecycle is absent; no advertised URL today. Required live-process-plus-token URL guard stays with the concrete service implementation. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "smolpaws-09ou"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "2804c1273b4093e632e332a7a572894782c7b1e1:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Source changes Python tmux socket paths/test fixtures/temp-directory or sibling-session ownership. Native BashService owns child_process process groups and never creates tmux sessions/sockets; no matching native lifecycle changes. Existing process-group tests retained.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "d1bfda28da7f5c4d3b33d65e729161cef6e0a4ec:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Source changes Python tmux socket paths/test fixtures/temp-directory or sibling-session ownership. Native BashService owns child_process process groups and never creates tmux sessions/sockets; no matching native lifecycle changes. Existing process-group tests retained.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "d60b176ce32b45daec8127f134aa715f911d9637:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Source changes Python tmux socket paths/test fixtures/temp-directory or sibling-session ownership. Native BashService owns child_process process groups and never creates tmux sessions/sockets; no matching native lifecycle changes. Existing process-group tests retained.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "f0206428306db687ac9c8d833ece4fb82b015eba:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Source changes Python tmux socket paths/test fixtures/temp-directory or sibling-session ownership. Native BashService owns child_process process groups and never creates tmux sessions/sockets; no matching native lifecycle changes. Existing process-group tests retained.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "091d451f5fdd1952994f7da4fcf201a1d21bb615:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Scoped source delta is Python release/build/container dependency or contract verification metadata. Native npm package uses its own lock/build/host Node and exact merged SDK package; regenerate the final Python OpenAPI under its locked environment and validate native package/consumer. No Python toolchain or vendored pip exists in the runtime.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "54daf056bd863bb46f922a2fe9324dd736b37ff6:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Scoped source delta is Python release/build/container dependency or contract verification metadata. Native npm package uses its own lock/build/host Node and exact merged SDK package; regenerate the final Python OpenAPI under its locked environment and validate native package/consumer. No Python toolchain or vendored pip exists in the runtime.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "cb7eabaf7b784a2f58f9df35d610f106287e823b:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Scoped source delta is Python release/build/container dependency or contract verification metadata. Native npm package uses its own lock/build/host Node and exact merged SDK package; regenerate the final Python OpenAPI under its locked environment and validate native package/consumer. No Python toolchain or vendored pip exists in the runtime.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "5c6e2589656aeeacedf6a0bd79a725688bb9e872:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Scoped source delta is Python release/build/container dependency or contract verification metadata. Native npm package uses its own lock/build/host Node and exact merged SDK package; regenerate the final Python OpenAPI under its locked environment and validate native package/consumer. No Python toolchain or vendored pip exists in the runtime.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "33044182505244749928644a4643368a9e998ee7:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Scoped source delta is Python release/build/container dependency or contract verification metadata. Native npm package uses its own lock/build/host Node and exact merged SDK package; regenerate the final Python OpenAPI under its locked environment and validate native package/consumer. No Python toolchain or vendored pip exists in the runtime.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "1d471742ea7be017d013eaaa3080f5d28d5490cb:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Scoped source delta is Python release/build/container dependency or contract verification metadata. Native npm package uses its own lock/build/host Node and exact merged SDK package; regenerate the final Python OpenAPI under its locked environment and validate native package/consumer. No Python toolchain or vendored pip exists in the runtime.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "9c0b99ec00775d454d19b9567cf1e1bd61e85a75:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Scoped source delta is Python release/build/container dependency or contract verification metadata. Native npm package uses its own lock/build/host Node and exact merged SDK package; regenerate the final Python OpenAPI under its locked environment and validate native package/consumer. No Python toolchain or vendored pip exists in the runtime.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "fd387b58dc7b707b73c159845c0396a17000be24:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Scoped source delta is Python release/build/container dependency or contract verification metadata. Native npm package uses its own lock/build/host Node and exact merged SDK package; regenerate the final Python OpenAPI under its locked environment and validate native package/consumer. No Python toolchain or vendored pip exists in the runtime.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "acca181af1f353975965bcf6486e1d0a58f444c0:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Upstream verify-agent-server feature-map/CLI maintenance tooling does not change server runtime. Native CI already executes its own OpenAPI, endpoint, coverage and packed-consumer checks; no extra scheduler or copied Python CLI is needed.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "733f06edac353d595f0dadac476ee5011b53586f:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Upstream verify-agent-server feature-map/CLI maintenance tooling does not change server runtime. Native CI already executes its own OpenAPI, endpoint, coverage and packed-consumer checks; no extra scheduler or copied Python CLI is needed.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "dfd8fe8fb39e6f6d73ba35ce524cac83d94e0d96:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Upstream verify-agent-server feature-map/CLI maintenance tooling does not change server runtime. Native CI already executes its own OpenAPI, endpoint, coverage and packed-consumer checks; no extra scheduler or copied Python CLI is needed.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "6d51e7262fc234586ff5e8e519ce5a658d334cdf:server": {
+      "disposition": "DEVIATION",
+      "policy": "DEV-SERVER-001",
+      "reason": "ACP provider model discovery/execution remains the named native runtime deviation; SDK subscription discovery is independent.",
+      "tracking": [],
+      "evidence": [
+        "TRANSPILE_RULES.md"
+      ]
+    },
+    "c4b93299cf2b31c8b5d0b2c5a89965ccc5ff24f9:server": {
+      "disposition": "DEVIATION",
+      "policy": "DEV-SERVER-005",
+      "reason": "Upstream deferred-init readiness/ingress gates belong to intentionally absent deferred-init product flow. Native admission/initialization failures remain real errors; no fake ready state added.",
+      "tracking": [],
+      "evidence": [
+        "TRANSPILE_RULES.md"
+      ]
+    },
+    "f824a949af7f8045cc6691d7945ce7b31bfe9606:server": {
+      "disposition": "DEVIATION",
+      "policy": "DEV-SERVER-005",
+      "reason": "Upstream deferred-init readiness/ingress gates belong to intentionally absent deferred-init product flow. Native admission/initialization failures remain real errors; no fake ready state added.",
+      "tracking": [],
+      "evidence": [
+        "TRANSPILE_RULES.md"
+      ]
+    },
+    "9c4fd8c6664dfce98524d04d965b4f009f390fbe:server": {
+      "disposition": "DEVIATION",
+      "policy": "DEV-SERVER-003",
+      "reason": "Plaintext linked-provider profile reads conflict with native SecretStore references and profile-first API. Native responses remain secret-free; provider-connection resolution is separately tracked rather than exposing plaintext credentials.",
+      "tracking": [],
+      "evidence": [
+        "TRANSPILE_RULES.md"
+      ]
+    },
+    "7bd668c9ab74f62c85745cd95adb503f53e7228b:server": {
+      "disposition": "DEVIATION",
+      "policy": "DEV-SERVER-003",
+      "reason": "OH_SECRET_KEY belongs to Python Cipher persistence. Native keyring-backed SecretStore neither parses this value nor implements cipher-at-rest modes.",
+      "tracking": [],
+      "evidence": [
+        "TRANSPILE_RULES.md"
+      ]
+    },
+    "e696f72c260b959d1b36d570a6688e99977ec28a:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Native scalar sessionApiKey authorization already treats empty value as disabled via truthiness; no array/session-key-list API exists. Add finite empty/nonempty regression without changing auth policy.",
+      "tracking": [],
+      "evidence": [
+        "src/app.ts",
+        "src/__tests__/batch04-boundaries.test.ts"
+      ]
+    },
+    "6e7a8532ef4426da08b5c06dd57cf4795303be01:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Native fork title is a separate field and tags copy independently; no title injection into tags. Retain actual fork tests.",
+      "tracking": [],
+      "evidence": [
+        "src/__tests__/conversationLifecycle.test.ts"
+      ]
+    },
+    "4bb57df68465868c2ec13388acd6a6b1e14af651:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Native subscription status already catches refresh/auth transport failure and returns disconnected without leaking error or credentials. Add/retain exact failure regression, no second auth implementation.",
+      "tracking": [],
+      "evidence": [
+        "src/llmRouter.ts",
+        "src/__tests__/batch04-boundaries.test.ts"
+      ]
+    },
+    "c96875fe3d033efc44b5e6403043251626dd61ef:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Server model catalog must consume the merged SDK verified OpenRouter union/subscription additions. Adapt server catalog tests and use SDK helper rather than maintain a second model list.",
+      "tracking": [],
+      "evidence": [
+        "src/llmRouter.ts",
+        "src/__tests__/batch04-boundaries.test.ts",
+        "src/__tests__/llmModelFilters.test.ts",
+        "scripts/generate-llm-provider-names.py"
+      ]
+    },
+    "3934349da2db0433238621542173a00a8af7439c:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Server model catalog must consume the merged SDK verified OpenRouter union/subscription additions. Adapt server catalog tests and use SDK helper rather than maintain a second model list.",
+      "tracking": [],
+      "evidence": [
+        "src/llmRouter.ts",
+        "src/__tests__/batch04-boundaries.test.ts",
+        "src/__tests__/llmModelFilters.test.ts",
+        "scripts/generate-llm-provider-names.py"
+      ]
+    },
+    "c1c8c1c27824b7566861ea0f8e6900e4ae2944a9:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Reject blank/whitespace/redacted secret value before any SecretStore or metadata mutation; HTTP422 exact detail, accepted value retained verbatim and old value preserved on invalid overwrite.",
+      "tracking": [],
+      "evidence": [
+        "src/settingsRouter.ts",
+        "src/__tests__/batch04-boundaries.test.ts"
+      ]
+    },
+    "4011cb5d4fd508964fe210df9a50af7d2f19d29d:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Port surviving stored-profile-only main LLM override/provenance; final818c removes interim inline launch. Resolve before durable creation, retain independent role bindings and existing source exclusivity. Same unit changes OpenAI-compatible /v1 gateway and/or Docker forwarding; those native runtimes are absent. Their active profile and override integration remains a concrete prerequisite. Revisit with actual gateway/runtime and source tests.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "src/models.ts",
+        "src/launch.ts",
+        "src/__tests__/profileLaunchCatalog.test.ts"
+      ]
+    },
+    "27308a4b3f23a40177c9f444f9e35136c8a0d3fb:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Wire SDK additional launch skills through public request validation/shared finalization; preserve denylist, existing-context and duplicate precedence across preview/runtime and restore.",
+      "tracking": [],
+      "evidence": [
+        "src/models.ts",
+        "src/launch.ts",
+        "src/profileAgentFactory.ts",
+        "src/__tests__/profileLaunchCatalog.test.ts",
+        "src/__tests__/skillsAppIntegration.test.ts"
+      ]
+    },
+    "d332f8156f12014df1b3522ab01c2508eabf6e8b:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Port shared public/user/project skill catalog and profile public allowlist/local override, including native seed preservation. Mixed global critic lifecycle remains missing; selecting skills alone cannot close that component. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "openhands-agent-wlw.15"
+      ],
+      "evidence": [
+        "src/skillsService.ts",
+        "src/launch.ts",
+        "src/__tests__/skillsService.test.ts",
+        "src/__tests__/profileLaunchCatalog.test.ts",
+        "src/__tests__/skillsAppIntegration.test.ts"
+      ]
+    },
+    "0bd5cc2d322d61f785816a29ef1f2e4c86db2460:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Read-only subagent definition API can report canonical mcp_config plus alias, but actual delegated child/resume/grandchild executor still lacks resolved-parent-MCP enforcement. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "openhands-agent-wlw.14"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "2ec5b9ed4a675e01f0d33192be57a4f9834cfd2b:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Real SDK strict fetch owns public skill sync; failed update must return error and preserve working cache, successful update invalidates public and marketplace catalogs.",
+      "tracking": [],
+      "evidence": [
+        "src/skillsService.ts",
+        "src/skillsRouter.ts",
+        "src/__tests__/skillsService.test.ts"
+      ]
+    },
+    "923ff2de5fd670941da3b8c0c6b8d6d0d4028e8e:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Shared marketplace service caches only nonempty data for300s, retries empty/failure, recomputes installed flags each read and invalidates both caches only after successful sync.",
+      "tracking": [],
+      "evidence": [
+        "src/skillsService.ts",
+        "src/__tests__/skillsService.test.ts"
+      ]
+    },
+    "98c97e6f18cecdaec96c011efb00f43db5b63bcc:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "SDK shorthand parser now accepts canonical repository plus contained subpath. Native server remote generic install/update lifecycle remains absent; must reject unsupported operation rather than claim refresh success. Compatibility consequence: this native subsystem does not yet provide the changed behavior. Revisit with its concrete owner/runtime and pinned source regressions.",
+      "tracking": [
+        "openhands-agent-wlw.19"
+      ],
+      "evidence": [
+        "src/skillsService.ts",
+        "src/__tests__/skillsService.test.ts",
+        "transpile/deferred-operations.md"
+      ]
+    },
+    "4804aa0be06f3a90e88037a3a580e7c069a2195b:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Read-only subagent discovery project>user>builtin first-wins, load flags and definition projection. Local enable_browser=false filters web-researcher; true permits listing its read-only definition even if no executable browser is registered, exactly as configured_browser_available returns None. Server-info usable tools separately require actual effective availability. No agent registration/execution.",
+      "tracking": [],
+      "evidence": [
+        "src/subAgentsRouter.ts",
+        "src/__tests__/batch04-catalog.test.ts"
+      ]
+    },
+    "75105bd40936f1962d8fa91506776a0c02ba957f:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Port existing global uploads: EISDIR/EEXIST/ENOTDIR through resolution/mkdir/write yield400 without changing bytes. New runtime-scoped upload route remains absent with runtime ingress prerequisite; whole unit remains deferred.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "src/fileRouter.ts",
+        "src/__tests__/batch04-boundaries.test.ts",
+        "transpile/deferred-operations.md"
+      ]
+    },
+    "8efff8d3cf1a5a3fcf7ce5e3b97c7f00684d9547:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Replace server_info hardcoded names with effective registered usable tools; browser flag only retains a real available browser registration. Share predicate with subagent catalog.",
+      "tracking": [],
+      "evidence": [
+        "src/subAgentsRouter.ts",
+        "src/app.ts",
+        "src/__tests__/batch04-catalog.test.ts"
+      ]
+    },
+    "818c161b534477849716d445b2927b433f9dd9ab:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Ensure active agent profile atomically: preserve valid active/default; seed via SDK buildSeedProfile only when absent, preserve corrupt default and activate valid fallback; deleting active default reseeds. Reject inline agent-profile HTTP source and profile-only override misuse. Same unit changes OpenAI-compatible /v1 gateway and/or Docker forwarding; those native runtimes are absent. Their active profile and override integration remains a concrete prerequisite. Revisit with actual gateway/runtime and source tests.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "src/serverState.ts",
+        "src/agentProfilesRouter.ts",
+        "src/__tests__/activeProfileInvariant.test.ts",
+        "src/__tests__/agentProfileDeletion.test.ts"
+      ]
+    }
+  }
+}

@@ -2,6 +2,7 @@ import path from 'node:path';
 
 export interface AgentServerConfig {
   readonly maxConcurrentRuns: number;
+  readonly enableBrowser?: boolean;
   readonly sessionApiKey?: string | null;
   readonly staticFilesPath?: string | null;
   readonly webUrl?: string | null;
@@ -19,6 +20,7 @@ export function getDefaultConfig(env: Record<string, string | undefined> = proce
   const workspaceRoot = env.OPENHANDS_WORKSPACE_ROOT ?? env.WORKSPACE_ROOT ?? env.SMOLPAWS_WORKSPACE_ROOT ?? process.cwd();
   const extraRoots = splitPathList(env.OPENHANDS_ALLOWED_FILE_ROOTS ?? env.SMOLPAWS_ALLOWED_WRITE_ROOTS);
   return {
+    enableBrowser: true,
     maxConcurrentRuns: parseOptionalPositiveInteger(env.OH_MAX_CONCURRENT_RUNS, 'OH_MAX_CONCURRENT_RUNS') ?? 10,
     sessionApiKey: env.OPENHANDS_SESSION_API_KEY ?? env.SESSION_API_KEY ?? null,
     staticFilesPath: env.STATIC_FILES_PATH ?? null,

@@ -44,6 +44,8 @@ export interface LaunchStores {
     };
     readonly mcpConfig: Readonly<Record<string, unknown>>;
     readonly skills: () => Awaitable<readonly Skill[]>;
+    /** Omission treats every catalog entry as public, as in the source resolver. */
+    readonly publicSkillNames?: () => Awaitable<readonly string[]>;
     readonly agentProfiles?: {
         nameForId(id: string): Awaitable<string | null>;
         load(name: string): Awaitable<AgentProfile | null>;
@@ -59,6 +61,7 @@ export interface LaunchedAgentProfile {
     readonly agent_profile_id: string;
     readonly revision: number;
     readonly secret_refs: readonly string[] | null;
+    readonly llm_profile_ref?: string | null;
 }
 export type LaunchClientRole = 'main' | 'condenser' | 'hard_condenser';
 export type LaunchLlmBindings = Readonly<Partial<Record<LaunchClientRole, LLMProfile>>>;
@@ -80,7 +83,9 @@ export declare class ResolvedLaunch {
     constructor(options: ResolvedLaunchOptions);
     get allowedSecrets(): ReadonlySet<string> | null;
 }
-export declare function resolveLaunch(source: AgentProfile | string, stores: LaunchStores): Promise<ResolvedLaunch>;
+export declare function resolveLaunch(source: AgentProfile | string, stores: LaunchStores, options?: {
+    readonly llmProfileRef?: string | null;
+}): Promise<ResolvedLaunch>;
 /** Settings-based callers enter the same snapshot/finalize pipeline as profiles. */
 export declare function resolveSettingsLaunch(data: unknown, stores: LaunchStores, context?: AgentContextOptions | null): Promise<ResolvedLaunch>;
 export interface LaunchToolContext {
@@ -100,6 +105,74 @@ export interface LaunchRuntime {
 }
 export declare const agentLaunchAdditionsSchema: z.ZodObject<{
     system_message_suffix_append: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    skills: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodUnion<readonly [z.ZodCustom<Skill, Skill>, z.ZodPipe<z.ZodObject<{
+        name: z.ZodString;
+        content: z.ZodString;
+        trigger: z.ZodDefault<z.ZodNullable<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            type: z.ZodDefault<z.ZodLiteral<"keyword">>;
+            keywords: z.ZodArray<z.ZodString>;
+        }, z.core.$strict>, z.ZodObject<{
+            type: z.ZodDefault<z.ZodLiteral<"task">>;
+            triggers: z.ZodArray<z.ZodString>;
+        }, z.core.$strict>, z.ZodObject<{
+            type: z.ZodDefault<z.ZodLiteral<"path">>;
+            paths: z.ZodArray<z.ZodString>;
+        }, z.core.$strict>], "type">>>;
+        source: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        mcpTools: z.ZodDefault<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
+        inputs: z.ZodDefault<z.ZodArray<z.ZodObject<{
+            name: z.ZodString;
+            description: z.ZodString;
+        }, z.core.$strict>>>;
+        isAgentskillsFormat: z.ZodDefault<z.ZodBoolean>;
+        version: z.ZodDefault<z.ZodString>;
+        description: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        license: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        compatibility: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        metadata: z.ZodDefault<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodString>>>;
+        allowedTools: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+        disableModelInvocation: z.ZodDefault<z.ZodBoolean>;
+        resources: z.ZodDefault<z.ZodNullable<z.ZodObject<{
+            skillRoot: z.ZodString;
+            scripts: z.ZodDefault<z.ZodArray<z.ZodString>>;
+            references: z.ZodDefault<z.ZodArray<z.ZodString>>;
+            assets: z.ZodDefault<z.ZodArray<z.ZodString>>;
+        }, z.core.$strict>>>;
+    }, z.core.$strict>, z.ZodTransform<Skill, {
+        name: string;
+        content: string;
+        trigger: {
+            type: "keyword";
+            keywords: string[];
+        } | {
+            type: "task";
+            triggers: string[];
+        } | {
+            type: "path";
+            paths: string[];
+        } | null;
+        source: string | null;
+        mcpTools: Record<string, unknown> | null;
+        inputs: {
+            name: string;
+            description: string;
+        }[];
+        isAgentskillsFormat: boolean;
+        version: string;
+        description: string | null;
+        license: string | null;
+        compatibility: string | null;
+        metadata: Record<string, string> | null;
+        allowedTools: string[] | null;
+        disableModelInvocation: boolean;
+        resources: {
+            skillRoot: string;
+            scripts: string[];
+            references: string[];
+            assets: string[];
+        } | null;
+    }>>]>>>>;
+    llm_profile_ref: z.ZodDefault<z.ZodNullable<z.ZodString>>;
 }, z.core.$strict>;
 export type AgentLaunchAdditions = z.input<typeof agentLaunchAdditionsSchema>;
 export interface FinalizeLaunchOptions {
@@ -142,6 +215,7 @@ export type NormalizedLaunchSource = {
 } | {
     readonly kind: 'profile';
     readonly id: string;
+    readonly llmProfileRef?: string;
 } | {
     readonly kind: 'settings';
     readonly settings: unknown;
@@ -150,6 +224,7 @@ export declare function normalizeLaunchSource(input: {
     readonly agent?: Agent | null;
     readonly agentSettings?: unknown;
     readonly agentProfileId?: string | null;
+    readonly agentLaunchAdditions?: AgentLaunchAdditions | null;
 }): NormalizedLaunchSource;
 /** Audited ownership table: adding a setting requires selecting its launch owner. */
 export declare const LAUNCH_FIELD_OWNERSHIP: {

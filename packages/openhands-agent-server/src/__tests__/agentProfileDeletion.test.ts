@@ -28,7 +28,7 @@ describe('agent profile deletion settings cleanup', () => {
 
     expect((await app.inject({ method: 'DELETE', url: '/api/agent-profiles/active-agent' })).statusCode).toBe(200);
     const after = await settings(app);
-    expect(after.active_agent_profile_id).toBeNull();
+    expect(after.active_agent_profile_id).toBe(await defaultAgentProfileId(app));
     expect(after.active_profile_id).toBe('selected-llm');
     expect(after.agent_settings).toEqual({ ...defaultAgentSettings('selected-llm'), mcp_config: mcpConfig });
     expect(after.agent_settings).not.toHaveProperty('acp_server');
@@ -40,7 +40,7 @@ describe('agent profile deletion settings cleanup', () => {
     const reloaded = await settings(restored);
     expect(reloaded.agent_settings).toEqual(after.agent_settings);
     expect(reloaded.active_profile_id).toBe(after.active_profile_id);
-    expect(reloaded.active_agent_profile_id).toBeNull();
+    expect(reloaded.active_agent_profile_id).toBe(after.active_agent_profile_id);
     expect((await restored.inject({ method: 'GET', url: '/api/agent-profiles/active-agent' })).statusCode).toBe(404);
   });
 
@@ -55,7 +55,7 @@ describe('agent profile deletion settings cleanup', () => {
 
     expect((await app.inject({ method: 'DELETE', url: '/api/agent-profiles/active-agent' })).statusCode).toBe(200);
     const after = await settings(app);
-    expect(after).toEqual({ ...before, active_agent_profile_id: null });
+    expect(after).toEqual({ ...before, active_agent_profile_id: await defaultAgentProfileId(app) });
   });
 
   test.each(['inactive-agent', 'missing-agent'])('preserves settings and the active pointer when deleting %s', async (name) => {
@@ -80,7 +80,7 @@ describe('agent profile deletion settings cleanup', () => {
     expect((await app.inject({ method: 'DELETE', url: '/api/agent-profiles/active-agent' })).statusCode).toBe(200);
     const after = await settings(app);
     expect(after.active_profile_id).toBeNull();
-    expect(after.active_agent_profile_id).toBeNull();
+    expect(after.active_agent_profile_id).toBe(await defaultAgentProfileId(app));
     expect(after.agent_settings).toEqual({ ...defaultAgentSettings('default'), mcp_config: mcpConfig });
   });
 });
@@ -125,4 +125,13 @@ async function settings(app: FastifyInstance): Promise<SettingsResponse> {
   const response = await app.inject({ method: 'GET', url: '/api/settings' });
   expect(response.statusCode).toBe(200);
   return response.json<SettingsResponse>();
+}
+
+async function defaultAgentProfileId(app: FastifyInstance): Promise<string> {
+  const response = await app.inject('/api/agent-profiles/default');
+  expect(response.statusCode).toBe(200);
+  const profile = response.json<{ id: string; name: string }>();
+  expect(profile.name).toBe('default');
+  expect(profile.id).toEqual(expect.any(String));
+  return profile.id;
 }

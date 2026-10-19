@@ -6,6 +6,286 @@
     "description": "OpenHands Agent Server - REST/WebSocket interface for OpenHands AI Agent"
   },
   "paths": {
+    "/api/sub-agents": {
+      "post": {
+        "tags": [
+          "Sub Agents"
+        ],
+        "summary": "Discover read-only subagent definitions",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "load_user": {
+                    "default": true,
+                    "type": "boolean"
+                  },
+                  "load_project": {
+                    "default": true,
+                    "type": "boolean"
+                  },
+                  "load_builtin": {
+                    "default": true,
+                    "type": "boolean"
+                  },
+                  "project_dir": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "agents": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "default": "",
+                            "type": "string"
+                          },
+                          "model": {
+                            "default": "inherit",
+                            "type": "string"
+                          },
+                          "color": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "tools": {
+                            "default": [],
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "skills": {
+                            "default": [],
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "system_prompt": {
+                            "default": "",
+                            "type": "string"
+                          },
+                          "when_to_use_examples": {
+                            "default": [],
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "permission_mode": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "max_iteration_per_run": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "max_budget_per_run": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "mcp_config": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string"
+                                },
+                                "additionalProperties": {}
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "mcp_servers": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string"
+                                },
+                                "additionalProperties": {}
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "profile_store_dir": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "hooks": {
+                            "default": null,
+                            "anyOf": [
+                              {},
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "condenser": {
+                            "default": null,
+                            "anyOf": [
+                              {},
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "metadata": {
+                            "default": {},
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {}
+                          },
+                          "level": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "project",
+                                  "user",
+                                  "builtin",
+                                  "plugin",
+                                  "programmatic"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "source": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "is_builtin": {
+                            "default": false,
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "description",
+                          "model",
+                          "color",
+                          "tools",
+                          "skills",
+                          "system_prompt",
+                          "when_to_use_examples",
+                          "permission_mode",
+                          "max_iteration_per_run",
+                          "max_budget_per_run",
+                          "mcp_config",
+                          "mcp_servers",
+                          "profile_store_dir",
+                          "hooks",
+                          "condenser",
+                          "metadata",
+                          "level",
+                          "source",
+                          "is_builtin"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "agents"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Error"
+          }
+        }
+      }
+    },
     "/api/llm/providers": {
       "get": {
         "tags": [
@@ -1193,12 +1473,24 @@
                                         "type": "null"
                                       }
                                     ]
+                                  },
+                                  "llm_profile_ref": {
+                                    "default": null,
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
                                   }
                                 },
                                 "required": [
                                   "agent_profile_id",
                                   "revision",
-                                  "secret_refs"
+                                  "secret_refs",
+                                  "llm_profile_ref"
                                 ],
                                 "additionalProperties": false
                               },
@@ -1579,12 +1871,24 @@
                                         "type": "null"
                                       }
                                     ]
+                                  },
+                                  "llm_profile_ref": {
+                                    "default": null,
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
                                   }
                                 },
                                 "required": [
                                   "agent_profile_id",
                                   "revision",
-                                  "secret_refs"
+                                  "secret_refs",
+                                  "llm_profile_ref"
                                 ],
                                 "additionalProperties": false
                               },
@@ -1725,6 +2029,69 @@
                         "type": "string",
                         "format": "uuid",
                         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "agent_launch_additions": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "system_message_suffix_append": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 32768
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "llm_profile_ref": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "skills": {
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "name": {
+                                      "type": "string"
+                                    },
+                                    "content": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "name",
+                                    "content"
+                                  ],
+                                  "additionalProperties": {}
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "additionalProperties": false
                       },
                       {
                         "type": "null"
@@ -2221,12 +2588,24 @@
                                   "type": "null"
                                 }
                               ]
+                            },
+                            "llm_profile_ref": {
+                              "default": null,
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             }
                           },
                           "required": [
                             "agent_profile_id",
                             "revision",
-                            "secret_refs"
+                            "secret_refs",
+                            "llm_profile_ref"
                           ],
                           "additionalProperties": false
                         },
@@ -2520,12 +2899,24 @@
                                   "type": "null"
                                 }
                               ]
+                            },
+                            "llm_profile_ref": {
+                              "default": null,
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             }
                           },
                           "required": [
                             "agent_profile_id",
                             "revision",
-                            "secret_refs"
+                            "secret_refs",
+                            "llm_profile_ref"
                           ],
                           "additionalProperties": false
                         },
@@ -2855,12 +3246,24 @@
                                   "type": "null"
                                 }
                               ]
+                            },
+                            "llm_profile_ref": {
+                              "default": null,
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             }
                           },
                           "required": [
                             "agent_profile_id",
                             "revision",
-                            "secret_refs"
+                            "secret_refs",
+                            "llm_profile_ref"
                           ],
                           "additionalProperties": false
                         },
@@ -4088,12 +4491,24 @@
                                   "type": "null"
                                 }
                               ]
+                            },
+                            "llm_profile_ref": {
+                              "default": null,
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             }
                           },
                           "required": [
                             "agent_profile_id",
                             "revision",
-                            "secret_refs"
+                            "secret_refs",
+                            "llm_profile_ref"
                           ],
                           "additionalProperties": false
                         },
@@ -10279,7 +10694,7 @@
                 "type": "object",
                 "properties": {
                   "load_public": {
-                    "default": false,
+                    "default": true,
                     "type": "boolean"
                   },
                   "load_user": {
@@ -10291,7 +10706,7 @@
                     "type": "boolean"
                   },
                   "load_org": {
-                    "default": false,
+                    "default": true,
                     "type": "boolean"
                   },
                   "project_dir": {
@@ -10306,7 +10721,7 @@
                     ]
                   },
                   "marketplace_path": {
-                    "default": null,
+                    "default": "marketplaces/default.json",
                     "anyOf": [
                       {
                         "type": "string"
@@ -10316,10 +10731,95 @@
                       }
                     ]
                   },
+                  "registered_marketplaces": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "source": {
+                          "type": "string"
+                        },
+                        "ref": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "repo_path": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "auto_load": {
+                          "default": false,
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "source"
+                      ]
+                    }
+                  },
                   "sandbox_config": {
                     "default": null,
                     "anyOf": [
-                      {},
+                      {
+                        "type": "object",
+                        "properties": {
+                          "exposed_urls": {
+                            "default": [],
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "name": {
+                                  "type": "string"
+                                },
+                                "url": {
+                                  "type": "string"
+                                },
+                                "port": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "name",
+                                "url",
+                                "port"
+                              ]
+                            }
+                          }
+                        }
+                      },
                       {
                         "type": "null"
                       }
@@ -10330,7 +10830,29 @@
                     "anyOf": [
                       {
                         "type": "array",
-                        "items": {}
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "repository": {
+                              "type": "string"
+                            },
+                            "provider": {
+                              "type": "string"
+                            },
+                            "org_repo_url": {
+                              "type": "string"
+                            },
+                            "org_name": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "repository",
+                            "provider",
+                            "org_repo_url",
+                            "org_name"
+                          ]
+                        }
                       },
                       {
                         "type": "null"
@@ -10550,7 +11072,9 @@
                   "type": "object",
                   "properties": {
                     "name": {
-                      "type": "string"
+                      "type": "string",
+                      "maxLength": 255,
+                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                     },
                     "version": {
                       "default": "",
@@ -10646,7 +11170,9 @@
                         "type": "object",
                         "properties": {
                           "name": {
-                            "type": "string"
+                            "type": "string",
+                            "maxLength": 255,
+                            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                           },
                           "version": {
                             "default": "",
@@ -10744,7 +11270,9 @@
                   "type": "object",
                   "properties": {
                     "name": {
-                      "type": "string"
+                      "type": "string",
+                      "maxLength": 255,
+                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                     },
                     "version": {
                       "default": "",
@@ -10950,7 +11478,9 @@
                       "type": "object",
                       "properties": {
                         "name": {
-                          "type": "string"
+                          "type": "string",
+                          "maxLength": 255,
+                          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                         },
                         "version": {
                           "default": "",
@@ -11042,9 +11572,38 @@
                   "type": "object",
                   "properties": {
                     "skills": {
-                      "default": [],
                       "type": "array",
-                      "items": {}
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "source": {
+                            "type": "string"
+                          },
+                          "installed": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "description",
+                          "source",
+                          "installed"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [

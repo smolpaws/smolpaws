@@ -12,15 +12,28 @@ export interface ServerLaunchOptions {
   readonly defaultCondenserProfileRef?: string;
   readonly deferCondenserResolution?: boolean;
   readonly skills?: () => Promise<readonly Skill[]> | readonly Skill[];
+  /** One source-tier snapshot for both SDK selectors; shared with the HTTP skill service. */
+  readonly profileCatalog?: () => Promise<{ readonly skills: readonly Skill[]; readonly publicSkillNames: readonly string[] }>;
 }
 
 export async function serverLaunchStores(state: ServerStateService, options: ServerLaunchOptions = {}): Promise<LaunchStores> {
   const settings = await readLaunchStore(() => state.agentSettings(), 'Could not load launch settings');
+  const discoverCatalog = options.profileCatalog;
+  let catalog: Promise<{ skills: Skill[]; publicSkillNames: string[] }> | undefined;
+  // Settings-only launches do not consume the profile catalog. A profile's two
+  // selectors share the same first read, including when requested concurrently.
+  const loadCatalog = discoverCatalog === undefined ? undefined : () => catalog ??= readLaunchStore(async () => {
+    const loaded = await discoverCatalog();
+    return { skills: loaded.skills.map(skill => skillSchema.parse(structuredClone(skill))), publicSkillNames: [...loaded.publicSkillNames] };
+  }, 'Could not load launch skill catalog');
   return {
     llmProfiles: { load: name => state.getProfile(name) },
     llmProfileNames: async () => (await state.listProfiles()).profiles.map(profile => profile.profileId),
     agentProfiles: { nameForId: async id => (await state.getAgentProfileById(id))?.name ?? null, load: name => state.getAgentProfile(name) },
-    mcpConfig: typeof settings.mcp_config === 'object' && settings.mcp_config !== null && !Array.isArray(settings.mcp_config) ? settings.mcp_config as Record<string, unknown> : {}, skills: options.skills ?? (() => []), metaProfiles: state.metaProfileStore,
+    mcpConfig: typeof settings.mcp_config === 'object' && settings.mcp_config !== null && !Array.isArray(settings.mcp_config) ? settings.mcp_config as Record<string, unknown> : {},
+    skills: loadCatalog === undefined ? options.skills ?? (() => []) : async () => (await loadCatalog()).skills,
+    ...(loadCatalog === undefined ? {} : { publicSkillNames: async () => (await loadCatalog()).publicSkillNames }),
+    metaProfiles: state.metaProfileStore,
     ...(options.defaultCondenserProfileRef === undefined ? {} : { defaultCondenserProfileRef: options.defaultCondenserProfileRef }),
   };
 }
@@ -47,7 +60,8 @@ export async function prepareServerStartRequest(input: unknown, state: ServerSta
   const staged = options.deferCondenserResolution === true && options.defaultCondenserProfileRef === undefined
     && condenser.enabled && condenser.condenser_kind === 'llm_summarizing' && condenser.llm_profile_ref === undefined;
   let resolved: ResolvedLaunch;
-  if (profile !== undefined) resolved = await resolveLaunch(staged ? { ...profile, condenser: { ...condenser, enabled: false } } : profile, stores);
+  if (profile !== undefined) resolved = await resolveLaunch(staged ? { ...profile, condenser: { ...condenser, enabled: false } } : profile, stores,
+    { llmProfileRef: request.agent_launch_additions?.llm_profile_ref ?? null });
   else resolved = await resolveSettingsLaunch(staged ? { ...settings, condenser: { ...condenser, enabled: false } } : settings, stores);
   if (staged) resolved = new ResolvedLaunch({ settings: { ...resolved.settings, condenser }, llmProfiles: resolved.llmProfiles,
     profile: resolved.profile, context: resolved.context });
@@ -121,7 +135,7 @@ function publishResolved(request: StartConversationRequest, resolved: ResolvedLa
 
 function serializeContext(context: AgentContextOptions | null): unknown {
   if (context === null) return null;
-  return { ...context, currentDatetime: context.currentDatetime instanceof Date ? context.currentDatetime.toISOString() : context.currentDatetime,
+  return { ...context, skills: (context.skills ?? []).map(skill => structuredClone(skill)), currentDatetime: context.currentDatetime instanceof Date ? context.currentDatetime.toISOString() : context.currentDatetime,
     secrets: context.secrets === null || context.secrets === undefined ? null : Object.fromEntries(Object.entries(context.secrets).map(([name, value]) => [name, { description: typeof value === 'object' ? value.description ?? null : null }])) };
 }
 function nativeSettings(input: unknown): OpenHandsAgentSettings {

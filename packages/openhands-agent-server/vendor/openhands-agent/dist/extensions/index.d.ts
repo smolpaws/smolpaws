@@ -2,6 +2,7 @@ export type ExtensionSourceType = 'local' | 'git' | 'github';
 export interface ParsedExtensionSource {
     readonly type: ExtensionSourceType;
     readonly url: string;
+    readonly repoPath?: string;
 }
 export declare class ExtensionFetchError extends Error {
 }
@@ -11,9 +12,11 @@ export interface FetchOptions {
     readonly ref?: string | null;
     readonly update?: boolean;
     readonly repoPath?: string | null;
+    readonly strict?: boolean;
     readonly gitFetcher?: (url: string, destination: string, options: {
         readonly ref: string | null;
         readonly update: boolean;
+        readonly strict?: boolean;
     }) => Promise<string | null>;
 }
 export interface FetchResolution {

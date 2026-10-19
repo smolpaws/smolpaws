@@ -17,6 +17,7 @@ export * from './profilesRouter.js';
 export * from './serverState.js';
 export * from './settingsRouter.js';
 export * from './skillsRouter.js';
+export * from './skillsService.js';
 
 export * from './pubSub.js';
 export * from './sockets.js';
