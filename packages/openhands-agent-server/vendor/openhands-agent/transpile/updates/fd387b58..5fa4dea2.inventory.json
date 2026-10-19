@@ -1,0 +1,444 @@
+{
+  "schemaVersion": 1,
+  "repository": "OpenHands/software-agent-sdk",
+  "from": "fd387b58dc7b707b73c159845c0396a17000be24",
+  "to": "5fa4dea24c52fe3ac53fa4e3e67a1376b72189e2",
+  "fromAuthoredAt": "2026-10-15T09:43:14-04:00",
+  "toAuthoredAt": "2026-10-15T21:58:41-04:00",
+  "totalCommits": 5,
+  "firstParentCommits": 5,
+  "commits": [
+    {
+      "sha": "f5f849f5ab51502cdfff97870f29de95307882a4",
+      "authoredAt": "2026-10-15T09:15:51-05:00",
+      "subject": "fix(agent-server): drop pip's vendored pkg_resources (#5991)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/docker/Dockerfile",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "docker",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/docker_runtime/test_pip_revendoring_retirement.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "docker_runtime",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "docker",
+            "docker_runtime"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "d5995133d9425e6a37756b28ae19543b5d85306d",
+      "authoredAt": "2026-10-15T21:47:40+02:00",
+      "subject": "fix(sdk): list changes of a repository below a non-repository path (#5753)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/git/git_changes.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "git",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/git/test_git_changes.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "git",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "git"
+          ],
+          "policyHints": []
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_git_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_git",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "test_git"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F15-git.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "cb266703c5c797f10f17eea8fea61a25ad2eac30",
+      "authoredAt": "2026-10-16T07:13:23+08:00",
+      "subject": "fix(agent-server): resolve trajectory download dir from request config (#5696)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/file_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "file",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_file_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_file",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "file",
+            "test_file"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "db9c54b71c8c9ed46a2454fc65eee804d3c1e8aa",
+      "authoredAt": "2026-10-15T18:25:01-07:00",
+      "subject": "feat(plugin): add strict plugin fetch preflight (#5987)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/plugin/__init__.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "plugin",
+              "policyHints": [
+                "EXC-SDK-001"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/plugin/fetch.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "plugin",
+              "policyHints": [
+                "EXC-SDK-001"
+              ]
+            },
+            {
+              "status": "A",
+              "path": "openhands-sdk/openhands/sdk/plugin/paths.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "plugin",
+              "policyHints": [
+                "EXC-SDK-001"
+              ]
+            },
+            {
+              "status": "A",
+              "path": "openhands-sdk/openhands/sdk/plugin/strict_fetch.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "plugin",
+              "policyHints": [
+                "EXC-SDK-001"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/profiles/__init__.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "profiles",
+              "policyHints": [
+                "DEV-SDK-004"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/profiles/agent_profile.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "profiles",
+              "policyHints": [
+                "DEV-SDK-004"
+              ]
+            },
+            {
+              "status": "A",
+              "path": "tests/sdk/plugin/test_plugin_strict_fetch.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "plugin",
+              "policyHints": [
+                "EXC-SDK-001"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/profiles/test_agent_profile.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "profiles",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "plugin",
+            "profiles"
+          ],
+          "policyHints": [
+            "DEV-SDK-004",
+            "EXC-SDK-001"
+          ]
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/agent_profiles_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "agent_profiles",
+              "policyHints": [
+                "DEV-SERVER-004"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/plugins_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "plugins",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/plugins_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "plugins",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_plugins_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_plugins",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "agent_profiles",
+            "plugins",
+            "test_plugins"
+          ],
+          "policyHints": [
+            "DEV-SERVER-004"
+          ]
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "5fa4dea24c52fe3ac53fa4e3e67a1376b72189e2",
+      "authoredAt": "2026-10-15T21:58:41-04:00",
+      "subject": "Release v1.55.1 (#6021)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/pyproject.toml",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "pyproject",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-tools/pyproject.toml",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "pyproject",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-workspace/pyproject.toml",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "workspace",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "uv.lock",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "shared",
+              "module": "dependencies",
+              "policyHints": [
+                "DEV-SDK-010"
+              ]
+            }
+          ],
+          "modules": [
+            "dependencies",
+            "pyproject",
+            "workspace"
+          ],
+          "policyHints": [
+            "DEV-SDK-010"
+          ]
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/pyproject.toml",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "pyproject",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "uv.lock",
+              "previousPath": null,
+              "target": "server",
+              "kind": "shared",
+              "module": "dependencies",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "dependencies",
+            "pyproject"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        "clients/typescript/package-lock.json",
+        "clients/typescript/package.json",
+        "clients/typescript/src/generated/agent-server-schema.ts"
+      ],
+      "unmappedPaths": []
+    }
+  ],
+  "summary": {
+    "targets": {
+      "sdk": {
+        "commitUnits": 3,
+        "files": 14,
+        "modules": [
+          "dependencies",
+          "git",
+          "plugin",
+          "profiles",
+          "pyproject",
+          "workspace"
+        ],
+        "tests": 3,
+        "examples": 0,
+        "policyHints": [
+          "DEV-SDK-004",
+          "DEV-SDK-010",
+          "EXC-SDK-001"
+        ]
+      },
+      "server": {
+        "commitUnits": 5,
+        "files": 11,
+        "modules": [
+          "agent_profiles",
+          "dependencies",
+          "docker",
+          "docker_runtime",
+          "file",
+          "plugins",
+          "pyproject",
+          "test_file",
+          "test_git",
+          "test_plugins"
+        ],
+        "tests": 4,
+        "examples": 0,
+        "policyHints": [
+          "DEV-SERVER-004"
+        ]
+      }
+    },
+    "ignoredPaths": [
+      ".agents/skills/verify-agent-server/references/feature-map/F15-git.md",
+      "clients/typescript/package-lock.json",
+      "clients/typescript/package.json",
+      "clients/typescript/src/generated/agent-server-schema.ts"
+    ],
+    "unmappedPaths": []
+  }
+}

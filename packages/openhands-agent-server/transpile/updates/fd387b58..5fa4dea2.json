@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "repository": "OpenHands/software-agent-sdk",
+  "from": "fd387b58dc7b707b73c159845c0396a17000be24",
+  "to": "5fa4dea24c52fe3ac53fa4e3e67a1376b72189e2",
+  "inventorySha256": "afd3f25d7394cfbb07560be835ac578e02c0779ae9a81a378f8eb596ca60a037",
+  "items": {
+    "f5f849f5ab51502cdfff97870f29de95307882a4:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "reason": "Removes vendored pip pkg_resources from Python Docker image and adjusts retirement test. Native Node package has neither pip nor this Docker image; native package/pack checks and regenerated locked source OpenAPI remain the evidence.",
+      "policy": null,
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "d5995133d9425e6a37756b28ae19543b5d85306d:server": {
+      "disposition": "PORT",
+      "reason": "Replace native directory change discovery with merged SDK one-level getGitChanges aggregation; a parent without .git must expose tracked/untracked changes in its immediate repositories. Preserve file/symlink aliases and map typed nonrepository errors to200[]; invalid refs in actual repositories remain400. Port actual Python HTTP test before implementation.",
+      "policy": null,
+      "tracking": [],
+      "evidence": [
+        "src/gitService.ts",
+        "src/__tests__/batch05-git.test.ts"
+      ]
+    },
+    "cb266703c5c797f10f17eea8fea61a25ad2eac30:server": {
+      "disposition": "DEFERRED",
+      "tracking": [
+        "smolpaws-09ou",
+        "OPENAPI-DEFERRED-001"
+      ],
+      "reason": "Trajectory ZIP export remains absent and already tracked; new behavior must select conversation/temporary archive paths from request.app.state.config, never process-global defaults. Revisit with owned secret-redacted archive implementation and explicit two-config source regression.",
+      "policy": null,
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "db9c54b71c8c9ed46a2454fc65eee804d3c1e8aa:server": {
+      "disposition": "DEFERRED",
+      "tracking": [
+        "smolpaws-09ou",
+        "OPENAPI-DEFERRED-001"
+      ],
+      "reason": "New POST /api/plugins/fetch requires an individually recorded operation: immutable SHA-addressed secret-safe plugin fetch/cache, actual format-aware Plugin.load validation, and runtime SecretSource resolution. Existing server plugin routes are debt, not a permanent exclusion. SDK EXC-SDK-001 does not exclude this server boundary. Client preflight is unavailable until these prerequisites and source422/502/504/redaction cases are ported. Moving identical summary classes to SDK does not change HTTP shape; keep native full-profile response behavior.",
+      "policy": null,
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "5fa4dea24c52fe3ac53fa4e3e67a1376b72189e2:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "reason": "Python workspace release1.55.1 project-version/lock update only; native version remains independent. Regenerate actual pinned Python OpenAPI and native server-bound source fixtures.",
+      "policy": null,
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    }
+  }
+}

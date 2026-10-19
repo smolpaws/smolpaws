@@ -1,5 +1,5 @@
 export declare const VERIFIED_MODELS_PROVENANCE: {
-    readonly upstream_commit: "fd387b58dc7b707b73c159845c0396a17000be24";
+    readonly upstream_commit: "5fa4dea24c52fe3ac53fa4e3e67a1376b72189e2";
     readonly source_sha256: "b4cd26bbba23906a0b9937f7a1aaf8c5589cbf9e0a586972d58c65631402ffe4";
     readonly litellm_version: "1.93.0";
     readonly model_map_sha256: "cc1955f7f1cdc2cdd9ebf216e7eebbc90bbb3528b62439327f7e8b893eda7c12";

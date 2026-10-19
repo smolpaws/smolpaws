@@ -1,6 +1,6 @@
 export declare const MODEL_DISCOVERY_PROVENANCE: {
-    readonly upstream_commit: "fd387b58dc7b707b73c159845c0396a17000be24";
-    readonly uv_lock_sha256: "e723efc2657d1830edfb5b9e652b1567d229864bf10a1dcf09610b4acc19b64a";
+    readonly upstream_commit: "5fa4dea24c52fe3ac53fa4e3e67a1376b72189e2";
+    readonly uv_lock_sha256: "64f012d63f2feeb570102be251d2474def6501b0cf90de085302ed635f41bc7f";
     readonly litellm_version: "1.93.0";
     readonly litellm_sdist_sha256: "140bf215e264c71601bca9c06d2436c5451bb59e1e195ea23fc2d3d87b6929ec";
     readonly source_sha256: {

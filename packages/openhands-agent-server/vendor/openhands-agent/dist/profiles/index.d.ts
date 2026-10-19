@@ -1,5 +1,27 @@
 import { z } from 'zod';
 export declare const AGENT_PROFILE_SCHEMA_VERSION = 3;
+/** Stored-profile summary; parsing does not resolve references or instantiate an agent. */
+export declare const agentProfileInfoSchema: z.ZodObject<{
+    id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    name: z.ZodString;
+    agent_kind: z.ZodDefault<z.ZodString>;
+    revision: z.ZodDefault<z.ZodNullable<z.ZodPreprocess<z.ZodNumber>>>;
+    llm_profile_ref: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    mcp_server_refs: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+}, z.core.$strip>;
+export declare const agentProfileListResponseSchema: z.ZodObject<{
+    profiles: z.ZodArray<z.ZodObject<{
+        id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        name: z.ZodString;
+        agent_kind: z.ZodDefault<z.ZodString>;
+        revision: z.ZodDefault<z.ZodNullable<z.ZodPreprocess<z.ZodNumber>>>;
+        llm_profile_ref: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        mcp_server_refs: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+    }, z.core.$strip>>;
+    active_agent_profile_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+}, z.core.$strip>;
+export type AgentProfileInfo = z.infer<typeof agentProfileInfoSchema>;
+export type AgentProfileListResponse = z.infer<typeof agentProfileListResponseSchema>;
 export declare const acpServerKindSchema: z.ZodUnion<readonly [z.ZodLiteral<"claude-code">, z.ZodLiteral<"codex">, z.ZodLiteral<"gemini-cli">, z.ZodLiteral<"custom">]>;
 export declare const criticModeSchema: z.ZodUnion<readonly [z.ZodLiteral<"finish_and_message">, z.ZodLiteral<"all_actions">]>;
 export declare const profileVerificationSettingsSchema: z.ZodObject<{

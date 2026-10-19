@@ -81,6 +81,8 @@ export declare function getValidRef(repoDir: string, override?: string | null, p
 export declare function getDisplayBaseRef(repoDir: string): Promise<string>;
 export declare function getGitRepositoryMetadata(repoDir: string): Promise<GitRepositoryMetadata>;
 export declare function getChangesInRepo(repoDir: string, ref?: string | null): Promise<GitChange[]>;
+/** Collect workspace changes and those in immediate non-hidden child repositories. */
+export declare function getGitChanges(cwd: string, ref?: string | null): Promise<GitChange[]>;
 export declare function getClosestGitRepo(path: string): Promise<string | null>;
 export declare function getGitDiff(filePath: string, ref?: string | null): Promise<GitDiff>;
 export declare function getGitCommits(repoPath: string, limit?: number): Promise<GitCommitsPage>;

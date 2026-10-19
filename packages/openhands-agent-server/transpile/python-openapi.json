@@ -3247,6 +3247,7 @@
         "type": "object"
       },
       "AgentProfileListResponse": {
+        "description": "Response body returned by ``GET /api/agent-profiles``.",
         "properties": {
           "active_agent_profile_id": {
             "anyOf": [
@@ -7989,6 +7990,129 @@
         "title": "FallbackStrategy",
         "type": "object"
       },
+      "FetchPluginRequest": {
+        "description": "Request body for strictly fetching a plugin without installing it.",
+        "properties": {
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Branch, tag, or commit",
+            "title": "Ref"
+          },
+          "repo_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Subdirectory path within the repository (for monorepos)",
+            "title": "Repo Path"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SecretSource-Input"
+            },
+            "description": "Secrets used to expand ${VAR} placeholders in source and ref",
+            "title": "Secrets",
+            "type": "object"
+          },
+          "source": {
+            "description": "Plugin git source",
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          },
+          "timeout": {
+            "default": 60,
+            "description": "Git timeout seconds",
+            "maximum": 600,
+            "minimum": 1,
+            "title": "Timeout",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "FetchPluginRequest",
+        "type": "object"
+      },
+      "FetchPluginResponse": {
+        "description": "Response from strictly fetching a plugin source.",
+        "properties": {
+          "commands": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Commands",
+            "type": "array"
+          },
+          "manifest": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JSONValue"
+            },
+            "title": "Manifest",
+            "type": "object"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "repo_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo Path"
+          },
+          "resolved_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved Ref"
+          },
+          "skills": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Skills",
+            "type": "array"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "resolved_ref",
+          "source",
+          "repo_path",
+          "manifest",
+          "skills",
+          "commands"
+        ],
+        "title": "FetchPluginResponse",
+        "type": "object"
+      },
       "FileBrowserEntry": {
         "properties": {
           "label": {
@@ -10568,6 +10692,37 @@
         },
         "title": "IterativeRefinementConfig",
         "type": "object"
+      },
+      "JSONValue": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "items": {
+              "$ref": "#/components/schemas/JSONValue"
+            },
+            "type": "array"
+          },
+          {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JSONValue"
+            },
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
       },
       "KeywordTrigger": {
         "description": "Trigger for keyword-based skills.\n\nThese skills are activated when specific keywords appear in the user's query.",
@@ -23623,7 +23778,7 @@
   "info": {
     "description": "OpenHands Agent Server - REST/WebSocket interface for OpenHands AI Agent",
     "title": "OpenHands Agent Server",
-    "version": "1.55.0"
+    "version": "1.55.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -30982,6 +31137,52 @@
           }
         ],
         "summary": "Get Plugins",
+        "tags": [
+          "Plugins"
+        ]
+      }
+    },
+    "/api/plugins/fetch": {
+      "post": {
+        "description": "Fetch and pin a plugin source without installing or enabling it.",
+        "operationId": "fetch_plugin_endpoint_api_plugins_fetch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FetchPluginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FetchPluginResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Invalid plugin source, ref, path, or plugin"
+          },
+          "502": {
+            "description": "Plugin source unavailable"
+          },
+          "504": {
+            "description": "Plugin fetch timed out"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Fetch Plugin Endpoint",
         "tags": [
           "Plugins"
         ]

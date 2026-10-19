@@ -1,7 +1,7 @@
 import { AgentDefinition } from './index.js';
 export declare const BUILTIN_AGENT_SOURCE: {
     readonly repository: "OpenHands/software-agent-sdk";
-    readonly commit: "fd387b58dc7b707b73c159845c0396a17000be24";
+    readonly commit: "5fa4dea24c52fe3ac53fa4e3e67a1376b72189e2";
     readonly factory: "openhands-tools/openhands/tools/preset/default.py::discover_builtin_agents";
     readonly files: {
         readonly "openhands-tools/openhands/tools/preset/subagents/bash_runner.md": "6485915175e28dadc1371d68448a6371e353491896a4ef5eea0422425f12444c";

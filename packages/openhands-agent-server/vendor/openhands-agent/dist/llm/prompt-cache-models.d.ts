@@ -1,10 +1,10 @@
 export declare const PROMPT_CACHE_KEY_PROVENANCE: {
-    readonly upstream_commit: "fd387b58dc7b707b73c159845c0396a17000be24";
+    readonly upstream_commit: "5fa4dea24c52fe3ac53fa4e3e67a1376b72189e2";
     readonly source_sha256: {
         readonly "openhands-sdk/openhands/sdk/llm/utils/model_features.py": "1e65b47f76adf084168e7fdde6f1454fdf7e0f171abfeda77a70f4d8e2521524";
         readonly "openhands-sdk/openhands/sdk/llm/utils/verified_models.py": "b4cd26bbba23906a0b9937f7a1aaf8c5589cbf9e0a586972d58c65631402ffe4";
         readonly "tests/sdk/llm/test_model_features.py": "0a0ca27019b38b65fd7e6c4189707301abb83aa38d37d2545ec3f7fc52f2cdfe";
-        readonly "uv.lock": "e723efc2657d1830edfb5b9e652b1567d229864bf10a1dcf09610b4acc19b64a";
+        readonly "uv.lock": "64f012d63f2feeb570102be251d2474def6501b0cf90de085302ed635f41bc7f";
     };
     readonly unavailable_optional_modules: readonly ["botocore"];
     readonly litellm_version: "1.93.0";

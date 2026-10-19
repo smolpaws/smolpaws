@@ -365,6 +365,11 @@
       "disposition": "DEVIATION",
       "policy": "DEV-SERVER-001",
       "reason": "ACP runtime/default and available-model discovery remains the named native deviation."
+    },
+    "POST /api/plugins/fetch": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Plugin preflight requires immutable SHA-addressed fetch/cache, secret-safe Git transport, format-aware Plugin.load validation and runtime SecretSource resolution. This endpoint is unavailable until these runtime prerequisites and source 422/502/504 redaction cases are ported."
     }
   },
   "contractExemptions": {

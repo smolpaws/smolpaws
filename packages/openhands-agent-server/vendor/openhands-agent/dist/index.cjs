@@ -14129,7 +14129,7 @@ function valueSize(value) {
 var LocalFileStore = class {
   root;
   cache;
-  locks = /* @__PURE__ */ new Set();
+  locks = /* @__PURE__ */ new Map();
   constructor(root, options = {}) {
     const expandedRoot = root.startsWith("~") ? path2__default.default.join(process.env.HOME ?? "", root.slice(1)) : root;
     this.root = path2__default.default.resolve(path2__default.default.normalize(expandedRoot));
@@ -14222,9 +14222,10 @@ ${(/* @__PURE__ */ new Date()).toISOString()}
         sleepSync(pollIntervalMs);
       }
     }
-    this.locks.add(fullPath);
+    const owner = /* @__PURE__ */ Symbol();
+    this.locks.set(fullPath, owner);
     try {
-      const result = callback();
+      const result = withLockOwner(owner, callback);
       assertSynchronousLockResult(result);
       return result;
     } finally {
@@ -14232,15 +14233,13 @@ ${(/* @__PURE__ */ new Date()).toISOString()}
         removeLockFile(fullPath);
       } finally {
         this.cache.delete(fullPath);
-        this.locks.delete(fullPath);
+        if (this.locks.get(fullPath) === owner) this.locks.delete(fullPath);
       }
     }
   }
   async lockAsync(filePath, callback, options = {}) {
     const fullPath = this.getFullPath(filePath);
-    if (this.locks.has(fullPath)) {
-      throw new Error(`Deadlock detected: lock already held for ${filePath}`);
-    }
+    assertNotAsyncLockOwner(this.locks.get(fullPath), filePath);
     await promises.mkdir(path2__default.default.dirname(fullPath), { recursive: true });
     const deadline = Date.now() + (options.timeoutSeconds ?? 30) * 1e3;
     const pollIntervalMs = options.pollIntervalMs ?? 50;
@@ -14269,12 +14268,13 @@ ${(/* @__PURE__ */ new Date()).toISOString()}
         await sleepAsync(pollIntervalMs);
       }
     }
-    this.locks.add(fullPath);
+    const owner = /* @__PURE__ */ Symbol();
+    this.locks.set(fullPath, owner);
     let result;
     let callbackFailed = false;
     let cleanupError;
     try {
-      result = await callback();
+      result = await withLockOwner(owner, callback);
     } catch (error) {
       callbackFailed = true;
       throw error;
@@ -14287,7 +14287,7 @@ ${(/* @__PURE__ */ new Date()).toISOString()}
         }
       } finally {
         this.cache.delete(fullPath);
-        this.locks.delete(fullPath);
+        if (this.locks.get(fullPath) === owner) this.locks.delete(fullPath);
       }
     }
     if (cleanupError !== void 0) {
@@ -14315,7 +14315,7 @@ ${(/* @__PURE__ */ new Date()).toISOString()}
 var InMemoryFileStore = class {
   files;
   instanceId = crypto.randomUUID().replace(/-/gu, "");
-  locks = /* @__PURE__ */ new Set();
+  locks = /* @__PURE__ */ new Map();
   constructor(files = {}, options = {}) {
     this.files = new MemoryLRUCache({
       maxMemory: options.cacheMemorySize ?? 20 * 1024 * 1024,
@@ -14372,24 +14372,31 @@ var InMemoryFileStore = class {
     if (this.locks.has(filePath)) {
       throw new Error(`Deadlock detected: lock already held for ${filePath}`);
     }
-    this.locks.add(filePath);
+    const owner = /* @__PURE__ */ Symbol();
+    this.locks.set(filePath, owner);
     try {
-      const result = callback();
+      const result = withLockOwner(owner, callback);
       assertSynchronousLockResult(result);
       return result;
     } finally {
-      this.locks.delete(filePath);
+      if (this.locks.get(filePath) === owner) this.locks.delete(filePath);
     }
   }
-  async lockAsync(filePath, callback, _options = {}) {
-    if (this.locks.has(filePath)) {
-      throw new Error(`Deadlock detected: lock already held for ${filePath}`);
+  async lockAsync(filePath, callback, options = {}) {
+    assertNotAsyncLockOwner(this.locks.get(filePath), filePath);
+    const deadline = Date.now() + (options.timeoutSeconds ?? 30) * 1e3;
+    while (this.locks.has(filePath)) {
+      if (Date.now() >= deadline) {
+        throw Object.assign(new Error(`Timed out waiting for lock: ${filePath}`), { code: "EEXIST" });
+      }
+      await sleepAsync(options.pollIntervalMs ?? 50);
     }
-    this.locks.add(filePath);
+    const owner = /* @__PURE__ */ Symbol();
+    this.locks.set(filePath, owner);
     try {
-      return await callback();
+      return await withLockOwner(owner, callback);
     } finally {
-      this.locks.delete(filePath);
+      if (this.locks.get(filePath) === owner) this.locks.delete(filePath);
     }
   }
   getAbsolutePath(filePath) {
@@ -14402,6 +14409,17 @@ var ValueError = class extends Error {
     this.name = "ValueError";
   }
 };
+var lockOwnerContext = new async_hooks.AsyncLocalStorage();
+function assertNotAsyncLockOwner(owner, filePath) {
+  if (owner !== void 0 && lockOwnerContext.getStore()?.has(owner)) {
+    throw new Error(`Deadlock detected: lock already held for ${filePath}`);
+  }
+}
+function withLockOwner(owner, callback) {
+  const owners = new Set(lockOwnerContext.getStore());
+  owners.add(owner);
+  return lockOwnerContext.run(owners, callback);
+}
 function joinStorePath2(basePath, childName) {
   if (basePath.length === 0 || basePath === ".") {
     return childName;
@@ -15261,6 +15279,28 @@ async function materializeHardCondenser(data, options) {
   });
 }
 var AGENT_PROFILE_SCHEMA_VERSION = 3;
+var summaryRevisionSchema = zod.z.preprocess((value) => {
+  if (typeof value === "boolean") return Number(value);
+  if (typeof value === "string") {
+    const normalized = value.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, "");
+    if (/^[+-]?[0-9](?:_?[0-9])*(?:\.0+)?$/u.test(normalized)) {
+      value = Number(normalized.replaceAll("_", ""));
+    }
+  }
+  return Object.is(value, -0) ? 0 : value;
+}, zod.z.number().int()).nullable().default(null);
+var agentProfileInfoSchema = zod.z.object({
+  id: zod.z.string().nullable().default(null),
+  name: zod.z.string(),
+  agent_kind: zod.z.string().default("openhands"),
+  revision: summaryRevisionSchema,
+  llm_profile_ref: zod.z.string().nullable().default(null),
+  mcp_server_refs: zod.z.array(zod.z.string()).nullable().default(null)
+});
+var agentProfileListResponseSchema = zod.z.object({
+  profiles: zod.z.array(agentProfileInfoSchema),
+  active_agent_profile_id: zod.z.string().nullable().default(null)
+});
 var acpServerKindSchema = zod.z.union([
   zod.z.literal("claude-code"),
   zod.z.literal("codex"),
@@ -17235,6 +17275,34 @@ async function getChangesInRepo(repoDir, ref) {
     changes.push({ status: "ADDED" /* ADDED */, path: toPosixPath2(path4.trim()) });
   }
   return changes.sort((left, right) => left.path.localeCompare(right.path));
+}
+async function getGitChanges(cwd, ref) {
+  const entries = await promises.readdir(cwd).catch(() => []);
+  const nested = (await Promise.all(entries.filter((name) => !name.startsWith(".")).map(
+    async (name) => await promises.lstat(path2.join(cwd, name, ".git")).then(() => name, () => null)
+  ))).filter((name) => name !== null);
+  let changes;
+  let baseError = null;
+  try {
+    changes = await getChangesInRepo(cwd, ref);
+  } catch (error) {
+    if (!(error instanceof GitRepositoryError) || nested.length === 0) throw error;
+    baseError = error;
+    changes = [];
+  }
+  changes = changes.filter((change) => !nested.some((name) => change.path === name || change.path.startsWith(`${name}/`)));
+  let foundNestedRepository = false;
+  for (const name of nested) {
+    try {
+      const childChanges = await getChangesInRepo(path2.join(cwd, name), ref);
+      foundNestedRepository = true;
+      changes.push(...childChanges.map((change) => ({ ...change, path: path2.posix.join(name, change.path) })));
+    } catch (error) {
+      if (!(error instanceof GitError)) throw error;
+    }
+  }
+  if (baseError !== null && !foundNestedRepository) throw baseError;
+  return changes.sort((left, right) => Buffer.compare(Buffer.from(left.path), Buffer.from(right.path)));
 }
 async function getClosestGitRepo(path4) {
   let current = path2.resolve(path4);
@@ -21529,7 +21597,7 @@ async function isDirectory(path4) {
 // src/subagent/builtin-catalog.ts
 var builtinAgentSource = {
   "repository": "OpenHands/software-agent-sdk",
-  "commit": "fd387b58dc7b707b73c159845c0396a17000be24",
+  "commit": "5fa4dea24c52fe3ac53fa4e3e67a1376b72189e2",
   "factory": "openhands-tools/openhands/tools/preset/default.py::discover_builtin_agents",
   "files": {
     "openhands-tools/openhands/tools/preset/subagents/bash_runner.md": "6485915175e28dadc1371d68448a6371e353491896a4ef5eea0422425f12444c",
@@ -23430,7 +23498,7 @@ function isExecError3(error) {
 
 // src/llm/verified-models.ts
 var VERIFIED_MODELS_PROVENANCE = {
-  "upstream_commit": "fd387b58dc7b707b73c159845c0396a17000be24",
+  "upstream_commit": "5fa4dea24c52fe3ac53fa4e3e67a1376b72189e2",
   "source_sha256": "b4cd26bbba23906a0b9937f7a1aaf8c5589cbf9e0a586972d58c65631402ffe4",
   "litellm_version": "1.93.0",
   "model_map_sha256": "cc1955f7f1cdc2cdd9ebf216e7eebbc90bbb3528b62439327f7e8b893eda7c12",
@@ -23796,8 +23864,8 @@ var VERIFIED_MODELS = {
 
 // src/llm/model-discovery-catalog.ts
 var MODEL_DISCOVERY_PROVENANCE = {
-  "upstream_commit": "fd387b58dc7b707b73c159845c0396a17000be24",
-  "uv_lock_sha256": "e723efc2657d1830edfb5b9e652b1567d229864bf10a1dcf09610b4acc19b64a",
+  "upstream_commit": "5fa4dea24c52fe3ac53fa4e3e67a1376b72189e2",
+  "uv_lock_sha256": "64f012d63f2feeb570102be251d2474def6501b0cf90de085302ed635f41bc7f",
   "litellm_version": "1.93.0",
   "litellm_sdist_sha256": "140bf215e264c71601bca9c06d2436c5451bb59e1e195ea23fc2d3d87b6929ec",
   "source_sha256": {
@@ -28889,6 +28957,8 @@ exports.actionEventSchema = actionEventSchema;
 exports.actionEventsFromMessage = actionEventsFromMessage;
 exports.agentErrorEventSchema = agentErrorEventSchema;
 exports.agentLaunchAdditionsSchema = agentLaunchAdditionsSchema;
+exports.agentProfileInfoSchema = agentProfileInfoSchema;
+exports.agentProfileListResponseSchema = agentProfileListResponseSchema;
 exports.agentProfileSchema = agentProfileSchema;
 exports.agentResetCondenserSettingsSchema = agentResetCondenserSettingsSchema;
 exports.agentSettingsSchema = agentSettingsSchema;
@@ -28993,6 +29063,7 @@ exports.getCredentialsDir = getCredentialsDir;
 exports.getDisplayBaseRef = getDisplayBaseRef;
 exports.getEnv = getEnv;
 exports.getFactoryInfo = getFactoryInfo;
+exports.getGitChanges = getGitChanges;
 exports.getGitCommits = getGitCommits;
 exports.getGitDiff = getGitDiff;
 exports.getGitRepositoryMetadata = getGitRepositoryMetadata;

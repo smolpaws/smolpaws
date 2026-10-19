@@ -73,7 +73,7 @@ export declare class InMemoryFileStore implements FileStore {
     delete(filePath: string): void;
     exists(filePath: string): boolean;
     lock<T>(filePath: string, callback: () => T, _options?: FileStoreLockOptions): T;
-    lockAsync<T>(filePath: string, callback: () => T | Promise<T>, _options?: FileStoreLockOptions): Promise<T>;
+    lockAsync<T>(filePath: string, callback: () => T | Promise<T>, options?: FileStoreLockOptions): Promise<T>;
     getAbsolutePath(filePath: string): string;
 }
 export declare class ValueError extends Error {

@@ -121,3 +121,20 @@ organization and registered-marketplace loading requires a host adapter and
 returns explicit unsupported errors when requested without one. Full project
 skill discovery, critic activation and `invoke_skill` remain `.15`. A successful
 catalog response or local refresh does not close these runtime gaps.
+
+
+## v1.55.1 plugin preflight and request-owned archive paths
+
+The final `fd387b58..5fa4dea2` interval adds `POST /api/plugins/fetch` to
+`OPENAPI-DEFERRED-001` and Bead `smolpaws-09ou`. Plugin preflight needs immutable
+SHA-addressed cache identity, secret-safe Git transport, runtime SecretSource
+resolution and the actual format-aware `Plugin.load` validation. Revisit with
+these owners and source success, 422/502/504, timeout and secret-redaction tests.
+The operation remains unavailable; the SDK's plugin exclusion does not exclude
+this server boundary or close the existing plugin route debt.
+
+Trajectory ZIP export in the same bead must use the owning request's
+`app.state.config` for conversation and temporary archive paths, never
+process-global defaults. Preserve credential/transient exclusions and cleanup
+requirements above, and port the source regression with two independent app
+configs before implementing this absent route.

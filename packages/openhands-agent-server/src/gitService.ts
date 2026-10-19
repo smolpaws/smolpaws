@@ -6,6 +6,7 @@ import {
   getCommitChanges as getCommitChangesFromSdk,
   getCommitFileDiff as getCommitFileDiffFromSdk,
   getGitCommits as getGitCommitsFromSdk,
+  getGitChanges as getGitChangesFromSdk,
   GitRepositoryError,
   type GitChange as SdkGitChange,
 } from '@smolpaws/openhands-agent';
@@ -55,6 +56,21 @@ function narrowGitChange(change: SdkGitChange): GitChange {
 }
 
 export async function getGitChanges(targetPath: string, ref: string | null = null): Promise<GitChange[]> {
+  const stats = await fs.stat(targetPath).catch((error: unknown) => {
+    if (typeof error === 'object' && error !== null && 'code' in error && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) return null;
+    throw error;
+  });
+  if (stats?.isFile() !== true) {
+    try {
+      return (await getGitChangesFromSdk(targetPath, ref)).map(narrowGitChange);
+    } catch (error: unknown) {
+      if (error instanceof GitRepositoryError) return [];
+      throw error;
+    }
+  }
+
+  // Preserve the native filtered file-path extension; directory discovery and
+  // display-base selection are owned by the SDK's workspace aggregator above.
   const repoRoot = await resolveGitRepositoryRoot(targetPath).catch((error: Error) => {
     if (error.message === 'git_repository_not_found') return null;
     throw error;
