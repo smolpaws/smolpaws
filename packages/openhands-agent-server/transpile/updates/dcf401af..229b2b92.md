@@ -292,3 +292,14 @@ Tracking: none
 Evidence: `package.json`, `transpile/python-openapi.meta.json`
 
 Additional managed HTTP regression evidence: `src/__tests__/managedStartAdmission.test.ts` proves reuse after profile deletion, overload before profile lookup and permit release after preparation failure.
+
+
+The SmolPaws relay composition explicitly keeps first-use materialization because
+its bridge registers trusted channel identity after the create response. Eager
+product context capture would publish the fallback scope before that registration,
+losing scoped memory. The generic server remains eager. The unchanged full-memory,
+first-completion and restart assertions in
+`../../apps/relay-server/src/contextIntegration.test.ts` reproduce this product
+regression; the test also checks that creation does not prepublish product context.
+
+The final product suite passed all 77 tests and its typecheck, including an injected-service regression that preserves its own initialization policy.

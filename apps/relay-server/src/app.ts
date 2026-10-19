@@ -69,7 +69,7 @@ export function productTools(scheduler: TaskScheduler, options: { scheduledAgent
     return [...all.values()];
   };
 }
-export interface RelayServerAppOptions extends Omit<AgentServerAppOptions, 'configureContext' | 'resolveProfileSelection' | 'resolveCondenserProfileSelection'> {
+export interface RelayServerAppOptions extends Omit<AgentServerAppOptions, 'configureContext' | 'resolveProfileSelection' | 'resolveCondenserProfileSelection' | 'initializeOnCreate'> {
   context?: ProductContextOptions;
   models?: ProductModelOptions;
   scheduledAgents?: ScheduledAgentOptions;
@@ -82,7 +82,11 @@ export async function createRelayServerApp(options: RelayServerAppOptions = {}, 
     if (!managedProfiles && models !== undefined) throw new Error('Model configuration requires the profile agent factory');
     const selectCondenser = productCondenserProfileSelection(scheduler, models);
     const selectProfile = productProfileSelection(scheduler, { ...models, ...(scheduledAgents === undefined ? {} : { scheduledAgents }) });
-    const server = await createAgentServerApp({ ...serverOptions, configureTools: productTools(scheduler, { scheduledAgents, slackCheckerFactory }), configureContext: productContext(scheduler, { ...context, ...(scheduledAgents === undefined ? {} : { scheduledAgents }) }),
+    // A bridge may register its trusted lane after creation. Freeze product
+    // context on first use, once that registration can select the proper scope.
+    const server = await createAgentServerApp({ ...serverOptions,
+      ...(serverOptions.conversationService === undefined ? { initializeOnCreate: false } : {}),
+      configureTools: productTools(scheduler, { scheduledAgents, slackCheckerFactory }), configureContext: productContext(scheduler, { ...context, ...(scheduledAgents === undefined ? {} : { scheduledAgents }) }),
       ...(managedProfiles ? { resolveProfileSelection: (factoryContext: Parameters<typeof selectProfile>[0]) => {
         productLane(scheduler, factoryContext.stored);
         return selectProfile(factoryContext);

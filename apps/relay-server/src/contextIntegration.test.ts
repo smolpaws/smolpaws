@@ -26,6 +26,7 @@ test('product host loads full scoped memory before the first completion and rest
   const memory = `# MEMORY.md\n${'Full durable memory row.\n'.repeat(2200)}last durable memory row`;
   assert.ok(memory.length > 49_000);
   const requests: Array<readonly Sdk.Message[]> = [];
+  let clientCreations = 0;
   let server: Awaited<ReturnType<typeof createRelayServerApp>> | undefined;
   const open = async () => createRelayServerApp({
     context: { configPath, repoRoot, homeDir: root },
@@ -36,6 +37,7 @@ test('product host loads full scoped memory before the first completion and rest
     },
     secretStore: new sdk.InMemorySecretStore(),
     llmClientFactory: async profile => {
+      clientCreations++;
       const llm = sdk.TestLLM.fromMessages([sdk.messageSchema.parse({ role: 'assistant', content: [],
         tool_calls: [{ id: `finish-${requests.length}`, name: 'finish', arguments: JSON.stringify({ message: 'Context available.' }), origin: 'completion' }],
       })], { profile });
@@ -69,6 +71,10 @@ test('product host loads full scoped memory before the first completion and rest
     } });
     assert.equal(started.statusCode, 201);
     const id = started.json<{ id: string }>().id;
+    const snapshotPath = path.join(root, 'conversations', id, 'smolpaws-context.json');
+    assert.equal(clientCreations, 0, 'product initialization waits for the trusted lane registration');
+    assert.equal(server.scheduler.lane(id), null, 'creation must not publish a fallback lane before bridge registration');
+    await assert.rejects(readFile(snapshotPath, 'utf8'), { code: 'ENOENT' });
     // The trusted bridge registration, not request tags, selects the scoped file.
     server.scheduler.register({ conversationId: id, scopeId: 'main', workingDir: repoRoot, defaults: {},
       relayDbPath: path.join(root, 'relay.db'),
@@ -83,7 +89,6 @@ test('product host loads full scoped memory before the first completion and rest
     assert.match(firstPrompt, /<REPO_CONTEXT>/);
     assert.match(firstPrompt, /whatsapp bridge/);
     assert.equal(requests[0]!.filter(message => message.role === 'tool' || message.role === 'assistant').length, 0, 'context is available before any read-file tool step');
-    const snapshotPath = path.join(root, 'conversations', id, 'smolpaws-context.json');
     const originalSnapshot = await readFile(snapshotPath, 'utf8');
     const snapshot = JSON.parse(originalSnapshot) as { scope: string; files: Array<{ content: string }> };
     assert.equal(snapshot.scope, 'whatsapp:main');

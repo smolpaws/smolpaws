@@ -6,9 +6,27 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import type * as Sdk from '../../../packages/openhands-agent-server/vendor/openhands-agent/dist/index.js';
+import { ConversationService } from '../../../packages/openhands-agent-server/src/conversationService.js';
 import { TaskScheduler } from '../../../src/coordinator/taskScheduler.js';
 import { createRelayServerApp } from './app.js';
 const sdk = createRequire(import.meta.url)('../../../packages/openhands-agent-server/vendor/openhands-agent/dist/index.cjs') as typeof Sdk;
+
+test('an injected conversation service keeps ownership of its initialization policy', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'product-injected-service-'));
+  let factoryCalls = 0;
+  const service = new ConversationService({ persistenceDir: path.join(root, 'conversations'), initializeOnCreate: true,
+    agentFactory: () => { factoryCalls++; return new sdk.Agent({ llm: sdk.TestLLM.fromMessages([]) }); } });
+  let server: Awaited<ReturnType<typeof createRelayServerApp>> | undefined;
+  try {
+    server = await createRelayServerApp({ conversationService: service, secretStore: new sdk.InMemorySecretStore(),
+      config: { statePath: path.join(root, 'state'), bashEventsPath: path.join(root, 'bash'), workspaceRoot: root },
+    }, new TaskScheduler(path.join(root, 'scheduler.db')));
+    const response = await server.app.inject({ method: 'POST', url: '/api/conversations', payload: {} });
+    assert.equal(response.statusCode, 201);
+    assert.equal(server.conversationService, service);
+    assert.equal(factoryCalls, 1, 'the injected service still initializes eagerly as configured');
+  } finally { await server?.app.close(); await service.close(); rmSync(root, { recursive: true, force: true }); }
+});
 
 test('custom agent factories remain usable; explicit model configuration requires the managed factory', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'product-custom-factory-'));

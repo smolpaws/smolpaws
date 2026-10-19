@@ -250,7 +250,9 @@
         "src/__tests__/condenserProfileWorkflow.test.ts",
         "src/__tests__/promptCaching.test.ts",
         "src/__tests__/remoteSdkContract.test.ts",
-        "src/__tests__/managedStartAdmission.test.ts"
+        "src/__tests__/managedStartAdmission.test.ts",
+        "../../apps/relay-server/src/app.ts",
+        "../../apps/relay-server/src/contextIntegration.test.ts"
       ]
     },
     "a955aa5d3188d4b0a44ad7eb4e5c4bba6e6238d9:server": {
