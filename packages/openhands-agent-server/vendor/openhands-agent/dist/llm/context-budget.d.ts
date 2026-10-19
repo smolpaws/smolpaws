@@ -1,3 +1,4 @@
+import { type PromptCacheMetadata } from './provider-quirks.js';
 import type { FetchResponseLike, LLMTokenCountTool } from './client.js';
 import type { LLMProfile, Message } from './index.js';
 export type MetadataFetchLike = (url: string, init: {
@@ -18,11 +19,15 @@ export declare class LLMContextBudget {
     private readonly options;
     readonly tokenCountAccuracy: "estimate";
     private resolvedLimit;
+    private resolvedCacheKey;
     private freshUntil;
     private inflight;
     constructor(profile: LLMProfile, options?: ContextBudgetOptions);
     get effectiveMaxInputTokens(): number | null;
     getTokenCount(messages: readonly Message[], tools?: readonly LLMTokenCountTool[]): Promise<number | null>;
     resolveRuntimeMetadata(): Promise<void>;
+    get promptCacheMetadata(): PromptCacheMetadata | undefined;
+    resolvePromptCacheMetadata(): Promise<void>;
+    private isProxy;
     private resolve;
 }

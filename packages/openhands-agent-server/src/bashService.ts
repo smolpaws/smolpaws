@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { constants } from 'node:os';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -10,6 +11,17 @@ const MAX_OUTPUT_CHARS = 1024 * 1024;
 
 export interface BashEventServiceOptions {
   readonly bashEventsDir: string;
+}
+
+interface RunningCommand {
+  child: ChildProcessWithoutNullStreams | null;
+  stopRequested: boolean;
+  timedOut: boolean;
+  termination: Promise<void> | null;
+  readonly closed: Promise<void>;
+  readonly markClosed: () => void;
+  readonly task: Promise<void>;
+  readonly finish: () => void;
 }
 
 interface BashEventSearchOptions {
@@ -24,21 +36,46 @@ interface BashEventSearchOptions {
 }
 
 export class BashEventService {
+  private closing = false;
+  private readonly running = new Map<string, RunningCommand>();
   private readonly pubSub = new PubSub<BashEvent>(50);
 
   constructor(private readonly options: BashEventServiceOptions) {}
 
   async startBashCommand(request: ExecuteBashRequest): Promise<{ readonly command: BashCommand; readonly task: Promise<void> }> {
+    if (this.closing) throw new Error('Bash service is closing.');
     const command = bashCommandSchema.parse({
       ...request,
       cwd: request.cwd ?? process.cwd(),
       id: randomUUID(),
       timestamp: new Date().toISOString(),
     });
-    await this.saveEvent(command);
-    await this.pubSub.publish(command);
-    const task = this.execute(command);
-    return { command, task };
+    let markClosed!: () => void, finish!: () => void;
+    const entry: RunningCommand = {child:null,stopRequested:false,timedOut:false,termination:null,
+      closed:new Promise<void>(resolve=>{markClosed=resolve;}),markClosed:()=>markClosed(),
+      task:new Promise<void>(resolve=>{finish=resolve;}),finish:()=>finish()};
+    // Register before publication so a subscriber may stop a not-yet-spawned ID.
+    this.running.set(command.id,entry);
+    try {
+      await this.saveEvent(command);
+      await this.pubSub.publish(command);
+      void this.execute(command,entry).catch(async()=>{
+        entry.markClosed();
+        const failure=await this.saveOutput({command_id:command.id,order:0,exit_code:1,stderr:'Unable to start Bash command.'});
+        await this.pubSub.publish(failure);
+      }).catch(()=>console.error('bash_execution_cleanup_failed',{command_id:command.id})).finally(async()=>{await entry.termination;this.running.delete(command.id);entry.finish();});
+      return {command,task:entry.task};
+    } catch(error) { this.running.delete(command.id);entry.markClosed();entry.finish();throw error; }
+  }
+
+  async stopBashCommand(commandId:string):Promise<boolean> {
+    const entry=this.running.get(commandId);
+    if(entry===undefined)return (await this.getBashEvent(commandId))?.kind==='BashCommand';
+    entry.stopRequested=true;
+    if(entry.child===null || entry.child.pid===undefined)return true;
+    await this.terminate(entry);
+    await entry.task;
+    return true;
   }
 
   async executeBashCommand(request: ExecuteBashRequest): Promise<BashOutput> {
@@ -127,12 +164,36 @@ export class BashEventService {
   }
 
   async close(): Promise<void> {
+    this.closing=true;
+    const active=[...this.running.values()];
+    for(const entry of active){entry.stopRequested=true;if(entry.child!==null)void this.terminate(entry);}
+    await Promise.all(active.map(entry=>entry.task));
     await this.pubSub.close();
   }
 
-  private async execute(command: BashCommand): Promise<void> {
+  private terminate(entry:RunningCommand):Promise<void> {
+    if(entry.termination!==null)return entry.termination;
+    const child=entry.child;
+    if(child===null || child.pid===undefined)return Promise.resolve();
+    const signal=(value: 'SIGTERM' | 'SIGKILL'):void=>{
+      try{process.kill(-child.pid!,value);}catch{try{child.kill(value);}catch{ /* already exited */ }}
+    };
+    entry.termination=(async()=>{
+      signal('SIGTERM');
+      const deadline=Date.now()+1000;
+      // Root exit does not imply group exit: descendants may redirect both pipes.
+      const alive=()=>{try{process.kill(-child.pid!,0);return true;}catch{return false;}};
+      while(alive() && Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,10));
+      if(alive())signal('SIGKILL');
+      await entry.closed;
+    })();
+    return entry.termination;
+  }
+
+  private async execute(command: BashCommand, entry:RunningCommand): Promise<void> {
     await new Promise<void>((resolve) => {
       const child = spawn('bash', ['-lc', command.command], { cwd: command.cwd ?? process.cwd(), env: process.env, detached: true });
+      entry.child=child;
       let stdout = '';
       let stderr = '';
       let finished = false;
@@ -169,19 +230,20 @@ export class BashEventService {
       };
 
       const timeout = setTimeout(() => {
-        try {
-          if (child.pid === undefined) child.kill('SIGTERM');
-          else process.kill(-child.pid, 'SIGTERM');
-        } catch {
-          child.kill('SIGTERM');
-        }
-        finalize(-1, `Command timed out after ${command.timeout} seconds.`);
+        entry.timedOut=true;entry.stopRequested=true;
+        void this.terminate(entry);
       }, Math.max(1, command.timeout ?? 300) * 1000);
 
       child.stdout.on('data', (chunk: Buffer | string) => append(chunk, 'stdout'));
       child.stderr.on('data', (chunk: Buffer | string) => append(chunk, 'stderr'));
-      child.on('error', (error) => finalize(1, error.message));
-      child.on('close', (code) => finalize(typeof code === 'number' ? code : 1));
+      child.on('error', () => {entry.markClosed();finalize(1,'Unable to start Bash command.');});
+      child.on('close', (code,signal) => {
+        entry.markClosed();
+        finalize(entry.timedOut?-1:typeof code==='number'?code:signal===null?1:-(constants.signals[signal]??1),
+          entry.timedOut?`Command timed out after ${command.timeout} seconds.`:'');
+      });
+      child.on('spawn',()=>{if(entry.stopRequested || this.closing)void this.terminate(entry);});
+      if(entry.stopRequested || this.closing)void this.terminate(entry);
     });
   }
 

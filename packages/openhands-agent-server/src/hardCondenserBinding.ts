@@ -14,11 +14,11 @@ interface HardBindingOptions {
 }
 
 /** Persist the explicit independent fallback before constructing its client. */
-export async function materializeProfileHardCondenser(
+export async function captureProfileHardCondenserBinding(
   settings: HardCondenserSettings | null | undefined,
   context: AgentFactoryContext,
   options: HardBindingOptions,
-): Promise<LLMSummarizingCondenser | null> {
+): Promise<HardCondenserBinding | null> {
   if (settings === undefined || settings === null) return null;
   let binding: HardCondenserBinding | undefined = context.stored.request.hard_condenser_binding;
   if (binding === undefined) {
@@ -50,7 +50,12 @@ export async function materializeProfileHardCondenser(
     binding = context.stored.request.hard_condenser_binding;
     if (binding === undefined) throw new Error('hard_condenser_profile_persistence_failed');
   }
-  const captured = hardCondenserBindingSchema.parse(structuredClone(binding));
+  return hardCondenserBindingSchema.parse(structuredClone(binding));
+}
+
+export async function materializeProfileHardCondenser(settings: HardCondenserSettings | null | undefined, context: AgentFactoryContext, options: HardBindingOptions): Promise<LLMSummarizingCondenser | null> {
+  const captured = await captureProfileHardCondenserBinding(settings, context, options);
+  if (captured === null) return null;
   return materializeHardCondenser(captured.settings, {
     resolveClient: reference => {
       if (reference !== captured.profile.profileId) throw new Error('hard_condenser_profile_snapshot_mismatch');

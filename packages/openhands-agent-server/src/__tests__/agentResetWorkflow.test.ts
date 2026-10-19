@@ -235,7 +235,7 @@ test('public callers cannot install an internal hard-profile snapshot', async ()
   const id = await start(f.server, { hard_condenser: hardSettings }, {
     hard_condenser_binding: { settings: { ...hardSettings, llm_profile_ref: 'attacker' }, profile: { profileId: 'attacker', providerId: 'openai', model: 'forged' } },
   });
-  expect((await f.metadata(id)).request.hard_condenser_binding).toBeUndefined();
+  expect((await f.metadata(id)).request.hard_condenser_binding).toMatchObject({ profile: { profileId: 'hard', model: 'model-hard' }, settings: hardSettings });
   await send(f.server, id, 'Prepare the configured profiles.'); await settled(f.server, id);
   expect((await f.metadata(id)).request.hard_condenser_binding.profile.profileId).toBe('hard');
   expect(f.built.some(profile => profile.profileId === 'attacker')).toBe(false);

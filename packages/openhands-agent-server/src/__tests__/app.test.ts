@@ -22,6 +22,11 @@ import { pathContainsPlaintext } from '../../examples/plaintextScan.js';
 const execFileAsync = promisify(execFile);
 
 
+async function savedLlmProfile(root: string, id: string): Promise<Record<string, unknown>> {
+  const stored = JSON.parse(await readFile(path.join(root, id, 'meta.json'), 'utf8')) as { request: { llm_profile_snapshot: Record<string, unknown> } };
+  return stored.request.llm_profile_snapshot;
+}
+
 function agentFactory() {
   return new Agent({
     llm: TestLLM.fromMessages([
@@ -258,7 +263,7 @@ describe('createAgentServerApp', () => {
   test('restores persisted conversations and events after restart', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
     try {
-      const first = await createAgentServerApp({ config: { conversationsPath: root }, secretStore: new InMemorySecretStore() });
+      const first = await createAgentServerApp({ agentFactory, config: { conversationsPath: root }, secretStore: new InMemorySecretStore() });
       const start = await first.app.inject({
         method: 'POST',
         url: '/api/conversations',
@@ -282,7 +287,7 @@ describe('createAgentServerApp', () => {
       expect(conversationFiles).toContain('meta.json');
       expect(conversationFiles).not.toContain('events.jsonl');
 
-      const second = await createAgentServerApp({ config: { conversationsPath: root } });
+      const second = await createAgentServerApp({ agentFactory, config: { conversationsPath: root } });
       const restored = await second.app.inject({ method: 'GET', url: '/api/conversations/11111111-1111-4111-8111-111111111111' });
       expect(restored.statusCode).toBe(200);
       expect(restored.json<{ title: string | null; tags: Record<string, string> }>().title).toBe('Persistent test');
@@ -574,13 +579,15 @@ describe('createAgentServerApp', () => {
     const { app } = await createAgentServerApp({
       config: { conversationsPath: path.join(root, 'conversations'), statePath: path.join(root, 'state') },
       secretStore: new InMemorySecretStore(),
+      llmClientFactory: async () => TestLLM.fromMessages([]),
     });
     try {
       const forgedSnapshot = { ...llmProfilePayload('default', 'client-injected-model'), useProfileKeyOverride: false };
-      const start = await app.inject({ method: 'POST', url: '/api/conversations', payload: { llm_profile_snapshot: forgedSnapshot } });
+      const start = await app.inject({ method: 'POST', url: '/api/conversations', payload: { llm_profile_snapshot: forgedSnapshot, agent: { llm_profile_ref: 'default', condenser: { enabled: false } } } });
       expect(start.statusCode).toBe(201);
-      const info = start.json<{ launched_agent_profile: { profileId: string; model: string } | null }>();
-      expect(info.launched_agent_profile).toMatchObject({ profileId: 'default', model: 'gpt-5-nano' });
+      const info = start.json<{ id: string; launched_agent_profile: { profileId: string; model: string } | null }>();
+      expect(info.launched_agent_profile).toBeNull();
+      expect(await savedLlmProfile(path.join(root, 'conversations'), info.id)).toMatchObject({ profileId: 'default', model: 'gpt-5-nano' });
       expect(JSON.stringify(info)).not.toContain('client-injected-model');
 
       const invalid = await app.inject({ method: 'POST', url: '/api/conversations', payload: [] });
@@ -679,7 +686,7 @@ describe('createAgentServerApp', () => {
 
   test('does not retry an event append after lock cleanup fails post-write', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
-    const { app } = await createAgentServerApp({ config: { conversationsPath: root }, secretStore: new InMemorySecretStore() });
+    const { app } = await createAgentServerApp({ agentFactory, config: { conversationsPath: root }, secretStore: new InMemorySecretStore() });
     const originalLockAsync = LocalFileStore.prototype.lockAsync;
     let eventLogCallbacks = 0;
     LocalFileStore.prototype.lockAsync = async function lockAsyncWithCleanupFailure<T>(
@@ -718,7 +725,7 @@ describe('createAgentServerApp', () => {
 
   test('accepts WebSocket session API key as the first message', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
-    const { app } = await createAgentServerApp({ config: { conversationsPath: path.join(root, 'conversations'), sessionApiKey: 'secret' }, secretStore: new InMemorySecretStore() });
+    const { app } = await createAgentServerApp({ agentFactory, config: { conversationsPath: path.join(root, 'conversations'), sessionApiKey: 'secret' }, secretStore: new InMemorySecretStore() });
     let socket: WebSocket | null = null;
     try {
       const start = await app.inject({ method: 'POST', url: '/api/conversations', headers: { 'x-session-api-key': 'secret' }, payload: {} });
@@ -779,7 +786,7 @@ describe('createAgentServerApp', () => {
 
   test('replays conversation events with all, since, and deprecated precedence modes', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-ws-'));
-    const { app, conversationService } = await createAgentServerApp({ config: { conversationsPath: path.join(root, 'conversations') }, secretStore: new InMemorySecretStore() });
+    const { app, conversationService } = await createAgentServerApp({ agentFactory, config: { conversationsPath: path.join(root, 'conversations') }, secretStore: new InMemorySecretStore() });
     const sockets: WebSocket[] = [];
     try {
       const start = await app.inject({ method: 'POST', url: '/api/conversations', payload: {} });
@@ -834,7 +841,7 @@ describe('createAgentServerApp', () => {
 
   test('serves the envelope-based session socket with sync/durable replay', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-session-'));
-    const { app, conversationService } = await createAgentServerApp({ config: { conversationsPath: path.join(root, 'conversations') }, secretStore: new InMemorySecretStore() });
+    const { app, conversationService } = await createAgentServerApp({ agentFactory, config: { conversationsPath: path.join(root, 'conversations') }, secretStore: new InMemorySecretStore() });
     try {
       const start = await app.inject({ method: 'POST', url: '/api/conversations', payload: {} });
       const id = start.json<{ id: string }>().id;
@@ -1248,15 +1255,17 @@ describe('createAgentServerApp', () => {
       expect(firstInfo.max_iterations).toBe(2);
       expect(firstInfo.workspace.working_dir).toBe(firstWorkspace);
       expect(firstInfo.agent.llm_profile_ref).toBe('gpt-nano');
-      expect(firstInfo.agent.tools).toEqual(['finish']);
-      expect(firstInfo.launched_agent_profile).toMatchObject({ profileId: 'gpt-nano', model: 'gpt-5-nano' });
+      expect(firstInfo.agent.tools).toEqual([{ name: 'finish', params: {} }]);
+      expect(firstInfo.launched_agent_profile).toBeNull();
+      expect(await savedLlmProfile(conversationsPath, firstInfo.id)).toMatchObject({ profileId: 'gpt-nano', model: 'gpt-5-nano' });
       expect(await readFile(path.join(conversationsPath, firstInfo.id, 'meta.json'), 'utf8')).not.toContain('test-openai-key');
 
       const readdedNano = llmProfilePayload('gpt-nano', 'gpt-5-nano-readded');
       expect((await app.inject({ method: 'DELETE', url: '/api/profiles/gpt-nano' })).statusCode).toBe(200);
       expect((await app.inject({ method: 'POST', url: '/api/profiles/gpt-nano', payload: readdedNano })).statusCode).toBe(201);
       const firstAfterProfileReplacement = (await app.inject({ method: 'GET', url: `/api/conversations/${firstInfo.id}` })).json<{ launched_agent_profile: { profileId: string; model: string } }>();
-      expect(firstAfterProfileReplacement.launched_agent_profile).toMatchObject({ profileId: 'gpt-nano', model: 'gpt-5-nano' });
+      expect(firstAfterProfileReplacement.launched_agent_profile).toBeNull();
+      expect(await savedLlmProfile(conversationsPath, firstInfo.id)).toMatchObject({ profileId: 'gpt-nano', model: 'gpt-5-nano' });
       expect((await app.inject({ method: 'POST', url: `/api/conversations/${firstInfo.id}/events`, payload: { role: 'user', content: 'run nano', run: true } })).statusCode).toBe(200);
       await waitFor(async () => {
         const final = await app.inject({ method: 'GET', url: `/api/conversations/${firstInfo.id}/agent_final_response` });
@@ -1296,7 +1305,8 @@ describe('createAgentServerApp', () => {
       expect(secondInfo.max_iterations).toBe(3);
       expect(secondInfo.workspace.working_dir).toBe(secondWorkspace);
       expect(secondInfo.agent.llm_profile_ref).toBe('gpt-mini');
-      expect(secondInfo.launched_agent_profile).toMatchObject({ profileId: 'gpt-mini', model: 'gpt-5-mini' });
+      expect(secondInfo.launched_agent_profile).toBeNull();
+      expect(await savedLlmProfile(conversationsPath, secondInfo.id)).toMatchObject({ profileId: 'gpt-mini', model: 'gpt-5-mini' });
       expect(third.statusCode).toBe(201);
       const thirdInfo = third.json<{ id: string; max_iterations: number; workspace: { working_dir: string }; agent: { llm_profile_ref: string; tools: unknown[] }; launched_agent_profile: { profileId: string; model: string } }>();
       expect(thirdInfo.id).not.toBe(firstInfo.id);
@@ -1304,8 +1314,9 @@ describe('createAgentServerApp', () => {
       expect(thirdInfo.max_iterations).toBe(4);
       expect(thirdInfo.workspace.working_dir).toBe(thirdWorkspace);
       expect(thirdInfo.agent.llm_profile_ref).toBe('gpt-nano');
-      expect(thirdInfo.agent.tools).toEqual(['finish']);
-      expect(thirdInfo.launched_agent_profile).toMatchObject({ profileId: 'gpt-nano', model: 'gpt-5-nano-readded' });
+      expect(thirdInfo.agent.tools).toEqual([{ name: 'finish', params: {} }]);
+      expect(thirdInfo.launched_agent_profile).toBeNull();
+      expect(await savedLlmProfile(conversationsPath, thirdInfo.id)).toMatchObject({ profileId: 'gpt-nano', model: 'gpt-5-nano-readded' });
 
       expect((await app.inject({ method: 'POST', url: `/api/conversations/${secondInfo.id}/events`, payload: { role: 'user', content: 'run mini', run: true } })).statusCode).toBe(200);
       await waitFor(async () => {
@@ -1352,6 +1363,7 @@ describe('createAgentServerApp', () => {
     const { app } = await createAgentServerApp({
       config: { conversationsPath, statePath, workspaceRoot: root },
       secretStore,
+      llmClientFactory: async () => TestLLM.fromMessages([]),
       serverStateService,
     });
     try {
@@ -1360,7 +1372,7 @@ describe('createAgentServerApp', () => {
       await serverStateService.saveProfile(llmProfilePayload('gpt-mini', 'gpt-5-mini-after'));
       await serverStateService.activateProfile('gpt-nano');
       const beforeSettings = await serverStateService.settings();
-      await serverStateService.updateSettings({ conversation_settings: { ...beforeSettings.conversation_settings, max_iterations: 2 } });
+      await serverStateService.updateSettings({ agent_settings: { ...beforeSettings.agent_settings, condenser: { enabled: false } }, conversation_settings: { ...beforeSettings.conversation_settings, max_iterations: 2 } });
 
       const firstStart = app.inject({ method: 'POST', url: '/api/conversations', payload: { workspace: { working_dir: firstWorkspace } } });
       await firstSnapshotCaptured.promise;
@@ -1374,16 +1386,18 @@ describe('createAgentServerApp', () => {
       const first = await firstStart;
 
       expect(first.statusCode).toBe(201);
-      const firstInfo = first.json<{ agent: { llm_profile_ref: string }; launched_agent_profile: { profileId: string; model: string }; max_iterations: number; workspace: { working_dir: string } }>();
+      const firstInfo = first.json<{ id: string; agent: { llm_profile_ref: string }; launched_agent_profile: { profileId: string; model: string }; max_iterations: number; workspace: { working_dir: string } }>();
       expect(firstInfo.agent.llm_profile_ref).toBe('gpt-nano');
-      expect(firstInfo.launched_agent_profile).toMatchObject({ profileId: 'gpt-nano', model: 'gpt-5-nano-before' });
+      expect(firstInfo.launched_agent_profile).toBeNull();
+      expect(await savedLlmProfile(conversationsPath, firstInfo.id)).toMatchObject({ profileId: 'gpt-nano', model: 'gpt-5-nano-before' });
       expect(firstInfo.max_iterations).toBe(2);
       expect(firstInfo.workspace.working_dir).toBe(firstWorkspace);
 
       expect(second.statusCode).toBe(201);
-      const secondInfo = second.json<{ agent: { llm_profile_ref: string }; launched_agent_profile: { profileId: string; model: string }; max_iterations: number; workspace: { working_dir: string } }>();
+      const secondInfo = second.json<{ id: string; agent: { llm_profile_ref: string }; launched_agent_profile: { profileId: string; model: string }; max_iterations: number; workspace: { working_dir: string } }>();
       expect(secondInfo.agent.llm_profile_ref).toBe('gpt-mini');
-      expect(secondInfo.launched_agent_profile).toMatchObject({ profileId: 'gpt-mini', model: 'gpt-5-mini-after' });
+      expect(secondInfo.launched_agent_profile).toBeNull();
+      expect(await savedLlmProfile(conversationsPath, secondInfo.id)).toMatchObject({ profileId: 'gpt-mini', model: 'gpt-5-mini-after' });
       expect(secondInfo.max_iterations).toBe(9);
       expect(secondInfo.workspace.working_dir).toBe(secondWorkspace);
     } finally {
@@ -1400,7 +1414,7 @@ describe('createAgentServerApp', () => {
     const secretStore = new InMemorySecretStore();
     const conversationsPath = path.join(root, 'conversations');
     const conversationId = '11111111-1111-4111-8111-111111111111';
-    const { app } = await createAgentServerApp({ config: { conversationsPath }, secretStore });
+    const { app } = await createAgentServerApp({ agentFactory, config: { conversationsPath }, secretStore });
     try {
       const started = await app.inject({
         method: 'POST',
@@ -1446,7 +1460,7 @@ describe('createAgentServerApp', () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-agent-server-'));
     const conversationsPath = path.join(root, 'conversations');
     const conversationId = '22222222-2222-4222-8222-222222222222';
-    const first = await createAgentServerApp({ config: { conversationsPath }, secretStore: new InMemorySecretStore() });
+    const first = await createAgentServerApp({ agentFactory, config: { conversationsPath }, secretStore: new InMemorySecretStore() });
     try {
       const started = await first.app.inject({ method: 'POST', url: '/api/conversations', payload: { id: conversationId } });
       expect(started.statusCode).toBe(201);
@@ -1454,7 +1468,7 @@ describe('createAgentServerApp', () => {
       expect(lease.owner_instance_id).toEqual(expect.any(String));
       expect(lease.generation).toBe(1);
 
-      const second = await createAgentServerApp({ config: { conversationsPath }, secretStore: new InMemorySecretStore() });
+      const second = await createAgentServerApp({ agentFactory, config: { conversationsPath }, secretStore: new InMemorySecretStore() });
       try {
         const duplicate = await second.app.inject({ method: 'POST', url: '/api/conversations', payload: { id: conversationId } });
         expect(duplicate.statusCode).toBe(409);

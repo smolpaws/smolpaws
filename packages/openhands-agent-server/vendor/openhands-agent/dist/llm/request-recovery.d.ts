@@ -11,7 +11,7 @@ export interface LLMRequestOptions {
     readonly apiKeyRefreshHook?: ApiKeyRefreshHook;
     readonly retry?: LLMRetryOptions;
 }
-/** Only wrap transport + HTTP rejection, never response parsing or emitted SSE. */
+/** Retry transport/HTTP failures and owned deadlines, never parsing or terminal SSE failures. */
 export declare function requestWithRecovery<T>(apiKey: string, options: LLMRequestOptions, request: (key: string, refreshed: boolean) => Promise<T>, allowAuthRefresh?: boolean): Promise<T>;
 /** Replace a rejected credential without mutating caller-owned header defaults. */
 export declare function replaceCredentialHeader(headers: Readonly<Record<string, string>>, name: string, value: string): Readonly<Record<string, string>>;

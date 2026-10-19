@@ -1,3 +1,5 @@
+import { type ConversationObservabilityOptions } from '../observability/index.js';
+import type { WorkspaceCompletionRegistration } from '../workspace/completion-callback.js';
 import { type Message } from '../llm/index.js';
 import { type AgentSettings } from '../settings/index.js';
 import type { HookConfig, HookConfigInput } from '../hooks/index.js';
@@ -15,14 +17,17 @@ export interface RemoteFetchLike {
         readonly body?: string;
     }): Promise<RemoteFetchResponseLike>;
 }
-export interface RemoteConversationOptions {
+export interface RemoteConversationOptions extends ConversationObservabilityOptions {
+    readonly workspace?: WorkspaceCompletionRegistration | undefined;
     readonly host: string;
     readonly conversationId: string;
     readonly fetch?: RemoteFetchLike;
     readonly apiKey?: string | null;
     readonly state?: ConversationState;
+    readonly toolModuleQualnames?: Readonly<Record<string, string>>;
 }
 export interface RemoteConversationCreateRequest {
+    readonly observabilityParentSpanContext?: string | null;
     readonly workspace: {
         readonly kind: 'LocalWorkspace';
         readonly working_dir: string;
@@ -40,9 +45,9 @@ export interface RemoteConversationCreateRequest {
         readonly system_message_suffix_append?: string | null;
     } | null;
     readonly userId?: string | null;
-    readonly observabilityMetadata?: Readonly<Record<string, unknown>>;
-    readonly observabilityTags?: readonly string[];
-    readonly observabilitySpanName?: string;
+    readonly observabilityMetadata?: Readonly<Record<string, unknown>> | null;
+    readonly observabilityTags?: readonly string[] | null;
+    readonly observabilitySpanName?: string | null;
     readonly autotitle?: boolean;
     readonly titleLlmProfile?: string | null;
     readonly title?: string | null;
@@ -54,6 +59,8 @@ export interface RemoteConversationCreateRequest {
     readonly tags?: Readonly<Record<string, string>> | null;
 }
 export interface RemoteConversationCreateOptions {
+    readonly observability?: ConversationObservabilityOptions['observability'];
+    readonly workspace?: WorkspaceCompletionRegistration | undefined;
     /** SmolPaws accepts TS AgentSettings as `agent`; Python accepts a saved Agent Profile UUID. */
     readonly server?: 'smolpaws' | 'python';
     readonly host: string;
@@ -62,7 +69,8 @@ export interface RemoteConversationCreateOptions {
     readonly apiKey?: string | null;
     readonly state?: ConversationState;
 }
-export interface RemoteConversationAttachOptions {
+export interface RemoteConversationAttachOptions extends ConversationObservabilityOptions {
+    readonly workspace?: WorkspaceCompletionRegistration | undefined;
     readonly host: string;
     readonly conversationId: string;
     readonly fetch?: RemoteFetchLike;
@@ -75,15 +83,24 @@ export interface RemoteRunOptions {
     readonly timeoutMs?: number;
 }
 export declare class RemoteConversation {
+    private readonly rootSpan;
+    private readonly workspace;
+    private closed;
     readonly host: string;
     readonly id: string;
     readonly state: ConversationState;
+    /** Remote Python module metadata is data; native event decoding never imports it. */
+    readonly toolModuleQualnames: Readonly<Record<string, string>>;
+    private syncTail;
     private readonly fetcher;
     private readonly apiKey;
     constructor(options: RemoteConversationOptions);
     static create(options: RemoteConversationCreateOptions): Promise<RemoteConversation>;
     static attach(options: RemoteConversationAttachOptions): Promise<RemoteConversation>;
     private static fromInfo;
+    close(): void;
+    /** Explicit initial/reconciliation sync for direct synchronous proxy construction. */
+    syncEvents(): Promise<void>;
     sendMessage(message: string | Message, sender?: string): Promise<void>;
     run(options?: RemoteRunOptions): Promise<void>;
     condense(): Promise<void>;

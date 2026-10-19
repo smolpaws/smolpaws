@@ -16,7 +16,7 @@ async function provider() {
     completionStatus: 401, redirectRefresh: false, redirectHits: 0, finish: false,
     requests: [] as string[], refreshHeaders: [] as string[],
     refreshStarted: Promise.withResolvers<void>(), releaseRefresh: Promise.withResolvers<void>(),
-    blockRefresh: false,
+    blockRefresh: false, budgetDenied: false,
   };
   const server = createServer((request, response) => { void handle(request, response); });
   const reply = (response: ServerResponse, status: number, body: unknown) => {
@@ -39,6 +39,7 @@ async function provider() {
     if (key !== 'Bearer fixture-fresh-key' || control.rejectFresh) {
       reply(response, control.completionStatus, { error: { message: 'fixture-private-provider-detail' } }); return;
     }
+    if (control.budgetDenied) { reply(response, 429, { error: { message: 'budget_exceeded' } }); return; }
     reply(response, 200, { id: 'resumed', model: 'gpt-4o', choices: [{ message: { role: 'assistant', content: control.finish ? null : 'resumed',
       ...(control.finish ? { tool_calls: [{ id: 'finish-call', type: 'function', function: { name: 'finish', arguments: '{"message":"done"}' } }] } : {}),
     } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
@@ -139,3 +140,22 @@ it('default server factory recovers preflight and main calls across restart with
     }
   } finally { await server.app.close(); await fixture.close(); await rm(root, { recursive: true, force: true }); }
 }, 15_000);
+
+// PORT 2b9502ce: auth refresh does not turn a subsequent quota failure into retries.
+it('stops at refreshed-key budget denial and recovers on a later invocation', async () => {
+  const fixture = await provider();
+  const client = await createClientFromProfile(fixture.profile, fixture.store, {
+    apiKeyRefreshHook: createManagedLlmKeyRefreshHook(fixture.profile, { env: fixture.env })!, retry: { maxAttempts: 3 },
+  });
+  try {
+    fixture.control.budgetDenied = true;
+    await expect(client.complete([])).rejects.toMatchObject({ name: 'LLMBudgetExceededError' });
+    expect(fixture.control.requests).toEqual(['Bearer fixture-stale-key', 'Bearer fixture-fresh-key']);
+    expect(fixture.control.refreshHeaders).toEqual(['fixture-session']);
+    fixture.control.budgetDenied = false;
+    expect((await client.complete([])).message.content).toMatchObject([{ text: 'resumed' }]);
+    expect(fixture.control.requests).toEqual(['Bearer fixture-stale-key', 'Bearer fixture-fresh-key', 'Bearer fixture-stale-key', 'Bearer fixture-fresh-key']);
+    expect(fixture.control.refreshHeaders).toEqual(['fixture-session', 'fixture-session']);
+    expect(await fixture.store.get(llmProviderSecretRef('openai'))).toBe('fixture-stale-key');
+  } finally { await fixture.close(); }
+});

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 export * from './defaults.js';
+export * from './module-qualnames.js';
 export type JsonObject = Record<string, unknown>;
 export type ToolExecutor<TAction = unknown, TObservation = unknown> = (action: TAction, context?: unknown) => TObservation | Promise<TObservation>;
 export type ToolFactory = (params: Readonly<Record<string, unknown>>, context?: unknown) => readonly ToolDefinition[];
@@ -25,6 +26,8 @@ export interface ToolDefinitionOptions<TInputSchema extends z.ZodType = z.ZodTyp
     readonly annotations?: ToolAnnotations;
     readonly meta?: JsonObject;
     readonly usable?: boolean;
+    /** Runtime prompt text; excluded from tool wire schemas and JSON persistence. */
+    readonly promptGuidance?: string | null;
 }
 export interface McpTool {
     readonly name: string;
@@ -50,32 +53,74 @@ export declare class ToolDefinition<TInputSchema extends z.ZodType = z.ZodType, 
     readonly annotations: ToolAnnotations | undefined;
     readonly meta: JsonObject | undefined;
     readonly usable: boolean;
+    readonly promptGuidance: string | null;
     constructor(options: ToolDefinitionOptions<TInputSchema, TOutputSchema>);
     execute(input: unknown, context?: unknown): Promise<z.infer<TOutputSchema>>;
     toMcpTool(inputSchema?: JsonObject, outputSchema?: JsonObject): McpTool;
     toResponsesTool(): ResponsesTool;
 }
+export interface ToolCatalogMetadata {
+    readonly userSelectable?: boolean;
+    readonly catalogDescription?: string;
+    readonly isUsable?: () => boolean;
+    /** Trusted protocol provenance for this exact implementation; never imported. */
+    readonly moduleQualname?: string;
+    /** Marks a registration of the actual builtin, rather than a host override. */
+    readonly builtinName?: string;
+}
+export interface BuiltinToolMetadata extends ToolCatalogMetadata {
+    readonly canonicalName?: string;
+    readonly acceptsParams?: boolean;
+}
+export interface ToolCatalogEntry {
+    readonly name: string;
+    readonly user_selectable: boolean;
+    readonly usable: boolean;
+    readonly description: string;
+    readonly in_default_set: boolean;
+}
 export declare class ToolRegistry {
     private readonly registrations;
-    register(name: string, tool: ToolDefinition): void;
-    registerFactory(name: string, factory: ToolFactory): void;
+    private sealedRegistrations;
+    private sealedBuiltins;
+    register(name: string, tool: ToolDefinition, metadata?: ToolCatalogMetadata): void;
+    registerFactory(name: string, factory: ToolFactory, metadata?: ToolCatalogMetadata): void;
+    effectiveBuiltinName(name: string): string | null;
+    canonicalToolName(name: string): string;
     resolve(spec: ToolSpec, context?: unknown): readonly ToolDefinition[];
     listRegisteredTools(): readonly string[];
+    /**
+     * Snapshot live resolver provenance, independent of the sealed UI catalog.
+     * Pass finalized selected names (excluding client tools) for server persistence.
+     * A host override without metadata deliberately hides builtin provenance.
+     */
+    getToolModuleQualnames(names?: readonly string[]): Readonly<Record<string, string>>;
     listUsableTools(): readonly string[];
+    isToolAvailable(name: string, options?: {
+        readonly checkUsable?: boolean;
+    }): boolean;
+    sealToolCatalog(): void;
+    unsealToolCatalog(): void;
+    getToolCatalog(options?: {
+        readonly checkUsable?: boolean;
+    }): ToolCatalogEntry[];
 }
 export declare const globalToolRegistry: ToolRegistry;
-export declare function registerTool(name: string, tool: ToolDefinition): void;
-export declare function registerToolFactory(name: string, factory: ToolFactory): void;
+export declare function registerTool(name: string, tool: ToolDefinition, metadata?: ToolCatalogMetadata): void;
+export declare function registerToolFactory(name: string, factory: ToolFactory, metadata?: ToolCatalogMetadata): void;
 export declare function resolveTool(spec: ToolSpec, context?: unknown): readonly ToolDefinition[];
 export declare function listRegisteredTools(): readonly string[];
+export declare function getToolModuleQualnames(names?: readonly string[]): Readonly<Record<string, string>>;
 export declare function listUsableTools(): readonly string[];
-/**
- * Built-in tools the global registry can resolve by name even when they were
- * never explicitly registered. Upstream ``resolve_tool`` falls back to
- * ``BUILT_IN_TOOL_CLASSES`` so a structured builtin spec (e.g. ``finish`` with
- * a ``response_schema``) resolves remotely without a prior ``register_tool``
- * call. The classes live in ``tool/builtins.ts``; this module imports them
- * lazily so the registry stays independent of the concrete tool surface.
- */
+/** Resolver fallbacks do not construct tools while cataloging availability. */
 type BuiltInResolver = (params: Readonly<Record<string, unknown>>, context?: unknown) => readonly ToolDefinition[];
-export declare function registerBuiltinResolver(name: string, resolver: BuiltInResolver): void;
+export declare function registerBuiltinResolver(name: string, resolver: BuiltInResolver, metadata?: BuiltinToolMetadata): void;
+export declare function getToolCatalog(options?: {
+    readonly checkUsable?: boolean;
+}): ToolCatalogEntry[];
+export declare function isToolAvailable(name: string, options?: {
+    readonly checkUsable?: boolean;
+}): boolean;
+export declare function sealToolCatalog(): void;
+export declare function unsealToolCatalog(): void;
+export declare function assertSupportedResponseSchema(params: Readonly<Record<string, unknown>>): void;

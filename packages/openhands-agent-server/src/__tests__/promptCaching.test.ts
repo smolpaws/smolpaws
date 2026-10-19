@@ -20,7 +20,7 @@ interface ChatRequest {
 
 interface ConversationInfo {
   readonly execution_status: string;
-  readonly launched_agent_profile: { readonly anthropicCacheTtl?: '5m' | '1h' };
+  readonly launched_agent_profile: { readonly agent_profile_id: string; readonly revision: number } | null;
   readonly metrics: { readonly accumulated_token_usage: {
     readonly prompt_tokens: number;
     readonly cache_read_tokens: number;
@@ -79,7 +79,7 @@ test.each([undefined, '1h'] as const)('profile-created Anthropic proxy agents re
     const id = started.json<{ id: string }>().id;
     const first = await run(server, id, 'Finish the first turn.');
     expect(first.metrics.accumulated_token_usage).toMatchObject({ prompt_tokens: 4120, cache_read_tokens: 0, cache_write_tokens: 4096 });
-    expectCacheTtl(first.launched_agent_profile, ttl);
+    expect(first.launched_agent_profile).toBeNull();
     const metadataPath = path.join(root, 'conversations', id, 'meta.json');
     expectCacheTtl(JSON.parse(await readFile(metadataPath, 'utf8')).request.llm_profile_snapshot, ttl);
     // A same-name catalog edit is for future bindings. It must not silently
@@ -92,13 +92,15 @@ test.each([undefined, '1h'] as const)('profile-created Anthropic proxy agents re
     expect((await readInfo(server, id)).metrics).toEqual(first.metrics);
     const second = await run(server, id, 'Finish the next turn.');
     expect(second.metrics.accumulated_token_usage).toMatchObject({ prompt_tokens: 8260, cache_read_tokens: 4096, cache_write_tokens: 4096 });
-    expectCacheTtl(second.launched_agent_profile, ttl);
+    expect(second.launched_agent_profile).toBeNull();
     expectCacheTtl(JSON.parse(await readFile(metadataPath, 'utf8')).request.llm_profile_snapshot, ttl);
     const newConversation = await server.app.inject({ method: 'POST', url: '/api/conversations',
       payload: { agent: { llm_profile_ref: profile.profileId, tools: ['finish'], condenser: { enabled: false } }, workspace: { working_dir: root } } });
     expect(newConversation.statusCode).toBe(201);
-    const newer = await run(server, newConversation.json<{ id: string }>().id, 'Finish a new conversation.');
-    expect(newer.launched_agent_profile.anthropicCacheTtl).toBe(changedTtl);
+    const newerId = newConversation.json<{ id: string }>().id;
+    const newer = await run(server, newerId, 'Finish a new conversation.');
+    expect(newer.launched_agent_profile).toBeNull();
+    expectCacheTtl(JSON.parse(await readFile(path.join(root, 'conversations', newerId, 'meta.json'), 'utf8')).request.llm_profile_snapshot, changedTtl);
     expect(requests).toHaveLength(3);
     for (const [index, request] of requests.entries()) {
       const requestTtl = index < 2 ? ttl ?? '5m' : changedTtl;
@@ -197,7 +199,7 @@ test('non-Anthropic default, catalog and conversation profiles never acquire an 
       expect(started.statusCode).toBe(201);
       const id = started.json<{ id: string }>().id;
       conversations.push(id);
-      expect((await readInfo(server, id)).launched_agent_profile).not.toHaveProperty('anthropicCacheTtl');
+      expect((await readInfo(server, id)).launched_agent_profile).toBeNull();
       const metadata = JSON.parse(await readFile(path.join(root, 'conversations', id, 'meta.json'), 'utf8'));
       expect(metadata.request.llm_profile_snapshot).not.toHaveProperty('anthropicCacheTtl');
     }
@@ -206,7 +208,11 @@ test('non-Anthropic default, catalog and conversation profiles never acquire an 
     const catalog = (await server.app.inject('/api/profiles')).json<{ profiles: object[] }>();
     expect(catalog.profiles).toHaveLength(profiles.length + 1);
     for (const profile of catalog.profiles) expect(profile).not.toHaveProperty('anthropicCacheTtl');
-    for (const id of conversations) expect((await readInfo(server, id)).launched_agent_profile).not.toHaveProperty('anthropicCacheTtl');
+    for (const id of conversations) {
+      expect((await readInfo(server, id)).launched_agent_profile).toBeNull();
+      const metadata = JSON.parse(await readFile(path.join(root, 'conversations', id, 'meta.json'), 'utf8'));
+      expect(metadata.request.llm_profile_snapshot).not.toHaveProperty('anthropicCacheTtl');
+    }
     const state = JSON.parse(await readFile(path.join(root, 'state', 'state.json'), 'utf8'));
     for (const profile of Object.values(state.llmProfiles)) expect(profile).not.toHaveProperty('anthropicCacheTtl');
     expect(provider).not.toHaveBeenCalled();

@@ -28,6 +28,11 @@ export declare class LLMRateLimitError extends LLMHttpError {
 export declare class LLMBudgetExceededError extends LLMRateLimitError {
     constructor();
 }
+/** A deadline owned by a native completion attempt, not a provider's opaque error. */
+export declare class LLMTimeoutError extends Error {
+    readonly kind: 'hard' | 'idle';
+    constructor(kind: 'hard' | 'idle');
+}
 export declare class LLMConnectionError extends Error {
     constructor();
 }

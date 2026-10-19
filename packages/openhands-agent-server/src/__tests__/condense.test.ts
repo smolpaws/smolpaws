@@ -151,7 +151,8 @@ test.each(['omitted', 'null'] as const)('restored %s agent inherits current rese
       workspaceRoot: root, bashEventsPath: path.join(root, 'bash') },
     secretStore: new InMemorySecretStore(), llmClientFactory: createClient, configureContext,
   };
-  const first = await createAgentServerApp(options); servers.push(first);
+  // Seed an uninitialized legacy conversation; the restored server uses normal eager-create policy.
+  const first = await createAgentServerApp({ ...options, initializeOnCreate: false }); servers.push(first);
   await first.serverStateService.saveProfile(profile);
   const created = await first.app.inject({ method: 'POST', url: '/api/conversations', payload: {
     agent: { llm_profile_ref: profile.profileId, condenser: { enabled: false } },
@@ -163,6 +164,8 @@ test.each(['omitted', 'null'] as const)('restored %s agent inherits current rese
   const metadata = JSON.parse(await readFile(metadataPath, 'utf8'));
   if (missing === 'omitted') delete metadata.request.agent;
   else metadata.request.agent = null;
+  delete metadata.request.resolved_launch;
+  delete metadata.request.launch_source;
   await writeFile(metadataPath, JSON.stringify(metadata));
   const restored = await createAgentServerApp(options); servers.push(restored);
   // Read defaults when maintenance is requested, not once when the app starts.

@@ -1,3 +1,4 @@
+import { type ToolSpec } from './index.js';
 /**
  * Canonical default tool names for the standard OpenHands agent.
  *
@@ -19,3 +20,19 @@ export interface DefaultToolSpecOptions {
     readonly enableBrowser?: boolean;
 }
 export declare function defaultToolSpecs(options?: DefaultToolSpecOptions): string[];
+export declare const SWITCH_LLM_TOOL_NAME = "switch_llm";
+export declare function resolveToolSpecs(tools: readonly ToolSpec[] | null | undefined, options?: {
+    readonly enableBrowser?: boolean;
+}): ToolSpec[];
+export declare function launchToolSpecs(tools: readonly ToolSpec[] | null | undefined, options: {
+    readonly browserAvailable: boolean;
+}): ToolSpec[];
+export declare function canonicalToolName(name: string): string;
+export declare function mergeDuplicateTools(tools: readonly ToolSpec[]): ToolSpec[];
+export declare function rejectBuiltinParams(tools: readonly ToolSpec[]): void;
+export declare function normalizeToolSpecs(tools: readonly unknown[]): ToolSpec[];
+export declare function foldRetiredToolSwitches(payload: Readonly<Record<string, unknown>>, options?: {
+    readonly sparse?: boolean;
+    readonly enableBrowser?: boolean;
+}): Record<string, unknown>;
+export declare function foldDeprecatedToolSwitches(data: unknown): unknown;

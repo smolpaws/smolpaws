@@ -135,20 +135,19 @@ test.each(['route_task_to_model', 'ClassifyAndSwitchLLMTool'])('explicit %s para
   expect(f.calls.map(call => call.name)).toEqual(['main', 'classifier', 'other']);
 });
 
-test('explicit null selection and inline config override the named settings default', async () => {
+test('enabled settings override explicit router params including null selection and inline config', async () => {
   const f = await fixture({ agent: { tools: [{ name: 'route_task_to_model', params: {
     active_meta_profile: null, meta_profile: { ...meta, classes: [{ description: 'inline', model: 'other' }] },
   } }, 'finish'] } });
   await send(f.server, f.id); await settle(f.server, f.id);
-  expect(f.calls.map(call => call.name)).toEqual(['main', 'classifier', 'other']);
+  expect(f.calls.map(call => call.name)).toEqual(['main', 'classifier', 'target']);
 });
 
 test.each([
   [{ name: 'route_task_to_model', params: { api_key: 'must-never-persist' } }],
   [{ name: 'route_task_to_model', params: { meta_profile_llms: { bad: { ...profile('bad'), api_key: 'must-never-persist' } } } }],
   ['route_task_to_model', { name: 'ClassifyAndSwitchLLMTool', params: { api_key: 'must-never-persist' } }],
-  [{ name: 'route_task_to_model', params: { active_meta_profile: 'a' } }, { name: 'ClassifyAndSwitchLLMTool', params: { active_meta_profile: 'b' } }],
-].map(tools => ({ tools })))('unsafe or conflicting routing specs are rejected before conversation persistence ($tools)', async ({ tools }) => {
+].map(tools => ({ tools })))('unsafe routing specs are rejected before conversation persistence ($tools)', async ({ tools }) => {
   const f = await fixture();
   const directory = path.join(f.root, 'conversations');
   const before = await readdir(directory);
@@ -199,12 +198,12 @@ test('inline profiles bind map names to safe snapshots and survive finish, resto
   expect(f.calls.slice(-2).map(call => call.context?.sessionId)).toEqual([f.id, forkId]);
 });
 
-test('missing active meta profile fails at invocation without selecting an unrelated saved meta profile', async () => {
-  const f = await fixture({ agent: { active_meta_profile: 'missing', meta_profile: null } });
+test('removing the active meta profile after preparation retains its captured inline fallback', async () => {
+  const f = await fixture({ agent: { meta_profile: null } });
+  await f.store.delete('routing');
   await send(f.server, f.id); await settle(f.server, f.id);
-  expect(f.calls.map(call => call.name)).toEqual(['main', 'main']);
-  expect(f.built.map(item => item.profileId)).toEqual(['main']);
-  expect((await f.metadata()).request.agent.llm_profile_ref).toBe('main');
+  expect(f.calls.map(call => call.name)).toEqual(['main', 'classifier', 'target']);
+  expect((await f.metadata()).request.agent.llm_profile_ref).toBe('target');
 });
 
 test('disabled routing never attaches the tool or resolves its missing classifier', async () => {
@@ -215,12 +214,20 @@ test('disabled routing never attaches the tool or resolves its missing classifie
   expect(f.built.map(item => item.profileId)).toEqual(['main']);
 });
 
-test.each(['invalid reply', 'missing target'])('%s keeps the active profile while recording the paid classification', async failure => {
-  const f = await fixture(failure === 'invalid reply' ? { classifierReply: 'no applicable category' } : { saved: ['main', 'classifier'] });
+test('invalid reply keeps the active profile while recording the paid classification', async () => {
+  const f = await fixture({ classifierReply: 'no applicable category' });
   await send(f.server, f.id); await settle(f.server, f.id);
   expect(f.calls.map(call => call.name)).toEqual(['main', 'classifier', 'main']);
   expect((await f.metadata()).request.agent.llm_profile_ref).toBe('main');
   expect((await f.server.conversationService.getEventService(f.id))!.state.stats.usage_to_metrics['classifier:classifier']?.records).toHaveLength(1);
+});
+
+test('removing a routed LLM after preparation preserves the resolved secret-reference snapshot', async () => {
+  const f = await fixture();
+  await f.server.serverStateService.deleteProfile('target');
+  await send(f.server, f.id); await settle(f.server, f.id);
+  expect(f.calls.map(call => call.name)).toEqual(['main', 'classifier', 'target']);
+  expect((await f.metadata()).request.llm_profile_snapshot).toMatchObject({ profileId: 'target', model: 'model-target' });
 });
 
 test('inline names select their own SecretStore overrides through the real shared client factory', async () => {

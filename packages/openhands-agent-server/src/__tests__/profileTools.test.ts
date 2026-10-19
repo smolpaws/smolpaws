@@ -27,8 +27,8 @@ describe('resolveProfileTool', () => {
     }
   });
 
-  test('resolves the upstream default tools', () => {
-    for (const name of ['terminal', 'file_editor', 'glob', 'grep', 'finish', 'think']) {
+  test('resolves the supported native tools', () => {
+    for (const name of ['terminal', 'file_editor', 'task_tracker', 'switch_llm', 'glob', 'grep', 'finish', 'think']) {
       const [tool] = resolveProfileTool(name, WORKING_DIR);
       expect(tool?.name).toBe(name);
     }
@@ -53,6 +53,6 @@ describe('resolveProfileTool', () => {
   });
 
   test('throws for an unknown tool', () => {
-    expect(() => resolveProfileTool('nope', WORKING_DIR)).toThrow(/unsupported_profile_tool:nope/);
+    expect(() => resolveProfileTool('nope', WORKING_DIR)).toThrow(/Unknown tool: nope/);
   });
 });

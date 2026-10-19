@@ -1,0 +1,379 @@
+{
+  "schemaVersion": 1,
+  "repository": "OpenHands/software-agent-sdk",
+  "from": "dcf401af7a9a302ef92cb7d092e1df9bb659daa5",
+  "to": "229b2b920d4541eab7a34b051a1f6f2bca5ebabf",
+  "inventorySha256": "b8148ec00eb08a1909b465dcd3f3c4e02f4cbbc78a425b91ba2e514a48d45fe3",
+  "items": {
+    "2b9502cee3b74e879bb23fa13d0c689c5d73931b:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Extend the native real-HTTP managed-key regression: a 401 refresh followed by budget-denied429 must be terminal for that call, then the same client can refresh and resume on a later call.",
+      "tracking": [],
+      "evidence": [
+        "src/managedLlmKey.ts",
+        "src/__tests__/managedLlmKeyHttp.test.ts"
+      ]
+    },
+    "51149e76a886cb63dc9f9d527413d175466354b4:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "ConversationInfo gains tool_module_qualnames and creation persists modules for server-resolved tools without replacing caller entries. This response/persistence metadata is new behavior even though TypeScript does not import Python modules.",
+      "tracking": [],
+      "evidence": [
+        "src/toolModuleProvenance.ts",
+        "src/profileAgentFactory.ts",
+        "src/conversationService.ts",
+        "src/__tests__/factoryCatalog.test.ts",
+        "src/__tests__/launchProfiles.test.ts"
+      ]
+    },
+    "2a4ef6379cf172a2782ae4d38e87fa997f683ccb:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Authenticated Canvas backend ingress depends on the already deferred install/backend subsystem. Explicitly extend that debt to sessions, HTTP/WS proxying, security checks, revocation and server capability reporting; these routes are outside canonical /api and can evade OpenAPI comparison. Revisit: Implement the tracked subsystem and source regressions before claiming parity.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "bcc14d6667477d2bdef6ea9eb36093ae81c28ace:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Server unit is uv.lock only for Python httpx[socks]. Native server uses fetch/Fastify and has no httpx dependency. The final Python oracle environment must use the new lock.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "e1e8950ceb53074927a9f0aeadef688e1b7d3ce6:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Python binaryornot update adds package resource CSV files to PyInstaller frozen binary collection. Native npm/tsup server neither freezes Python nor imports binaryornot.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "e5191f9076268bb6fc8ff599b95f26851b07a7f0:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Introduce shared bounded admission for conversation creation initialization and all existing native runs. Refuse excess requests with429 before destructive initialization; reserve one logical run-chain permit and release on true completion/failure/cancellation.",
+      "tracking": [],
+      "evidence": [
+        "src/runAdmission.ts",
+        "src/conversationService.ts",
+        "src/eventService.ts",
+        "src/config.ts",
+        "src/__tests__/runAdmission.test.ts",
+        "src/__tests__/runAdmissionIntegration.test.ts",
+        "src/__tests__/runAdmissionCancellation.test.ts",
+        "src/__tests__/managedStartAdmission.test.ts"
+      ]
+    },
+    "01682f8c7d3c7c4eea22ebb43b6d1a72a855d072:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Server-scoped change is only uv.lock for google-cloud-aiplatform. Native server does not import Python Vertex AI client machinery.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "5ffdd2933c51423e302f5ee5e5b66df0ad9cc28a:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "After idle Docker eviction, refresh the persistent conversation catalog so queries see the final status rather than the former RUNNING state. Native lease handling is not Docker eviction. Revisit: Implement the tracked subsystem and source regressions before claiming parity.",
+      "tracking": [
+        "smolpaws-09ou"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "230115adcf4b06ccab20a932bf632cd79dd13bef:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Python PyJWT>=2.14.0 security constraint and lock update do not apply to native dependencies. No JWT validation or token format changes occur in the scoped source.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "d0f9500590c12f3aa4c64c3e1b541a568e48232e:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "The deferred-init hook itself is a permanent DEV-SERVER-005 difference, but this unit also changes standalone VSCode process-group shutdown/port release. Keep the latter in existing VSCode runtime debt instead of excluding the entire commit. Revisit: Implement the tracked subsystem and source regressions before claiming parity.",
+      "tracking": [
+        "smolpaws-09ou"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "3c8be74ae1dbc4e8ddff060f0b4ab6195e1fd054:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Add the global repository discovery endpoint using native SecretStore-backed GitHub token resolution, safe provider errors and cursor pagination. Keep it out of conversation runtime routes as upstream does.",
+      "tracking": [],
+      "evidence": [
+        "src/gitProviderService.ts",
+        "src/gitCasefold.ts",
+        "scripts/generate-git-casefold.py",
+        "src/gitRouter.ts",
+        "src/serverState.ts",
+        "src/__tests__/gitProviderSearch.test.ts"
+      ]
+    },
+    "1e1390acc8788346ba4804c34323284009bf3f5e:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Python workspace release version1.50.1 and lock only. Native package versions are independent; final source-bound fixtures regenerate at target pin.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "7c4d3ad201c9808179035b0489e5351bc8fb5fe3:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Ported OpenRouter discovery with routable openrouter/-prefixed model IDs, excluding direct-provider namespace collisions. The verified catalog endpoint retains its existing native stripped-ID contract; the discoverable model list follows the new source regression.",
+      "tracking": [],
+      "evidence": [
+        "src/llmRouter.ts",
+        "src/__tests__/serverApiReview.test.ts"
+      ]
+    },
+    "0a9abc87641ad7ffe02e2dadf5e2cb3976b35217:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Preserve ACP metadata compatibility without restoring unsupported ACP execution: OpenHands profile activation applies its profile reference, while ACP settings receive no injected LLM and report llm_api_key_set=false. Current native settings() computes the flag solely from active profile, so it needs a bounded regression.",
+      "tracking": [],
+      "evidence": [
+        "src/serverState.ts",
+        "src/__tests__/launchProfiles.test.ts"
+      ]
+    },
+    "af016a03a1ae36f522bae999f6a857913541c091:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Existing /switch_llm and provider-connection subsystem debt now includes resolving referenced credentials/base URL before replacing a working model. Missing/dangling connection must fail422 before mutation; native profile switching is not this compatibility route. Revisit: Implement the tracked subsystem and source regressions before claiming parity.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "cc97bf234ea63b9276a7bd71ef81491f3849a7b2:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Python server pydantic>=2.13.5 floor and lock update. Native validation uses zod; regenerate Python schema with locked target dependencies to capture indirect schema effects.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "41443fc14a8a38cf18ef72edf300627cf75f4549:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Make tools the authoritative selection surface with SDK migrations, add the server tool catalog, and implement safe unsaved-draft materialization that previews the same locally resolved agent as launch. Current native materialize always returns valid for a stored profile and ignores draft input; current factory still unions retired boolean tool switches.",
+      "tracking": [],
+      "evidence": [
+        "src/agentProfilesRouter.ts",
+        "src/toolRouter.ts",
+        "src/profileTools.ts",
+        "src/routerToolSpecs.ts",
+        "src/__tests__/factoryCatalog.test.ts",
+        "src/__tests__/launchProfiles.test.ts"
+      ]
+    },
+    "048c9be7619b96eaf294a7b3a73b86b7075b3c4c:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Pass the new SDK profile persona through native conversation launch and expose capability only once validated. Persona replaces the personality prefix while required system sections remain.",
+      "tracking": [],
+      "evidence": [
+        "src/launch.ts",
+        "src/profileAgentFactory.ts",
+        "src/app.ts",
+        "src/__tests__/factoryCatalog.test.ts"
+      ]
+    },
+    "8034b0dbc3f695f2c7c375e1ad4d352166f1ac75:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Python stress fixture admits its reference conversation plus configured concurrent workload by setting cap n+1. Native tests do not use that fixture; bounded admission regressions in e5191f90/6fcb587 cover behavior.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "9b66ae79c39751fdaf637de8852461467a518b45:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Scoped server unit is the cross-package registry completeness test for delegation tools accepting sub_agent_scope. Full native delegated child lifecycle is already missing; carry new tool/MCP confinement guarantees with that debt, coordinated with the SDK unit. Revisit: Implement the tracked subsystem and source regressions before claiming parity.",
+      "tracking": [
+        "openhands-agent-wlw.8"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "35410b3af87e672b0264ba711755053c9d517bef:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Converge native request/profile/settings launch and materialization on the SDK resolve/finalize boundary while preserving injected factories, secret references, immutable bindings, tool composition and host context. Missing local launch behavior is not justified by existing remote/Docker debt.",
+      "tracking": [],
+      "evidence": [
+        "src/launch.ts",
+        "src/profileAgentFactory.ts",
+        "src/condenserBinding.ts",
+        "src/hardCondenserBinding.ts",
+        "src/profileRuntime.ts",
+        "src/__tests__/launchProfiles.test.ts",
+        "src/__tests__/profileSwitch.test.ts",
+        "src/__tests__/condenserProfileWorkflow.test.ts",
+        "src/__tests__/promptCaching.test.ts",
+        "src/__tests__/remoteSdkContract.test.ts",
+        "src/__tests__/managedStartAdmission.test.ts"
+      ]
+    },
+    "a955aa5d3188d4b0a44ad7eb4e5c4bba6e6238d9:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Python workspace release1.51.0 and lock only. Native version independent.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "8ac973c9ac7e71b4589e480f5f62fea723530334:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Serialize create/reuse and fork by destination conversation ID; recheck existence inside the lock after asynchronous preparation and before persistence mutation. Current native map existence check happens before asynchronous claimLease and does not establish same-instance serialization.",
+      "tracking": [],
+      "evidence": [
+        "src/conversationService.ts",
+        "src/__tests__/conversationLifecycle.test.ts",
+        "src/__tests__/initializationOwnership.test.ts",
+        "src/__tests__/managedStartAdmission.test.ts"
+      ]
+    },
+    "1b2b5c850b6a99d8b742bfe20d198d6167165ca2:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Validate and merge automation observability headers at conversation creation, persist their safe metadata and propagate parent span context into native SDK conversation construction. Existing no-op tracing when unconfigured is compatible; silently ignoring configured context is not.",
+      "tracking": [],
+      "evidence": [
+        "src/models.ts",
+        "src/conversationObservability.ts",
+        "src/conversationRouter.ts",
+        "src/eventService.ts",
+        "src/__tests__/observabilityModels.test.ts",
+        "src/__tests__/conversationObservability.test.ts",
+        "src/__tests__/serverApiReview.test.ts"
+      ]
+    },
+    "30e90260c914fe732471b33477deca060968293e:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Scoped server change cleans legacy and per-conversation tmux sockets at Python startup. Native terminal intentionally uses owned Node subprocesses rather than tmux under SDK DEV-SDK-006 and the server has no tmux lifecycle to clean.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "6fcb587bcf4adc2b2a6358155feef4784fa2b2af:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Refine admission so a terminal native run releases capacity before publication/drain tail finishes, while already accepted input queued during finalization waits for capacity rather than being stranded by429.",
+      "tracking": [],
+      "evidence": [
+        "src/eventService.ts",
+        "src/__tests__/runAdmissionIntegration.test.ts",
+        "src/__tests__/runAdmissionCancellation.test.ts"
+      ]
+    },
+    "072e28b03d70d9cfc262e03bb334dd2be6a35c7d:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Server-scoped unit is Python frontmatter dependency lock only; native server does not import python-frontmatter.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "b347047e2dcdd8f4b2be810aa8bc6632bc756d41:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Python uvicorn>=0.54.0 floor/lock update. Native server uses Fastify/Node, not uvicorn.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "8b41a86de3926db510ad87abe14317b9a0d1040f:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Python optional posthog extra advances to >=7.60.0,<8 with lock update. Native server has no Python posthog dependency; this is not an observability feature exclusion.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "b66c724361571aa5c982883173c71b04739b247d:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Add stop-by-command-ID for the existing native Bash service. Preserve concurrently running commands, process-group descendant cleanup, idempotence and a stop racing pending spawn. Its conversation-runtime mirror extends existing runtime-route debt unless that entire scoped service is implemented.",
+      "tracking": [],
+      "evidence": [
+        "src/bashService.ts",
+        "src/bashRouter.ts",
+        "src/__tests__/bashStop.test.ts",
+        "src/__tests__/bashDescendantStop.test.ts",
+        "src/__tests__/bashStopHttp.test.ts",
+        "transpile/openapi-policy.json"
+      ]
+    },
+    "7999acfadc0a163186f5a8025ffda0de8e351c34:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "The server-scoped part of this dependency commit changes only a comment explaining Python stress fixture n+1 admission capacity; Actions workflow changes are outside server scope. No target behavior.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    },
+    "229b2b920d4541eab7a34b051a1f6f2bca5ebabf:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Python workspace release1.52.0 and lock only. This is the final pin/oracle target of the proposed bounded batch.",
+      "tracking": [],
+      "evidence": [
+        "package.json",
+        "transpile/python-openapi.meta.json"
+      ]
+    }
+  }
+}

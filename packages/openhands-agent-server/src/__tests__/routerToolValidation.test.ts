@@ -6,6 +6,7 @@ import { InMemorySecretStore, llmProfileSecretRef } from '@smolpaws/openhands-ag
 import { afterEach, expect, test, vi } from 'vitest';
 
 import { createAgentServerApp, type AgentServerApp } from '../app.js';
+import { prepareProfileStartRequest } from '../profileAgentFactory.js';
 
 const roots: string[] = [];
 const servers: AgentServerApp[] = [];
@@ -44,14 +45,15 @@ for (const write of writes) {
   });
 }
 
-test('native explicit router params are accepted without resolving profiles, clients or store files', async () => {
+test('router parameter validation and launch preparation do not construct clients or resolve routing stores', async () => {
   const f = await fixture();
   const tools = [{ name: 'route_task_to_model', params: {
     active_meta_profile: 'not-yet-saved',
     meta_profile: { classifier_model: 'classifier', classes: [{ description: 'work', model: 'target' }] },
     meta_profile_llms: { classifier: { profileId: 'classifier', providerId: 'openai', model: 'fixture', useProfileKeyOverride: true } },
   } }];
-  for (const write of writes) {
+  await prepareProfileStartRequest({ agent: { llm_profile_ref: 'default', condenser: { enabled: false }, tools } }, f.server.serverStateService);
+  for (const write of writes.filter(write => write.label !== 'conversation')) {
     const response = await f.server.app.inject({ method: write.method, url: write.url, payload: write.body(tools) });
     expect(response.statusCode, response.body).toBe(write.method === 'PATCH' ? 200 : 201);
   }

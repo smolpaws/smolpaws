@@ -125,10 +125,10 @@ describe('conversation agent_launch_additions', () => {
       });
       expect(started.statusCode).toBe(201);
       const info = started.json<{ id: string; agent: Record<string, unknown> }>();
-      // The resolved agent settings are untouched, and, as upstream, launch additions are a start-request
+      // The canonical resolved agent settings retain their selected tool, and launch additions are a start-request
       // input rather than conversation state: ConversationInfo never carries them.
       expect(info.agent.llm_profile_ref).toBe('gpt-nano');
-      expect(info.agent.tools).toEqual(['finish']);
+      expect(info.agent.tools).toEqual([{ name: 'finish', params: {} }]);
       expect(info.agent).not.toHaveProperty('agent_context');
       expect(info).not.toHaveProperty('agent_launch_additions');
 

@@ -1,6 +1,9 @@
 import { type GitChange, type GitDiff } from '../git/index.js';
 import { AgentContext } from '../context/agent-context.js';
 import { type Skill } from '../skills/index.js';
+import { type ObservabilityRuntime } from '../observability/index.js';
+import { type CompletionCallbackRuntime } from './completion-callback.js';
+export type { CompletionCallbackRuntime, WorkspaceCompletionRegistration } from './completion-callback.js';
 export type TargetType = 'binary' | 'binary-minimal' | 'source' | 'source-minimal' | 'base-image-minimal' | 'base-image' | 'builder';
 export type PlatformType = 'linux/amd64' | 'linux/arm64';
 export type GitProvider = 'github' | 'gitlab' | 'bitbucket';
@@ -32,12 +35,19 @@ export interface BaseWorkspace {
     resume(): Promise<void>;
 }
 export interface LocalWorkspaceOptions {
+    readonly completionCallback?: CompletionCallbackRuntime;
+    readonly observability?: ObservabilityRuntime;
     readonly workingDir?: string;
     readonly working_dir?: string;
 }
 export declare class LocalWorkspace implements BaseWorkspace {
     readonly workingDir: string;
+    private readonly completion;
     constructor(options?: LocalWorkspaceOptions);
+    registerConversation(id: string): void;
+    registerCost(cost: number | null): void;
+    get accumulatedCost(): number | null;
+    close(error?: unknown): Promise<void>;
     executeCommand(command: string, options?: {
         readonly cwd?: string | null;
         readonly timeoutSeconds?: number;
@@ -70,12 +80,18 @@ export interface RemoteSkillLoadOptions {
     readonly baseContext?: AgentContext | null;
 }
 export declare class RemoteWorkspace implements BaseWorkspace {
+    private readonly completion;
+    private readonly observability;
     readonly host: string;
     readonly apiKey: string | null;
     readonly workingDir: string;
     readonly readTimeoutSeconds: number;
     readonly runtimeConversationId: string | null;
     constructor(options: RemoteWorkspaceOptions);
+    registerConversation(id: string): void;
+    registerCost(cost: number | null): void;
+    get accumulatedCost(): number | null;
+    close(error?: unknown): Promise<void>;
     alive(): Promise<boolean>;
     getServerInfo(): Promise<Record<string, unknown>>;
     /**
@@ -99,6 +115,8 @@ export declare class RemoteWorkspace implements BaseWorkspace {
     }): Promise<string>;
     getCommandOutput(commandId?: string | null): Promise<Record<string, unknown> | null>;
     getRuntimeSessionKey(): Promise<string>;
+    /** Stop only this managed command; already-finished and unknown IDs are no-ops. */
+    stopCommand(commandId: string): Promise<void>;
     releaseRuntime(): Promise<void>;
     fileUpload(sourcePath: string | Uint8Array, destinationPath: string): Promise<FileOperationResult>;
     fileDownload(sourcePath: string, destinationPath: string): Promise<FileOperationResult>;

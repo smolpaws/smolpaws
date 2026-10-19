@@ -12,14 +12,14 @@ interface BindingOptions {
 }
 
 /** Capture once before the first completion; catalog/configuration edits cannot rewrite this binding. */
-export async function materializeProfileCondenser(
+export async function captureProfileCondenserBinding(
   settings: CondenserSettings,
   agentLlm: LLMClient,
   context: AgentFactoryContext,
   options: BindingOptions,
-): Promise<Condenser | null> {
+): Promise<CondenserBinding | null> {
   if (!settings.enabled || settings.condenser_kind === 'no_op' || settings.condenser_kind === 'agent_reset') {
-    return materializeCondenser(settings, { resolveClient: () => { throw new Error('Profile-free condenser must not resolve a client'); } });
+    return null;
   }
   let binding: CondenserBinding | undefined = context.stored.request.condenser_binding;
   if (binding === undefined) {
@@ -54,7 +54,12 @@ export async function materializeProfileCondenser(
     binding = context.stored.request.condenser_binding;
     if (binding === undefined) throw new Error('condenser_profile_persistence_failed');
   }
-  const captured = condenserBindingSchema.parse(structuredClone(binding));
+  return condenserBindingSchema.parse(structuredClone(binding));
+}
+
+export async function materializeProfileCondenser(settings: CondenserSettings, agentLlm: LLMClient, context: AgentFactoryContext, options: BindingOptions): Promise<Condenser | null> {
+  const captured = await captureProfileCondenserBinding(settings, agentLlm, context, options);
+  if (captured === null) return materializeCondenser(settings, { resolveClient: () => { throw new Error('Profile-free condenser must not resolve a client'); } });
   return materializeCondenser(captured.settings, {
     agentLlm,
     resolveClient: async reference => {

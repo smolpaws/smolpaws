@@ -15,6 +15,7 @@ export interface AgentOptions {
     readonly condenser?: Condenser | null;
     readonly hardCondenser?: HardCondenser | null;
     readonly systemPrompt?: string | null;
+    readonly persona?: string | null;
     readonly usageId?: string;
 }
 export declare class Agent {
@@ -25,14 +26,23 @@ export declare class Agent {
     readonly condenser: Condenser | null;
     readonly hardCondenser: HardCondenser | null;
     readonly systemPrompt: string | null;
+    readonly persona: string | null;
     readonly usageId: string | undefined;
     constructor(options: AgentOptions);
+    /**
+     * Copy runtime configuration without replacing a custom agent's prototype or
+     * instance members. Subclasses owning ECMAScript private slots must override
+     * this hook to construct their own copy; those slots cannot be reflected.
+     */
+    withOverrides(overrides: Partial<AgentOptions>): this;
     step(state: ConversationState, options?: {
         readonly callContext?: LLMCallContext | null;
     }): Promise<readonly Event[]>;
     private stepWithContext;
     private messagesForState;
     private condenserContext;
+    get staticSystemMessage(): string;
+    get dynamicContext(): string | null;
     private renderSystemPrompt;
     private runTool;
 }

@@ -7,6 +7,7 @@ import type { SecretStore } from '../secrets/index.js';
 import type { ToolDefinition } from '../tool/index.js';
 import { type FetchLike, type LLMClient, type LLMCompletionResponse } from './client.js';
 import { type LLMProfile, type Message } from './index.js';
+import { type PromptCacheMetadata } from './provider-quirks.js';
 export { llmCompletionResponseSchema, llmUsageSchema } from './client.js';
 export type { FetchLike, FetchResponseLike, LLMClient, LLMCompletionResponse, LLMUsage } from './client.js';
 export { llmProfileSchema } from './index.js';
@@ -45,5 +46,5 @@ export declare class OpenAIResponsesClient implements LLMClient {
 }
 export declare function createOpenAIChatClientFromProfile(profile: LLMProfile, store: SecretStore, options?: CreateLlmClientOptions): Promise<OpenAIChatClient>;
 export declare function createOpenAIResponsesClientFromProfile(profile: LLMProfile, store: SecretStore, options?: CreateLlmClientOptions): Promise<OpenAIResponsesClient>;
-export declare function buildChatCompletionsBody(profile: LLMProfile, messages: readonly Message[], tools?: readonly ToolDefinition[], context?: LLMCallContext): Record<string, unknown>;
-export declare function buildOpenAIResponsesBody(profile: LLMProfile, messages: readonly Message[], tools?: readonly ToolDefinition[], context?: LLMCallContext): Record<string, unknown>;
+export declare function buildChatCompletionsBody(profile: LLMProfile, messages: readonly Message[], tools?: readonly ToolDefinition[], context?: LLMCallContext, metadata?: PromptCacheMetadata): Record<string, unknown>;
+export declare function buildOpenAIResponsesBody(profile: LLMProfile, messages: readonly Message[], tools?: readonly ToolDefinition[], context?: LLMCallContext, metadata?: PromptCacheMetadata): Record<string, unknown>;

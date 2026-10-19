@@ -33,6 +33,7 @@ export declare const llmProfileSchema: z.ZodObject<{
     maxInputTokens: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
     maxOutputTokens: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
     timeoutSeconds: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
+    streamIdleTimeoutSeconds: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
     reasoningEffort: z.ZodDefault<z.ZodNullable<z.ZodUnion<readonly [z.ZodLiteral<"low">, z.ZodLiteral<"medium">, z.ZodLiteral<"high">]>>>;
     reasoningSummary: z.ZodDefault<z.ZodNullable<z.ZodUnion<readonly [z.ZodLiteral<"auto">, z.ZodLiteral<"concise">, z.ZodLiteral<"detailed">]>>>;
     verbosity: z.ZodOptional<z.ZodEnum<{

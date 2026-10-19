@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { z } from 'zod';
 
 import type { BashEventService } from './bashService.js';
 import { executeBashRequestSchema } from './models.js';
@@ -46,6 +47,15 @@ export function registerBashRoutes(app: FastifyInstance, service: BashEventServi
       return undefined;
     }
     return event;
+  });
+
+  app.post('/api/bash/bash_commands/:command_id/stop', async (request, reply) => {
+    const { command_id } = z.object({ command_id: z.uuid() }).parse(request.params);
+    if (!await service.stopBashCommand(command_id)) {
+      reply.status(404);
+      return { detail: 'Item not found' };
+    }
+    return { success: true };
   });
 
   app.post('/api/bash/start_bash_command', async (request) => {

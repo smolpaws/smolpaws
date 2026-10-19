@@ -10,6 +10,7 @@ import {
   messageSchema,
   metaProfileSchema,
   LLM_PROFILE_ID_PATTERN,
+  validateAgentSettings,
   type Content,
   type ConversationExecutionStatus,
   type Event,
@@ -79,11 +80,30 @@ export const agentLaunchAdditionsSchema = z
   .strict();
 export type AgentLaunchAdditions = z.infer<typeof agentLaunchAdditionsSchema>;
 
+// JSON numbers have one finite JavaScript category: lexical 1 and 1.0 cannot be
+// distinguished after parsing. Keep numbers separate from booleans and strings.
+const observabilityMetadataValueSchema = z.union([
+  z.string(), z.boolean(), z.number().finite(),
+  z.array(z.string()), z.array(z.boolean()), z.array(z.number().finite()),
+]);
+export const observabilityMetadataSchema = z.record(z.string().min(1), observabilityMetadataValueSchema).nullable().transform(value => value ?? {}).default({});
+export const observabilityTagsSchema = z.array(z.string().min(1)).nullable().transform(value => value ?? []).default([]);
+export const observabilitySpanNameSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9._:/-]+$/).nullable().transform(value => value ?? 'conversation').default('conversation');
+
 const startConversationRequestBaseSchema = z
   .object({
     id: z.string().uuid().optional(),
     conversation_id: z.string().uuid().optional(),
     agent: z.unknown().optional(),
+    agent_settings: z.unknown().optional(),
+    agent_profile_id: z.string().uuid().nullable().optional(),
+    tool_module_qualnames: z.record(z.string(), z.string()).default({}),
+    client_tools: z.array(z.unknown()).default([]),
+    user_id: z.string().nullable().default(null),
+    observability_metadata: observabilityMetadataSchema,
+    observability_tags: observabilityTagsSchema,
+    observability_span_name: observabilitySpanNameSchema,
+    observability_parent_span_context: z.string().nullable().default(null),
     agent_launch_additions: agentLaunchAdditionsSchema.nullable().optional(),
     workspace: workspaceSchema.default({ kind: 'LocalWorkspace', working_dir: 'workspace/project' }),
     initial_message: sendMessageRequestSchema.optional(),
@@ -115,7 +135,31 @@ export const hardCondenserBindingSchema = z.object({
 }).strict().refine(binding => binding.profile.profileId === binding.settings.llm_profile_ref, 'Hard condenser binding profile reference mismatch');
 export type HardCondenserBinding = z.infer<typeof hardCondenserBindingSchema>;
 
+export const launchedAgentProfileSchema = z.object({ agent_profile_id: z.string().uuid(), revision: z.number().int().nonnegative(), secret_refs: z.array(z.string()).nullable() }).strict();
+const launchContextSchema = z.object({
+  skills: z.array(z.record(z.string(), z.unknown())).default([]), disabledSkills: z.array(z.string()).default([]),
+  systemMessageSuffix: z.string().nullable().default(null), userMessageSuffix: z.string().nullable().default(null),
+  currentDatetime: z.string().nullable().default(null),
+  secrets: z.record(z.string(), z.object({ description: z.string().nullable().default(null) }).strict()).nullable().default(null),
+}).strict();
+export const resolvedLaunchSnapshotSchema = z.object({
+  llm_profiles: z.record(z.string(), llmProfileSchema),
+  context: launchContextSchema.nullable(), profile: launchedAgentProfileSchema.nullable(),
+  bindings: z.object({ main: llmProfileSchema.optional(), condenser: llmProfileSchema.optional(), hard_condenser: llmProfileSchema.optional() }).strict().optional(),
+}).strict();
+export type ResolvedLaunchSnapshot = z.infer<typeof resolvedLaunchSnapshotSchema>;
+const stagedLaunchSourceSchema = z.object({ kind: z.literal('missing_condenser_ref') }).strict();
+
 export const publicStartConversationRequestSchema = startConversationRequestBaseSchema.superRefine((request, context) => {
+  const hasAgent = request.agent !== null && request.agent !== undefined;
+  const hasSettings = request.agent_settings !== null && request.agent_settings !== undefined;
+  if (request.agent_profile_id !== null && request.agent_profile_id !== undefined && (hasAgent || hasSettings)) {
+    context.addIssue({ code: 'custom', message: 'agent_profile_id is mutually exclusive with agent and agent_settings', path: ['agent_profile_id'] });
+  }
+  if (!hasAgent && hasSettings) {
+    try { validateAgentSettings(request.agent_settings); }
+    catch { context.addIssue({ code: 'custom', message: 'Invalid agent_settings', path: ['agent_settings'] }); }
+  }
   // Host factories may accept opaque agent settings, but recognized native
   // routing specs still must not persist raw credential fields in metadata.
   const agent = request.agent;
@@ -127,6 +171,8 @@ export const publicStartConversationRequestSchema = startConversationRequestBase
   }
 }).transform(stripServerOwnedStartFields);
 export const startConversationRequestSchema = startConversationRequestBaseSchema.extend({
+  resolved_launch: resolvedLaunchSnapshotSchema.optional(),
+  launch_source: stagedLaunchSourceSchema.optional(),
   llm_profile_snapshot: llmProfileSchema.optional(),
   condenser_binding: condenserBindingSchema.optional(),
   hard_condenser_binding: hardCondenserBindingSchema.optional(),
@@ -139,6 +185,10 @@ export type StartConversationRequest = z.infer<typeof startConversationRequestSc
 
 function stripServerOwnedStartFields(request: z.infer<typeof startConversationRequestBaseSchema>): z.infer<typeof startConversationRequestBaseSchema> {
   const publicRequest = { ...request } as Record<string, unknown>;
+  if (publicRequest.agent !== undefined && publicRequest.agent !== null) delete publicRequest.agent_settings;
+  delete publicRequest.resolved_launch;
+  delete publicRequest.launch_source;
+  delete publicRequest.launched_agent_profile;
   delete publicRequest.llm_profile_snapshot;
   delete publicRequest.condenser_binding;
   delete publicRequest.hard_condenser_binding;
@@ -247,7 +297,8 @@ export const conversationInfoSchema = z
     current_model_id: z.string().nullable().default(null),
     available_models: z.array(z.unknown()).default([]),
     supports_runtime_model_switch: z.boolean().default(false),
-    launched_agent_profile: z.unknown().nullable().default(null),
+    launched_agent_profile: launchedAgentProfileSchema.nullable().default(null),
+    tool_module_qualnames: z.record(z.string(), z.string()).default({}),
     agent: z.unknown().optional(),
     client_tools: z.array(z.unknown()).default([]),
   })
@@ -298,6 +349,9 @@ export const serverInfoSchema = z
     python_version: z.string().default('not-applicable'),
     node_version: z.string(),
     usable_tools: z.array(z.string()).default([]),
+    capabilities: z.array(z.string()).default([]),
+    conversation_runtime: z.literal('local').default('local'),
+    app_backend_ingress_url: z.string().nullable().default(null),
     runtime_idle_timeout_seconds: z.number().nullable().default(null),
     max_foreground_terminal_timeout_seconds: z.number().nullable().default(null),
     docs: z.string().default('/docs'),
@@ -543,7 +597,14 @@ export const marketplaceCatalogResponseSchema = z.object({ skills: z.array(z.unk
 
 export const agentProfilePayloadSchema = z.object({}).catchall(z.unknown());
 export const agentProfileListResponseSchema = z.object({ profiles: z.array(agentProfilePayloadSchema), active_agent_profile_id: z.string().nullable().default(null) }).strict();
-export const agentProfileDiagnosticsSchema = z.object({ valid: z.boolean(), errors: z.array(z.string()).default([]), resolved_settings: z.record(z.string(), z.unknown()).nullable().default(null) }).strict();
+export const agentProfileDiagnosticsSchema = z.object({
+  agent_kind: z.string(), valid: z.boolean(), errors: z.array(z.string()).default([]), unusable_tools: z.array(z.string()).default([]),
+  llm_profile_ref: z.string().nullable(), llm_profile_resolved: z.boolean(), llm_api_key_set: z.boolean(),
+  mcp_server_refs: z.array(z.string()).nullable(), resolved_mcp_config_keys: z.array(z.string()), dangling_mcp_server_refs: z.array(z.string()),
+  disabled_skills: z.array(z.string()), resolved_skills: z.array(z.string()), secret_refs: z.array(z.string()).nullable(),
+  meta_profile_ref: z.string().nullable(), dangling_meta_profile_ref: z.string().nullable(), dangling_meta_profile_llm_refs: z.array(z.string()),
+  resolved_settings: z.record(z.string(), z.unknown()).nullable().default(null),
+}).strict();
 
 export function textFromContent(content: readonly Content[]): string {
   return content

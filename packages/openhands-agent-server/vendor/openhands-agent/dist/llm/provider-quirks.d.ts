@@ -7,8 +7,13 @@ export declare function isOpenAISubscriptionEndpoint(profile: LLMProfile): boole
 export declare function supportsOpenAIPromptCacheRetention(profile: LLMProfile): boolean;
 export declare function resolveOpenAIPromptCacheRetention(profile: LLMProfile): PromptCacheRetention | undefined;
 export declare function normalizeOpenAIModelName(model: string): string;
-export declare function supportsOpenAIPromptCacheKey(profile: LLMProfile): boolean;
-export declare function resolveOpenAIPromptCacheKey(profile: LLMProfile, contextKey?: string | null): string | undefined;
+/** Sanitized runtime metadata only; never persisted into a profile. */
+export interface PromptCacheMetadata {
+    readonly servingProvider?: string;
+    readonly supportsPromptCacheKey?: boolean;
+}
+export declare function supportsOpenAIPromptCacheKey(profile: LLMProfile, metadata?: PromptCacheMetadata): boolean;
+export declare function resolveOpenAIPromptCacheKey(profile: LLMProfile, contextKey?: string | null, metadata?: PromptCacheMetadata): string | undefined;
 export declare function hasExtendedThinking(profile: LLMProfile): boolean;
 /**
  * Whether the profile's model produces reasoning/thinking content that must be

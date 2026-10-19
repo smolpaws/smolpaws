@@ -1,6 +1,10 @@
 import { z } from 'zod';
+import { gitProviderRepositoryPageSchema } from '@smolpaws/openhands-agent';
 
 import {
+  observabilityMetadataSchema,
+  observabilityTagsSchema,
+  observabilitySpanNameSchema,
   agentResponseResultSchema,
   askAgentRequestSchema,
   askAgentResponseSchema,
@@ -83,6 +87,7 @@ export interface RouteSpec {
   readonly requestBodyRequired?: boolean;
   readonly requestBodyContentType?: string;
   readonly query?: readonly QueryParameterSpec[];
+  readonly headers?: readonly QueryParameterSpec[];
   readonly pathParameterSchemas?: Readonly<Record<string, Record<string, unknown>>>;
   readonly responseContentType?: string;
   readonly responses: Readonly<Record<number, Schema | null>>;
@@ -105,6 +110,15 @@ const openApiStartConversationRequestSchema = z
     id: z.string().uuid().optional(),
     conversation_id: z.string().uuid().optional(),
     agent: z.unknown().optional(),
+    agent_settings: z.unknown().optional(),
+    agent_profile_id: z.string().uuid().nullable().optional(),
+    tool_module_qualnames: z.record(z.string(), z.string()).default({}),
+    client_tools: z.array(z.unknown()).default([]),
+    user_id: z.string().nullable().default(null),
+    observability_metadata: observabilityMetadataSchema,
+    observability_tags: observabilityTagsSchema,
+    observability_span_name: observabilitySpanNameSchema,
+    observability_parent_span_context: z.string().nullable().default(null),
     workspace: z.object({ kind: z.string().optional(), working_dir: z.string().optional() }).passthrough().optional(),
     initial_message: openApiSendMessageRequestSchema.optional(),
     persistence_dir: z.string().nullable().default('workspace/conversations'),
@@ -122,6 +136,9 @@ const eventBatchSchema = z.array(openApiEventSchema.nullable());
 const acceptedDeviationSchema = z.object({ detail: z.string(), accepted_deviation: z.literal(true), feature: z.string() }).strict();
 const bashClearResponseSchema = z.object({ cleared_count: z.number().int().nonnegative() }).strict();
 
+
+const observabilityHeaders: readonly QueryParameterSpec[] = ['Span-Name','Tags','Metadata','Parent-Span-Context'].map(name=>({name:`X-OpenHands-Observability-${name}`,schema:{type:'string'}}));
+const toolCatalogSchema = z.object({tools:z.array(z.object({name:z.string()}).passthrough())});
 
 const paginationQuery: readonly QueryParameterSpec[] = [
   { name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100 }, description: 'Maximum number of items to return.' },
@@ -186,17 +203,17 @@ export const routeSpecs = [
   { method: 'get', path: '/api/conversations/search', tags: ['Conversations'], summary: 'Search conversations', query: [...paginationQuery, ...statusQuery, ...conversationSortOrderQuery, ...includeSkillsQuery], responses: { 200: conversationPageSchema } },
   { method: 'get', path: '/api/conversations/count', tags: ['Conversations'], summary: 'Count conversations', query: statusQuery, responses: { 200: z.number().int().nonnegative() } },
   { method: 'get', path: '/api/conversations', tags: ['Conversations'], summary: 'Batch get conversations', query: [...idsQuery, ...includeSkillsQuery], responses: { 200: conversationBatchSchema } },
-  { method: 'post', path: '/api/conversations', tags: ['Conversations'], summary: 'Start conversation', query: includeSkillsQuery, requestBody: openApiStartConversationRequestSchema, responses: { 200: conversationInfoSchema, 201: conversationInfoSchema } },
+  { method: 'post', path: '/api/conversations', tags: ['Conversations'], summary: 'Start conversation', query: includeSkillsQuery, headers: observabilityHeaders, requestBody: openApiStartConversationRequestSchema, responses: { 200: conversationInfoSchema, 201: conversationInfoSchema, 429: null, 422: null } },
   { method: 'get', path: '/api/conversations/{conversation_id}', tags: ['Conversations'], summary: 'Get conversation', query: includeSkillsQuery, responses: { 200: conversationInfoSchema, 404: null } },
   { method: 'patch', path: '/api/conversations/{conversation_id}', tags: ['Conversations'], summary: 'Update conversation metadata', requestBody: updateConversationRequestSchema, responses: { 200: successSchema, 404: null } },
   { method: 'delete', path: '/api/conversations/{conversation_id}', tags: ['Conversations'], summary: 'Delete conversation', responses: { 200: successSchema, 404: null } },
   { method: 'get', path: '/api/conversations/{conversation_id}/agent_final_response', tags: ['Conversations'], summary: 'Get final agent response', responses: { 200: agentResponseResultSchema, 404: null } },
   { method: 'post', path: '/api/conversations/{conversation_id}/pause', tags: ['Conversations'], summary: 'Pause conversation', responses: { 200: successSchema, 404: null } },
   { method: 'post', path: '/api/conversations/{conversation_id}/interrupt', tags: ['Conversations'], summary: 'Interrupt conversation', responses: { 200: successSchema, 404: null } },
-  { method: 'post', path: '/api/conversations/{conversation_id}/run', tags: ['Conversations'], summary: 'Run conversation', responses: { 200: successSchema, 404: null, 409: null } },
-  { method: 'post', path: '/api/conversations/{conversation_id}/goal', tags: ['Conversations'], summary: 'Start goal loop', requestBody: startGoalRequestSchema, responses: { 200: successSchema, 404: null, 409: null, 501: null } },
+  { method: 'post', path: '/api/conversations/{conversation_id}/run', tags: ['Conversations'], summary: 'Run conversation', responses: { 200: successSchema, 404: null, 409: null, 429: null } },
+  { method: 'post', path: '/api/conversations/{conversation_id}/goal', tags: ['Conversations'], summary: 'Start goal loop', requestBody: startGoalRequestSchema, responses: { 200: successSchema, 404: null, 409: null, 429: null, 501: null } },
   { method: 'post', path: '/api/conversations/{conversation_id}/goal/stop', tags: ['Conversations'], summary: 'Stop goal loop', responses: { 200: successSchema, 404: null, 501: null } },
-  { method: 'post', path: '/api/conversations/{conversation_id}/goal/resume', tags: ['Conversations'], summary: 'Resume goal loop', responses: { 200: successSchema, 404: null, 409: null, 501: null } },
+  { method: 'post', path: '/api/conversations/{conversation_id}/goal/resume', tags: ['Conversations'], summary: 'Resume goal loop', responses: { 200: successSchema, 404: null, 409: null, 429: null, 501: null } },
   { method: 'post', path: '/api/conversations/{conversation_id}/secrets', tags: ['Conversations'], summary: 'Update keychain-backed conversation secrets', requestBody: updateSecretsRequestSchema, responses: { 200: successSchema, 400: null, 404: null } },
 
   { method: 'post', path: '/api/conversations/{conversation_id}/confirmation_policy', tags: ['Conversations'], summary: 'Accepted deviation: confirmation policy is intentionally unsupported', requestBody: setConfirmationPolicyRequestSchema, responses: { 410: acceptedDeviationSchema, 404: null } },
@@ -208,13 +225,22 @@ export const routeSpecs = [
   { method: 'get', path: '/api/conversations/{conversation_id}/events/search', tags: ['Events'], summary: 'Search conversation events', query: eventSearchQuery, responses: { 200: openApiEventPageSchema, 404: null } },
   { method: 'get', path: '/api/conversations/{conversation_id}/events/count', tags: ['Events'], summary: 'Count conversation events', query: eventCountQuery, responses: { 200: z.number().int().nonnegative(), 404: null } },
   { method: 'get', path: '/api/conversations/{conversation_id}/events', tags: ['Events'], summary: 'Batch get conversation events', query: idsQuery, requestBody: idListBodySchema, responses: { 200: eventBatchSchema, 404: null } },
-  { method: 'post', path: '/api/conversations/{conversation_id}/events', tags: ['Events'], summary: 'Send a message', requestBody: openApiSendMessageRequestSchema, responses: { 200: sendMessageResponseSchema, 404: null } },
+  { method: 'post', path: '/api/conversations/{conversation_id}/events', tags: ['Events'], summary: 'Send a message', requestBody: openApiSendMessageRequestSchema, responses: { 200: sendMessageResponseSchema, 404: null, 429: null } },
   { method: 'get', path: '/api/conversations/{conversation_id}/events/{event_id}', tags: ['Events'], summary: 'Get conversation event', responses: { 200: openApiEventSchema, 404: null } },
   { method: 'post', path: '/api/conversations/{conversation_id}/events/respond_to_confirmation', tags: ['Events'], summary: 'Accepted deviation: confirmation responses are intentionally unsupported', requestBody: confirmationResponseRequestSchema, responses: { 410: acceptedDeviationSchema, 404: null } },
 
   { method: 'get', path: '/api/bash/bash_events/search', tags: ['Bash'], summary: 'Search bash events', query: bashSearchQuery, responses: { 200: bashEventPageSchema } },
   { method: 'get', path: '/api/bash/bash_events/{event_id}', tags: ['Bash'], summary: 'Get bash event', responses: { 200: bashEventSchema, 404: null } },
   { method: 'get', path: '/api/bash/bash_events', tags: ['Bash'], summary: 'Batch get bash events', query: [{ name: 'event_ids', schema: { type: 'string' }, required: true, description: 'Comma-separated event IDs.' }], requestBody: idListBodySchema, responses: { 200: z.array(bashEventSchema.nullable()) } },
+  { method: 'post', path: '/api/bash/bash_commands/{command_id}/stop', tags: ['Bash'], summary: 'Stop one Bash command', responses: {200:successSchema,404:null,422:null} },
+  { method: 'get', path: '/api/tools', tags: ['Tools'], summary: 'List usable tools', responses: {200:z.array(z.string())} },
+  { method: 'get', path: '/api/tools/catalog', tags: ['Tools'], summary: 'List selectable tools', responses: {200:toolCatalogSchema} },
+  { method: 'get', path: '/api/git/repositories/search', tags: ['Git'], summary: 'Search provider repositories', query: [
+    {name:'provider',required:true,schema:{type:'string',enum:['github','gitlab','bitbucket']}},
+    {name:'query',schema:{type:'string',nullable:true}},
+    {name:'limit',schema:{type:'integer',minimum:1,maximum:100,default:100}},
+    {name:'page_id',schema:{type:'string',nullable:true}},
+  ], responses: {200:gitProviderRepositoryPageSchema,400:null,401:null,403:null,422:null,502:null,504:null} },
   { method: 'post', path: '/api/bash/start_bash_command', tags: ['Bash'], summary: 'Start bash command', requestBody: executeBashRequestSchema, responses: { 200: bashEventSchema } },
   { method: 'post', path: '/api/bash/execute_bash_command', tags: ['Bash'], summary: 'Execute bash command', requestBody: executeBashRequestSchema, responses: { 200: bashEventSchema } },
   { method: 'delete', path: '/api/bash/bash_events', tags: ['Bash'], summary: 'Clear bash events', responses: { 200: bashClearResponseSchema } },
@@ -252,7 +278,7 @@ export const routeSpecs = [
   { method: 'delete', path: '/api/agent-profiles/{name}', tags: ['Agent Profiles'], summary: 'Delete agent profile', responses: { 200: profileMutationResponseSchema } },
   { method: 'post', path: '/api/agent-profiles/{name}/rename', tags: ['Agent Profiles'], summary: 'Rename agent profile', requestBody: renameProfileRequestSchema, responses: { 200: profileMutationResponseSchema, 404: null, 409: null } },
   { method: 'post', path: '/api/agent-profiles/{profile_id}/activate', tags: ['Agent Profiles'], summary: 'Activate agent profile', responses: { 200: activateProfileResponseSchema, 404: null } },
-  { method: 'post', path: '/api/agent-profiles/{name}/materialize', tags: ['Agent Profiles'], summary: 'Materialize agent profile diagnostics', responses: { 200: agentProfileDiagnosticsSchema, 404: null } },
+  { method: 'post', path: '/api/agent-profiles/{name}/materialize', tags: ['Agent Profiles'], summary: 'Materialize agent profile diagnostics', requestBody:z.object({profile:z.record(z.string(),z.unknown()).nullable().optional()}).strict(), requestBodyRequired:false, responses: { 200: agentProfileDiagnosticsSchema, 404: null, 422: null, 500: null, 503: null } },
 
   { method: 'post', path: '/api/skills', tags: ['Skills'], summary: 'Load available skills', requestBody: skillsRequestSchema, responses: { 200: skillsResponseSchema } },
   { method: 'post', path: '/api/skills/sync', tags: ['Skills'], summary: 'Sync public skills cache', responses: { 200: syncResponseSchema } },
@@ -313,7 +339,7 @@ function operationForRoute(route: RouteSpec): Record<string, unknown> {
   return {
     tags: route.tags,
     summary: route.summary,
-    parameters: [...pathParameters(route.path, route.pathParameterSchemas), ...queryParameters(route.query ?? [])],
+    parameters: [...pathParameters(route.path, route.pathParameterSchemas), ...queryParameters(route.query ?? []), ...queryParameters(route.headers ?? []).map(parameter=>({...parameter,in:'header'}))],
     ...(route.requestBody === undefined ? {} : { requestBody: requestBodyObject(route) }),
     responses: Object.fromEntries(
       Object.entries(route.responses).map(([status, schema]) => [status, responseObject(schema, route.responseContentType)]),

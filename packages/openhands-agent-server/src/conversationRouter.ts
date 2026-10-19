@@ -1,11 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 
+import { mergeConversationObservability } from './conversationObservability.js';
 import type { ConversationService } from './conversationService.js';
 import {
   askAgentRequestSchema,
   conversationSortOrderSchema,
   forkConversationRequestSchema,
-  publicStartConversationRequestSchema,
   startGoalRequestSchema,
   updateConversationRequestSchema,
   updateSecretsRequestSchema,
@@ -69,10 +69,13 @@ export function registerConversationRoutes(app: FastifyInstance, service: Conver
   });
 
   app.post('/api/conversations', async (request, reply) => {
-    const startRequest = options.prepareStartRequest === undefined
-      ? parseBody(publicStartConversationRequestSchema, request.body)
-      : await options.prepareStartRequest(request.body);
-    const result = await service.startConversation(startRequest);
+    const merged = mergeConversationObservability(request.body, request.headers);
+    const preparationInput = { ...(request.body as Record<string, unknown>),
+      user_id: merged.user_id, observability_metadata: merged.observability_metadata,
+      observability_tags: merged.observability_tags, observability_span_name: merged.observability_span_name,
+      observability_parent_span_context: merged.observability_parent_span_context };
+    const prepare = options.prepareStartRequest;
+    const result = await service.startConversation(merged, prepare === undefined ? undefined : () => prepare(preparationInput));
     reply.status(result.isNew ? 201 : 200);
     return conversationForResponse(
       result.info,

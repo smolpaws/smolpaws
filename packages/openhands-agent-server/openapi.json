@@ -507,6 +507,29 @@
                         "type": "string"
                       }
                     },
+                    "capabilities": {
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "conversation_runtime": {
+                      "default": "local",
+                      "type": "string",
+                      "const": "local"
+                    },
+                    "app_backend_ingress_url": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "runtime_idle_timeout_seconds": {
                       "default": null,
                       "anyOf": [
@@ -567,6 +590,9 @@
                     "python_version",
                     "node_version",
                     "usable_tools",
+                    "capabilities",
+                    "conversation_runtime",
+                    "app_backend_ingress_url",
                     "runtime_idle_timeout_seconds",
                     "max_foreground_terminal_timeout_seconds",
                     "docs",
@@ -764,6 +790,29 @@
                         "type": "string"
                       }
                     },
+                    "capabilities": {
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "conversation_runtime": {
+                      "default": "local",
+                      "type": "string",
+                      "const": "local"
+                    },
+                    "app_backend_ingress_url": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "runtime_idle_timeout_seconds": {
                       "default": null,
                       "anyOf": [
@@ -824,6 +873,9 @@
                     "python_version",
                     "node_version",
                     "usable_tools",
+                    "capabilities",
+                    "conversation_runtime",
+                    "app_backend_ingress_url",
                     "runtime_idle_timeout_seconds",
                     "max_foreground_terminal_timeout_seconds",
                     "docs",
@@ -1116,11 +1168,54 @@
                           "launched_agent_profile": {
                             "default": null,
                             "anyOf": [
-                              {},
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "agent_profile_id": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  "revision": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "secret_refs": {
+                                    "anyOf": [
+                                      {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "agent_profile_id",
+                                  "revision",
+                                  "secret_refs"
+                                ],
+                                "additionalProperties": false
+                              },
                               {
                                 "type": "null"
                               }
                             ]
+                          },
+                          "tool_module_qualnames": {
+                            "default": {},
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {
+                              "type": "string"
+                            }
                           },
                           "agent": {},
                           "client_tools": {
@@ -1154,6 +1249,7 @@
                           "available_models",
                           "supports_runtime_model_switch",
                           "launched_agent_profile",
+                          "tool_module_qualnames",
                           "client_tools"
                         ],
                         "additionalProperties": {}
@@ -1458,11 +1554,54 @@
                           "launched_agent_profile": {
                             "default": null,
                             "anyOf": [
-                              {},
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "agent_profile_id": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  "revision": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "secret_refs": {
+                                    "anyOf": [
+                                      {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "agent_profile_id",
+                                  "revision",
+                                  "secret_refs"
+                                ],
+                                "additionalProperties": false
+                              },
                               {
                                 "type": "null"
                               }
                             ]
+                          },
+                          "tool_module_qualnames": {
+                            "default": {},
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {
+                              "type": "string"
+                            }
                           },
                           "agent": {},
                           "client_tools": {
@@ -1496,6 +1635,7 @@
                           "available_models",
                           "supports_runtime_model_switch",
                           "launched_agent_profile",
+                          "tool_module_qualnames",
                           "client_tools"
                         ],
                         "additionalProperties": {}
@@ -1525,6 +1665,38 @@
               "type": "boolean",
               "default": false
             }
+          },
+          {
+            "name": "X-OpenHands-Observability-Span-Name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-OpenHands-Observability-Tags",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-OpenHands-Observability-Metadata",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-OpenHands-Observability-Parent-Span-Context",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -1546,6 +1718,128 @@
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                   },
                   "agent": {},
+                  "agent_settings": {},
+                  "agent_profile_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "tool_module_qualnames": {
+                    "default": {},
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "client_tools": {
+                    "default": [],
+                    "type": "array",
+                    "items": {}
+                  },
+                  "user_id": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "observability_metadata": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "additionalProperties": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "boolean"
+                              }
+                            },
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "number"
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "observability_tags": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "observability_span_name": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[A-Za-z0-9._:/-]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "observability_parent_span_context": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "workspace": {
                     "type": "object",
                     "properties": {
@@ -1902,11 +2196,54 @@
                     "launched_agent_profile": {
                       "default": null,
                       "anyOf": [
-                        {},
+                        {
+                          "type": "object",
+                          "properties": {
+                            "agent_profile_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "revision": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "secret_refs": {
+                              "anyOf": [
+                                {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "agent_profile_id",
+                            "revision",
+                            "secret_refs"
+                          ],
+                          "additionalProperties": false
+                        },
                         {
                           "type": "null"
                         }
                       ]
+                    },
+                    "tool_module_qualnames": {
+                      "default": {},
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {
+                        "type": "string"
+                      }
                     },
                     "agent": {},
                     "client_tools": {
@@ -1940,6 +2277,7 @@
                     "available_models",
                     "supports_runtime_model_switch",
                     "launched_agent_profile",
+                    "tool_module_qualnames",
                     "client_tools"
                   ],
                   "additionalProperties": {}
@@ -2157,11 +2495,54 @@
                     "launched_agent_profile": {
                       "default": null,
                       "anyOf": [
-                        {},
+                        {
+                          "type": "object",
+                          "properties": {
+                            "agent_profile_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "revision": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "secret_refs": {
+                              "anyOf": [
+                                {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "agent_profile_id",
+                            "revision",
+                            "secret_refs"
+                          ],
+                          "additionalProperties": false
+                        },
                         {
                           "type": "null"
                         }
                       ]
+                    },
+                    "tool_module_qualnames": {
+                      "default": {},
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {
+                        "type": "string"
+                      }
                     },
                     "agent": {},
                     "client_tools": {
@@ -2195,12 +2576,19 @@
                     "available_models",
                     "supports_runtime_model_switch",
                     "launched_agent_profile",
+                    "tool_module_qualnames",
                     "client_tools"
                   ],
                   "additionalProperties": {}
                 }
               }
             }
+          },
+          "422": {
+            "description": "Error"
+          },
+          "429": {
+            "description": "Error"
           }
         }
       }
@@ -2442,11 +2830,54 @@
                     "launched_agent_profile": {
                       "default": null,
                       "anyOf": [
-                        {},
+                        {
+                          "type": "object",
+                          "properties": {
+                            "agent_profile_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "revision": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "secret_refs": {
+                              "anyOf": [
+                                {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "agent_profile_id",
+                            "revision",
+                            "secret_refs"
+                          ],
+                          "additionalProperties": false
+                        },
                         {
                           "type": "null"
                         }
                       ]
+                    },
+                    "tool_module_qualnames": {
+                      "default": {},
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {
+                        "type": "string"
+                      }
                     },
                     "agent": {},
                     "client_tools": {
@@ -2480,6 +2911,7 @@
                     "available_models",
                     "supports_runtime_model_switch",
                     "launched_agent_profile",
+                    "tool_module_qualnames",
                     "client_tools"
                   ],
                   "additionalProperties": {}
@@ -2785,6 +3217,9 @@
           },
           "409": {
             "description": "Error"
+          },
+          "429": {
+            "description": "Error"
           }
         }
       }
@@ -2858,6 +3293,9 @@
             "description": "Error"
           },
           "409": {
+            "description": "Error"
+          },
+          "429": {
             "description": "Error"
           },
           "501": {
@@ -2957,6 +3395,9 @@
             "description": "Error"
           },
           "409": {
+            "description": "Error"
+          },
+          "429": {
             "description": "Error"
           },
           "501": {
@@ -3622,11 +4063,54 @@
                     "launched_agent_profile": {
                       "default": null,
                       "anyOf": [
-                        {},
+                        {
+                          "type": "object",
+                          "properties": {
+                            "agent_profile_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "revision": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "secret_refs": {
+                              "anyOf": [
+                                {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "agent_profile_id",
+                            "revision",
+                            "secret_refs"
+                          ],
+                          "additionalProperties": false
+                        },
                         {
                           "type": "null"
                         }
                       ]
+                    },
+                    "tool_module_qualnames": {
+                      "default": {},
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {
+                        "type": "string"
+                      }
                     },
                     "agent": {},
                     "client_tools": {
@@ -3660,6 +4144,7 @@
                     "available_models",
                     "supports_runtime_model_switch",
                     "launched_agent_profile",
+                    "tool_module_qualnames",
                     "client_tools"
                   ],
                   "additionalProperties": {}
@@ -4114,6 +4599,9 @@
             }
           },
           "404": {
+            "description": "Error"
+          },
+          "429": {
             "description": "Error"
           }
         }
@@ -4935,6 +5423,293 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/bash/bash_commands/{command_id}/stop": {
+      "post": {
+        "tags": [
+          "Bash"
+        ],
+        "summary": "Stop one Bash command",
+        "parameters": [
+          {
+            "name": "command_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "default": true,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Error"
+          },
+          "422": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/tools": {
+      "get": {
+        "tags": [
+          "Tools"
+        ],
+        "summary": "List usable tools",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/catalog": {
+      "get": {
+        "tags": [
+          "Tools"
+        ],
+        "summary": "List selectable tools",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "tools": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name"
+                        ],
+                        "additionalProperties": {}
+                      }
+                    }
+                  },
+                  "required": [
+                    "tools"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/git/repositories/search": {
+      "get": {
+        "tags": [
+          "Git"
+        ],
+        "summary": "Search provider repositories",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "github",
+                "gitlab",
+                "bitbucket"
+              ]
+            }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 100
+            }
+          },
+          {
+            "name": "page_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "full_name": {
+                            "type": "string"
+                          },
+                          "git_provider": {
+                            "type": "string"
+                          },
+                          "is_public": {
+                            "type": "boolean"
+                          },
+                          "stargazers_count": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "pushed_at": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "main_branch": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "full_name",
+                          "git_provider",
+                          "is_public",
+                          "stargazers_count",
+                          "pushed_at",
+                          "main_branch"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "next_page_id": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "missing_token": {
+                      "default": false,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "next_page_id",
+                    "missing_token"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error"
+          },
+          "401": {
+            "description": "Error"
+          },
+          "403": {
+            "description": "Error"
+          },
+          "422": {
+            "description": "Error"
+          },
+          "502": {
+            "description": "Error"
+          },
+          "504": {
+            "description": "Error"
           }
         }
       }
@@ -6311,11 +7086,22 @@
                             ]
                           },
                           "timeoutSeconds": {
-                            "default": null,
+                            "default": 300,
                             "anyOf": [
                               {
                                 "type": "number",
-                                "exclusiveMinimum": 0
+                                "minimum": 0
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "streamIdleTimeoutSeconds": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0
                               },
                               {
                                 "type": "null"
@@ -6622,11 +7408,22 @@
                     ]
                   },
                   "timeoutSeconds": {
-                    "default": null,
+                    "default": 300,
                     "anyOf": [
                       {
                         "type": "number",
-                        "exclusiveMinimum": 0
+                        "minimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "streamIdleTimeoutSeconds": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0
                       },
                       {
                         "type": "null"
@@ -6891,11 +7688,22 @@
                       ]
                     },
                     "timeoutSeconds": {
-                      "default": null,
+                      "default": 300,
                       "anyOf": [
                         {
                           "type": "number",
-                          "exclusiveMinimum": 0
+                          "minimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "streamIdleTimeoutSeconds": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
                         },
                         {
                           "type": "null"
@@ -7621,11 +8429,22 @@
                       ]
                     },
                     "timeoutSeconds": {
-                      "default": null,
+                      "default": 300,
                       "anyOf": [
                         {
                           "type": "number",
-                          "exclusiveMinimum": 0
+                          "minimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "streamIdleTimeoutSeconds": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
                         },
                         {
                           "type": "null"
@@ -7925,11 +8744,22 @@
                     ]
                   },
                   "timeoutSeconds": {
-                    "default": null,
+                    "default": 300,
                     "anyOf": [
                       {
                         "type": "number",
-                        "exclusiveMinimum": 0
+                        "minimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "streamIdleTimeoutSeconds": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0
                       },
                       {
                         "type": "null"
@@ -8194,11 +9024,22 @@
                       ]
                     },
                     "timeoutSeconds": {
-                      "default": null,
+                      "default": 300,
                       "anyOf": [
                         {
                           "type": "number",
-                          "exclusiveMinimum": 0
+                          "minimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "streamIdleTimeoutSeconds": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
                         },
                         {
                           "type": "null"
@@ -8664,11 +9505,22 @@
                         ]
                       },
                       "timeoutSeconds": {
-                        "default": null,
+                        "default": 300,
                         "anyOf": [
                           {
                             "type": "number",
-                            "exclusiveMinimum": 0
+                            "minimum": 0
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "streamIdleTimeoutSeconds": {
+                        "anyOf": [
+                          {
+                            "type": "number",
+                            "minimum": 0
                           },
                           {
                             "type": "null"
@@ -9207,6 +10059,34 @@
             }
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "profile": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {}
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -9216,11 +10096,113 @@
                   "$schema": "https://json-schema.org/draft/2020-12/schema",
                   "type": "object",
                   "properties": {
+                    "agent_kind": {
+                      "type": "string"
+                    },
                     "valid": {
                       "type": "boolean"
                     },
                     "errors": {
                       "default": [],
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "unusable_tools": {
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "llm_profile_ref": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "llm_profile_resolved": {
+                      "type": "boolean"
+                    },
+                    "llm_api_key_set": {
+                      "type": "boolean"
+                    },
+                    "mcp_server_refs": {
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "resolved_mcp_config_keys": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "dangling_mcp_server_refs": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "disabled_skills": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "resolved_skills": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "secret_refs": {
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "meta_profile_ref": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "dangling_meta_profile_ref": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "dangling_meta_profile_llm_refs": {
                       "type": "array",
                       "items": {
                         "type": "string"
@@ -9243,8 +10225,22 @@
                     }
                   },
                   "required": [
+                    "agent_kind",
                     "valid",
                     "errors",
+                    "unusable_tools",
+                    "llm_profile_ref",
+                    "llm_profile_resolved",
+                    "llm_api_key_set",
+                    "mcp_server_refs",
+                    "resolved_mcp_config_keys",
+                    "dangling_mcp_server_refs",
+                    "disabled_skills",
+                    "resolved_skills",
+                    "secret_refs",
+                    "meta_profile_ref",
+                    "dangling_meta_profile_ref",
+                    "dangling_meta_profile_llm_refs",
                     "resolved_settings"
                   ],
                   "additionalProperties": false
@@ -9253,6 +10249,15 @@
             }
           },
           "404": {
+            "description": "Error"
+          },
+          "422": {
+            "description": "Error"
+          },
+          "500": {
+            "description": "Error"
+          },
+          "503": {
             "description": "Error"
           }
         }

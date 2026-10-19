@@ -65,3 +65,27 @@ separately as `openhands-agent-wlw.10`. The current title remains a deterministi
 text fallback. Passing durable conversation IDs into main, condenser and classifier
 calls does not close the missing title model call, reasoning cleanup, or its
 fallback/error behavior. Revisit with the upstream title utility and tests.
+
+## Bounded v1.52.0 lifecycle expansion
+
+The `dcf401af..229b2b92` interval keeps five units explicitly deferred. Canvas
+backend authentication now includes sessions, HTTP/WebSocket ingress proxying,
+revocation and capability reporting under `OPENAPI-DEFERRED-001`. Some ingress
+routes are outside `/api`; absence from the operation comparator does not mean
+that they are implemented. Revisit with the authenticated Canvas backend runtime
+and its source security tests.
+
+Docker idle eviction must refresh the persistent conversation catalog after the
+container stops. Standalone VSCode shutdown must terminate its owned process group
+and release the listening port. Both remain in `smolpaws-09ou`; the permanent
+native initialization difference does not exclude the VSCode lifecycle fix.
+The new conversation-runtime-scoped Bash stop operation is individually deferred
+there too. The global native Bash stop operation is implemented and tested.
+
+Provider-connection credential/base-URL resolution and upstream `/switch_llm`
+remain deferred under `OPENAPI-DEFERRED-001`. Missing/dangling connections must
+fail 422 before replacing a working model. Native saved-profile switching does
+not close that missing compatibility route. Delegated child execution and its
+new tool/MCP confinement scope remain tracked with SDK `openhands-agent-wlw.8`
+and `.14`. Revisit both when their runtime prerequisites are implemented,
+carrying the source regression cases before claiming parity.

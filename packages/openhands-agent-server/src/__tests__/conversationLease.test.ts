@@ -11,7 +11,7 @@ import {
   ConversationLeaseInvalidError,
   leaseFileName,
 } from '../conversationLease.js';
-import { InMemorySecretStore } from '@smolpaws/openhands-agent';
+import { Agent, TestLLM, InMemorySecretStore } from '@smolpaws/openhands-agent';
 
 const roots: string[] = [];
 
@@ -119,6 +119,7 @@ describe('ConversationLease', () => {
     const server = await createAgentServerApp({
       persistenceDir: conversationsPath,
       ownerInstanceId: 'configured-owner',
+      agentFactory: () => new Agent({ llm: TestLLM.fromMessages([]), tools: [] }),
       leaseTtlMs: 12_345,
       secretStore: new InMemorySecretStore(),
     });

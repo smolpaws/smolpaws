@@ -1,5 +1,5 @@
 import { z } from 'zod';
-export declare const AGENT_PROFILE_SCHEMA_VERSION = 2;
+export declare const AGENT_PROFILE_SCHEMA_VERSION = 3;
 export declare const acpServerKindSchema: z.ZodUnion<readonly [z.ZodLiteral<"claude-code">, z.ZodLiteral<"codex">, z.ZodLiteral<"gemini-cli">, z.ZodLiteral<"custom">]>;
 export declare const criticModeSchema: z.ZodUnion<readonly [z.ZodLiteral<"finish_and_message">, z.ZodLiteral<"all_actions">]>;
 export declare const profileVerificationSettingsSchema: z.ZodObject<{
@@ -11,11 +11,15 @@ export declare const profileVerificationSettingsSchema: z.ZodObject<{
     critic_server_url: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     critic_model_name: z.ZodDefault<z.ZodNullable<z.ZodString>>;
 }, z.core.$strip>;
-export declare const openHandsAgentProfileSchema: z.ZodObject<{
+export declare const openHandsAgentProfileSchema: z.ZodPreprocess<z.ZodObject<{
     agent_kind: z.ZodDefault<z.ZodLiteral<"openhands">>;
     llm_profile_ref: z.ZodString;
     agent: z.ZodDefault<z.ZodString>;
-    tools: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodUnknown>>>;
+    tools: z.ZodDefault<z.ZodNullable<z.ZodPreprocess<z.ZodArray<z.ZodObject<{
+        name: z.ZodString;
+        params: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+    }, z.core.$strict>>>>>;
+    persona: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     system_message_suffix: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     disabled_skills: z.ZodDefault<z.ZodArray<z.ZodString>>;
     condenser: z.ZodDefault<z.ZodUnknown>;
@@ -28,16 +32,16 @@ export declare const openHandsAgentProfileSchema: z.ZodObject<{
         critic_server_url: z.ZodDefault<z.ZodNullable<z.ZodString>>;
         critic_model_name: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     }, z.core.$strip>>;
-    enable_sub_agents: z.ZodDefault<z.ZodBoolean>;
-    enable_switch_llm_tool: z.ZodDefault<z.ZodBoolean>;
+    enable_classify_and_switch_llm_tool: z.ZodDefault<z.ZodBoolean>;
+    meta_profile_ref: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     tool_concurrency_limit: z.ZodDefault<z.ZodNumber>;
-    schema_version: z.ZodDefault<z.ZodLiteral<2>>;
+    schema_version: z.ZodDefault<z.ZodLiteral<3>>;
     id: z.ZodDefault<z.ZodString>;
     name: z.ZodString;
     revision: z.ZodDefault<z.ZodNumber>;
     mcp_server_refs: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
     secret_refs: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
-}, z.core.$strict>;
+}, z.core.$strict>>;
 export declare const acpAgentProfileSchema: z.ZodObject<{
     agent_kind: z.ZodDefault<z.ZodLiteral<"acp">>;
     acp_server: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"claude-code">, z.ZodLiteral<"codex">, z.ZodLiteral<"gemini-cli">, z.ZodLiteral<"custom">]>>;
@@ -47,18 +51,22 @@ export declare const acpAgentProfileSchema: z.ZodObject<{
     acp_startup_timeout: z.ZodDefault<z.ZodNumber>;
     acp_command: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     acp_args: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
-    schema_version: z.ZodDefault<z.ZodLiteral<2>>;
+    schema_version: z.ZodDefault<z.ZodLiteral<3>>;
     id: z.ZodDefault<z.ZodString>;
     name: z.ZodString;
     revision: z.ZodDefault<z.ZodNumber>;
     mcp_server_refs: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
     secret_refs: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
 }, z.core.$strict>;
-export declare const agentProfileSchema: z.ZodUnion<readonly [z.ZodObject<{
+export declare const agentProfileSchema: z.ZodUnion<readonly [z.ZodPreprocess<z.ZodObject<{
     agent_kind: z.ZodDefault<z.ZodLiteral<"openhands">>;
     llm_profile_ref: z.ZodString;
     agent: z.ZodDefault<z.ZodString>;
-    tools: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodUnknown>>>;
+    tools: z.ZodDefault<z.ZodNullable<z.ZodPreprocess<z.ZodArray<z.ZodObject<{
+        name: z.ZodString;
+        params: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+    }, z.core.$strict>>>>>;
+    persona: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     system_message_suffix: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     disabled_skills: z.ZodDefault<z.ZodArray<z.ZodString>>;
     condenser: z.ZodDefault<z.ZodUnknown>;
@@ -71,16 +79,16 @@ export declare const agentProfileSchema: z.ZodUnion<readonly [z.ZodObject<{
         critic_server_url: z.ZodDefault<z.ZodNullable<z.ZodString>>;
         critic_model_name: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     }, z.core.$strip>>;
-    enable_sub_agents: z.ZodDefault<z.ZodBoolean>;
-    enable_switch_llm_tool: z.ZodDefault<z.ZodBoolean>;
+    enable_classify_and_switch_llm_tool: z.ZodDefault<z.ZodBoolean>;
+    meta_profile_ref: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     tool_concurrency_limit: z.ZodDefault<z.ZodNumber>;
-    schema_version: z.ZodDefault<z.ZodLiteral<2>>;
+    schema_version: z.ZodDefault<z.ZodLiteral<3>>;
     id: z.ZodDefault<z.ZodString>;
     name: z.ZodString;
     revision: z.ZodDefault<z.ZodNumber>;
     mcp_server_refs: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
     secret_refs: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
-}, z.core.$strict>, z.ZodObject<{
+}, z.core.$strict>>, z.ZodObject<{
     agent_kind: z.ZodDefault<z.ZodLiteral<"acp">>;
     acp_server: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"claude-code">, z.ZodLiteral<"codex">, z.ZodLiteral<"gemini-cli">, z.ZodLiteral<"custom">]>>;
     acp_model: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -89,7 +97,7 @@ export declare const agentProfileSchema: z.ZodUnion<readonly [z.ZodObject<{
     acp_startup_timeout: z.ZodDefault<z.ZodNumber>;
     acp_command: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     acp_args: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
-    schema_version: z.ZodDefault<z.ZodLiteral<2>>;
+    schema_version: z.ZodDefault<z.ZodLiteral<3>>;
     id: z.ZodDefault<z.ZodString>;
     name: z.ZodString;
     revision: z.ZodDefault<z.ZodNumber>;

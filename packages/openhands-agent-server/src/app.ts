@@ -5,8 +5,11 @@ import { z } from 'zod';
 
 import { AgentControlledCondensationError, MacOSKeychainSecretStore, OpenAISubscriptionAuth, createClientFromProfile, type MetaProfileStore, type SecretStore } from '@smolpaws/openhands-agent';
 
+import { launchHttpError, previewClient } from './launch.js';
+import { createProfileToolMaterializer } from './profileTools.js';
 import { registerAgentProfileRoutes } from './agentProfilesRouter.js';
 import { BashEventService } from './bashService.js';
+import { ConversationRunLimitExceeded } from './runAdmission.js';
 import { ConversationLeaseHeldError, ConversationLeaseInvalidError, ConversationOwnershipLostError } from './conversationLease.js';
 import { type AgentServerConfig, getDefaultConfig } from './config.js';
 import { registerConversationRoutes } from './conversationRouter.js';
@@ -24,6 +27,7 @@ import { registerProfileRoutes } from './profilesRouter.js';
 import { registerBashRoutes } from './bashRouter.js';
 import { McpServerNotFoundError, ServerStateService } from './serverState.js';
 import { registerSettingsRoutes } from './settingsRouter.js';
+import { registerToolRoutes } from './toolRouter.js';
 import { registerSkillsRoutes } from './skillsRouter.js';
 import { registerSessionSocket } from './sessionSocket.js';
 import { registerSocketRoutes } from './sockets.js';
@@ -33,6 +37,7 @@ const startedAt = Date.now();
 
 export interface AgentServerAppOptions extends ConversationServiceOptions {
   readonly config?: Partial<AgentServerConfig>;
+  readonly gitProviderFetch?: typeof fetch;
   readonly conversationService?: ConversationService;
   readonly secretStore?: SecretStore;
   readonly serverStateService?: ServerStateService;
@@ -64,6 +69,10 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
     || options.resolveProfileSelection !== undefined
     || options.resolveCondenserProfileSelection !== undefined
     || options.profileRuntime !== undefined
+    || options.maxConcurrentRuns !== undefined
+    || options.config?.maxConcurrentRuns !== undefined
+    || options.initializeOnCreate !== undefined
+    || options.observability !== undefined
   )) {
     throw new Error('conversationService cannot be combined with managed conversation-service options');
   }
@@ -103,6 +112,7 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
   }
   const agentFactory = options.agentFactory ?? createProfileAgentFactory({
     state: serverStateService,
+    conversationsPath: config.conversationsPath,
     metaProfileStore: serverStateService.metaProfileStore,
     secretStore,
     ...(options.configureTools === undefined ? {} : { configureTools: options.configureTools }),
@@ -114,6 +124,9 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
   const serviceOptions: ConversationServiceOptions = {
     errorLogger: options.errorLogger ?? (options.logger === true ? app.log : defaultErrorLogger),
     persistenceDir: config.conversationsPath,
+    maxConcurrentRuns: options.maxConcurrentRuns ?? config.maxConcurrentRuns,
+    initializeOnCreate: options.initializeOnCreate ?? usesProfileAgentFactory,
+    ...(options.observability === undefined ? {} : { observability: options.observability }),
     secretStore,
     agentFactory,
     ...(usesProfileAgentFactory
@@ -148,16 +161,30 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
   app.addHttpMethod('GET', { hasBody: true });
   registerAuth(app, config);
   registerServerDetailsRoutes(app, config);
-  registerConversationRoutes(app, conversationService, usesProfileAgentFactory ? { prepareStartRequest: (input) => prepareProfileStartRequest(input, serverStateService) } : {});
+  registerConversationRoutes(app, conversationService, usesProfileAgentFactory ? {
+    prepareStartRequest: (input) => prepareProfileStartRequest(input, serverStateService, {
+      deferCondenserResolution: options.resolveCondenserProfileSelection !== undefined,
+    }),
+  } : {});
   registerEventRoutes(app, conversationService);
   registerBashRoutes(app, bashEventService);
-  registerGitRoutes(app);
+  registerGitRoutes(app, {
+    resolveSecret: name => serverStateService.resolveSecret(name),
+    ...(options.gitProviderFetch === undefined ? {} : { fetch: options.gitProviderFetch }),
+  });
   registerFileRoutes(app, config);
   registerLlmRoutes(app, subscriptionAuth);
   registerSettingsRoutes(app, serverStateService);
   registerProfileRoutes(app, serverStateService, llmClientFactory, secretStore);
   registerMetaProfileRoutes(app, serverStateService);
-  registerAgentProfileRoutes(app, serverStateService);
+  registerToolRoutes(app);
+  registerAgentProfileRoutes(app, serverStateService, { runtime: {
+    createClient: previewClient,
+    materializeTools: createProfileToolMaterializer({
+      state: serverStateService, secretStore, metaProfileStore: serverStateService.metaProfileStore,
+      llmClientFactory: async profile => previewClient(profile), workingDir: config.workspaceRoot, persistenceDir: null,
+    }),
+  } });
   registerSkillsRoutes(app, { stateDir: config.statePath, workspaceRoot: config.workspaceRoot });
   registerSocketRoutes(app, { config, conversationService, bashEventService });
   registerSessionSocket(app, { config, conversationService });
@@ -193,8 +220,17 @@ function registerServerDetailsRoutes(app: FastifyInstance, config: AgentServerCo
 
 function registerErrorHandler(app: FastifyInstance): void {
   app.setErrorHandler((error, _request, reply) => {
+    const launchFailure = launchHttpError(error);
+    if (launchFailure !== null) {
+      reply.status(launchFailure.statusCode).send({ detail: launchFailure.detail });
+      return;
+    }
     if (error instanceof z.ZodError) {
       reply.status(422).send({ detail: error.issues.map((issue) => ({ path: issue.path, message: issue.message })) });
+      return;
+    }
+    if (error instanceof ConversationRunLimitExceeded) {
+      reply.status(429).send({ detail: error.message });
       return;
     }
     if (error instanceof AgentControlledCondensationError) {
@@ -242,6 +278,9 @@ function serverInfo(config: AgentServerConfig) {
     docs: '/docs',
     redoc: '/redoc',
     initialized: true,
+    conversation_runtime: 'local',
+    app_backend_ingress_url: null,
+    capabilities: ['idempotent_conversation_create_v1', 'profile_persona_v1', 'tool_catalog_v1', 'agent_profile_draft_materialize_v1'],
     web_url: config.webUrl ?? null,
   };
 }

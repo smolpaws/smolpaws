@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
-import { conversationExecutionStatus, createMetricsResetEvent, metricsSnapshot, statsForEvents, type SecretStore } from '@smolpaws/openhands-agent';
+import { conversationExecutionStatus, createMetricsResetEvent, metricsSnapshot, statsForEvents, type SecretStore, type ObservabilityRuntime } from '@smolpaws/openhands-agent';
 
-import { ConversationLease, ConversationLeaseHeldError, defaultLeaseTtlMs } from './conversationLease.js';
+import { RunAdmission, type RunSlot } from './runAdmission.js';
+import { ConversationLease, ConversationLeaseHeldError, defaultLeaseTtlMs, leaseFileName, leaseLockFileName } from './conversationLease.js';
 import { conversationDirectory, ConversationMetadataStore } from './conversationMetadata.js';
 import { defaultErrorLogger, safeErrorDiagnostics, type ErrorLogger } from './errorDiagnostics.js';
 import { conversationSecretRef, extractConversationSecrets, withoutConversationSecrets } from './conversationSecrets.js';
@@ -23,6 +26,9 @@ import {
 } from './models.js';
 
 export interface ConversationServiceOptions {
+  readonly maxConcurrentRuns?: number;
+  readonly initializeOnCreate?: boolean;
+  readonly observability?: ObservabilityRuntime;
   readonly errorLogger?: ErrorLogger;
   readonly agentFactory?: AgentFactory;
   readonly getDefaultAgentSettings?: EventServiceOptions['getDefaultAgentSettings'];
@@ -40,6 +46,9 @@ interface ClaimedLease {
 }
 
 export class ConversationService {
+  private closing = false;
+  private readonly lifecycle = new Map<string, Promise<void>>();
+  private readonly admission: RunAdmission;
   private readonly conversations = new Map<string, StoredConversation>();
   private readonly eventServices = new Map<string, EventService>();
   private readonly leases = new Map<string, ClaimedLease>();
@@ -50,6 +59,7 @@ export class ConversationService {
   private readonly leaseTtlMs: number;
 
   constructor(private readonly options: ConversationServiceOptions = {}) {
+    this.admission = new RunAdmission(options.maxConcurrentRuns);
     this.errorLogger = options.errorLogger ?? defaultErrorLogger;
     this.metadataStore = new ConversationMetadataStore(options.persistenceDir ?? 'workspace/conversations');
     this.ownerInstanceId = options.ownerInstanceId ?? randomUUID();
@@ -57,18 +67,41 @@ export class ConversationService {
     this.readyPromise = this.loadPersistedConversations();
   }
 
-  async startConversation(requestInput: StartConversationRequest): Promise<{ readonly info: ConversationInfo; readonly isNew: boolean }> {
+  async startConversation(
+    requestInput: StartConversationRequest,
+    prepareRequest?: () => StartConversationRequest | Promise<StartConversationRequest>,
+  ): Promise<{ readonly info: ConversationInfo; readonly isNew: boolean }> {
     await this.readyPromise;
-    const request = startConversationRequestSchema.parse({
-      ...requestInput,
-      ...((requestInput.persistence_dir === undefined || requestInput.persistence_dir === null || requestInput.persistence_dir === 'workspace/conversations') && this.options.persistenceDir !== undefined ? { persistence_dir: this.options.persistenceDir } : {}),
+    const normalize = (input: StartConversationRequest): StartConversationRequest => startConversationRequestSchema.parse({
+      ...input,
+      ...((input.persistence_dir === undefined || input.persistence_dir === null || input.persistence_dir === 'workspace/conversations') && this.options.persistenceDir !== undefined ? { persistence_dir: this.options.persistenceDir } : {}),
     });
+    const request = normalize(requestInput);
     const id = request.id ?? request.conversation_id ?? randomUUID();
-    const existing = this.conversations.get(id);
-    if (existing !== undefined) {
-      return { info: this.toConversationInfo(existing), isNew: false };
+    // Profile resolution belongs to admitted creation. Reattachment uses the
+    // committed snapshot even when its original catalog entry no longer exists.
+    const create = async (slot: RunSlot) => this.createConversation(
+      prepareRequest === undefined ? request : normalize(await prepareRequest()), id, slot,
+    );
+    this.assertOpen();
+    if (this.conversations.has(id)) {
+      return this.withLifecycle(id, async () => {
+        const existing = this.conversations.get(id);
+        if (existing !== undefined) return { info: this.toConversationInfo(existing), isNew: false };
+        const slot = this.admission.tryAcquire();
+        try { return await create(slot); } finally { slot.release(); }
+      });
     }
+    const slot = this.admission.tryAcquire();
+    try {
+      return await this.withLifecycle(id, async () => {
+        const existing = this.conversations.get(id);
+        return existing === undefined ? create(slot) : { info: this.toConversationInfo(existing), isNew: false };
+      });
+    } finally { slot.release(); }
+  }
 
+  private async createConversation(request: StartConversationRequest, id: string, slot: RunSlot): Promise<{ readonly info: ConversationInfo; readonly isNew: boolean }> {
     const initialSecrets = extractConversationSecrets(request.secrets);
     const sanitizedRequest = withoutConversationSecrets(request);
     const now = new Date().toISOString();
@@ -83,22 +116,24 @@ export class ConversationService {
       updated_at: now,
     };
     await this.claimLease(stored);
+    let eventService: EventService | undefined;
     try {
       if (initialSecrets.size > 0) {
         await this.storeSecrets(id, initialSecrets);
       }
-      const eventService = new EventService(this.eventServiceOptions(stored));
-      this.conversations.set(id, stored);
-      this.eventServices.set(id, eventService);
+      eventService = new EventService(this.eventServiceOptions(stored));
+      if (this.options.initializeOnCreate) await eventService.initialize();
       await this.saveOwnedConversation(stored);
 
       if (sanitizedRequest.initial_message !== undefined) {
-        await this.sendInitialMessage(eventService, sanitizedRequest.initial_message);
+        await this.sendInitialMessage(eventService, sanitizedRequest.initial_message, slot);
       }
 
+      this.conversations.set(id, stored);
+      this.eventServices.set(id, eventService);
       return { info: this.toConversationInfo(stored), isNew: true };
     } catch (error) {
-      await this.releaseLease(id);
+      await this.cleanupFailedInitialization(stored, eventService);
       throw error;
     }
   }
@@ -169,6 +204,8 @@ export class ConversationService {
 
   async deleteConversation(conversationId: string): Promise<boolean> {
     await this.readyPromise;
+    this.assertOpen();
+    return this.withLifecycle(conversationId, async () => {
     const service = this.eventServices.get(conversationId);
     if (service === undefined) {
       return false;
@@ -182,6 +219,7 @@ export class ConversationService {
       await this.releaseLease(stored.id);
     }
     return true;
+    });
   }
 
   async updateConversation(conversationId: string, request: UpdateConversationRequest): Promise<boolean> {
@@ -244,6 +282,8 @@ export class ConversationService {
       return null;
     }
     const id = request.id ?? randomUUID();
+    this.assertOpen();
+    return this.withLifecycle(id, async () => {
     if (this.conversations.has(id)) {
       throw new Error(`Conversation ${id} already exists`);
     }
@@ -260,29 +300,33 @@ export class ConversationService {
       updated_at: now,
     };
     await this.claimLease(stored);
+    let eventService: EventService | undefined;
     try {
       await this.copySecrets(source.id, stored.id, stored.secret_names);
       sourceService.state.syncFromDisk();
-      const eventService = new EventService(this.eventServiceOptions(stored, sourceService.state.events));
+      eventService = new EventService(this.eventServiceOptions(stored, sourceService.state.events));
       if (request.reset_metrics) {
         // Preserve the copied conversation while starting the fork's accounting
         // after a durable boundary, including when it is reopened from disk.
         await eventService.state.appendEventAsync(createMetricsResetEvent());
       }
+      await this.saveOwnedConversation(stored);
       this.conversations.set(id, stored);
       this.eventServices.set(id, eventService);
-      await this.saveOwnedConversation(stored);
       return this.toConversationInfo(stored);
     } catch (error) {
-      await this.releaseLease(id);
+      await this.cleanupFailedInitialization(stored, eventService);
       throw error;
     }
+    });
   }
 
   async close(): Promise<void> {
+    this.closing = true;
     // Teardown must still release ownership if loading or repairing a stored
     // conversation failed (for example, when the disk is full).
     await this.readyPromise.catch(() => undefined);
+    await Promise.allSettled([...this.lifecycle.values()]);
     await Promise.all([...this.eventServices.values()].map((service) => service.close()));
     await Promise.all([...this.leases.keys()].map((conversationId) => this.releaseLease(conversationId)));
     this.eventServices.clear();
@@ -317,9 +361,10 @@ export class ConversationService {
       current_model_id: null,
       available_models: [],
       supports_runtime_model_switch: false,
-      launched_agent_profile: stored.request.llm_profile_snapshot ?? null,
+      launched_agent_profile: stored.request.resolved_launch?.profile ?? null,
+      tool_module_qualnames: { ...stored.request.tool_module_qualnames },
       agent: stored.request.agent,
-      client_tools: [],
+      client_tools: stored.request.client_tools,
     };
   }
 
@@ -363,6 +408,8 @@ export class ConversationService {
   private eventServiceOptions(stored: StoredConversation, events?: readonly Event[]): EventServiceOptions {
     return {
       stored,
+      runAdmission: this.admission,
+      ...(this.options.observability === undefined ? {} : { observability: this.options.observability }),
       errorLogger: this.errorLogger,
       saveConversation: (conversation) => this.saveOwnedConversation(conversation),
       updateRequest: (update) => this.updateOwnedRequest(stored, update),
@@ -374,6 +421,34 @@ export class ConversationService {
     };
   }
 
+
+  private async cleanupFailedInitialization(stored: StoredConversation, service: EventService | undefined): Promise<void> {
+    const claimed = this.leases.get(stored.id);
+    try {
+      try { await service?.close(); }
+      finally {
+        if (claimed !== undefined) await claimed.lease.guardedWrite(claimed.generation, async () => {
+          // Keep the lock inode/path intact until its guard is released. Removing
+          // the whole directory would let a successor create a different lock.
+          const directory = conversationDirectory(stored, this.metadataStore.defaultRoot);
+          const entries = await fs.readdir(directory);
+          await Promise.all(entries.filter(name => name !== leaseFileName && name !== leaseLockFileName)
+            .map(name => fs.rm(path.join(directory, name), { recursive: true, force: true })));
+          if (this.options.secretStore !== undefined) await Promise.all(stored.secret_names
+            .map(name => this.options.secretStore!.delete(conversationSecretRef(stored.id, name))));
+        });
+      }
+    } catch (error) { this.logCleanupError(stored.id, error); }
+    finally {
+      try { await this.releaseLease(stored.id); }
+      catch (error) { this.logCleanupError(stored.id, error); }
+    }
+  }
+
+  private logCleanupError(id: string, error: unknown): void {
+    try { this.errorLogger.error({ conversation_id: id, error: safeErrorDiagnostics(error) }, 'conversation_initialization_cleanup_error'); }
+    catch { /* Cleanup must preserve the original initialization failure. */ }
+  }
 
   private async saveOwnedConversation(stored: StoredConversation): Promise<void> {
     const claimed = this.leases.get(stored.id);
@@ -442,8 +517,22 @@ export class ConversationService {
 
 
 
-  private async sendInitialMessage(eventService: EventService, request: SendMessageRequest): Promise<void> {
-    await eventService.sendMessage(messageFromSendRequest(request), request.run, request.event_id);
+  private async sendInitialMessage(eventService: EventService, request: SendMessageRequest, slot: RunSlot): Promise<void> {
+    await eventService.sendMessage(messageFromSendRequest(request), false, request.event_id);
+    if (request.run) await eventService.run({ runSlot: slot });
+  }
+
+  private assertOpen(): void { if (this.closing) throw new Error('Conversation service is closing.'); }
+
+  private async withLifecycle<T>(id: string, work: () => Promise<T>): Promise<T> {
+    const previous = this.lifecycle.get(id) ?? Promise.resolve();
+    let release!: () => void;
+    const turn = new Promise<void>(resolve => { release = resolve; });
+    const tail = previous.then(() => turn);
+    this.lifecycle.set(id, tail);
+    await previous;
+    try { return await work(); }
+    finally { release(); if (this.lifecycle.get(id) === tail) this.lifecycle.delete(id); }
   }
 }
 

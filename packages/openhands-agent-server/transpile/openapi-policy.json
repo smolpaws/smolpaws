@@ -301,11 +301,6 @@
       "tracking": "smolpaws-09ou",
       "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
     },
-    "GET /api/tools": {
-      "disposition": "DEFERRED",
-      "tracking": "smolpaws-09ou",
-      "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
-    },
     "POST /api/conversations/{conversation_id}/runtime/reprovision": {
       "disposition": "DEFERRED",
       "tracking": "smolpaws-09ou",
@@ -360,6 +355,11 @@
       "disposition": "DEFERRED",
       "tracking": "OPENAPI-DEFERRED-001",
       "reason": "Stoppable startup and complete backend process-group/descendant cleanup are deferred; see deferred-operations.md."
+    },
+    "POST /api/conversations/{runtime_conversation_id}/bash/bash_commands/{command_id}/stop": {
+      "disposition": "DEFERRED",
+      "tracking": "smolpaws-09ou",
+      "reason": "Conversation-runtime-scoped Bash ownership and routing are not yet implemented. Global stop is ported; this mirror must stop only the selected runtime command after that scoped service exists."
     }
   },
   "contractExemptions": {

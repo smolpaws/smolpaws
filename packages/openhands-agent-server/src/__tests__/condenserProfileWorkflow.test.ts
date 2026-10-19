@@ -15,13 +15,14 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-async function fixture() {
+async function fixture(extra: Pick<AgentServerAppOptions, 'initializeOnCreate'> = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'condenser-workflow-')); roots.push(root);
   let main = 'main'; let summary = 'summary';
   const calls: string[] = [];
   const built: string[] = [];
   const selectCondenser = vi.fn<NonNullable<AgentServerAppOptions['resolveCondenserProfileSelection']>>(() => summary);
   const options: AgentServerAppOptions = {
+    ...extra,
     config: { conversationsPath: path.join(root, 'conversations'), statePath: path.join(root, 'state'), workspaceRoot: root, bashEventsPath: path.join(root, 'bash') },
     secretStore: new InMemorySecretStore(),
     resolveProfileSelection: () => main,
@@ -67,7 +68,7 @@ async function condense(server: AgentServerApp, id: string) {
 test('frozen summary profile and inherited cap survive catalog deletion, main switch, fork, and disk restart', async () => {
   const f = await fixture();
   const id = await f.start();
-  expect((await f.metadata(id)).request.condenser_binding).toBeUndefined();
+  expect((await f.metadata(id)).request.condenser_binding).toMatchObject({ profile: { profileId: 'summary', model: 'model-summary' }, settings: { max_tokens: 900 } });
   await run(f.server, id);
   const binding = (await f.metadata(id)).request.condenser_binding;
   expect(binding).toMatchObject({ profile: { profileId: 'summary', model: 'model-summary' }, settings: { max_tokens: 900 } });
@@ -94,8 +95,8 @@ test('frozen summary profile and inherited cap survive catalog deletion, main sw
   expect(source.state.stats.usage_to_metrics.condenser?.records.every(record => record.profile_id === 'summary')).toBe(true);
 });
 
-test('fork before first use performs no client work and captures its own later role selection', async () => {
-  const f = await fixture();
+test('explicit lazy host forks before initialization without client work and captures each later role selection', async () => {
+  const f = await fixture({ initializeOnCreate: false });
   const id = await f.start();
   const forkResponse = await f.server.app.inject({ method: 'POST', url: `/api/conversations/${id}/fork`, payload: {} });
   expect(forkResponse.statusCode).toBe(201);
@@ -111,21 +112,29 @@ test('fork before first use performs no client work and captures its own later r
 test('HTTP callers cannot forge a frozen condenser binding', async () => {
   const f = await fixture();
   const id = await f.start({ condenser_binding: { profile: { profileId: 'attacker', providerId: 'openai', model: 'forged' }, settings: { llm_profile_ref: 'attacker', max_tokens: 12 } } });
-  expect((await f.metadata(id)).request.condenser_binding).toBeUndefined();
+  expect((await f.metadata(id)).request.condenser_binding).toMatchObject({ profile: { profileId: 'summary', model: 'model-summary' }, settings: { max_tokens: 900 } });
   await run(f.server, id);
   expect((await f.metadata(id)).request.condenser_binding.profile.profileId).toBe('summary');
   expect(f.built.some(value => value.includes('attacker'))).toBe(false);
 });
 
-test('missing first-use selection persists a clear run error without a main-model fallback', async () => {
-  vi.spyOn(console, 'error').mockImplementation(() => undefined);
+test('missing creation-time condenser selection rejects the request without a main-model fallback', async () => {
   const f = await fixture(); f.selectCondenser.mockReturnValue(undefined);
+  const response = await f.server.app.inject({ method: 'POST', url: '/api/conversations', payload: { agent: { llm_profile_ref: 'main', tools: ['finish'] } } });
+  expect(response.statusCode, response.body).toBe(422);
+  expect(response.body).toContain('explicit profile reference');
+  expect((await f.server.app.inject('/api/conversations/count')).json()).toBe(0);
+  expect(f.calls).toEqual([]); expect(f.built).toEqual([]);
+});
+
+test('an explicitly lazy host persists a missing first-use selection error without a main-model fallback', async () => {
+  const f = await fixture({ initializeOnCreate: false }); f.selectCondenser.mockReturnValue(undefined);
   const id = await f.start();
   await run(f.server, id, 'error');
-  expect(f.calls).toEqual([]);
+  expect(f.calls).toEqual([]); expect(f.built).toEqual([]);
   expect((await f.metadata(id)).request.condenser_binding).toBeUndefined();
   const events = (await f.server.conversationService.getEventService(id))!.state.events;
-  expect(JSON.stringify(events.filter(event => event.kind === 'ConversationErrorEvent'))).toContain('condenser_profile_required');
+  expect(JSON.stringify(events.filter(event => event.kind === 'ConversationErrorEvent'))).toContain('explicit profile reference');
 });
 
 
@@ -143,6 +152,11 @@ test('legacy disk requests inherit and pin effective agent settings with their f
   delete legacy.request.agent;
   delete legacy.request.llm_profile_snapshot;
   delete legacy.request.llm_profile_selection;
+  delete legacy.request.resolved_launch;
+  delete legacy.request.launch_source;
+  delete legacy.request.condenser_binding;
+  delete legacy.request.hard_condenser_binding;
+  f.selectCondenser.mockClear();
   await writeFile(path.join(f.root, 'conversations', id, 'meta.json'), JSON.stringify(legacy));
   const legacyOptions = { ...f.options };
   delete legacyOptions.resolveProfileSelection;

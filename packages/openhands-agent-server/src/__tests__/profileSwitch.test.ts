@@ -57,6 +57,10 @@ async function fixture(extra: Partial<AgentServerAppOptions> = {}, complete?: (p
   return { server, id: start.json<{ id: string }>().id, observed, built, root, options };
 }
 
+async function metadata(fixture: { root: string; id: string }) {
+  return JSON.parse(await readFile(path.join(fixture.root, 'conversations', fixture.id, 'meta.json'), 'utf8'));
+}
+
 async function send(server: AgentServerApp, id: string, content = 'Continue') {
   const response = await server.app.inject({ method: 'POST', url: `/api/conversations/${id}/events`, payload: { role: 'user', content, run: true } });
   expect(response.statusCode).toBe(200);
@@ -77,7 +81,8 @@ test('a changed config reference rebinds the existing conversation and preserves
   expect(JSON.stringify(f.observed[1]!.messages)).toContain('first request');
   const info = (await f.server.app.inject(`/api/conversations/${f.id}`)).json();
   expect(info.agent.llm_profile_ref).toBe('b');
-  expect(info.launched_agent_profile.profileId).toBe('b');
+  expect(info.launched_agent_profile).toBeNull();
+  expect((await metadata(f)).request.llm_profile_snapshot.profileId).toBe('b');
   expect(Object.keys(info.stats.usage_to_metrics)).toEqual(['profile:a', 'profile:b']);
   expect(info.metrics.known_token_usage.total_tokens).toBe(24);
 });
@@ -205,7 +210,7 @@ test('same-reference config edits keep snapshots, explicit tool reselection refr
   selected = undefined;
   await send(f.server, f.id); await settled(f.server, f.id);
   expect(f.built).toEqual(['a:model-a', 'a:updated-model-a']);
-  expect((await f.server.app.inject(`/api/conversations/${f.id}`)).json().launched_agent_profile.model).toBe('updated-model-a');
+  expect((await metadata(f)).request.llm_profile_snapshot.model).toBe('updated-model-a');
 });
 
 test('client construction failure preserves active metadata and emits a safe tool error', async () => {
@@ -323,8 +328,8 @@ test.each([
   { enabled: true, explicit: false, count: 1 },
   { enabled: false, explicit: false, count: 0 },
   { enabled: true, explicit: true, count: 1 },
-  { enabled: false, explicit: true, count: 1 },
-])('switch tool registration follows automatic/explicit settings: $enabled / $explicit', async ({ enabled, explicit, count }) => {
+  { enabled: false, explicit: true, count: 0 },
+])('retired switch setting folds into canonical tool selection: $enabled / $explicit', async ({ enabled, explicit, count }) => {
   const names: string[][] = [];
   const f = await fixture({ llmClientFactory: async (profile) => ({ profile, complete: async (_messages, tools) => {
     names.push(tools?.map((tool) => tool.name) ?? []);

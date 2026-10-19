@@ -156,7 +156,10 @@ async function coverStateProfilesSecrets(client: LocalClient): Promise<void> {
   const updatedSettings = await client.patchJson<{ active_profile_id: string | null }>('/api/settings', { active_profile_id: llmProfile.profileId });
   assertEqual(updatedSettings.active_profile_id, llmProfile.profileId, 'settings active profile updated');
 
-  const agentProfile = await client.postJson<{ id: string; name: string; llm_profile_ref: string }>('/api/agent-profiles', { name: 'local-endpoint-agent', llm_profile_ref: llmProfile.profileId }, 201);
+  const agentProfile = await client.postJson<{ id: string; name: string; llm_profile_ref: string }>('/api/agent-profiles', {
+    name: 'local-endpoint-agent', llm_profile_ref: llmProfile.profileId,
+    tools: ['finish'], condenser: { enabled: false },
+  }, 201);
   assertEqual(agentProfile.name, 'local-endpoint-agent', 'agent profile created');
   assertEqual(agentProfile.llm_profile_ref, llmProfile.profileId, 'agent profile references llm profile');
   const materialized = await client.postJson<{ valid: boolean; resolved_settings: Record<string, unknown> }>('/api/agent-profiles/local-endpoint-agent/materialize', {});

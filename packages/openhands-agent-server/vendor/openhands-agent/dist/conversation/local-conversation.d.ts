@@ -1,3 +1,5 @@
+import { type ConversationObservabilityOptions } from '../observability/index.js';
+import type { WorkspaceCompletionRegistration } from '../workspace/completion-callback.js';
 import { type Event } from '../event/index.js';
 import { type FileStore } from '../io/index.js';
 import { type LLMCallContext } from '../llm/call-context.js';
@@ -5,7 +7,8 @@ import type { Agent } from '../agent/index.js';
 import { ConversationState } from './state.js';
 import { StuckDetector, type StuckDetectionThresholds } from './stuck-detector.js';
 import { type AgentStepBoundary } from './ext/step-boundary.js';
-export interface LocalConversationOptions {
+export interface LocalConversationOptions extends ConversationObservabilityOptions {
+    readonly workspace?: WorkspaceCompletionRegistration;
     readonly agent: Agent;
     readonly state?: ConversationState;
     readonly maxIterations?: number;
@@ -19,6 +22,9 @@ export interface LocalConversationOptions {
     readonly onStepBoundary?: AgentStepBoundary;
 }
 export declare class LocalConversation {
+    private readonly rootSpan;
+    private readonly workspace;
+    private closed;
     private activeAgent;
     private readonly onStepBoundary;
     private runInProgress;
@@ -33,6 +39,7 @@ export declare class LocalConversation {
     readonly conversationId: string;
     private readonly callContext;
     constructor(options: LocalConversationOptions);
+    close(): void;
     getLLMCallContext(): LLMCallContext;
     sendMessage(text: string): Event;
     sendMessageAsync(text: string): Promise<Event>;

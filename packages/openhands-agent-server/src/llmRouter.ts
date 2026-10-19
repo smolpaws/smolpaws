@@ -25,10 +25,14 @@ export function registerLlmRoutes(app: FastifyInstance, auth: SubscriptionAuth):
     for (const [token, login] of pending) if (login.expiresAt <= Date.now()) pending.delete(token);
   };
   const catalog: Readonly<Record<string, readonly string[]>> = VERIFIED_MODELS;
+  // OpenRouter verified IDs are provider-relative and may collide with direct
+  // provider IDs. Discovery returns routes; the verified endpoint stays exact.
+  const routes = (provider: string): readonly string[] => provider === 'openrouter'
+    ? (catalog[provider] ?? []).map(model => `openrouter/${model}`) : catalog[provider] ?? [];
   app.get('/api/llm/providers', async () => ({ providers: Object.keys(catalog).sort() }));
   app.get('/api/llm/models', async (request) => {
     const { provider } = z.object({ provider: z.string().optional() }).parse(request.query);
-    return { models: [...new Set(provider === undefined ? Object.values(catalog).flat() : catalog[provider] ?? [])].sort() };
+    return { models: [...new Set(provider === undefined ? Object.keys(catalog).flatMap(routes) : routes(provider))].sort() };
   });
   app.get('/api/llm/models/verified', async () => ({ models: catalog }));
   app.get('/api/llm/subscription/openai/models', async () => ({ vendor: 'openai', models: [...OPENAI_CODEX_MODELS].sort() }));

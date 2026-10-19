@@ -8,7 +8,7 @@ export type ProfileSelectedLlmSettings = {
 } & {
     readonly [K in RawLlmFieldIgnoredWhenProfileSelected]?: unknown;
 };
-export declare const AGENT_SETTINGS_SCHEMA_VERSION = 6;
+export declare const AGENT_SETTINGS_SCHEMA_VERSION = 8;
 export declare const CONVERSATION_SETTINGS_SCHEMA_VERSION = 1;
 export declare const observabilityMetadataSchema: z.ZodRecord<z.ZodString, z.ZodUnknown>;
 export declare const observabilityTagsSchema: z.ZodArray<z.ZodString>;
@@ -20,13 +20,15 @@ export declare const conversationSettingsSchema: z.ZodObject<{
     observability_tags: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
     observability_span_name: z.ZodDefault<z.ZodNullable<z.ZodString>>;
 }, z.core.$strict>;
-export declare const openHandsAgentSettingsSchema: z.ZodObject<{
+export declare const openHandsAgentSettingsSchema: z.ZodPreprocess<z.ZodObject<{
     agent_kind: z.ZodDefault<z.ZodLiteral<"openhands">>;
     llm_profile_ref: z.ZodString;
     agent: z.ZodDefault<z.ZodString>;
-    tools: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodUnknown>>>;
-    enable_sub_agents: z.ZodDefault<z.ZodBoolean>;
-    enable_switch_llm_tool: z.ZodDefault<z.ZodBoolean>;
+    tools: z.ZodDefault<z.ZodNullable<z.ZodPreprocess<z.ZodArray<z.ZodObject<{
+        name: z.ZodString;
+        params: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+    }, z.core.$strict>>>>>;
+    persona: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     enable_classify_and_switch_llm_tool: z.ZodDefault<z.ZodBoolean>;
     active_meta_profile: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     meta_profile: z.ZodDefault<z.ZodNullable<z.ZodObject<{
@@ -55,6 +57,7 @@ export declare const openHandsAgentSettingsSchema: z.ZodObject<{
         maxInputTokens: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
         maxOutputTokens: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
         timeoutSeconds: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
+        streamIdleTimeoutSeconds: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
         reasoningEffort: z.ZodDefault<z.ZodNullable<z.ZodUnion<readonly [z.ZodLiteral<"low">, z.ZodLiteral<"medium">, z.ZodLiteral<"high">]>>>;
         reasoningSummary: z.ZodDefault<z.ZodNullable<z.ZodUnion<readonly [z.ZodLiteral<"auto">, z.ZodLiteral<"concise">, z.ZodLiteral<"detailed">]>>>;
         verbosity: z.ZodOptional<z.ZodEnum<{
@@ -109,8 +112,8 @@ export declare const openHandsAgentSettingsSchema: z.ZodObject<{
     }, z.core.$strip>>;
     schema_version: z.ZodDefault<z.ZodLiteral<number>>;
     mcp_config: z.ZodDefault<z.ZodNullable<z.ZodUnknown>>;
-}, z.core.$strict>;
-export declare const acpAgentSettingsSchema: z.ZodObject<{
+}, z.core.$strict>>;
+export declare const acpAgentSettingsSchema: z.ZodPreprocess<z.ZodObject<{
     agent_kind: z.ZodDefault<z.ZodLiteral<"acp">>;
     acp_server: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"claude-code">, z.ZodLiteral<"codex">, z.ZodLiteral<"gemini-cli">, z.ZodLiteral<"custom">]>>;
     acp_command: z.ZodDefault<z.ZodArray<z.ZodString>>;
@@ -121,14 +124,16 @@ export declare const acpAgentSettingsSchema: z.ZodObject<{
     acp_startup_timeout: z.ZodDefault<z.ZodNumber>;
     schema_version: z.ZodDefault<z.ZodLiteral<number>>;
     mcp_config: z.ZodDefault<z.ZodNullable<z.ZodUnknown>>;
-}, z.core.$strict>;
-export declare const agentSettingsSchema: z.ZodUnion<readonly [z.ZodObject<{
+}, z.core.$strict>>;
+export declare const agentSettingsSchema: z.ZodUnion<readonly [z.ZodPreprocess<z.ZodObject<{
     agent_kind: z.ZodDefault<z.ZodLiteral<"openhands">>;
     llm_profile_ref: z.ZodString;
     agent: z.ZodDefault<z.ZodString>;
-    tools: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodUnknown>>>;
-    enable_sub_agents: z.ZodDefault<z.ZodBoolean>;
-    enable_switch_llm_tool: z.ZodDefault<z.ZodBoolean>;
+    tools: z.ZodDefault<z.ZodNullable<z.ZodPreprocess<z.ZodArray<z.ZodObject<{
+        name: z.ZodString;
+        params: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+    }, z.core.$strict>>>>>;
+    persona: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     enable_classify_and_switch_llm_tool: z.ZodDefault<z.ZodBoolean>;
     active_meta_profile: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     meta_profile: z.ZodDefault<z.ZodNullable<z.ZodObject<{
@@ -157,6 +162,7 @@ export declare const agentSettingsSchema: z.ZodUnion<readonly [z.ZodObject<{
         maxInputTokens: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
         maxOutputTokens: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
         timeoutSeconds: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
+        streamIdleTimeoutSeconds: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
         reasoningEffort: z.ZodDefault<z.ZodNullable<z.ZodUnion<readonly [z.ZodLiteral<"low">, z.ZodLiteral<"medium">, z.ZodLiteral<"high">]>>>;
         reasoningSummary: z.ZodDefault<z.ZodNullable<z.ZodUnion<readonly [z.ZodLiteral<"auto">, z.ZodLiteral<"concise">, z.ZodLiteral<"detailed">]>>>;
         verbosity: z.ZodOptional<z.ZodEnum<{
@@ -211,7 +217,7 @@ export declare const agentSettingsSchema: z.ZodUnion<readonly [z.ZodObject<{
     }, z.core.$strip>>;
     schema_version: z.ZodDefault<z.ZodLiteral<number>>;
     mcp_config: z.ZodDefault<z.ZodNullable<z.ZodUnknown>>;
-}, z.core.$strict>, z.ZodObject<{
+}, z.core.$strict>>, z.ZodPreprocess<z.ZodObject<{
     agent_kind: z.ZodDefault<z.ZodLiteral<"acp">>;
     acp_server: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"claude-code">, z.ZodLiteral<"codex">, z.ZodLiteral<"gemini-cli">, z.ZodLiteral<"custom">]>>;
     acp_command: z.ZodDefault<z.ZodArray<z.ZodString>>;
@@ -222,12 +228,14 @@ export declare const agentSettingsSchema: z.ZodUnion<readonly [z.ZodObject<{
     acp_startup_timeout: z.ZodDefault<z.ZodNumber>;
     schema_version: z.ZodDefault<z.ZodLiteral<number>>;
     mcp_config: z.ZodDefault<z.ZodNullable<z.ZodUnknown>>;
-}, z.core.$strict>]>;
+}, z.core.$strict>>]>;
 export type ConversationSettings = z.infer<typeof conversationSettingsSchema>;
 export type OpenHandsAgentSettings = z.infer<typeof openHandsAgentSettingsSchema>;
 export type ACPAgentSettings = z.infer<typeof acpAgentSettingsSchema>;
 export type AgentSettings = OpenHandsAgentSettings | ACPAgentSettings;
 export declare function clearRawLlmFieldsWhenProfileSelected<T extends ProfileSelectedLlmSettings>(llm: T): T;
-export declare function validateAgentSettings(data: unknown): AgentSettings;
+export declare function validateAgentSettings(data: unknown, options?: {
+    readonly persisted?: boolean;
+}): AgentSettings;
 export declare function validateConversationSettings(data: unknown): ConversationSettings;
 export declare function defaultAgentSettings(llmProfileRef: string): OpenHandsAgentSettings;

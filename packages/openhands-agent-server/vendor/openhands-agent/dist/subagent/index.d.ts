@@ -57,6 +57,6 @@ export interface AgentFactory {
 export declare function registerAgent(name: string, factoryFunc: AgentFactoryFunction, description: string | AgentDefinition): void;
 export declare function registerAgentIfAbsent(name: string, factoryFunc: AgentFactoryFunction, description: string | AgentDefinition): boolean;
 export declare function getAgentFactory(name: string | null | undefined): AgentFactory;
-export declare function getFactoryInfo(): string;
+export declare function getFactoryInfo(include?: (definition: AgentDefinition) => boolean): string;
 export declare function getRegisteredAgentDefinitions(): AgentDefinition[];
 export declare function resetAgentRegistryForTests(): void;

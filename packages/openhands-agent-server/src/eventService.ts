@@ -20,6 +20,7 @@ import {
   messageEventSchema,
   pauseEventSchema,
   type Event,
+  type ObservabilityRuntime,
   type LLMClient,
   type LLMCallContext,
   type LLMProfile,
@@ -33,6 +34,7 @@ import { defaultErrorLogger, safeErrorDiagnostics, safeRunError, type ErrorLogge
 import { conversationSecretRef, extractConversationSecretUpdates } from './conversationSecrets.js';
 import { type ConfirmationResponseRequest, type EventPage, type EventSortOrder, textFromContent } from './models.js';
 import type { StoredConversation } from './models.js';
+import { ConversationRunLimitExceeded, RunAdmission, type RunSlot } from './runAdmission.js';
 import { PubSub, type Subscriber } from './pubSub.js';
 import { ConversationProfileRuntime, type ProfileRuntimeOptions, type UpdateConversationRequest } from './profileRuntime.js';
 
@@ -51,6 +53,8 @@ export interface AgentFactoryContext {
 export type AgentFactory = (requestAgent: unknown, context: AgentFactoryContext) => Agent | Promise<Agent>;
 
 export interface EventServiceOptions {
+  readonly runAdmission?: RunAdmission;
+  readonly observability?: ObservabilityRuntime;
   readonly stored: StoredConversation;
   readonly errorLogger?: ErrorLogger;
   readonly agentFactory?: AgentFactory;
@@ -77,6 +81,10 @@ export class EventService {
   private readonly updateRequest: UpdateConversationRequest;
   private readonly maintenance = new Set<Promise<void>>();
   private closing = false;
+  private readonly runAdmission: RunAdmission;
+  private readonly observability: ObservabilityRuntime | undefined;
+  private stopGeneration = 0;
+  private capacityWaiter: AbortController | null = null;
   private conversationPromise: Promise<LocalConversation> | null = null;
   private readonly publishedEventIds = new Set<string>();
   private runPromise: Promise<void> | null = null;
@@ -86,6 +94,8 @@ export class EventService {
   private readonly profileRuntime: ConversationProfileRuntime | undefined;
 
   constructor(options: EventServiceOptions) {
+    this.observability = options.observability;
+    this.runAdmission = options.runAdmission ?? new RunAdmission();
     this.stored = options.stored;
     this.errorLogger = options.errorLogger ?? defaultErrorLogger;
     this.eventLog = options.eventLog ?? createEventLog(options.stored);
@@ -210,6 +220,7 @@ export class EventService {
       try {
         await this.run();
       } catch (error) {
+        if (error instanceof ConversationRunLimitExceeded) throw new ConversationRunLimitExceeded(`Message saved. Retry POST /api/conversations/${this.stored.id}/run without resending the message.`);
         if (!isConversationAlreadyRunning(error)) throw error;
         this.rerunRequested = true;
       }
@@ -232,32 +243,39 @@ export class EventService {
     return this.pubSub.unsubscribe(subscriberId);
   }
 
-  async run(): Promise<void> {
+  async run(options: { readonly runSlot?: RunSlot; readonly waitForCapacity?: boolean } = {}): Promise<void> {
+    if (this.closing) throw new Error('Conversation is closing.');
     this.selectionRequested = true;
-    if (this.runPromise !== null) {
-      throw new Error('conversation_already_running');
-    }
-    const runPromise = this.runAndPublish();
-    this.runPromise = runPromise;
-    void runPromise
-      .catch((error: unknown) => {
-        this.logError('conversation_run_error_cleanup', error);
-      })
-      .finally(() => {
-        this.runPromise = null;
-        // A message may arrive after the final loop condition but before cleanup.
-        if (this.rerunRequested) void this.run().catch((error: unknown) => {
-          this.logError('conversation_rerun_error', error);
-        });
-      });
+    if (this.runPromise !== null) throw new Error('conversation_already_running');
+    const slot = options.runSlot?.share() ?? (options.waitForCapacity ? null : this.runAdmission.tryAcquire());
+    const generation = this.stopGeneration;
+    // Publish the ticket before any factory/client work can yield to another caller.
+    const body = Promise.resolve().then(() => this.runAndPublish(slot, generation));
+    const ticket = body.finally(() => {
+      if (this.runPromise !== ticket) return;
+      this.runPromise = null;
+      if (!this.closing && generation === this.stopGeneration && this.needsContinuation()) {
+        void this.run({ waitForCapacity: true }).catch((error: unknown) => this.logError('conversation_rerun_error', error));
+      }
+    });
+    this.runPromise = ticket;
+    void ticket.catch((error: unknown) => this.logError('conversation_run_error_cleanup', error));
+  }
+
+  private stopScheduledWork(): void {
+    this.stopGeneration++;
+    this.rerunRequested = false;
+    this.capacityWaiter?.abort();
   }
 
   async pause(): Promise<void> {
+    this.stopScheduledWork();
     await this.pauseInstantiatedConversation();
     await this.appendAndPublish(pauseEventSchema.parse({}));
   }
 
   async interrupt(): Promise<void> {
+    this.stopScheduledWork();
     await this.pauseInstantiatedConversation();
     await this.appendAndPublish(pauseEventSchema.parse({}));
     await this.appendAndPublish(interruptEventSchema.parse({}));
@@ -383,8 +401,10 @@ export class EventService {
 
   async close(): Promise<void> {
     this.closing = true;
+    this.stopScheduledWork();
     await this.whenIdle();
-    await this.pubSub.close();
+    try { (await this.conversationPromise?.catch(() => null))?.close(); }
+    finally { await this.pubSub.close(); }
   }
 
   /** Wait for execution and its publication/metadata cleanup, without closing subscriptions. */
@@ -393,6 +413,8 @@ export class EventService {
       await Promise.allSettled([...(this.runPromise === null ? [] : [this.runPromise]), ...this.maintenance]);
     }
   }
+
+  async initialize(): Promise<void> { this.selectionRequested = true; await this.conversation(); }
 
   private conversation(): Promise<LocalConversation> {
     if (this.conversationPromise !== null) return this.conversationPromise;
@@ -426,6 +448,13 @@ export class EventService {
       agent,
       state: this.state,
       conversationId: this.stored.id,
+      userId: this.stored.request.user_id,
+      tags: this.stored.tags,
+      observabilityMetadata: this.stored.request.observability_metadata,
+      observabilityTags: this.stored.request.observability_tags,
+      observabilitySpanName: this.stored.request.observability_span_name,
+      observabilityParentSpanContext: this.stored.request.observability_parent_span_context,
+      observability: this.observability,
       maxIterations: this.stored.request.max_iterations,
       stuckDetection: this.stored.request.stuck_detection,
       onStepBoundary: async (currentAgent: Agent) => {
@@ -438,6 +467,7 @@ export class EventService {
         } catch (error) {
           // Lease cleanup can fail after committing a replacement snapshot. Stop this run;
           // a later turn must reconstruct from durable metadata instead of reusing the old agent.
+          runtime.conversation?.close();
           this.conversationPromise = null;
           throw error;
         }
@@ -447,30 +477,56 @@ export class EventService {
     return conversation;
   }
 
-  private async runAndPublish(): Promise<void> {
-    do {
-      this.rerunRequested = false;
-      if (this.state.executionStatus === conversationExecutionStatus.FINISHED
-        && this.latestUserMessageId() !== this.lastStepUserMessageId) {
-        this.state.executionStatus = conversationExecutionStatus.IDLE;
-      }
-      const startIndex = this.events().length;
-      const startedAt = Date.now();
-      try {
-        const conversation = await this.conversation();
-        await conversation.run();
-        this.lastStepUserMessageId = conversation.lastStepUserMessageId;
-        this.touch();
-        await this.saveConversation(this.stored);
-        for (const event of this.events().slice(startIndex)) {
-          await this.publishEventOnce(event);
+  private needsContinuation(): boolean {
+    return this.rerunRequested && this.latestUserMessageId() !== this.lastStepUserMessageId;
+  }
+
+  private async runAndPublish(initialSlot: RunSlot | null, generation: number): Promise<void> {
+    let slot = initialSlot;
+    try {
+      do {
+        if (this.closing || generation !== this.stopGeneration) break;
+        if (slot === null) {
+          const waiter = new AbortController();
+          this.capacityWaiter = waiter;
+          try { slot = await this.runAdmission.acquire(waiter.signal); }
+          catch (error) { if (waiter.signal.aborted) break; throw error; }
+          finally { if (this.capacityWaiter === waiter) this.capacityWaiter = null; }
         }
-      } catch (error) {
-        await this.handleRunError(error, startIndex, Date.now() - startedAt);
-      } finally {
-        await this.pubSub.publish(this.createStateUpdateEvent());
-      }
-    } while (this.rerunRequested);
+        if (this.closing || generation !== this.stopGeneration) break;
+        this.rerunRequested = false;
+        if (this.state.executionStatus === conversationExecutionStatus.FINISHED
+          && this.latestUserMessageId() !== this.lastStepUserMessageId) {
+          this.state.executionStatus = conversationExecutionStatus.IDLE;
+        }
+        const startIndex = this.events().length;
+        const startedAt = Date.now();
+        let failure: unknown;
+        let failed = false;
+        try {
+          const conversation = await this.conversation();
+          if (this.closing || generation !== this.stopGeneration) break;
+          await conversation.run();
+          this.lastStepUserMessageId = conversation.lastStepUserMessageId;
+        } catch (error) { failed = true; failure = error; this.rerunRequested = false; }
+        finally {
+          // Release actual execution capacity before slow durable/publication tails.
+          // A known unread continuation may retain this logical run-chain reservation.
+          if (failed || this.closing || generation !== this.stopGeneration || !this.needsContinuation()) {
+            slot.release(); slot = null;
+          }
+        }
+        try {
+          if (failed) await this.handleRunError(failure, startIndex, Date.now() - startedAt);
+          else {
+            this.touch();
+            await this.saveConversation(this.stored);
+            for (const event of this.events().slice(startIndex)) await this.publishEventOnce(event);
+          }
+        } finally { await this.pubSub.publish(this.createStateUpdateEvent()); }
+        if (failed) { this.rerunRequested = false; break; }
+      } while (this.needsContinuation());
+    } finally { slot?.release(); }
   }
 
   private latestUserMessageId(): string | null {

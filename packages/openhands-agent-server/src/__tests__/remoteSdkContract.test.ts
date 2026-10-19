@@ -35,7 +35,7 @@ test('vendored SDK creates with the selected profile, attaches, and rejects a mi
     const options = { host: `http://127.0.0.1:${address.port}`, apiKey: 'remote-sdk-test-key' };
     const request = {
       workspace: { kind: 'LocalWorkspace' as const, working_dir: workingDir },
-      agentSettings: defaultAgentSettings('remote-requested'),
+      agentSettings: { ...defaultAgentSettings('remote-requested'), condenser: { enabled: false } },
     };
     const created = await RemoteConversation.create({ ...options, request });
     const info = await server.conversationService.getConversation(created.id);
@@ -44,8 +44,8 @@ test('vendored SDK creates with the selected profile, attaches, and rejects a mi
     expect(attached.id).toBe(created.id);
     expect(attached.state.executionStatus).toBe(created.state.executionStatus);
     await expect(RemoteConversation.create({
-      ...options, request: { ...request, agentSettings: defaultAgentSettings('remote-missing') },
-    })).rejects.toThrow(/llm_profile_not_found/u);
+      ...options, request: { ...request, agentSettings: { ...defaultAgentSettings('remote-missing'), condenser: { enabled: false } } },
+    })).rejects.toThrow(/unresolved_profile_references.*remote-missing/u);
   } finally {
     await server.app.close();
     await rm(root, { recursive: true, force: true });

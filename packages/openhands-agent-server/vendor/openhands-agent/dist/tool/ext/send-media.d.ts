@@ -6,8 +6,8 @@ export declare const sendMediaActionSchema: z.ZodObject<{
     path: z.ZodString;
     media_type: z.ZodEnum<{
         image: "image";
-        video: "video";
         audio: "audio";
+        video: "video";
         document: "document";
     }>;
     caption: z.ZodOptional<z.ZodString>;

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -71,9 +72,15 @@ export class ServerStateService {
     return structuredClone(state.settings.agent_settings);
   }
 
+  /** Capture launch defaults without querying the credential store. */
+  async launchSettings(): Promise<Pick<SettingsResponse, 'agent_settings' | 'conversation_settings'>> {
+    const state = await this.load();
+    return structuredClone({ agent_settings: state.settings.agent_settings, conversation_settings: state.settings.conversation_settings });
+  }
+
   async settings(): Promise<SettingsResponse> {
     const state = await this.load();
-    return { ...state.settings, llm_api_key_set: await this.hasLlmApiKey(state.settings.active_profile_id) };
+    return { ...state.settings, llm_api_key_set: state.settings.agent_settings.agent_kind === 'openhands' && await this.hasLlmApiKey(state.settings.active_profile_id) };
   }
 
   async updateSettings(update: SettingsUpdateRequest): Promise<SettingsResponse> {
@@ -275,10 +282,12 @@ export class ServerStateService {
   }
 
   async saveAgentProfile(payload: unknown): Promise<AgentProfile> {
-    const profile = validateAgentProfile(payload);
-    if (profile.agent_kind === 'openhands') validateRouterToolSpecs(profile);
+    const validated = validateAgentProfile(payload);
+    if (validated.agent_kind === 'openhands') validateRouterToolSpecs(validated);
     return this.serializeMutation(async () => {
     const state = await this.load();
+    const existing = state.agentProfiles[validated.name];
+    const profile = validateAgentProfile({ ...validated, id: existing?.id ?? randomUUID(), revision: existing === undefined ? validated.revision : existing.revision + 1 });
     await this.commit({ ...state, agentProfiles: { ...state.agentProfiles, [profile.name]: profile } });
     return profile;
     });
@@ -343,6 +352,13 @@ export class ServerStateService {
   async getSecretMetadata(name: string): Promise<SecretMetadata | null> {
     const state = await this.load();
     return state.secrets[name] ?? null;
+  }
+
+  /** Internal configured-secret lookup; stale orphan keychain entries are not authority. */
+  async resolveSecret(name: string): Promise<string | null> {
+    const state = await this.load();
+    if (!Object.hasOwn(state.secrets, name)) return null;
+    return this.secretStore.get({ service: 'openhands', account: `agent-server-secret:${name}` });
   }
 
   async deleteSecret(name: string): Promise<void> {

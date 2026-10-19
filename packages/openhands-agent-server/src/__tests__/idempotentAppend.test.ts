@@ -42,7 +42,7 @@ async function userMessages(app: Awaited<ReturnType<typeof createAgentServerApp>
 describe('POST /events idempotent event_id', () => {
   test('re-appending the same event_id returns created:false and does not duplicate the turn', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'oh-idem-'));
-    const { app } = await createAgentServerApp({ config: { conversationsPath: root }, secretStore: new InMemorySecretStore() });
+    const { app } = await createAgentServerApp({ agentFactory: finishAgentFactory, config: { conversationsPath: root }, secretStore: new InMemorySecretStore() });
     try {
       const start = await app.inject({ method: 'POST', url: '/api/conversations', payload: {} });
       const id = start.json<{ id: string }>().id;
@@ -76,7 +76,7 @@ describe('POST /events idempotent event_id', () => {
 
   test('two concurrent appends with the same event_id: exactly one created, one event persisted', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'oh-idem-race-'));
-    const { app } = await createAgentServerApp({ config: { conversationsPath: root }, secretStore: new InMemorySecretStore() });
+    const { app } = await createAgentServerApp({ agentFactory: finishAgentFactory, config: { conversationsPath: root }, secretStore: new InMemorySecretStore() });
     try {
       const start = await app.inject({ method: 'POST', url: '/api/conversations', payload: {} });
       const id = start.json<{ id: string }>().id;
@@ -111,7 +111,7 @@ describe('POST /events idempotent event_id', () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'oh-idem-restart-'));
     const convId = '11111111-1111-4111-8111-111111111111';
     try {
-      const first = await createAgentServerApp({ config: { conversationsPath: root }, secretStore: new InMemorySecretStore() });
+      const first = await createAgentServerApp({ agentFactory: finishAgentFactory, config: { conversationsPath: root }, secretStore: new InMemorySecretStore() });
       await first.app.inject({ method: 'POST', url: '/api/conversations', payload: { id: convId } });
       const created = await first.app.inject({
         method: 'POST',
@@ -122,7 +122,7 @@ describe('POST /events idempotent event_id', () => {
       await first.app.close();
 
       // Restart: a fresh app instance on the same persistence root re-appends the same id.
-      const second = await createAgentServerApp({ config: { conversationsPath: root } });
+      const second = await createAgentServerApp({ agentFactory: finishAgentFactory, config: { conversationsPath: root } });
       const retry = await second.app.inject({
         method: 'POST',
         url: `/api/conversations/${convId}/events`,
@@ -171,7 +171,7 @@ describe('POST /events idempotent event_id', () => {
 
   test('omitting event_id preserves upstream behavior: each append is a new event', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'oh-idem-plain-'));
-    const { app } = await createAgentServerApp({ config: { conversationsPath: root }, secretStore: new InMemorySecretStore() });
+    const { app } = await createAgentServerApp({ agentFactory: finishAgentFactory, config: { conversationsPath: root }, secretStore: new InMemorySecretStore() });
     try {
       const start = await app.inject({ method: 'POST', url: '/api/conversations', payload: {} });
       const id = start.json<{ id: string }>().id;

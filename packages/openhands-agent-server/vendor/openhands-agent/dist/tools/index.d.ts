@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import { ToolDefinition } from '../tool/index.js';
+import type { FileEncodingDetector } from './file-encoding.js';
+export { FileEncodingManager, detectFileEncoding } from './file-encoding.js';
+export type { EncodedTextFile, FileEncodingDetector, FileEncodingGuess, FileTextEncoding } from './file-encoding.js';
 export { MAX_CMD_OUTPUT_SIZE, terminalMetadataSchema } from './terminal-observation.js';
 export declare const baseToolObservationSchema: z.ZodObject<{
     text: z.ZodString;
@@ -87,13 +90,16 @@ export declare const fileEditorObservationSchema: z.ZodObject<{
 }, z.core.$strict>;
 export type FileEditorAction = z.infer<typeof fileEditorActionSchema>;
 export type FileEditorObservation = z.infer<typeof fileEditorObservationSchema>;
+export interface FileEditorOptions {
+    readonly workspaceRoot?: string | null;
+    readonly encodingDetector?: FileEncodingDetector;
+}
 export declare class FileEditorExecutor {
     private readonly history;
+    private readonly encodingManager;
     /** Workspace context retained for callers; filesystem access follows host permissions. */
     readonly workspaceRoot: string | null;
-    constructor(options?: {
-        readonly workspaceRoot?: string | null;
-    });
+    constructor(options?: FileEditorOptions);
     execute(action: FileEditorAction): Promise<FileEditorObservation>;
     private view;
     private create;
@@ -104,9 +110,7 @@ export declare class FileEditorExecutor {
     private pushHistory;
 }
 export declare class FileEditorTool {
-    static create(options?: {
-        readonly workspaceRoot?: string | null;
-    }): ToolDefinition<typeof fileEditorActionSchema, typeof fileEditorObservationSchema>;
+    static create(options?: FileEditorOptions): ToolDefinition<typeof fileEditorActionSchema, typeof fileEditorObservationSchema>;
 }
 export declare const globActionSchema: z.ZodObject<{
     pattern: z.ZodString;
@@ -171,64 +175,7 @@ export declare class GrepTool {
         readonly workingDir: string;
     }): ToolDefinition<typeof grepActionSchema, typeof grepObservationSchema>;
 }
-export declare const taskItemSchema: z.ZodObject<{
-    title: z.ZodString;
-    notes: z.ZodDefault<z.ZodString>;
-    status: z.ZodDefault<z.ZodEnum<{
-        todo: "todo";
-        in_progress: "in_progress";
-        done: "done";
-    }>>;
-}, z.core.$strict>;
-export declare const taskTrackerActionSchema: z.ZodObject<{
-    command: z.ZodDefault<z.ZodEnum<{
-        view: "view";
-        plan: "plan";
-    }>>;
-    task_list: z.ZodDefault<z.ZodArray<z.ZodObject<{
-        title: z.ZodString;
-        notes: z.ZodDefault<z.ZodString>;
-        status: z.ZodDefault<z.ZodEnum<{
-            todo: "todo";
-            in_progress: "in_progress";
-            done: "done";
-        }>>;
-    }, z.core.$strict>>>;
-}, z.core.$strict>;
-export declare const taskTrackerObservationSchema: z.ZodObject<{
-    text: z.ZodString;
-    is_error: z.ZodDefault<z.ZodBoolean>;
-    command: z.ZodEnum<{
-        view: "view";
-        plan: "plan";
-    }>;
-    task_list: z.ZodDefault<z.ZodArray<z.ZodObject<{
-        title: z.ZodString;
-        notes: z.ZodDefault<z.ZodString>;
-        status: z.ZodDefault<z.ZodEnum<{
-            todo: "todo";
-            in_progress: "in_progress";
-            done: "done";
-        }>>;
-    }, z.core.$strict>>>;
-}, z.core.$strict>;
-export type TaskItem = z.infer<typeof taskItemSchema>;
-export type TaskTrackerAction = z.infer<typeof taskTrackerActionSchema>;
-export type TaskTrackerObservation = z.infer<typeof taskTrackerObservationSchema>;
-export declare class TaskTrackerExecutor {
-    private taskList;
-    readonly saveDir: string | null;
-    constructor(options?: {
-        readonly saveDir?: string | null;
-    });
-    execute(action: TaskTrackerAction): Promise<TaskTrackerObservation>;
-    private saveTasks;
-}
-export declare class TaskTrackerTool {
-    static create(options?: {
-        readonly saveDir?: string | null;
-    }): ToolDefinition<typeof taskTrackerActionSchema, typeof taskTrackerObservationSchema>;
-}
+export * from '../tool/task-tracker.js';
 export declare const browserActionSchema: z.ZodObject<{
     command: z.ZodEnum<{
         type: "type";

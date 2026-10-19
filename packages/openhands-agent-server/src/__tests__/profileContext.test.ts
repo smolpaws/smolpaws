@@ -18,7 +18,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-async function fixture(options: Pick<AgentServerAppOptions, 'configureContext' | 'configureTools'> = {}) {
+async function fixture(options: Pick<AgentServerAppOptions, 'configureContext' | 'configureTools' | 'initializeOnCreate'> = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'openhands-profile-context-'));
   roots.push(root);
   const complete = vi.fn(async (_messages: readonly Message[]) => ({
@@ -118,16 +118,29 @@ describe('profile agent context configuration', () => {
     expect(systemPrompt(complete.mock.calls[0]![0])).not.toContain('<REPO_CONTEXT>');
   });
 
-  test('surfaces configuration failures and does not run without the required context', async () => {
+  test('creation surfaces context failure and removes the failed conversation before any completion', async () => {
+    const { server, llmClientFactory, complete } = await fixture({ configureContext: async () => { throw new Error('required_context_unavailable'); } });
+    const response = await server.app.inject({ method: 'POST', url: '/api/conversations', payload: {
+      agent: { condenser: { enabled: false }, llm_profile_ref: profile.profileId, tools: ['finish'] },
+    } });
+    expect(response.statusCode).toBe(500);
+    expect(response.body).toContain('required_context_unavailable');
+    expect((await server.app.inject('/api/conversations/count')).json()).toBe(0);
+    expect(llmClientFactory).toHaveBeenCalledOnce();
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  test('an explicitly lazy host records context failure as a run error and makes no completion', async () => {
     const failure = new Error('required_context_unavailable');
-    const { server, llmClientFactory, complete, errorLogger } = await fixture({ configureContext: async () => { throw failure; } });
+    const { server, llmClientFactory, complete, errorLogger } = await fixture({ initializeOnCreate: false, configureContext: async () => { throw failure; } });
     const errorLog = vi.spyOn(errorLogger, 'error');
     const id = await start(server);
+    expect(llmClientFactory).not.toHaveBeenCalled();
     await run(server, id, 'error');
     expect(errorLog).toHaveBeenCalledWith(expect.objectContaining({
       conversation_id: id, error: expect.objectContaining({ code: 'Error', detail: 'required_context_unavailable' }),
     }), 'conversation_run_error');
-    expect(llmClientFactory).not.toHaveBeenCalled();
+    expect(llmClientFactory).toHaveBeenCalledOnce();
     expect(complete).not.toHaveBeenCalled();
   });
 });

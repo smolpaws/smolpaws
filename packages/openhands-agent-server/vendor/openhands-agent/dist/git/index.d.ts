@@ -1,3 +1,4 @@
+import { z } from 'zod';
 export declare const GIT_EMPTY_TREE_HASH = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 export declare const MAX_FILE_SIZE_FOR_GIT_DIFF: number;
 export declare enum GitChangeStatus {
@@ -25,6 +26,30 @@ export interface GitCommitsPage {
     readonly commits: readonly GitCommit[];
     readonly has_more: boolean;
 }
+export declare const gitProviderRepositorySchema: z.ZodObject<{
+    id: z.ZodString;
+    full_name: z.ZodString;
+    git_provider: z.ZodString;
+    is_public: z.ZodBoolean;
+    stargazers_count: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
+    pushed_at: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    main_branch: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+}, z.core.$strip>;
+export declare const gitProviderRepositoryPageSchema: z.ZodObject<{
+    items: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        full_name: z.ZodString;
+        git_provider: z.ZodString;
+        is_public: z.ZodBoolean;
+        stargazers_count: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
+        pushed_at: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        main_branch: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strip>>;
+    next_page_id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    missing_token: z.ZodDefault<z.ZodBoolean>;
+}, z.core.$strip>;
+export type GitProviderRepository = z.infer<typeof gitProviderRepositorySchema>;
+export type GitProviderRepositoryPage = z.infer<typeof gitProviderRepositoryPageSchema>;
 export interface GitRepositoryMetadata {
     readonly repo_remote?: string;
     readonly head_commit?: string;

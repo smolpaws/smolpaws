@@ -94,7 +94,9 @@ temporary state without connecting any bridge.
 Configure an enabled `agent_settings.condenser` with `condenser_kind: "llm_summarizing"`
 and an explicit saved `llm_profile_ref` (or provide the host's condenser-role resolver).
 The summarizer keeps its own immutable profile/settings binding and usage accounting.
-An enabled but unconfigured summarizer reports a configuration error on first execution.
+Managed creation resolves the summarizer before returning success. An enabled but
+unconfigured summarizer reports a configuration error during creation; an explicitly
+lazy custom host retains first-execution validation.
 Use disabled/no-op settings when no summarizer is intended.
 
 Automatic event/token pressure and supported provider overflow recovery run in the SDK.
@@ -111,3 +113,35 @@ local estimate, and omitted usage remains unknown. Warnings are advisory;
 only a real provider context-window error invokes that fallback. Manual `/condense`
 is unsupported in this mode: ask the agent to use its tool. See
 [agent-controlled configuration](../../docs/condensation.md#agent-controlled-mode).
+
+## Launch and admission
+
+Managed creation captures the selected agent settings, persona and independent LLM
+role profiles before returning success. Later profile edits affect new launches;
+existing conversations and forks retain their captured bindings. The public
+`launched_agent_profile` field records the source agent profile identity/revision,
+or `null` for settings-only launches. It is not an LLM profile snapshot. Public
+callers cannot supply the internal resolved-launch or LLM binding fields.
+
+`tools` is authoritative: an explicit empty list selects no tools; omitted tools
+use SDK defaults. `/api/tools/catalog` lists available native tool registrations.
+Agent-profile materialization accepts an optional unsaved `profile` draft and
+uses the same resolve/finalize pipeline without credential access or provider calls.
+Nonempty MCP configuration needs a real host materializer; the default host does
+not advertise unsupported browser/delegation/MCP execution as available.
+
+`OH_MAX_CONCURRENT_RUNS` (default 10), or `maxConcurrentRuns` on app construction,
+limits initialization and running conversation work through one capacity pool.
+Overload returns 429. If an event was saved before admission failed, retry its
+conversation's `/run` endpoint without resending the message. Accepted continuations
+wait for capacity; pause, interrupt and close cancel queued work without discarding
+stored input. Same-ID creation and fork operations serialize before publication.
+
+`POST /api/bash/bash_commands/{command_id}/stop` stops the owned process group,
+waits for output/cleanup, and leaves other commands running. Known finished IDs
+succeed; unknown IDs return 404 (the SDK treats that as a harmless no-op).
+
+Conversation creation accepts the four `X-OpenHands-Observability-*` headers for
+span name, tags, metadata and parent span context. Body values take precedence;
+metadata merges with body keys winning. Invalid metadata is rejected before launch.
+These fields carry tracing context and never grant access.

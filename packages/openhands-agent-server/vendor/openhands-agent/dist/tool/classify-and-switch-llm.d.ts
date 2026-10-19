@@ -3,7 +3,7 @@ import type { ConversationState } from '../conversation/state.js';
 import type { Event } from '../event/index.js';
 import type { LLMCallContext } from '../llm/call-context.js';
 import { type LLMClient } from '../llm/client.js';
-import { type LLMProfile } from '../llm/index.js';
+import { type LLMProfile, type Message } from '../llm/index.js';
 import { MetaProfileStore, type MetaProfile, type MetaProfileInput } from '../meta-profiles/index.js';
 import { ToolDefinition } from './index.js';
 export declare const classifyAndSwitchLLMActionSchema: z.ZodObject<{}, z.core.$strict>;
@@ -54,6 +54,7 @@ export interface ClassifyAndSwitchLLMToolOptions {
 export declare function buildClassifierPrompt(meta: MetaProfile): string;
 export declare function parseClassIndex(text: string, numClasses: number): number;
 export declare function renderDirectPrompt(meta: MetaProfile, instanceText: string): string;
+export declare function buildClassifierMessages(meta: MetaProfile, transcript: string): Message[];
 export declare function parseDirectModel(text: string, availableModels: readonly string[]): string | null;
 export declare function recentMessagesText(events: readonly Event[], limit?: number): string;
 export declare class ClassifyAndSwitchLLMTool {
