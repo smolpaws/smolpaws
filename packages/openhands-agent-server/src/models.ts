@@ -8,11 +8,15 @@ import {
   llmProfileSchema,
   llmSummarizingCondenserSettingsSchema,
   messageSchema,
+  metaProfileSchema,
+  LLM_PROFILE_ID_PATTERN,
   type Content,
   type ConversationExecutionStatus,
   type Event,
   type Message,
 } from '@smolpaws/openhands-agent';
+
+import { validateRouterToolSpecs } from './routerToolSpecs.js';
 
 const executionStatuses = Object.values(conversationExecutionStatus) as [ConversationExecutionStatus, ...ConversationExecutionStatus[]];
 
@@ -111,7 +115,17 @@ export const hardCondenserBindingSchema = z.object({
 }).strict().refine(binding => binding.profile.profileId === binding.settings.llm_profile_ref, 'Hard condenser binding profile reference mismatch');
 export type HardCondenserBinding = z.infer<typeof hardCondenserBindingSchema>;
 
-export const publicStartConversationRequestSchema = startConversationRequestBaseSchema.transform(stripServerOwnedStartFields);
+export const publicStartConversationRequestSchema = startConversationRequestBaseSchema.superRefine((request, context) => {
+  // Host factories may accept opaque agent settings, but recognized native
+  // routing specs still must not persist raw credential fields in metadata.
+  const agent = request.agent;
+  if (typeof agent !== 'object' || agent === null || !('tools' in agent) || !Array.isArray(agent.tools)) return;
+  try { validateRouterToolSpecs({ tools: agent.tools }); }
+  catch (error) {
+    if (!(error instanceof z.ZodError)) throw error;
+    for (const issue of error.issues) context.addIssue({ ...issue, path: ['agent', ...issue.path] });
+  }
+}).transform(stripServerOwnedStartFields);
 export const startConversationRequestSchema = startConversationRequestBaseSchema.extend({
   llm_profile_snapshot: llmProfileSchema.optional(),
   condenser_binding: condenserBindingSchema.optional(),
@@ -415,6 +429,13 @@ export type RenameProfileRequest = z.infer<typeof renameProfileRequestSchema>;
 export const profileMutationResponseSchema = z.object({ name: z.string(), message: z.string() }).strict();
 export type ProfileMutationResponse = z.infer<typeof profileMutationResponseSchema>;
 
+export const metaProfileNameSchema = z.string().min(1).max(64).regex(LLM_PROFILE_ID_PATTERN);
+export const metaProfileInfoSchema = z.object({ name: z.string(), classifier_model: z.string().nullable().default(null), num_classes: z.number().int().default(0) }).strict();
+export const metaProfileListResponseSchema = z.object({ meta_profiles: z.array(metaProfileInfoSchema), active_meta_profile: z.string().nullable().default(null) }).strict();
+export const metaProfileDetailResponseSchema = z.object({ name: z.string(), config: metaProfileSchema }).strict();
+export const metaProfileMutationResponseSchema = profileMutationResponseSchema;
+export { metaProfileSchema };
+
 export const activateProfileResponseSchema = z.object({ id: z.string(), message: z.string() }).strict();
 export type ActivateProfileResponse = z.infer<typeof activateProfileResponseSchema>;
 
@@ -436,6 +457,7 @@ export const settingsResponseSchema = z
     llm_api_key_set: z.boolean().default(false),
     active_profile_id: z.string().nullable().default(null),
     active_agent_profile_id: z.string().nullable().default(null),
+    active_meta_profile: z.string().nullable().default(null),
   })
   .strict();
 export type SettingsResponse = z.infer<typeof settingsResponseSchema>;
@@ -447,6 +469,7 @@ export const settingsUpdateRequestSchema = z
     llm_api_key: z.string().nullable().optional(),
     active_profile_id: z.string().nullable().optional(),
     active_agent_profile_id: z.string().nullable().optional(),
+    active_meta_profile: z.string().nullable().optional(),
   })
   .passthrough();
 export type SettingsUpdateRequest = z.infer<typeof settingsUpdateRequestSchema>;

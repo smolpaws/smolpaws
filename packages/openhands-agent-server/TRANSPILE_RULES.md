@@ -75,6 +75,46 @@ bridge-specific cache settings or a second server-side marker implementation. Pr
 snapshot semantics: a catalog edit alone cannot alter the TTL of a saved conversation;
 explicit profile reselection uses `DEV-SERVER-009`. Evidence: `src/__tests__/promptCaching.test.ts`.
 
+Meta-profile routing uses SDK `MetaProfileStore` and `route_task_to_model`. The
+HTTP routes and conversation tools share one store, under the native configured
+`statePath/meta-profiles` unless a host injects a store; they must never silently
+use separate process-global directories. Inline model entries are native
+`LLMProfile` values with secret references, and their map keys define profile
+identity. The classifier uses the owning conversation's state and call context;
+its usage must be durably recorded before routing. Accepted model choices use
+the same complete-step activation boundary and immutable snapshots as
+`DEV-SERVER-009`, including restart and fork. No raw credentials enter settings,
+profile snapshots or events.
+
+Explicit routing-tool parameters override the corresponding settings, including
+explicit null. Native composition attaches the router once: parameterized specs
+outrank bare aliases, identical specs coalesce, and conflicting explicit parameters
+are rejected. Validate every recognized spec, including duplicates, through the
+strict SDK parameter contract before saving public conversation requests, settings
+or agent profiles. Unrelated host-tool parameters retain their existing contract.
+
+The active meta-profile facade propagates to the nested name and tool-enable
+flag. Explicit null disables routing but retains the inline meta-profile blob;
+deleting the active profile clears that blob too. Native full replacement of
+OpenHands agent settings preserves an omitted, previously active facade choice,
+unlike Python's settings-diff API. Unsupported agent variants clear the facade.
+The SDK's atomic store enforces the 50-profile limit; its fail-closed lock policy
+under `DEV-SDK-004` also applies here.
+
+Managed API-key refresh is a runtime adapter to the SDK's recovery hook. It is
+disabled unless `OH_LLM_API_KEY_REFRESH_URL` and
+`OH_LLM_API_KEY_REFRESH_BASE_URLS` are configured. Match the actual explicit
+native profile endpoint against that allowlist, ignoring trailing slashes;
+an `openhands/` model label alone cannot grant credential replacement for a
+native transport. Subscription authentication retains its separate SDK flow.
+Optional `OH_LLM_API_KEY_REFRESH_HEADERS` are expanded from the environment at
+client construction. The bounded asynchronous GET does not follow redirects or
+persist/log the returned key. Preflight, main, switched, classifier and condenser
+clients receive the same runtime factory options. SDK recovery owns the single
+auth refresh and subsequent request, preserving the original failure if refresh
+cannot supply a changed nonempty key. General secret-source hydration remains
+tracked separately in `transpile/deferred-operations.md`.
+
 ### DEV-SERVER-005 — no deferred-init flow
 
 Do not implement upstream deferred-init behavior as active product behavior.

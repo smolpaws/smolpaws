@@ -5466,6 +5466,17 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "active_meta_profile": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -5473,7 +5484,8 @@
                     "conversation_settings",
                     "llm_api_key_set",
                     "active_profile_id",
-                    "active_agent_profile_id"
+                    "active_agent_profile_id",
+                    "active_meta_profile"
                   ],
                   "additionalProperties": false
                 }
@@ -5535,6 +5547,16 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "active_meta_profile": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "additionalProperties": {}
@@ -5586,6 +5608,17 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "active_meta_profile": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -5593,7 +5626,8 @@
                     "conversation_settings",
                     "llm_api_key_set",
                     "active_profile_id",
-                    "active_agent_profile_id"
+                    "active_agent_profile_id",
+                    "active_meta_profile"
                   ],
                   "additionalProperties": false
                 }
@@ -5679,6 +5713,17 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "active_meta_profile": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -5686,7 +5731,8 @@
                     "conversation_settings",
                     "llm_api_key_set",
                     "active_profile_id",
-                    "active_agent_profile_id"
+                    "active_agent_profile_id",
+                    "active_meta_profile"
                   ],
                   "additionalProperties": false
                 }
@@ -5770,6 +5816,17 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "active_meta_profile": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -5777,7 +5834,8 @@
                     "conversation_settings",
                     "llm_api_key_set",
                     "active_profile_id",
-                    "active_agent_profile_id"
+                    "active_agent_profile_id",
+                    "active_meta_profile"
                   ],
                   "additionalProperties": false
                 }
@@ -5848,6 +5906,17 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "active_meta_profile": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -5855,7 +5924,8 @@
                     "conversation_settings",
                     "llm_api_key_set",
                     "active_profile_id",
-                    "active_agent_profile_id"
+                    "active_agent_profile_id",
+                    "active_meta_profile"
                   ],
                   "additionalProperties": false
                 }
@@ -6165,7 +6235,6 @@
                             ]
                           },
                           "openAiApiMode": {
-                            "default": "chat_completions",
                             "anyOf": [
                               {
                                 "type": "string",
@@ -6352,6 +6421,9 @@
                               }
                             ]
                           },
+                          "supportsPromptCacheKey": {
+                            "type": "boolean"
+                          },
                           "headers": {
                             "default": {},
                             "type": "object",
@@ -6374,7 +6446,6 @@
                           "authType",
                           "subscriptionVendor",
                           "baseUrl",
-                          "openAiApiMode",
                           "temperature",
                           "topP",
                           "topK",
@@ -6475,7 +6546,6 @@
                     ]
                   },
                   "openAiApiMode": {
-                    "default": "chat_completions",
                     "anyOf": [
                       {
                         "type": "string",
@@ -6662,6 +6732,9 @@
                       }
                     ]
                   },
+                  "supportsPromptCacheKey": {
+                    "type": "boolean"
+                  },
                   "headers": {
                     "default": {},
                     "type": "object",
@@ -6742,7 +6815,6 @@
                       ]
                     },
                     "openAiApiMode": {
-                      "default": "chat_completions",
                       "anyOf": [
                         {
                           "type": "string",
@@ -6929,6 +7001,9 @@
                         }
                       ]
                     },
+                    "supportsPromptCacheKey": {
+                      "type": "boolean"
+                    },
                     "headers": {
                       "default": {},
                       "type": "object",
@@ -6951,7 +7026,6 @@
                     "authType",
                     "subscriptionVendor",
                     "baseUrl",
-                    "openAiApiMode",
                     "temperature",
                     "topP",
                     "topK",
@@ -6970,6 +7044,429 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/meta-profiles": {
+      "get": {
+        "tags": [
+          "Meta-profiles"
+        ],
+        "summary": "List meta-profiles",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "meta_profiles": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "classifier_model": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "num_classes": {
+                            "default": 0,
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "classifier_model",
+                          "num_classes"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "active_meta_profile": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "meta_profiles",
+                    "active_meta_profile"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error"
+          },
+          "503": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/meta-profiles/{name}": {
+      "get": {
+        "tags": [
+          "Meta-profiles"
+        ],
+        "summary": "Get meta-profile",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "config": {
+                      "type": "object",
+                      "properties": {
+                        "classifier_model": {
+                          "type": "string"
+                        },
+                        "classes": {
+                          "default": [],
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "description": {
+                                "type": "string"
+                              },
+                              "model": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "description",
+                              "model"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "prompt_template": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "model_table": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "classifier_model",
+                        "classes",
+                        "prompt_template",
+                        "model_table"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "config"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error"
+          },
+          "404": {
+            "description": "Error"
+          },
+          "422": {
+            "description": "Error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Meta-profiles"
+        ],
+        "summary": "Save meta-profile",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "classifier_model": {
+                    "type": "string"
+                  },
+                  "classes": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "description": {
+                          "type": "string"
+                        },
+                        "model": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "description",
+                        "model"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "prompt_template": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "model_table": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "classifier_model"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error"
+          },
+          "409": {
+            "description": "Error"
+          },
+          "422": {
+            "description": "Error"
+          },
+          "503": {
+            "description": "Error"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Meta-profiles"
+        ],
+        "summary": "Delete meta-profile",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error"
+          },
+          "422": {
+            "description": "Error"
+          },
+          "503": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/meta-profiles/{name}/activate": {
+      "post": {
+        "tags": [
+          "Meta-profiles"
+        ],
+        "summary": "Activate meta-profile",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error"
+          },
+          "404": {
+            "description": "Error"
           },
           "422": {
             "description": "Error"
@@ -7048,7 +7545,6 @@
                       ]
                     },
                     "openAiApiMode": {
-                      "default": "chat_completions",
                       "anyOf": [
                         {
                           "type": "string",
@@ -7235,6 +7731,9 @@
                         }
                       ]
                     },
+                    "supportsPromptCacheKey": {
+                      "type": "boolean"
+                    },
                     "headers": {
                       "default": {},
                       "type": "object",
@@ -7257,7 +7756,6 @@
                     "authType",
                     "subscriptionVendor",
                     "baseUrl",
-                    "openAiApiMode",
                     "temperature",
                     "topP",
                     "topK",
@@ -7351,7 +7849,6 @@
                     ]
                   },
                   "openAiApiMode": {
-                    "default": "chat_completions",
                     "anyOf": [
                       {
                         "type": "string",
@@ -7538,6 +8035,9 @@
                       }
                     ]
                   },
+                  "supportsPromptCacheKey": {
+                    "type": "boolean"
+                  },
                   "headers": {
                     "default": {},
                     "type": "object",
@@ -7618,7 +8118,6 @@
                       ]
                     },
                     "openAiApiMode": {
-                      "default": "chat_completions",
                       "anyOf": [
                         {
                           "type": "string",
@@ -7805,6 +8304,9 @@
                         }
                       ]
                     },
+                    "supportsPromptCacheKey": {
+                      "type": "boolean"
+                    },
                     "headers": {
                       "default": {},
                       "type": "object",
@@ -7827,7 +8329,6 @@
                     "authType",
                     "subscriptionVendor",
                     "baseUrl",
-                    "openAiApiMode",
                     "temperature",
                     "topP",
                     "topK",
@@ -8087,7 +8588,6 @@
                         ]
                       },
                       "openAiApiMode": {
-                        "default": "chat_completions",
                         "anyOf": [
                           {
                             "type": "string",
@@ -8273,6 +8773,9 @@
                             "type": "null"
                           }
                         ]
+                      },
+                      "supportsPromptCacheKey": {
+                        "type": "boolean"
                       },
                       "headers": {
                         "default": {},

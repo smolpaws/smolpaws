@@ -26,7 +26,7 @@ export declare const llmProfileSchema: z.ZodObject<{
     }>>;
     subscriptionVendor: z.ZodDefault<z.ZodNullable<z.ZodLiteral<"openai">>>;
     baseUrl: z.ZodDefault<z.ZodNullable<z.ZodString>>;
-    openAiApiMode: z.ZodDefault<z.ZodUnion<readonly [z.ZodLiteral<"chat_completions">, z.ZodLiteral<"responses">]>>;
+    openAiApiMode: z.ZodOptional<z.ZodUnion<readonly [z.ZodLiteral<"chat_completions">, z.ZodLiteral<"responses">]>>;
     temperature: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
     topP: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
     topK: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
@@ -47,6 +47,7 @@ export declare const llmProfileSchema: z.ZodObject<{
     }>>;
     promptCacheRetention: z.ZodDefault<z.ZodNullable<z.ZodUnion<readonly [z.ZodLiteral<"24h">, z.ZodLiteral<"disabled">]>>>;
     promptCacheKey: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    supportsPromptCacheKey: z.ZodOptional<z.ZodBoolean>;
     headers: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodString>>;
     useProfileKeyOverride: z.ZodDefault<z.ZodBoolean>;
 }, z.core.$strict>;

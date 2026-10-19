@@ -4,6 +4,7 @@ import {
   Agent,
   AgentContext,
   CancelTaskTool,
+  ClassifyAndSwitchLLMTool,
   FileEditorTool,
   FinishTool,
   GlobTool,
@@ -20,9 +21,13 @@ import {
   SwitchLLMTool,
   createClientFromProfile,
   llmProfileSchema,
+  resolveTool,
   validateAgentSettings,
+  type ClassifyAndSwitchLLMToolOptions,
+  type CreateLlmClientOptions,
   type LLMClient,
   type LLMProfile,
+  type MetaProfileStore,
   type SecretStore,
   type ToolDefinition,
 } from '@smolpaws/openhands-agent';
@@ -33,8 +38,9 @@ import type { ServerStateService } from './serverState.js';
 import type { ProfileSelectionResolver } from './profileRuntime.js';
 import { materializeProfileCondenser } from './condenserBinding.js';
 import { materializeProfileHardCondenser } from './hardCondenserBinding.js';
+import { isRouterToolName, selectRouterToolSpec, validateRouterToolSpecs } from './routerToolSpecs.js';
 
-export type ProfileLlmClientFactory = (profile: LLMProfile, secretStore: SecretStore) => Promise<LLMClient>;
+export type ProfileLlmClientFactory = (profile: LLMProfile, secretStore: SecretStore, options?: CreateLlmClientOptions) => Promise<LLMClient>;
 
 export type ProfileToolConfigurator = (tools: readonly ToolDefinition[], context: AgentFactoryContext) => readonly ToolDefinition[];
 
@@ -47,6 +53,7 @@ interface ProfileAgentFactoryOptions {
   readonly state: ServerStateService;
   readonly secretStore: SecretStore;
   readonly llmClientFactory?: ProfileLlmClientFactory;
+  readonly metaProfileStore?: Pick<MetaProfileStore, 'list' | 'load'>;
   readonly resolveCondenserProfileSelection?: ProfileSelectionResolver;
 }
 
@@ -75,12 +82,35 @@ export function createProfileAgentFactory(options: ProfileAgentFactoryOptions): 
     const configuredTools = settings.tools ?? [];
     const toolSpecs = configuredTools.length === 0 ? defaultToolNames : configuredTools;
     const explicitSwitch = toolSpecs.some((spec) => toolName(spec) === 'switch_llm');
-    const resolvedTools = toolSpecs.flatMap((spec) => toolName(spec) === 'switch_llm' ? [] : resolveProfileTool(spec, workingDir));
+    const explicitRouter = selectRouterToolSpec(toolSpecs);
+    const resolvedTools = toolSpecs.flatMap((spec) => toolName(spec) === 'switch_llm' || isRouterToolName(toolName(spec)) ? [] : resolveProfileTool(spec, workingDir));
     if (explicitSwitch || settings.enable_switch_llm_tool && context.switchProfile !== undefined) {
       resolvedTools.push(SwitchLLMTool.create({
         profileNames: (await options.state.listProfiles()).profiles.map((candidate) => candidate.profileId),
         ...(context.switchProfile === undefined ? {} : { switchProfile: context.switchProfile }),
       }));
+    }
+    if (explicitRouter !== undefined || settings.enable_classify_and_switch_llm_tool) {
+      const binding: ClassifyAndSwitchLLMToolOptions = {
+        activeMetaProfile: settings.active_meta_profile,
+        metaProfile: settings.meta_profile,
+        metaProfileLlms: settings.meta_profile_llms,
+        metaProfileStore: options.metaProfileStore ?? options.state.metaProfileStore,
+        ...(context.state === undefined || context.switchProfile === undefined || context.getLLMCallContext === undefined ? {} : { runtime: {
+          state: context.state,
+          getCallContext: context.getLLMCallContext,
+          listProfileNames: async () => (await options.state.listProfiles()).profiles.map(candidate => candidate.profileId),
+          resolveClient: async (name: string, inlineProfile?: LLMProfile) => {
+            const selected = inlineProfile ?? await options.state.getProfile(name);
+            if (selected === null) throw new Error(`llm_profile_not_found:${name}`);
+            // An inline map key is the profile identity, including its SecretStore
+            // override lookup. Do not let a mismatched embedded ID select another key.
+            return createLlmClient(snapshotProfile({ ...selected, profileId: name }), options.secretStore);
+          },
+          switchProfile: context.switchProfile,
+        } }),
+      };
+      resolvedTools.push(...explicitRouter === undefined ? [ClassifyAndSwitchLLMTool.create(binding)] : resolveTool(explicitRouter, binding));
     }
     const tools = options.configureTools?.(resolvedTools, context) ?? resolvedTools;
     const suffix = launchAdditionsSuffix(context.stored.request);
@@ -117,6 +147,7 @@ export async function prepareProfileStartRequest(input: unknown, state: ServerSt
   const settings = await state.settings();
   const agentSettings = validateAgentSettings(request.agent ?? settings.agent_settings);
   if (agentSettings.agent_kind !== 'openhands') throw new Error('acp_runtime_not_ported');
+  validateRouterToolSpecs(agentSettings);
   const profile = await state.getProfile(agentSettings.llm_profile_ref);
   if (profile === null) throw new Error(`llm_profile_not_found:${agentSettings.llm_profile_ref}`);
   return startConversationRequestSchema.parse({

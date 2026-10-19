@@ -3,7 +3,7 @@ import websocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
-import { AgentControlledCondensationError, MacOSKeychainSecretStore, OpenAISubscriptionAuth, createClientFromProfile, type SecretStore } from '@smolpaws/openhands-agent';
+import { AgentControlledCondensationError, MacOSKeychainSecretStore, OpenAISubscriptionAuth, createClientFromProfile, type MetaProfileStore, type SecretStore } from '@smolpaws/openhands-agent';
 
 import { registerAgentProfileRoutes } from './agentProfilesRouter.js';
 import { BashEventService } from './bashService.js';
@@ -16,6 +16,8 @@ import { registerEventRoutes } from './eventRouter.js';
 import { registerFileRoutes } from './fileRouter.js';
 import { registerGitRoutes } from './gitRouter.js';
 import { registerLlmRoutes } from './llmRouter.js';
+import { registerMetaProfileRoutes } from './metaProfilesRouter.js';
+import { createManagedLlmKeyRefreshHook } from './managedLlmKey.js';
 import { generateOpenApiSchema } from './openapi.js';
 import { createProfileAgentFactory, prepareProfileStartRequest, type ProfileContextConfigurator, type ProfileLlmClientFactory, type ProfileToolConfigurator } from './profileAgentFactory.js';
 import { registerProfileRoutes } from './profilesRouter.js';
@@ -34,6 +36,7 @@ export interface AgentServerAppOptions extends ConversationServiceOptions {
   readonly conversationService?: ConversationService;
   readonly secretStore?: SecretStore;
   readonly serverStateService?: ServerStateService;
+  readonly metaProfileStore?: MetaProfileStore;
   readonly llmClientFactory?: ProfileLlmClientFactory;
   readonly configureTools?: ProfileToolConfigurator;
   readonly configureContext?: ProfileContextConfigurator;
@@ -81,9 +84,16 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
     allowedFileRoots,
   };
   const secretStore = options.secretStore ?? new MacOSKeychainSecretStore();
-  const serverStateService = options.serverStateService ?? new ServerStateService({ stateDir: config.statePath, secretStore });
+  if (options.serverStateService !== undefined && options.metaProfileStore !== undefined
+    && options.serverStateService.metaProfileStore !== options.metaProfileStore) throw new Error('serverStateService and metaProfileStore must share the same store');
+  const serverStateService = options.serverStateService ?? new ServerStateService({ stateDir: config.statePath, secretStore,
+    ...(options.metaProfileStore === undefined ? {} : { metaProfileStore: options.metaProfileStore }) });
   const subscriptionAuth = options.subscriptionAuth ?? new OpenAISubscriptionAuth();
-  const llmClientFactory: ProfileLlmClientFactory = options.llmClientFactory ?? ((profile, store) => createClientFromProfile(profile, store, { subscriptionAuth }));
+  const llmClientFactory: ProfileLlmClientFactory = (profile, store) => {
+    const apiKeyRefreshHook = createManagedLlmKeyRefreshHook(profile);
+    const runtimeOptions = { subscriptionAuth, ...(apiKeyRefreshHook === undefined ? {} : { apiKeyRefreshHook }) };
+    return (options.llmClientFactory ?? createClientFromProfile)(profile, store, runtimeOptions);
+  };
   const usesProfileAgentFactory = options.agentFactory === undefined && options.conversationService === undefined;
   if (options.agentFactory !== undefined && options.resolveProfileSelection !== undefined) {
     throw new Error('resolveProfileSelection requires the profile agent factory');
@@ -93,6 +103,7 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
   }
   const agentFactory = options.agentFactory ?? createProfileAgentFactory({
     state: serverStateService,
+    metaProfileStore: serverStateService.metaProfileStore,
     secretStore,
     ...(options.configureTools === undefined ? {} : { configureTools: options.configureTools }),
     ...(options.configureContext === undefined ? {} : { configureContext: options.configureContext }),
@@ -145,6 +156,7 @@ export async function createAgentServerApp(options: AgentServerAppOptions = {}):
   registerLlmRoutes(app, subscriptionAuth);
   registerSettingsRoutes(app, serverStateService);
   registerProfileRoutes(app, serverStateService, llmClientFactory, secretStore);
+  registerMetaProfileRoutes(app, serverStateService);
   registerAgentProfileRoutes(app, serverStateService);
   registerSkillsRoutes(app, { stateDir: config.statePath, workspaceRoot: config.workspaceRoot });
   registerSocketRoutes(app, { config, conversationService, bashEventService });

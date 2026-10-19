@@ -905,6 +905,7 @@
         "discriminator": {
           "mapping": {
             "openhands__sdk__mcp__definition__MCPToolAction-Output__1": "#/components/schemas/MCPToolAction",
+            "openhands__sdk__tool__builtins__classify_and_switch_llm__ClassifyAndSwitchLLMAction-Output__1": "#/components/schemas/ClassifyAndSwitchLLMAction",
             "openhands__sdk__tool__builtins__finish__FinishAction-Output__1": "#/components/schemas/FinishAction",
             "openhands__sdk__tool__builtins__invoke_skill__InvokeSkillAction-Output__1": "#/components/schemas/InvokeSkillAction",
             "openhands__sdk__tool__builtins__switch_llm__SwitchLLMAction-Output__1": "#/components/schemas/SwitchLLMAction",
@@ -945,6 +946,9 @@
         "oneOf": [
           {
             "$ref": "#/components/schemas/MCPToolAction"
+          },
+          {
+            "$ref": "#/components/schemas/ClassifyAndSwitchLLMAction"
           },
           {
             "$ref": "#/components/schemas/FinishAction"
@@ -1228,6 +1232,24 @@
           "message"
         ],
         "title": "ActivateAgentProfileResponse",
+        "type": "object"
+      },
+      "ActivateMetaProfileResponse": {
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "message"
+        ],
+        "title": "ActivateMetaProfileResponse",
         "type": "object"
       },
       "ActivateProfileResponse": {
@@ -3291,6 +3313,127 @@
         "title": "AskOracleTool",
         "type": "object"
       },
+      "BackendLogs": {
+        "description": "Bounded combined stdout and stderr output.",
+        "properties": {
+          "logs": {
+            "title": "Logs",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "logs",
+          "truncated"
+        ],
+        "title": "BackendLogs",
+        "type": "object"
+      },
+      "BackendRevisionRequest": {
+        "description": "Explicit approval for one exact installed revision.",
+        "properties": {
+          "revision": {
+            "minLength": 1,
+            "title": "Revision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision"
+        ],
+        "title": "BackendRevisionRequest",
+        "type": "object"
+      },
+      "BackendStatus": {
+        "description": "Current state of an installed Canvas App backend.",
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pid"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          },
+          "prepared_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prepared Revision"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "state": {
+            "enum": [
+              "missing",
+              "stopped",
+              "starting",
+              "ready",
+              "unhealthy",
+              "unsupported"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "state"
+        ],
+        "title": "BackendStatus",
+        "type": "object"
+      },
       "BaseWorkspace": {
         "discriminator": {
           "mapping": {
@@ -4943,6 +5086,104 @@
         "title": "BrowserTypeTool",
         "type": "object"
       },
+      "CanvasExtensionBackend": {
+        "description": "Optional trusted backend declaration for schema-1 Canvas Apps.",
+        "properties": {
+          "argv": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Argv",
+            "type": "array"
+          },
+          "artifacts": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/CanvasExtensionBackendArtifact"
+            },
+            "minProperties": 1,
+            "propertyNames": {
+              "enum": [
+                "linux-amd64",
+                "linux-arm64"
+              ]
+            },
+            "title": "Artifacts",
+            "type": "object"
+          },
+          "health": {
+            "$ref": "#/components/schemas/CanvasExtensionBackendHealth"
+          },
+          "inherit_environment": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Inherit Environment",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "artifacts",
+          "argv"
+        ],
+        "title": "CanvasExtensionBackend",
+        "type": "object"
+      },
+      "CanvasExtensionBackendArtifact": {
+        "description": "Immutable backend artifact for one supported platform.",
+        "properties": {
+          "path": {
+            "description": "Package-relative .tar.gz artifact path",
+            "title": "Path",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "Lowercase SHA-256 checksum",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "sha256"
+        ],
+        "title": "CanvasExtensionBackendArtifact",
+        "type": "object"
+      },
+      "CanvasExtensionBackendHealth": {
+        "description": "Loopback HTTP readiness probe for a backend process.",
+        "properties": {
+          "interval_seconds": {
+            "default": 0.1,
+            "exclusiveMinimum": 0,
+            "maximum": 10,
+            "title": "Interval Seconds",
+            "type": "number"
+          },
+          "path": {
+            "default": "/health",
+            "pattern": "^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*$",
+            "title": "Path",
+            "type": "string"
+          },
+          "timeout_seconds": {
+            "default": 30,
+            "exclusiveMinimum": 0,
+            "maximum": 300,
+            "title": "Timeout Seconds",
+            "type": "number"
+          }
+        },
+        "title": "CanvasExtensionBackendHealth",
+        "type": "object"
+      },
       "CanvasExtensionContributes": {
         "description": "Contributions an extension makes to the Canvas UI.",
         "properties": {
@@ -4961,6 +5202,17 @@
       "CanvasExtensionManifest": {
         "description": "Canvas extension manifest (``canvas-extension.json``).",
         "properties": {
+          "backend": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CanvasExtensionBackend"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional explicitly prepared and started backend service"
+          },
           "contributes": {
             "$ref": "#/components/schemas/CanvasExtensionContributes",
             "description": "Contributions this extension makes to the Canvas UI"
@@ -5032,6 +5284,159 @@
           "path"
         ],
         "title": "CanvasExtensionPage",
+        "type": "object"
+      },
+      "ClassifyAndSwitchLLMAction": {
+        "additionalProperties": false,
+        "description": "Trigger classification of the current task and switch the LLM profile.",
+        "properties": {
+          "kind": {
+            "const": "ClassifyAndSwitchLLMAction",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "ClassifyAndSwitchLLMAction",
+        "type": "object"
+      },
+      "ClassifyAndSwitchLLMObservation": {
+        "additionalProperties": false,
+        "description": "Result of classifying the task and switching the LLM profile.",
+        "properties": {
+          "active_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Model configured by the activated profile, when available.",
+            "title": "Active Model"
+          },
+          "chosen_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Description of the matched class, or None when no class matched and the tool returned an error.",
+            "title": "Chosen Class"
+          },
+          "content": {
+            "description": "Content returned from the tool as a list of TextContent/ImageContent objects. When there is an error, it should be written in this field.",
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TextContent"
+                },
+                {
+                  "$ref": "#/components/schemas/ImageContent"
+                }
+              ]
+            },
+            "title": "Content",
+            "type": "array"
+          },
+          "is_error": {
+            "default": false,
+            "description": "Whether the observation indicates an error",
+            "title": "Is Error",
+            "type": "boolean"
+          },
+          "kind": {
+            "const": "ClassifyAndSwitchLLMObservation",
+            "title": "Kind",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Name of the LLM profile that was activated.",
+            "title": "Model"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "ClassifyAndSwitchLLMObservation",
+        "type": "object"
+      },
+      "ClassifyAndSwitchLLMTool": {
+        "description": "Tool that classifies the task and switches to a meta-profile's LLM.",
+        "properties": {
+          "action_type": {
+            "title": "Action Type",
+            "type": "string"
+          },
+          "annotations": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/openhands__sdk__tool__tool__ToolAnnotations"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "kind": {
+            "const": "ClassifyAndSwitchLLMTool",
+            "title": "Kind",
+            "type": "string"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          },
+          "observation_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation Type"
+          },
+          "title": {
+            "readOnly": true,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "action_type",
+          "kind",
+          "title"
+        ],
+        "title": "ClassifyAndSwitchLLMTool",
         "type": "object"
       },
       "ClientTool": {
@@ -14577,6 +14982,165 @@
         "title": "MessageToolCall",
         "type": "object"
       },
+      "MetaProfile": {
+        "description": "A declarative model-routing configuration.",
+        "properties": {
+          "classes": {
+            "description": "Ordered list of task classes and their target profiles.",
+            "items": {
+              "$ref": "#/components/schemas/MetaProfileClass"
+            },
+            "title": "Classes",
+            "type": "array"
+          },
+          "classifier_model": {
+            "description": "Name of the saved LLM profile used to classify the task.",
+            "title": "Classifier Model",
+            "type": "string"
+          },
+          "model_table": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional text inserted into `{{ model_table }}` for direct-routing prompts.",
+            "title": "Model Table"
+          },
+          "prompt_template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional direct-routing prompt template. When set, the classifier receives this rendered prompt and should return JSON with a `model` field instead of a class number.",
+            "title": "Prompt Template"
+          }
+        },
+        "required": [
+          "classifier_model"
+        ],
+        "title": "MetaProfile",
+        "type": "object"
+      },
+      "MetaProfileClass": {
+        "description": "A single task category and the LLM profile that should handle it.",
+        "properties": {
+          "description": {
+            "description": "Natural-language description of the kind of task this class covers (e.g. 'task is UI oriented or requires looking at images').",
+            "title": "Description",
+            "type": "string"
+          },
+          "model": {
+            "description": "Name of the saved LLM profile to switch to for tasks matching this class.",
+            "title": "Model",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "model"
+        ],
+        "title": "MetaProfileClass",
+        "type": "object"
+      },
+      "MetaProfileDetailResponse": {
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/MetaProfile"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "config"
+        ],
+        "title": "MetaProfileDetailResponse",
+        "type": "object"
+      },
+      "MetaProfileInfo": {
+        "properties": {
+          "classifier_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classifier Model"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "num_classes": {
+            "default": 0,
+            "title": "Num Classes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "MetaProfileInfo",
+        "type": "object"
+      },
+      "MetaProfileListResponse": {
+        "properties": {
+          "active_meta_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Meta Profile"
+          },
+          "meta_profiles": {
+            "items": {
+              "$ref": "#/components/schemas/MetaProfileInfo"
+            },
+            "title": "Meta Profiles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "meta_profiles"
+        ],
+        "title": "MetaProfileListResponse",
+        "type": "object"
+      },
+      "MetaProfileMutationResponse": {
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "message"
+        ],
+        "title": "MetaProfileMutationResponse",
+        "type": "object"
+      },
       "MetricsSnapshot": {
         "description": "A snapshot of metrics at a point in time.\n\nDoes not include lists of individual costs, latencies, or token usages.",
         "properties": {
@@ -14712,6 +15276,7 @@
         "discriminator": {
           "mapping": {
             "openhands__sdk__mcp__definition__MCPToolObservation-Output__1": "#/components/schemas/MCPToolObservation",
+            "openhands__sdk__tool__builtins__classify_and_switch_llm__ClassifyAndSwitchLLMObservation-Output__1": "#/components/schemas/ClassifyAndSwitchLLMObservation",
             "openhands__sdk__tool__builtins__finish__FinishObservation-Output__1": "#/components/schemas/FinishObservation",
             "openhands__sdk__tool__builtins__invoke_skill__InvokeSkillObservation-Output__1": "#/components/schemas/InvokeSkillObservation",
             "openhands__sdk__tool__builtins__switch_llm__SwitchLLMObservation-Output__1": "#/components/schemas/SwitchLLMObservation",
@@ -14739,6 +15304,9 @@
         "oneOf": [
           {
             "$ref": "#/components/schemas/MCPToolObservation"
+          },
+          {
+            "$ref": "#/components/schemas/ClassifyAndSwitchLLMObservation"
           },
           {
             "$ref": "#/components/schemas/FinishObservation"
@@ -17143,6 +17711,18 @@
             "description": "Stable id of the currently active AgentProfile, if one is set.",
             "title": "Active Agent Profile Id"
           },
+          "active_meta_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Name of the currently active meta-profile, if one is selected.",
+            "title": "Active Meta Profile"
+          },
           "active_profile": {
             "anyOf": [
               {
@@ -17292,6 +17872,19 @@
             ],
             "description": "Stable id of the active AgentProfile to persist; null clears it.",
             "title": "Active Agent Profile Id"
+          },
+          "active_meta_profile": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Name of the active meta-profile to persist; null clears it.",
+            "title": "Active Meta Profile"
           },
           "active_profile": {
             "anyOf": [
@@ -20244,6 +20837,7 @@
         "discriminator": {
           "mapping": {
             "openhands__sdk__mcp__tool__MCPToolDefinition-Output__1": "#/components/schemas/MCPToolDefinition",
+            "openhands__sdk__tool__builtins__classify_and_switch_llm__ClassifyAndSwitchLLMTool-Output__1": "#/components/schemas/ClassifyAndSwitchLLMTool",
             "openhands__sdk__tool__builtins__finish__FinishTool-Output__1": "#/components/schemas/FinishTool",
             "openhands__sdk__tool__builtins__invoke_skill__InvokeSkillTool-Output__1": "#/components/schemas/InvokeSkillTool",
             "openhands__sdk__tool__builtins__switch_llm__SwitchLLMTool-Output__1": "#/components/schemas/SwitchLLMTool",
@@ -20286,6 +20880,9 @@
         "oneOf": [
           {
             "$ref": "#/components/schemas/MCPToolDefinition"
+          },
+          {
+            "$ref": "#/components/schemas/ClassifyAndSwitchLLMTool"
           },
           {
             "$ref": "#/components/schemas/FinishTool"
@@ -21748,7 +22345,7 @@
   "info": {
     "description": "OpenHands Agent Server - REST/WebSocket interface for OpenHands AI Agent",
     "title": "OpenHands Agent Server",
-    "version": "1.49.4"
+    "version": "1.50.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -22621,7 +23218,7 @@
     },
     "/api/canvas-extensions/installed/{extension_name}": {
       "delete": {
-        "description": "Uninstall a canvas extension by name.",
+        "description": "Uninstall a canvas extension by name while retaining backend data.",
         "operationId": "uninstall_canvas_extension_endpoint_api_canvas_extensions_installed__extension_name__delete",
         "parameters": [
           {
@@ -22788,6 +23385,365 @@
           }
         ],
         "summary": "Set Canvas Extension Enabled Endpoint",
+        "tags": [
+          "Canvas Extensions"
+        ]
+      }
+    },
+    "/api/canvas-extensions/installed/{extension_name}/backend": {
+      "get": {
+        "description": "Probe the optional backend lifecycle state.",
+        "operationId": "get_canvas_extension_backend_status_endpoint_api_canvas_extensions_installed__extension_name__backend_get",
+        "parameters": [
+          {
+            "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+            "in": "path",
+            "name": "extension_name",
+            "required": true,
+            "schema": {
+              "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "title": "Extension Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackendStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Canvas Extension Backend Status Endpoint",
+        "tags": [
+          "Canvas Extensions"
+        ]
+      }
+    },
+    "/api/canvas-extensions/installed/{extension_name}/backend/data": {
+      "delete": {
+        "description": "Delete mutable backend data separately from app uninstall.",
+        "operationId": "delete_canvas_extension_backend_data_endpoint_api_canvas_extensions_installed__extension_name__backend_data_delete",
+        "parameters": [
+          {
+            "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+            "in": "path",
+            "name": "extension_name",
+            "required": true,
+            "schema": {
+              "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "title": "Extension Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackendStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "Backend must be stopped first"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Delete Canvas Extension Backend Data Endpoint",
+        "tags": [
+          "Canvas Extensions"
+        ]
+      }
+    },
+    "/api/canvas-extensions/installed/{extension_name}/backend/logs": {
+      "get": {
+        "description": "Return bounded combined stdout and stderr from the owned process.",
+        "operationId": "get_canvas_extension_backend_logs_endpoint_api_canvas_extensions_installed__extension_name__backend_logs_get",
+        "parameters": [
+          {
+            "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+            "in": "path",
+            "name": "extension_name",
+            "required": true,
+            "schema": {
+              "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "title": "Extension Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit_bytes",
+            "required": false,
+            "schema": {
+              "default": 65536,
+              "maximum": 262144,
+              "minimum": 1,
+              "title": "Limit Bytes",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackendLogs"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Canvas Extension Backend Logs Endpoint",
+        "tags": [
+          "Canvas Extensions"
+        ]
+      }
+    },
+    "/api/canvas-extensions/installed/{extension_name}/backend/prepare": {
+      "post": {
+        "description": "Verify and prepare the immutable artifact for an exact revision.",
+        "operationId": "prepare_canvas_extension_backend_endpoint_api_canvas_extensions_installed__extension_name__backend_prepare_post",
+        "parameters": [
+          {
+            "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+            "in": "path",
+            "name": "extension_name",
+            "required": true,
+            "schema": {
+              "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "title": "Extension Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackendRevisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackendStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "Revision or checksum approval conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Prepare Canvas Extension Backend Endpoint",
+        "tags": [
+          "Canvas Extensions"
+        ]
+      }
+    },
+    "/api/canvas-extensions/installed/{extension_name}/backend/start": {
+      "post": {
+        "description": "Start only a previously prepared exact backend revision.",
+        "operationId": "start_canvas_extension_backend_endpoint_api_canvas_extensions_installed__extension_name__backend_start_post",
+        "parameters": [
+          {
+            "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+            "in": "path",
+            "name": "extension_name",
+            "required": true,
+            "schema": {
+              "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "title": "Extension Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackendRevisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackendStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "Revision is not prepared or cannot start"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Start Canvas Extension Backend Endpoint",
+        "tags": [
+          "Canvas Extensions"
+        ]
+      }
+    },
+    "/api/canvas-extensions/installed/{extension_name}/backend/stop": {
+      "post": {
+        "description": "Stop the backend's owned process group idempotently.",
+        "operationId": "stop_canvas_extension_backend_endpoint_api_canvas_extensions_installed__extension_name__backend_stop_post",
+        "parameters": [
+          {
+            "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+            "in": "path",
+            "name": "extension_name",
+            "required": true,
+            "schema": {
+              "description": "Canvas extension name (lowercase alphanumeric, hyphens)",
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "title": "Extension Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackendStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Stop Canvas Extension Backend Endpoint",
         "tags": [
           "Canvas Extensions"
         ]
@@ -28072,6 +29028,243 @@
         "summary": "Test an MCP server configuration",
         "tags": [
           "MCP"
+        ]
+      }
+    },
+    "/api/meta-profiles": {
+      "get": {
+        "description": "List all saved meta-profiles and the currently active one.",
+        "operationId": "list_meta_profiles_api_meta_profiles_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaProfileListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Meta Profiles",
+        "tags": [
+          "Meta-profiles"
+        ]
+      }
+    },
+    "/api/meta-profiles/{name}": {
+      "delete": {
+        "description": "Delete a meta-profile (idempotent).\n\nIf the deleted meta-profile is the active one, ``active_meta_profile`` is\ncleared.",
+        "operationId": "delete_meta_profile_api_meta_profiles__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaProfileMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Delete Meta Profile",
+        "tags": [
+          "Meta-profiles"
+        ]
+      },
+      "get": {
+        "description": "Get a meta-profile's full configuration.",
+        "operationId": "get_meta_profile_api_meta_profiles__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaProfileDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Meta Profile",
+        "tags": [
+          "Meta-profiles"
+        ]
+      },
+      "post": {
+        "description": "Save (create or overwrite) a meta-profile.\n\nReturns 409 if creating a new meta-profile would exceed\n``MAX_META_PROFILES``.",
+        "operationId": "save_meta_profile_api_meta_profiles__name__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetaProfile"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaProfileMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Save Meta Profile",
+        "tags": [
+          "Meta-profiles"
+        ]
+      }
+    },
+    "/api/meta-profiles/{name}/activate": {
+      "post": {
+        "description": "Activate a meta-profile by recording it as ``active_meta_profile``.\n\nUnlike LLM profiles, activating a meta-profile does not mutate the agent's\nLLM config — it only records which meta-profile the\n``route_task_to_model`` tool should route with. Returns 404 if the\nmeta-profile does not exist.",
+        "operationId": "activate_meta_profile_api_meta_profiles__name__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivateMetaProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Activate Meta Profile",
+        "tags": [
+          "Meta-profiles"
         ]
       }
     },

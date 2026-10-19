@@ -1,6 +1,9 @@
 export interface FileStoreLockOptions {
     readonly timeoutSeconds?: number;
     readonly pollIntervalMs?: number;
+    /** Defaults to legacy recovery. False never removes another owner's lock;
+     * abandoned locks then require cleanup while all writers are stopped. */
+    readonly recoverStaleLocks?: boolean;
 }
 export interface FileStore {
     write(filePath: string, contents: string | Buffer): void;

@@ -13,6 +13,27 @@ exception type that provider clients raise and the agent loop catches.
 export declare class LLMBadRequestError extends Error {
     constructor(message?: string);
 }
+/** Sanitized HTTP failure at the native provider boundary. */
+export declare class LLMHttpError extends Error {
+    readonly statusCode: number;
+    constructor(message: string, statusCode: number);
+}
+export declare class LLMAuthenticationError extends LLMHttpError {
+    constructor(message?: string, statusCode?: number);
+}
+export declare class LLMRateLimitError extends LLMHttpError {
+    readonly quotaExhausted: boolean;
+    constructor(message?: string, quotaExhausted?: boolean);
+}
+export declare class LLMBudgetExceededError extends LLMRateLimitError {
+    constructor();
+}
+export declare class LLMConnectionError extends Error {
+    constructor();
+}
+export declare function isLLMAuthenticationError(error: unknown): boolean;
+/** Only typed provider failures qualify; ordinary application errors do not. */
+export declare function isTransientProviderError(error: unknown): boolean;
 export declare class LLMContextWindowExceedError extends LLMBadRequestError {
     constructor(message?: string);
 }

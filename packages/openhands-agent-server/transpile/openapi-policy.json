@@ -330,6 +330,36 @@
       "disposition": "DEFERRED",
       "tracking": "smolpaws-09ou",
       "reason": "Conversation-scoped runtime routing/workspace enforcement is not yet ported; existing global/local routes do not implement this contract."
+    },
+    "DELETE /api/canvas-extensions/installed/{extension_name}/backend/data": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Explicit backend data deletion only while stopped is deferred; uninstall must retain this data when the lifecycle is ported."
+    },
+    "GET /api/canvas-extensions/installed/{extension_name}/backend": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Optional Canvas backend status, exact installed revision and readiness state are not yet implemented; bounded lifecycle expansion reviewed at e7cc8c27..dcf401af."
+    },
+    "GET /api/canvas-extensions/installed/{extension_name}/backend/logs": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Backend bounded log tailing (default 65536 bytes; accepted range 1..262144) is deferred with the Canvas lifecycle."
+    },
+    "POST /api/canvas-extensions/installed/{extension_name}/backend/prepare": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Checksum-verified, contained immutable backend preparation for the exact installed revision is deferred; see the bounded lifecycle requirements in deferred-operations.md."
+    },
+    "POST /api/canvas-extensions/installed/{extension_name}/backend/start": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Backend executable/environment containment, readiness and concurrent/idempotent process startup are deferred; see deferred-operations.md."
+    },
+    "POST /api/canvas-extensions/installed/{extension_name}/backend/stop": {
+      "disposition": "DEFERRED",
+      "tracking": "OPENAPI-DEFERRED-001",
+      "reason": "Stoppable startup and complete backend process-group/descendant cleanup are deferred; see deferred-operations.md."
     }
   },
   "contractExemptions": {

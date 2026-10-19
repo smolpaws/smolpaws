@@ -7,6 +7,7 @@ export interface AgentServerConfig {
   readonly conversationsPath: string;
   readonly bashEventsPath: string;
   readonly bashEventsRetentionSeconds: number | null;
+  /** Native settings root; the shared HTTP/runtime meta-profile store is rooted here unless injected. */
   readonly statePath: string;
   readonly workspaceRoot: string;
   readonly allowedFileRoots: readonly string[];

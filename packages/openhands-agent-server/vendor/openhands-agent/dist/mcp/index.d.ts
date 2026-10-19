@@ -1,4 +1,5 @@
 import { type Content } from '../llm/index.js';
+export { normalizeMcpToolWire } from './wire.js';
 export declare class MCPError extends Error {
 }
 export declare class MCPTimeoutError extends MCPError {
@@ -21,9 +22,11 @@ export interface McpCallToolResult {
     readonly isError?: boolean;
 }
 export interface McpToolSpec {
+    readonly [key: string]: unknown;
     readonly name: string;
     readonly description?: string | null;
     readonly inputSchema?: Record<string, unknown>;
+    readonly input_schema?: Record<string, unknown>;
     readonly annotations?: Record<string, unknown> | null;
     readonly meta?: Record<string, unknown> | null;
 }
@@ -62,6 +65,7 @@ export declare class MCPToolExecutor {
     execute(action: MCPToolAction): Promise<MCPToolObservation>;
 }
 export declare class MCPToolDefinition {
+    private readonly wireSpec;
     readonly name: string;
     readonly description: string;
     readonly inputSchema: Record<string, unknown>;

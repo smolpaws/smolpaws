@@ -1,0 +1,239 @@
+{
+  "schemaVersion": 1,
+  "repository": "OpenHands/software-agent-sdk",
+  "from": "e7cc8c27b2b234fc1c104825ad20dddf1c01fa31",
+  "to": "dcf401af7a9a302ef92cb7d092e1df9bb659daa5",
+  "inventorySha256": "99796467a61bd5d3bfac026c0ae240a9e93f964a46a96d18a30847bd10d6ca6d",
+  "items": {
+    "cd02db3a181c0bed5ee34711b46c06c88288854e:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Python server image installs checksum-pinned static tini on rpm/zypper and verifies ENTRYPOINT dependency. Native npm/tsup package does not ship this Python Docker image.",
+      "tracking": [],
+      "evidence": [
+        "package.json"
+      ]
+    },
+    "e8b1b26fdd828dc8421993fac1241999d14d1d93:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Cross-package regression belongs to the SDK secret-masking/runtime source boundary and must be carried through vendored behavior; native server does not implement Python SecretRegistry. Native redacted secret metadata is not evidence of arbitrary observation masking. Revisit: Implement the existing deferred subsystem or review another upstream change touching these semantics; preserve the source regression cases before claiming parity.",
+      "tracking": [
+        "openhands-agent-wlw.6",
+        "smolpaws-09ou"
+      ],
+      "evidence": [
+        "src/settingsRouter.ts",
+        "src/profileAgentFactory.ts",
+        "transpile/deferred-operations.md"
+      ]
+    },
+    "b5e756b1061a859ce827a16e14ee484f317899bf:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Python workspace cryptography<49 constraint for x86_64 macOS wheels and lock changes; native dependencies do not consume Python cryptography.",
+      "tracking": [],
+      "evidence": [
+        "package.json"
+      ]
+    },
+    "81f0054d8141ea3a8aee209ee2c4c530095ebc83:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Updates Python image uv, bundled ACP Node, OpenVSCode versions/checksums; native package does not consume these upstream image layers.",
+      "tracking": [],
+      "evidence": [
+        "package.json"
+      ]
+    },
+    "6ebd820d10794f1b52bb06ef6c19512888a1401b:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Docker runtime idle eviction tracks last access, excludes running conversations and active proxied stream/WS attachments, refreshes deadline on detach, cancels sweeper on shutdown, and restores container on stop failure. Native server lease behavior is not the deferred Docker registry; carry all lifecycle conditions. Revisit: Implement the existing deferred subsystem or review another upstream change touching these semantics; preserve the source regression cases before claiming parity.",
+      "tracking": [
+        "smolpaws-09ou"
+      ],
+      "evidence": [
+        "transpile/deferred-operations.md"
+      ]
+    },
+    "9e042d1f0bf7233b2a1a2bca4872625768eaac71:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Python Docker Debian snapshot moves observation policy from seven to three days with matching update-script tests; native package build has no Debian snapshot stage.",
+      "tracking": [],
+      "evidence": [
+        "package.json"
+      ]
+    },
+    "5b59920fdf478f2231fd9e86920a6e35ed98ad07:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Python image pins npm11.19.1 in both Node runtimes and adds build-text test; native package does not embed those Python image runtimes.",
+      "tracking": [],
+      "evidence": [
+        "package.json"
+      ]
+    },
+    "a7cf924aa482eea613a64238d1673d457b97473f:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Deletes Python CI issue-readiness checker tests after CI policy changes; not agent-server runtime or native server test behavior.",
+      "tracking": [],
+      "evidence": []
+    },
+    "5b36cacccc2bbe6f8fbce9e1d3ff4b0a3dcddadb:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Python workspace version/lock update to1.49.5; native versions independent; regenerate catalogs/oracles at final target pin.",
+      "tracking": [],
+      "evidence": [
+        "package.json"
+      ]
+    },
+    "e21d77673b738f056676044600c4ad81c5a575c8:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Ported the five MetaProfile CRUD/activate operations, settings facade, shared store and SDK route_task_to_model integration. Native profile/SecretStore bindings follow DEV-SDK-003/004 and DEV-SERVER-003/004; pending model selection activates only after the complete tool step under DEV-SERVER-009. Classifier usage persists before switching; durable call identity survives restart and changes on fork.",
+      "tracking": [],
+      "evidence": [
+        "src/metaProfilesRouter.ts",
+        "src/serverState.ts",
+        "src/profileAgentFactory.ts",
+        "src/profileRuntime.ts",
+        "src/__tests__/metaProfiles.test.ts",
+        "src/__tests__/activeMetaProfile.test.ts",
+        "src/__tests__/metaProfileRouting.test.ts",
+        "src/__tests__/callContext.test.ts",
+        "TRANSPILE_RULES.md",
+        "src/routerToolSpecs.ts",
+        "src/__tests__/routerToolValidation.test.ts"
+      ]
+    },
+    "0620c8b1cd6b5daa523dc5fb8a3672bbd29214f1:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Extends existing MCP OAuth debt with inline refreshed-state write-back webhooks (best-effort, retains in-memory new state), settings-backed state no webhook, session auth headers, and immediate successful OAuth start when stored/refreshed tokens need no browser consent. Revisit: Implement the existing deferred subsystem or review another upstream change touching these semantics; preserve the source regression cases before claiming parity.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001",
+        "smolpaws-09ou"
+      ],
+      "evidence": [
+        "transpile/openapi-policy.json",
+        "src/profileAgentFactory.ts",
+        "transpile/deferred-operations.md"
+      ]
+    },
+    "3d88590621a76639803b4fec2969f59a22c7d052:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Python server adds openhands-tools dependency to fix standalone Windows imports; native tools already ship within the bundled @smolpaws/openhands-agent npm dependency.",
+      "tracking": [],
+      "evidence": [
+        "package.json"
+      ]
+    },
+    "fcc102a697874d54a357e36004e02c95040dbdc0:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Python workspace version/lock update to1.49.6; native versions independent; regenerate catalogs/oracles at final target pin.",
+      "tracking": [],
+      "evidence": [
+        "package.json"
+      ]
+    },
+    "46c762c0ecbfe5846d52cf014df4b976ccf09caf:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Python aiosqlite version floor/lock change only; native server uses file-backed state and native SDK has no aiosqlite dependency.",
+      "tracking": [],
+      "evidence": [
+        "package.json"
+      ]
+    },
+    "d77ada7a030b3acaa82593d402632680361dfe42:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Ported profile preflight with the upstream system instruction Reply with one token. before the user ping, preserving profile-first credential resolution and safe error handling.",
+      "tracking": [],
+      "evidence": [
+        "src/profilesRouter.ts",
+        "src/__tests__/profileValidation.test.ts",
+        "src/__tests__/subscriptionProfile.test.ts"
+      ]
+    },
+    "a8a9fc6e236a31c7adb876abb2be9e41e3c359b7:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Python OpenAPI quality-test helper exempts extensible ToolDefinition.meta only. No runtime schema/model changes in scoped server unit; native parity tool checks operation contracts and does not run this Python weak-schema detector.",
+      "tracking": [],
+      "evidence": [
+        "scripts/check-openapi-parity.ts"
+      ]
+    },
+    "bd33d63f7a134231bddb7ad989c68cded6188c8b:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Exact server diff passes conversation-owned LLMCallContext into LLM title generation. Current native EventService.generateTitle only derives a local text title, so no title model call exists to receive context. Pass stored.id into the new SDK LocalConversation now as necessary integration, and cover restart/fork/main/condenser/classifier identity; that integration does not close this title-specific server unit. Consequence: Title remains deterministic text fallback without upstream LLM title quality, reasoning cleanup, fallback/error behavior or call-context correlation. Revisit: Port SDK title utility or server LLM title execution; adopt source title tests before marking this unit PORT.",
+      "tracking": [
+        "openhands-agent-wlw.10"
+      ],
+      "evidence": [
+        "src/eventService.ts",
+        "transpile/conversation-errors.md",
+        "transpile/deferred-operations.md"
+      ]
+    },
+    "85f4efdb5afd60e0ae0f14e25143d44630d0708c:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "AGENTS documentation updates Python default pytest marker to exclude acp_live as well as stress; no target runtime/test implementation change.",
+      "tracking": [],
+      "evidence": []
+    },
+    "7fa122478a3d90710cc2525c51c02aec0867b252:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Python anyio floor/lock changes only; native runtime does not use anyio. Python oracle environment must use the target lock when regenerated.",
+      "tracking": [],
+      "evidence": [
+        "package.json"
+      ]
+    },
+    "2cb54835a9bb7bcf3b9e4487d2b18438f62c2f03:server": {
+      "disposition": "DEFERRED",
+      "policy": null,
+      "reason": "Optional Canvas App backend lifecycle extends existing Canvas debt with six routes and exact-revision prepare/start, checksum+safe immutable extraction, contained executable/environment, readiness, per-app process group ownership, bounded logs, stoppable startup, disable/uninstall/shutdown cleanup and separate data deletion. The six missing operations are individually classified in the OpenAPI policy. Revisit: Implement the existing deferred subsystem or review another upstream change touching these semantics; preserve the source regression cases before claiming parity.",
+      "tracking": [
+        "OPENAPI-DEFERRED-001"
+      ],
+      "evidence": [
+        "transpile/openapi-policy.json",
+        "transpile/deferred-operations.md"
+      ]
+    },
+    "a72751d7e1476dc4be896da494dd6926653a70bf:server": {
+      "disposition": "PORT",
+      "policy": null,
+      "reason": "Ported opt-in managed-refresh environment protocol through the SDK runtime-only apiKeyRefreshHook on profile-created clients. An asynchronous bounded GET supplies fresh keys without raw persistence. Exact explicit native endpoint allowlisting, no redirects and subscription exclusion protect unrelated credentials; the common factory supplies preflight/main/switched/classifier/condenser runtime options under DEV-SERVER-003/004.",
+      "tracking": [],
+      "evidence": [
+        "src/managedLlmKey.ts",
+        "src/app.ts",
+        "src/__tests__/managedLlmKey.test.ts",
+        "src/__tests__/managedLlmKeyHttp.test.ts",
+        "src/__tests__/profileValidation.test.ts",
+        "TRANSPILE_RULES.md"
+      ]
+    },
+    "dcf401af7a9a302ef92cb7d092e1df9bb659daa5:server": {
+      "disposition": "NO_TARGET_CHANGE",
+      "policy": null,
+      "reason": "Python workspace version/lock update to1.50.0; native versions independent; final pin/oracle target of this bounded batch.",
+      "tracking": [],
+      "evidence": [
+        "package.json"
+      ]
+    }
+  }
+}

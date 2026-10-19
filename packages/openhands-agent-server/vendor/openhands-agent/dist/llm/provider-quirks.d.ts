@@ -6,7 +6,9 @@ export declare function isGpt56Model(model: string | null | undefined): boolean;
 export declare function isOpenAISubscriptionEndpoint(profile: LLMProfile): boolean;
 export declare function supportsOpenAIPromptCacheRetention(profile: LLMProfile): boolean;
 export declare function resolveOpenAIPromptCacheRetention(profile: LLMProfile): PromptCacheRetention | undefined;
-export declare function resolveOpenAIPromptCacheKey(profile: LLMProfile): string | undefined;
+export declare function normalizeOpenAIModelName(model: string): string;
+export declare function supportsOpenAIPromptCacheKey(profile: LLMProfile): boolean;
+export declare function resolveOpenAIPromptCacheKey(profile: LLMProfile, contextKey?: string | null): string | undefined;
 export declare function hasExtendedThinking(profile: LLMProfile): boolean;
 /**
  * Whether the profile's model produces reasoning/thinking content that must be

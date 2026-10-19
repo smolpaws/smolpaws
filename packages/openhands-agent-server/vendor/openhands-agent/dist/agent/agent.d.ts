@@ -3,6 +3,7 @@ import { type Condenser } from '../context/index.js';
 import { type HardCondenser } from './context-reset.js';
 import type { AgentContext } from '../context/index.js';
 import { type LLMClient } from '../llm/client.js';
+import { type LLMCallContext } from '../llm/call-context.js';
 import type { ToolDefinition } from '../tool/index.js';
 import { ConversationState } from '../conversation/state.js';
 export declare const CONTENT_POLICY_NUDGE = "Your previous response was blocked by the model's content filter. Please continue, rephrasing to avoid the flagged content.";
@@ -26,7 +27,10 @@ export declare class Agent {
     readonly systemPrompt: string | null;
     readonly usageId: string | undefined;
     constructor(options: AgentOptions);
-    step(state: ConversationState): Promise<readonly Event[]>;
+    step(state: ConversationState, options?: {
+        readonly callContext?: LLMCallContext | null;
+    }): Promise<readonly Event[]>;
+    private stepWithContext;
     private messagesForState;
     private condenserContext;
     private renderSystemPrompt;

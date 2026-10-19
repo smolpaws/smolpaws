@@ -12,9 +12,12 @@ import {
   validateAgentSettings,
   validateConversationSettings,
   llmProfileSchema,
+  MetaProfileStore,
+  type MetaProfile,
 } from '@smolpaws/openhands-agent';
 
 import type { SettingsResponse, SettingsUpdateRequest } from './models.js';
+import { validateRouterToolSpecs } from './routerToolSpecs.js';
 
 export class McpServerAlreadyExistsError extends Error {
   constructor(key: string) {
@@ -46,15 +49,17 @@ interface PersistedState {
 const defaultProfileId = 'default';
 
 export class ServerStateService {
+  readonly metaProfileStore: MetaProfileStore;
   private readonly stateFile: string;
   private readonly secretStore: SecretStore;
   private state: PersistedState | null = null;
   private readonly readyPromise: Promise<PersistedState>;
   private mutationTail: Promise<void> = Promise.resolve();
 
-  constructor(options: { readonly stateDir: string; readonly secretStore: SecretStore }) {
+  constructor(options: { readonly stateDir: string; readonly secretStore: SecretStore; readonly metaProfileStore?: MetaProfileStore }) {
     this.stateFile = path.join(options.stateDir, 'state.json');
     this.secretStore = options.secretStore;
+    this.metaProfileStore = options.metaProfileStore ?? new MetaProfileStore(path.join(options.stateDir, 'meta-profiles'));
     this.readyPromise = this.loadInitial();
     // Preserve fail-closed reads without risking an unhandled rejection before the first caller awaits load().
     void this.readyPromise.catch(() => undefined);
@@ -76,7 +81,9 @@ export class ServerStateService {
     const state = await this.load();
     const activeProfileId = update.active_profile_id === undefined ? state.settings.active_profile_id : update.active_profile_id;
     if (activeProfileId !== null && state.llmProfiles[activeProfileId] === undefined) throw new Error('profile_not_found');
-    const requestedAgentSettings = update.agent_settings === undefined ? state.settings.agent_settings : validateAgentSettings(update.agent_settings);
+    const validatedAgentSettings = update.agent_settings === undefined ? undefined : validateAgentSettings(update.agent_settings);
+    if (validatedAgentSettings?.agent_kind === 'openhands') validateRouterToolSpecs(validatedAgentSettings);
+    const requestedAgentSettings = validatedAgentSettings ?? state.settings.agent_settings;
     const agentSettings = update.agent_settings === undefined && update.active_profile_id !== undefined && activeProfileId !== null && requestedAgentSettings.agent_kind === 'openhands'
       ? { ...requestedAgentSettings, llm_profile_ref: activeProfileId }
       : requestedAgentSettings;
@@ -86,13 +93,20 @@ export class ServerStateService {
         throw new Error('profile_not_found');
       }
     }
-    const settings: SettingsResponse = {
+    let settings: SettingsResponse = {
       ...state.settings,
       agent_settings: agentSettings,
       ...(update.conversation_settings === undefined ? {} : { conversation_settings: validateConversationSettings(update.conversation_settings) }),
       ...(update.active_profile_id === undefined ? {} : { active_profile_id: update.active_profile_id }),
       ...(update.active_agent_profile_id === undefined ? {} : { active_agent_profile_id: update.active_agent_profile_id }),
     };
+    if (update.active_meta_profile !== undefined) settings = withActiveMetaProfile(settings, update.active_meta_profile);
+    else if (settings.agent_settings.agent_kind !== 'openhands') settings = { ...settings, active_meta_profile: null };
+    else if (update.agent_settings !== undefined && settings.active_meta_profile !== null) {
+      // Native agent_settings is a full replacement rather than Python's diff.
+      // An omitted facade update must not silently disable its selected router.
+      settings = withActiveMetaProfile(settings, settings.active_meta_profile);
+    }
     if (update.llm_api_key !== undefined && update.llm_api_key !== null && settings.active_profile_id !== null) {
       await this.commitWithSecretChange(
         llmProfileSecretRef(settings.active_profile_id),
@@ -114,6 +128,40 @@ export class ServerStateService {
     const nextConfig = { ...mcpConfig, [key]: compactRecord(server) };
     await this.writeMcpConfig(state, nextConfig);
     return this.settings();
+    });
+  }
+
+  async listMetaProfiles() {
+    const state = await this.load();
+    return { meta_profiles: await this.metaProfileStore.listSummaries(), active_meta_profile: state.settings.active_meta_profile };
+  }
+
+  async getMetaProfile(name: string): Promise<MetaProfile> { return this.metaProfileStore.load(name); }
+
+  async saveMetaProfile(name: string, profile: MetaProfile): Promise<void> {
+    return this.serializeMutation(() => this.metaProfileStore.save(name, profile, { maxProfiles: 50 }));
+  }
+
+  async activateMetaProfile(name: string): Promise<void> {
+    return this.serializeMutation(async () => {
+      const profile = await this.metaProfileStore.load(name);
+      const state = await this.load();
+      const settings = withActiveMetaProfile(state.settings, name);
+      const agent_settings = settings.agent_settings.agent_kind === 'openhands'
+        ? { ...settings.agent_settings, meta_profile: profile } : settings.agent_settings;
+      await this.commit({ ...state, settings: { ...settings, agent_settings } });
+    });
+  }
+
+  async deleteMetaProfile(name: string): Promise<void> {
+    return this.serializeMutation(async () => {
+      await this.metaProfileStore.delete(name);
+      const state = await this.load();
+      if (state.settings.active_meta_profile !== name) return;
+      const settings = withActiveMetaProfile(state.settings, null);
+      const agent_settings = settings.agent_settings.agent_kind === 'openhands'
+        ? { ...settings.agent_settings, meta_profile: null } : settings.agent_settings;
+      await this.commit({ ...state, settings: { ...settings, agent_settings } });
     });
   }
 
@@ -228,6 +276,7 @@ export class ServerStateService {
 
   async saveAgentProfile(payload: unknown): Promise<AgentProfile> {
     const profile = validateAgentProfile(payload);
+    if (profile.agent_kind === 'openhands') validateRouterToolSpecs(profile);
     return this.serializeMutation(async () => {
     const state = await this.load();
     await this.commit({ ...state, agentProfiles: { ...state.agentProfiles, [profile.name]: profile } });
@@ -418,6 +467,7 @@ function defaultState(): PersistedState {
       llm_api_key_set: false,
       active_profile_id: profile.profileId,
       active_agent_profile_id: null,
+      active_meta_profile: null,
     },
     secrets: {},
   };
@@ -448,6 +498,7 @@ function validatePersistedState(value: unknown): PersistedState {
     llm_api_key_set: settingsValue.llm_api_key_set === true,
     active_profile_id: nullableString(settingsValue.active_profile_id, 'active_profile_id'),
     active_agent_profile_id: nullableString(settingsValue.active_agent_profile_id, 'active_agent_profile_id'),
+    active_meta_profile: nullableString(settingsValue.active_meta_profile ?? null, 'active_meta_profile'),
   };
   const secrets = Object.fromEntries(Object.entries(value.secrets).map(([key, metadata]) => {
     if (!isPlainObject(metadata)
@@ -464,6 +515,13 @@ function validatePersistedState(value: unknown): PersistedState {
 function nullableString(value: unknown, field: string): string | null {
   if (value === null || typeof value === 'string') return value;
   throw new Error(`invalid server state: ${field} must be a string or null`);
+}
+
+function withActiveMetaProfile(settings: SettingsResponse, name: string | null): SettingsResponse {
+  if (settings.agent_settings.agent_kind !== 'openhands') return { ...settings, active_meta_profile: null };
+  return { ...settings, active_meta_profile: name, agent_settings: {
+    ...settings.agent_settings, active_meta_profile: name, enable_classify_and_switch_llm_tool: name !== null,
+  } };
 }
 
 function isErrno(error: unknown, code: string): error is Error & { readonly code: string } {

@@ -36,6 +36,11 @@ import {
   marketplaceCatalogResponseSchema,
   mcpServerPatchSchema,
   mcpServerSchema,
+  metaProfileSchema,
+  metaProfileNameSchema,
+  metaProfileListResponseSchema,
+  metaProfileDetailResponseSchema,
+  metaProfileMutationResponseSchema,
   profileListResponseSchema,
   profileMutationResponseSchema,
   renameProfileRequestSchema,
@@ -78,11 +83,13 @@ export interface RouteSpec {
   readonly requestBodyRequired?: boolean;
   readonly requestBodyContentType?: string;
   readonly query?: readonly QueryParameterSpec[];
+  readonly pathParameterSchemas?: Readonly<Record<string, Record<string, unknown>>>;
   readonly responseContentType?: string;
   readonly responses: Readonly<Record<number, Schema | null>>;
 }
 
 const openApiContentSchema = z.object({ type: z.string() }).passthrough();
+const metaProfilePathParameters = { name: z.toJSONSchema(metaProfileNameSchema) };
 const openApiSendMessageRequestSchema = z
   .object({
     role: z.enum(['user', 'system', 'assistant', 'tool']).default('user'),
@@ -225,6 +232,11 @@ export const routeSpecs = [
   { method: 'delete', path: '/api/settings/secrets/{name}', tags: ['Settings'], summary: 'Delete a keychain-backed secret', responses: { 200: successSchema, 404: null } },
 
   { method: 'get', path: '/api/profiles', tags: ['Profiles'], summary: 'List LLM profiles', responses: { 200: profileListResponseSchema } },
+  { method: 'get', path: '/api/meta-profiles', tags: ['Meta-profiles'], summary: 'List meta-profiles', responses: { 200: metaProfileListResponseSchema, 400: null, 503: null } },
+  { method: 'get', path: '/api/meta-profiles/{name}', tags: ['Meta-profiles'], summary: 'Get meta-profile', pathParameterSchemas: metaProfilePathParameters, responses: { 200: metaProfileDetailResponseSchema, 400: null, 404: null, 422: null } },
+  { method: 'post', path: '/api/meta-profiles/{name}', tags: ['Meta-profiles'], summary: 'Save meta-profile', pathParameterSchemas: metaProfilePathParameters, requestBody: metaProfileSchema, responses: { 201: metaProfileMutationResponseSchema, 400: null, 409: null, 422: null, 503: null } },
+  { method: 'delete', path: '/api/meta-profiles/{name}', tags: ['Meta-profiles'], summary: 'Delete meta-profile', pathParameterSchemas: metaProfilePathParameters, responses: { 200: metaProfileMutationResponseSchema, 400: null, 422: null, 503: null } },
+  { method: 'post', path: '/api/meta-profiles/{name}/activate', tags: ['Meta-profiles'], summary: 'Activate meta-profile', pathParameterSchemas: metaProfilePathParameters, responses: { 200: metaProfileMutationResponseSchema, 400: null, 404: null, 422: null } },
   { method: 'get', path: '/api/profiles/{name}', tags: ['Profiles'], summary: 'Get LLM profile', responses: { 200: llmProfilePayloadSchema, 404: null } },
   { method: 'post', path: '/api/profiles', tags: ['Profiles'], summary: 'Create or update LLM profile', requestBody: llmProfilePayloadSchema, responses: { 201: llmProfilePayloadSchema, 422: null } },
   { method: 'post', path: '/api/profiles/{name}', tags: ['Profiles'], summary: 'Create or update LLM profile by name', requestBody: llmProfilePayloadSchema, responses: { 201: llmProfilePayloadSchema, 422: null } },
@@ -301,7 +313,7 @@ function operationForRoute(route: RouteSpec): Record<string, unknown> {
   return {
     tags: route.tags,
     summary: route.summary,
-    parameters: [...pathParameters(route.path), ...queryParameters(route.query ?? [])],
+    parameters: [...pathParameters(route.path, route.pathParameterSchemas), ...queryParameters(route.query ?? [])],
     ...(route.requestBody === undefined ? {} : { requestBody: requestBodyObject(route) }),
     responses: Object.fromEntries(
       Object.entries(route.responses).map(([status, schema]) => [status, responseObject(schema, route.responseContentType)]),
@@ -309,12 +321,12 @@ function operationForRoute(route: RouteSpec): Record<string, unknown> {
   };
 }
 
-function pathParameters(path: string): Array<Record<string, unknown>> {
+function pathParameters(path: string, schemas: RouteSpec['pathParameterSchemas'] = {}): Array<Record<string, unknown>> {
   return [...path.matchAll(/\{([^}]+)\}/gu)].map((match) => ({
     name: match[1],
     in: 'path',
     required: true,
-    schema: { type: 'string', format: match[1]?.endsWith('_id') ? 'uuid' : undefined },
+    schema: schemas[match[1]!] ?? { type: 'string', format: match[1]?.endsWith('_id') ? 'uuid' : undefined },
   }));
 }
 

@@ -1,0 +1,3141 @@
+{
+  "schemaVersion": 1,
+  "repository": "OpenHands/software-agent-sdk",
+  "from": "e7cc8c27b2b234fc1c104825ad20dddf1c01fa31",
+  "to": "dcf401af7a9a302ef92cb7d092e1df9bb659daa5",
+  "fromAuthoredAt": "2026-09-22T09:47:14-04:00",
+  "toAuthoredAt": "2026-09-29T16:09:38-04:00",
+  "totalCommits": 60,
+  "firstParentCommits": 60,
+  "commits": [
+    {
+      "sha": "cd02db3a181c0bed5ee34711b46c06c88288854e",
+      "authoredAt": "2026-09-22T10:36:37-05:00",
+      "subject": "PLTF-3529: install tini on rpm/zypper base images (#5215)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/docker/Dockerfile",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "docker",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "docker"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "52feb4701fbe6f49ade878e48a77970455207408",
+      "authoredAt": "2026-09-23T04:05:20+08:00",
+      "subject": "fix(sdk): normalize LLM usage telemetry through a typed adapter (#5029)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/utils/telemetry.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": [
+                "DEV-SDK-007"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/llm/test_llm_span_cost.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/llm/test_llm_telemetry.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "llm",
+              "policyHints": [
+                "DEV-SDK-007"
+              ]
+            }
+          ],
+          "modules": [
+            "llm"
+          ],
+          "policyHints": [
+            "DEV-SDK-007"
+          ]
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": [
+        "scripts/forbidden_dynamic_attributes_baseline.json"
+      ]
+    },
+    {
+      "sha": "e8b1b26fdd828dc8421993fac1241999d14d1d93",
+      "authoredAt": "2026-09-22T20:56:07-04:00",
+      "subject": "fix(sdk): preserve opaque base64 tool payloads (#5227)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/conversation/secret_registry.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": [
+                "DEV-SDK-003"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/message.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": [
+                "DEV-SDK-004"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/utils/model_features.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "openhands-sdk/openhands/sdk/utils/masking.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "utils",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-tools/openhands/tools/browser_use/definition.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "browser_use",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/conversation/test_secret_registry_model_masking.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "conversation",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "browser_use",
+            "conversation",
+            "llm",
+            "utils"
+          ],
+          "policyHints": [
+            "DEV-SDK-003",
+            "DEV-SDK-004"
+          ]
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "A",
+              "path": "tests/cross/test_secret_masking_tool_payloads.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_secret_masking_tool_payloads",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "test_secret_masking_tool_payloads"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "3cc327096a236a8f16e311503ea4309eca526671",
+      "authoredAt": "2026-09-22T22:03:31-03:00",
+      "subject": "chore(tests): remove deprecated gpt-5.2-codex from tests (#5233)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "tests/sdk/conversation/test_switch_model.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "conversation",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/llm/test_model_features.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/llm/test_subscription_mode.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/utils/test_model_prompt_spec.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "utils",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "conversation",
+            "llm",
+            "utils"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "dd8d9f6f3a280ab01a00fb7a3dc9ca791a372674",
+      "authoredAt": "2026-09-22T20:08:41-05:00",
+      "subject": "fix(sdk): tolerate orphaned tool observations (#4932)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/context/view/properties/tool_call_matching.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "context",
+              "policyHints": [
+                "DEV-SDK-012"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/context/view/properties/test_tool_call_matching.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "context",
+              "policyHints": [
+                "DEV-SDK-012"
+              ]
+            }
+          ],
+          "modules": [
+            "context"
+          ],
+          "policyHints": [
+            "DEV-SDK-012"
+          ]
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "02c670862264e431a053d5e296d56b102a9900ff",
+      "authoredAt": "2026-09-23T04:12:16+03:00",
+      "subject": "fix(typescript): forward ACP data-dir isolation flag (#5172)",
+      "units": {},
+      "ignoredPaths": [
+        "clients/typescript/src/__tests__/acp-providers.test.ts",
+        "clients/typescript/src/models/acp.ts"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "3f47426e6af4681aacab735c781426aae58a3bac",
+      "authoredAt": "2026-09-22T22:13:33-03:00",
+      "subject": "fix(llm): route gpt-6 family through /v1/responses by default (#5228)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/utils/model_features.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/llm/test_model_features.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "llm",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "llm"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "b5e756b1061a859ce827a16e14ee484f317899bf",
+      "authoredAt": "2026-09-23T04:08:18+02:00",
+      "subject": "fix(deps): keep cryptography <49 on x86_64 macOS (#5090)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "pyproject.toml",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "shared",
+              "module": "repository",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "uv.lock",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "shared",
+              "module": "dependencies",
+              "policyHints": [
+                "DEV-SDK-010"
+              ]
+            }
+          ],
+          "modules": [
+            "dependencies",
+            "repository"
+          ],
+          "policyHints": [
+            "DEV-SDK-010"
+          ]
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "pyproject.toml",
+              "previousPath": null,
+              "target": "server",
+              "kind": "shared",
+              "module": "repository",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "uv.lock",
+              "previousPath": null,
+              "target": "server",
+              "kind": "shared",
+              "module": "dependencies",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "dependencies",
+            "repository"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "0e7ced2699b19f6da8a7c7881de4e1f6b8608813",
+      "authoredAt": "2026-09-22T23:39:41-04:00",
+      "subject": "docs(review): require live evidence for runtime bug fixes (#5255)",
+      "units": {},
+      "ignoredPaths": [
+        ".agents/skills/custom-codereview-guide.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "81f0054d8141ea3a8aee209ee2c4c530095ebc83",
+      "authoredAt": "2026-09-23T00:43:30-04:00",
+      "subject": "chore(deps): update unmanaged runtime dependencies (#5256)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/docker/Dockerfile",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "docker",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "docker"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "6ebd820d10794f1b52bb06ef6c19512888a1401b",
+      "authoredAt": "2026-09-23T01:02:48-04:00",
+      "subject": "fix(agent-server): evict idle Docker runtimes (#5197)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/docker_runtime/proxy.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "docker_runtime",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/docker_runtime/registry.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "docker_runtime",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/docker_runtime/routers.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "docker_runtime",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/docker_runtime/test_proxy.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "docker_runtime",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/docker_runtime/test_registry.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "docker_runtime",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "docker_runtime"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "9e042d1f0bf7233b2a1a2bca4872625768eaac71",
+      "authoredAt": "2026-09-23T01:39:46-04:00",
+      "subject": "chore(agent-server): use three-day Debian snapshot window (#5198)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/docker/Dockerfile",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "docker",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/cross/test_update_debian_snapshot.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_update_debian_snapshot",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "docker",
+            "test_update_debian_snapshot"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".github/scripts/update_debian_snapshot.py",
+        ".github/workflows/update-debian-snapshot.yml"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "0c3b613d0405351a68be7e70dcecf527d8fece1c",
+      "authoredAt": "2026-09-23T14:12:10+02:00",
+      "subject": "fix(mcp): read persisted MCP tools written under either mcp major (#5258)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/mcp/tool.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "mcp",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "tests/sdk/mcp/test_mcp_wire_compat.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "mcp",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "mcp"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "880043bdd62a0b54252985311128b81ba3e1a362",
+      "authoredAt": "2026-09-23T18:01:49+05:00",
+      "subject": "fix: write and read installation metadata as utf-8 (#3336)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/extensions/installation/metadata.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "extensions",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/extensions/installation/test_installation_metadata.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "extensions",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "extensions"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "5b59920fdf478f2231fd9e86920a6e35ed98ad07",
+      "authoredAt": "2026-09-23T10:24:35-04:00",
+      "subject": "fix(agent-server): upgrade bundled npm runtimes (#5262)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/docker/Dockerfile",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "docker",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/cross/test_agent_server_build_metadata.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_agent_server_build_metadata",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "docker",
+            "test_agent_server_build_metadata"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "a7cf924aa482eea613a64238d1673d457b97473f",
+      "authoredAt": "2026-09-23T10:47:27-04:00",
+      "subject": "fix(ci): let triage and repository writers own readiness (#5212)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "D",
+              "path": "tests/cross/test_check_issue_readiness.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_check_issue_readiness",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "test_check_issue_readiness"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".github/scripts/check_issue_readiness.py",
+        ".github/scripts/post-readiness-comment.mjs",
+        ".github/workflows/issue-readiness-check.yml"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "5b36cacccc2bbe6f8fbce9e1d3ff4b0a3dcddadb",
+      "authoredAt": "2026-09-23T10:57:43-04:00",
+      "subject": "Release v1.49.5 (#5246)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/pyproject.toml",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "pyproject",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-tools/pyproject.toml",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "pyproject",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-workspace/pyproject.toml",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "workspace",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "uv.lock",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "shared",
+              "module": "dependencies",
+              "policyHints": [
+                "DEV-SDK-010"
+              ]
+            }
+          ],
+          "modules": [
+            "dependencies",
+            "pyproject",
+            "workspace"
+          ],
+          "policyHints": [
+            "DEV-SDK-010"
+          ]
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/pyproject.toml",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "pyproject",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "uv.lock",
+              "previousPath": null,
+              "target": "server",
+              "kind": "shared",
+              "module": "dependencies",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "dependencies",
+            "pyproject"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        "clients/typescript/package-lock.json",
+        "clients/typescript/package.json"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "e21d77673b738f056676044600c4ad81c5a575c8",
+      "authoredAt": "2026-09-23T22:55:00-03:00",
+      "subject": "Add Pareto prompt meta-profile routing (#4287)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "A",
+              "path": "examples/01_standalone_sdk/59_route_task_to_model.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "example",
+              "module": "59_route_task_to_model",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/__init__.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "openhands-sdk/openhands/sdk/llm/meta_profile_store.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/settings/api_models.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "settings",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/settings/model.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "settings",
+              "policyHints": [
+                "DEV-SDK-011",
+                "DEV-SDK-012"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/tool/builtins/__init__.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "tool",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "openhands-sdk/openhands/sdk/tool/builtins/classify_and_switch_llm.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "tool",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "tests/sdk/llm/test_meta_profile_store.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/test_settings.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "test_settings",
+              "policyHints": [
+                "DEV-SDK-011",
+                "DEV-SDK-012"
+              ]
+            },
+            {
+              "status": "A",
+              "path": "tests/sdk/tool/test_classify_and_switch_llm.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "tool",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "59_route_task_to_model",
+            "llm",
+            "settings",
+            "test_settings",
+            "tool"
+          ],
+          "policyHints": [
+            "DEV-SDK-011",
+            "DEV-SDK-012"
+          ]
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/api.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "api",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "openhands-agent-server/openhands/agent_server/meta_profiles_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "meta_profiles",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/persistence/models.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "persistence",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/settings_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "settings",
+              "policyHints": [
+                "DEV-SERVER-004"
+              ]
+            },
+            {
+              "status": "A",
+              "path": "tests/agent_server/test_active_meta_profile.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_active_meta_profile",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "tests/agent_server/test_meta_profiles_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_meta_profiles",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_settings_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_settings",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "api",
+            "meta_profiles",
+            "persistence",
+            "settings",
+            "test_active_meta_profile",
+            "test_meta_profiles",
+            "test_settings"
+          ],
+          "policyHints": [
+            "DEV-SERVER-004"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".github/agent-server-openapi-weak-schema-allowlist.json",
+        "clients/typescript/src/__tests__/api-clients.test.ts",
+        "clients/typescript/src/client/meta-profiles-client.ts",
+        "clients/typescript/src/models/api.ts"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "79bd7060d335103fe440db230b42fce14163d47a",
+      "authoredAt": "2026-09-24T11:43:43-03:00",
+      "subject": "feat(ci): auto-bump enterprise SDK pins via version-bump-prs.yml (#5289)",
+      "units": {},
+      "ignoredPaths": [
+        ".github/workflows/version-bump-prs.yml"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "a7f8f24e0bb37c6d58fa30d46c5709bc4b6360e9",
+      "authoredAt": "2026-09-24T13:08:37-03:00",
+      "subject": "feat(ci): auto-bump agent-server chart tag via version-bump-prs.yml (#5283) (#5287)",
+      "units": {},
+      "ignoredPaths": [
+        ".github/workflows/version-bump-prs.yml"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "c78c9b2bfd03788d4f50ea91ff9afd9399b80dab",
+      "authoredAt": "2026-09-24T13:16:04-03:00",
+      "subject": "Add gpt-6-sol, gpt-6-luna, and claude-opus-5-5 to verified models (#5311)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/utils/AGENTS.md",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/utils/model_features.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/utils/verified_models.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/llm/test_llm_profile_store.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/llm/test_model_list.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/test_settings.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "test_settings",
+              "policyHints": [
+                "DEV-SDK-011",
+                "DEV-SDK-012"
+              ]
+            }
+          ],
+          "modules": [
+            "llm",
+            "test_settings"
+          ],
+          "policyHints": [
+            "DEV-SDK-011",
+            "DEV-SDK-012"
+          ]
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "6a47aca178092aabd665f978a0ea88a0f2167830",
+      "authoredAt": "2026-09-24T13:41:39-03:00",
+      "subject": "feat(ci): auto-bump OpenHands agent-server version pin via version-bump-prs.yml (#5288)",
+      "units": {},
+      "ignoredPaths": [
+        ".github/workflows/version-bump-prs.yml"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "ea606dcab8047cf79d2df56c0015a7f966464e54",
+      "authoredAt": "2026-09-24T11:33:11-06:00",
+      "subject": "fix: surface friendly error message when LLM API key is invalid",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": [
+                "DEV-SDK-008",
+                "DEV-SDK-009",
+                "DEV-SDK-012"
+              ]
+            },
+            {
+              "status": "A",
+              "path": "tests/sdk/conversation/local/test_auth_error_friendly_message.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "conversation",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "conversation"
+          ],
+          "policyHints": [
+            "DEV-SDK-008",
+            "DEV-SDK-009",
+            "DEV-SDK-012"
+          ]
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "b874a47c9ca4cd00072af69871005441697b35c0",
+      "authoredAt": "2026-09-25T02:02:04+08:00",
+      "subject": "fix(sdk): treat a non-string hook decision as no decision (#4773)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/hooks/executor.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "hooks",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/hooks/test_executor.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "hooks",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "hooks"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "1612a78efa11b76ff347cbf3be7d6b6aeddbca62",
+      "authoredAt": "2026-09-24T21:48:30-05:00",
+      "subject": "feat(llm): OHE-3276 refresh API key and retry once on a 401 (#5218)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/llm.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": [
+                "DEV-SDK-004",
+                "DEV-SDK-008",
+                "DEV-SDK-010"
+              ]
+            },
+            {
+              "status": "A",
+              "path": "tests/sdk/llm/test_auth_refresh_retry.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "llm",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "llm"
+          ],
+          "policyHints": [
+            "DEV-SDK-004",
+            "DEV-SDK-008",
+            "DEV-SDK-010"
+          ]
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "a373a08b858193ded9a3bf3d82be4bec858a577d",
+      "authoredAt": "2026-09-25T01:28:30-04:00",
+      "subject": "chore(deps): bump prettier from 3.9.6 to 3.9.8 in /clients/typescript (#5304)",
+      "units": {},
+      "ignoredPaths": [
+        "clients/typescript/package-lock.json"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "cd0f4c239b7b1b477b25b68f0049399f1104085d",
+      "authoredAt": "2026-09-25T01:28:43-04:00",
+      "subject": "chore(deps): bump vitest from 5.0.0 to 5.0.1 in /clients/typescript (#5303)",
+      "units": {},
+      "ignoredPaths": [
+        "clients/typescript/package-lock.json"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "9cb4bae8eae906044e033c2ac2cf821c0de3f0f4",
+      "authoredAt": "2026-09-25T01:28:57-04:00",
+      "subject": "chore(deps): bump actions/upload-artifact from 4 to 7 (#5300)",
+      "units": {},
+      "ignoredPaths": [
+        ".github/workflows/typescript-client-ci.yml",
+        ".github/workflows/typescript-client-endpoint-audit.yml",
+        ".github/workflows/typescript-client-integration-tests.yml"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "6937127583a58dd91d7448e6e0fb10b83d60e73e",
+      "authoredAt": "2026-09-25T01:29:45-04:00",
+      "subject": "chore(deps): bump docker/build-push-action from 7.3.0 to 7.4.0 (#5299)",
+      "units": {},
+      "ignoredPaths": [
+        ".github/workflows/server.yml",
+        ".github/workflows/typescript-client-integration-tests.yml"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "ec26d24d7798c1dfb3c72c2ce5b9dcc3dac7fb93",
+      "authoredAt": "2026-09-25T01:29:50-04:00",
+      "subject": "chore(deps): bump docker/setup-buildx-action from 4.3.0 to 4.4.1 (#5294)",
+      "units": {},
+      "ignoredPaths": [
+        ".github/workflows/release-binaries.yml",
+        ".github/workflows/server.yml",
+        ".github/workflows/typescript-client-integration-tests.yml"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "1d0e7eeae02acbc23543eb1115f88553c0c66a2a",
+      "authoredAt": "2026-09-25T02:31:28-03:00",
+      "subject": "docs: document the system-before-user LLM message invariant (#5150) (#5243)",
+      "units": {},
+      "ignoredPaths": [
+        "AGENTS.md",
+        "DEVELOPMENT.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "0620c8b1cd6b5daa523dc5fb8a3672bbd29214f1",
+      "authoredAt": "2026-09-25T12:33:44+07:00",
+      "subject": "fix(mcp): refresh OAuth tokens at the discovered endpoint and write refreshed state back (#5306)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "A",
+              "path": "openhands-sdk/openhands/sdk/mcp/oauth.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "mcp",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/mcp/utils.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "mcp",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/mcp/test_create_mcp_tool.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "mcp",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "tests/sdk/mcp/test_oauth.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "mcp",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "mcp"
+          ],
+          "policyHints": []
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/mcp_oauth_store.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "mcp_oauth_store",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/mcp_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "mcp",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_mcp_oauth_store.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_mcp_oauth_store",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_mcp_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_mcp",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "mcp",
+            "mcp_oauth_store",
+            "test_mcp",
+            "test_mcp_oauth_store"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "3d88590621a76639803b4fec2969f59a22c7d052",
+      "authoredAt": "2026-09-25T13:53:26+05:30",
+      "subject": "Fix agent server windows crash (#4115)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "uv.lock",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "shared",
+              "module": "dependencies",
+              "policyHints": [
+                "DEV-SDK-010"
+              ]
+            }
+          ],
+          "modules": [
+            "dependencies"
+          ],
+          "policyHints": [
+            "DEV-SDK-010"
+          ]
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/pyproject.toml",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "pyproject",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "uv.lock",
+              "previousPath": null,
+              "target": "server",
+              "kind": "shared",
+              "module": "dependencies",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "dependencies",
+            "pyproject"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "0d8d3a52248c7cc73024ea5fdd73cdfe36e8f988",
+      "authoredAt": "2026-09-25T19:27:20+07:00",
+      "subject": "fix(examples): register default tools in route_task_to_model example (#5320)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "examples/01_standalone_sdk/59_route_task_to_model.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "example",
+              "module": "59_route_task_to_model",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "59_route_task_to_model"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "fcc102a697874d54a357e36004e02c95040dbdc0",
+      "authoredAt": "2026-09-25T09:36:29-04:00",
+      "subject": "Release v1.49.6 (#5319)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/pyproject.toml",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "pyproject",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-tools/pyproject.toml",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "pyproject",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-workspace/pyproject.toml",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "workspace",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "uv.lock",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "shared",
+              "module": "dependencies",
+              "policyHints": [
+                "DEV-SDK-010"
+              ]
+            }
+          ],
+          "modules": [
+            "dependencies",
+            "pyproject",
+            "workspace"
+          ],
+          "policyHints": [
+            "DEV-SDK-010"
+          ]
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/pyproject.toml",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "pyproject",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "uv.lock",
+              "previousPath": null,
+              "target": "server",
+              "kind": "shared",
+              "module": "dependencies",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "dependencies",
+            "pyproject"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        "clients/typescript/package-lock.json",
+        "clients/typescript/package.json"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "7401022adcf8fa937a3dfb3c5595ffd1454f46de",
+      "authoredAt": "2026-09-25T18:01:54-03:00",
+      "subject": "fix(llm): gate prompt_cache_key on provider support (#5328)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/options/common.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/utils/model_features.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/llm/test_chat_options.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/llm/test_llm_fallback.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/llm/test_model_features.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "llm",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "llm"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "46c762c0ecbfe5846d52cf014df4b976ccf09caf",
+      "authoredAt": "2026-09-25T21:02:59-03:00",
+      "subject": "chore(deps): bump aiosqlite from 0.21.0 to 0.22.1 (#5298)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "uv.lock",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "shared",
+              "module": "dependencies",
+              "policyHints": [
+                "DEV-SDK-010"
+              ]
+            }
+          ],
+          "modules": [
+            "dependencies"
+          ],
+          "policyHints": [
+            "DEV-SDK-010"
+          ]
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/pyproject.toml",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "pyproject",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "uv.lock",
+              "previousPath": null,
+              "target": "server",
+              "kind": "shared",
+              "module": "dependencies",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "dependencies",
+            "pyproject"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "d340af223fb1fb4e409ba8ed781d98f88c1f2459",
+      "authoredAt": "2026-09-25T22:02:45-03:00",
+      "subject": "fix(condenser): never forget the leading SystemPromptEvent (#5148) (#5241)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/context/condenser/llm_summarizing_condenser.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "context",
+              "policyHints": [
+                "DEV-SDK-009",
+                "DEV-SDK-010",
+                "DEV-SDK-011",
+                "DEV-SDK-012"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/context/condenser/test_llm_summarizing_condenser.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "context",
+              "policyHints": [
+                "DEV-SDK-009",
+                "DEV-SDK-010",
+                "DEV-SDK-011",
+                "DEV-SDK-012"
+              ]
+            }
+          ],
+          "modules": [
+            "context"
+          ],
+          "policyHints": [
+            "DEV-SDK-009",
+            "DEV-SDK-010",
+            "DEV-SDK-011",
+            "DEV-SDK-012"
+          ]
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "a350dc73ef9b4d3a801ffab2aed211a04d2120a9",
+      "authoredAt": "2026-09-25T22:08:09-03:00",
+      "subject": "fix(grayswan): guarantee system message first when history window drops system prompt (#5147) (#5240)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/security/grayswan/analyzer.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "security",
+              "policyHints": [
+                "DEV-SDK-001",
+                "DEV-SDK-002"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/security/grayswan/test_grayswan_analyzer.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "security",
+              "policyHints": [
+                "DEV-SDK-001",
+                "DEV-SDK-002"
+              ]
+            }
+          ],
+          "modules": [
+            "security"
+          ],
+          "policyHints": [
+            "DEV-SDK-001",
+            "DEV-SDK-002"
+          ]
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "032e0e998ed09c5d3c6e6fae7d85a9fbee0335cf",
+      "authoredAt": "2026-09-26T11:16:42-03:00",
+      "subject": "fix(condenser): split summarization prompt into system + user messages (#5143)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/context/condenser/llm_summarizing_condenser.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "context",
+              "policyHints": [
+                "DEV-SDK-009",
+                "DEV-SDK-010",
+                "DEV-SDK-011",
+                "DEV-SDK-012"
+              ]
+            },
+            {
+              "status": "A",
+              "path": "openhands-sdk/openhands/sdk/context/condenser/prompts/summarizing_events.j2",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "context",
+              "policyHints": [
+                "DEV-SDK-009",
+                "DEV-SDK-010",
+                "DEV-SDK-011",
+                "DEV-SDK-012"
+              ]
+            },
+            {
+              "status": "R",
+              "path": "openhands-sdk/openhands/sdk/context/condenser/prompts/summarizing_system.j2",
+              "previousPath": "openhands-sdk/openhands/sdk/context/condenser/prompts/summarizing_prompt.j2",
+              "target": "sdk",
+              "kind": "source",
+              "module": "context",
+              "policyHints": [
+                "DEV-SDK-009",
+                "DEV-SDK-010",
+                "DEV-SDK-011",
+                "DEV-SDK-012"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/context/condenser/test_llm_summarizing_condenser.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "context",
+              "policyHints": [
+                "DEV-SDK-009",
+                "DEV-SDK-010",
+                "DEV-SDK-011",
+                "DEV-SDK-012"
+              ]
+            }
+          ],
+          "modules": [
+            "context"
+          ],
+          "policyHints": [
+            "DEV-SDK-009",
+            "DEV-SDK-010",
+            "DEV-SDK-011",
+            "DEV-SDK-012"
+          ]
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "d77ada7a030b3acaa82593d402632680361dfe42",
+      "authoredAt": "2026-09-26T11:18:05-03:00",
+      "subject": "fix(agent-server): prepend system message to profile pre-flight ping (#5146) (#5239)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/profiles_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "profiles",
+              "policyHints": [
+                "DEV-SERVER-004"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_profiles_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_profiles",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "profiles",
+            "test_profiles"
+          ],
+          "policyHints": [
+            "DEV-SERVER-004"
+          ]
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "da28c7736ea667ceae51cf3a3b9b37ab5f528f22",
+      "authoredAt": "2026-09-27T21:45:02+08:00",
+      "subject": "docs(agent): add docstrings for image helper functions (#4656)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/agent/agent.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "agent",
+              "policyHints": [
+                "DEV-SDK-009",
+                "DEV-SDK-012"
+              ]
+            }
+          ],
+          "modules": [
+            "agent"
+          ],
+          "policyHints": [
+            "DEV-SDK-009",
+            "DEV-SDK-012"
+          ]
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "3311ba9eec5044f40ab5d0b3d7eddc9f7e1e2d14",
+      "authoredAt": "2026-09-27T17:31:39-04:00",
+      "subject": "fix(sdk): exclude boolean false from anyOf non-null type selection (#4322)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/tool/schema.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "tool",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/tool/test_mcp_schema.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "tool",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "tool"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "c1d5bee916ee6e86b7ae9acc1a562e4144043013",
+      "authoredAt": "2026-09-28T07:02:34-04:00",
+      "subject": "docs: clarify scope for new AI providers (#5313)",
+      "units": {},
+      "ignoredPaths": [
+        ".agents/skills/custom-codereview-guide.md",
+        ".github/ISSUE_TEMPLATE/feature_request.yml",
+        "CONTRIBUTING.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "978f3b46130416528fd076628ef685343819f05c",
+      "authoredAt": "2026-09-28T15:07:36+02:00",
+      "subject": "chore(ci): fix inaccurate timings and wording in stale workflow (#4298)",
+      "units": {},
+      "ignoredPaths": [
+        ".github/workflows/stale.yml"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "a8a9fc6e236a31c7adb876abb2be9e41e3c359b7",
+      "authoredAt": "2026-09-28T10:50:04-04:00",
+      "subject": "chore(openapi): exempt extensible tool metadata (#5286)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_openapi_contract.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_openapi_contract",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "test_openapi_contract"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".github/agent-server-openapi-weak-schema-allowlist.json",
+        ".github/scripts/check_agent_server_openapi_quality.py"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "a130c8f9edf38c7a46825f7e6761d2497a00907b",
+      "authoredAt": "2026-09-28T12:27:52-03:00",
+      "subject": "fix(condenser): preserve leading system prompt on hard context reset (#5149) (#5242)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/context/condenser/llm_summarizing_condenser.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "context",
+              "policyHints": [
+                "DEV-SDK-009",
+                "DEV-SDK-010",
+                "DEV-SDK-011",
+                "DEV-SDK-012"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/context/condenser/test_llm_summarizing_condenser.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "context",
+              "policyHints": [
+                "DEV-SDK-009",
+                "DEV-SDK-010",
+                "DEV-SDK-011",
+                "DEV-SDK-012"
+              ]
+            }
+          ],
+          "modules": [
+            "context"
+          ],
+          "policyHints": [
+            "DEV-SDK-009",
+            "DEV-SDK-010",
+            "DEV-SDK-011",
+            "DEV-SDK-012"
+          ]
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "a9b32b2124c022e2d47328c90efe9ec1f98253ba",
+      "authoredAt": "2026-09-28T13:04:07-03:00",
+      "subject": "fix(goal): split judge prompt into system + user messages (#5145) (#5238)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/conversation/goal/judge.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/conversation/goal/prompts.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/conversation/goal/test_judge.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "conversation",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "conversation"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "71612374a8d3c639909b03613dbecf1ff999d0bd",
+      "authoredAt": "2026-09-28T16:53:38-03:00",
+      "subject": "fix(sdk): tolerate null cache_creation_tokens in usage telemetry (minimax-m3 crash) (#5327)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/utils/telemetry.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": [
+                "DEV-SDK-007"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/llm/test_llm_span_cost.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "llm",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "llm"
+          ],
+          "policyHints": [
+            "DEV-SDK-007"
+          ]
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "bd33d63f7a134231bddb7ad989c68cded6188c8b",
+      "authoredAt": "2026-09-28T20:50:00-04:00",
+      "subject": "refactor(sdk): centralize LLM call context (#4159)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/agent/agent.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "agent",
+              "policyHints": [
+                "DEV-SDK-009",
+                "DEV-SDK-012"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": [
+                "DEV-SDK-008",
+                "DEV-SDK-009",
+                "DEV-SDK-012"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/conversation/title_utils.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/hooks/conversation_hooks.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "hooks",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/hooks/executor.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "hooks",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/hooks/manager.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "hooks",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/__init__.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "openhands-sdk/openhands/sdk/llm/call_context.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/llm.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": [
+                "DEV-SDK-004",
+                "DEV-SDK-008",
+                "DEV-SDK-010"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/options/chat_options.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/options/common.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/options/responses_options.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/tool/builtins/classify_and_switch_llm.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "tool",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-tools/openhands/tools/delegate/impl.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "delegate",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-tools/openhands/tools/task/manager.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "task",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/conversation/local/test_call_context_isolation.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "conversation",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/conversation/local/test_conversation_id.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "conversation",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/conversation/local/test_conversation_tree.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "conversation",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/conversation/local/test_fork.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "conversation",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/conversation/test_switch_model.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "conversation",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/hooks/test_executor.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "hooks",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/llm/test_chat_options.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/llm/test_llm_fallback.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/llm/test_responses_parsing_and_kwargs.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/tool/test_classify_and_switch_llm.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "tool",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/tools/delegate/test_delegation.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "delegate",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "agent",
+            "conversation",
+            "delegate",
+            "hooks",
+            "llm",
+            "task",
+            "tool"
+          ],
+          "policyHints": [
+            "DEV-SDK-004",
+            "DEV-SDK-008",
+            "DEV-SDK-009",
+            "DEV-SDK-010",
+            "DEV-SDK-012"
+          ]
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/conversation_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": [
+                "DEV-SERVER-007",
+                "DEV-SERVER-009"
+              ]
+            }
+          ],
+          "modules": [
+            "conversation"
+          ],
+          "policyHints": [
+            "DEV-SERVER-007",
+            "DEV-SERVER-009"
+          ]
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "af3ed3ed99715fabd385058bec31d538336c9740",
+      "authoredAt": "2026-09-28T20:50:44-04:00",
+      "subject": "fix(sdk): resolve async response secrets outside the event loop (#4967)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/agent/agent.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "agent",
+              "policyHints": [
+                "DEV-SDK-009",
+                "DEV-SDK-012"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/agent/response_dispatch.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "agent",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": [
+                "DEV-SDK-008",
+                "DEV-SDK-009",
+                "DEV-SDK-012"
+              ]
+            },
+            {
+              "status": "A",
+              "path": "tests/sdk/agent/test_async_secret_masking.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "agent",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "agent",
+            "conversation"
+          ],
+          "policyHints": [
+            "DEV-SDK-008",
+            "DEV-SDK-009",
+            "DEV-SDK-012"
+          ]
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "85f4efdb5afd60e0ae0f14e25143d44630d0708c",
+      "authoredAt": "2026-09-29T07:15:28-04:00",
+      "subject": "docs: refresh AGENTS.md guidance (#5040)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/AGENTS.md",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "AGENTS",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "AGENTS"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        "AGENTS.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "b9d6f32e05b78f8b4ed3e3762deb806f89d40a12",
+      "authoredAt": "2026-09-29T14:42:12+03:00",
+      "subject": "fix(sdk): keep conversations alive when MCP startup fails (#5345)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": [
+                "DEV-SDK-008",
+                "DEV-SDK-009",
+                "DEV-SDK-012"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/conversation/test_local_conversation_mcp.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "conversation",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "conversation"
+          ],
+          "policyHints": [
+            "DEV-SDK-008",
+            "DEV-SDK-009",
+            "DEV-SDK-012"
+          ]
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "7fa122478a3d90710cc2525c51c02aec0867b252",
+      "authoredAt": "2026-09-29T08:46:50-04:00",
+      "subject": "fix(deps): bump anyio to 4.14.2 for CVE-2026-63374 (#5361)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "pyproject.toml",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "shared",
+              "module": "repository",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "uv.lock",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "shared",
+              "module": "dependencies",
+              "policyHints": [
+                "DEV-SDK-010"
+              ]
+            }
+          ],
+          "modules": [
+            "dependencies",
+            "repository"
+          ],
+          "policyHints": [
+            "DEV-SDK-010"
+          ]
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "pyproject.toml",
+              "previousPath": null,
+              "target": "server",
+              "kind": "shared",
+              "module": "repository",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "uv.lock",
+              "previousPath": null,
+              "target": "server",
+              "kind": "shared",
+              "module": "dependencies",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "dependencies",
+            "repository"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "b1b237ca103e33faf3bd94fd9ffffdb05139a9ab",
+      "authoredAt": "2026-09-29T09:16:59-04:00",
+      "subject": "feat(client): own browser conversation event stream transport (#5013)",
+      "units": {},
+      "ignoredPaths": [
+        "clients/typescript/README.md",
+        "clients/typescript/src/__tests__/conversation-event-stream.test.ts",
+        "clients/typescript/src/__tests__/websocket-callback-client.test.ts",
+        "clients/typescript/src/client/conversation-event-stream.ts",
+        "clients/typescript/src/clients.ts",
+        "clients/typescript/src/events/websocket-client.ts"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "2cb54835a9bb7bcf3b9e4487d2b18438f62c2f03",
+      "authoredAt": "2026-09-29T10:00:24-04:00",
+      "subject": "feat(apps): manage optional backend processes (#5270)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/api.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "api",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/canvas_extensions_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "canvas_extensions",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "openhands-agent-server/openhands/agent_server/canvas_extensions/backend.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "canvas_extensions",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/canvas_extensions/manifest.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "canvas_extensions",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/README.md",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "README",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "tests/agent_server/canvas_extensions/test_canvas_extension_backend.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "canvas_extensions",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_api.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_api",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "README",
+            "api",
+            "canvas_extensions",
+            "test_api"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        "clients/typescript/src/__tests__/canvas-extensions-client.test.ts",
+        "clients/typescript/src/client/canvas-extensions-client.ts",
+        "clients/typescript/src/client/openhands-client.ts",
+        "clients/typescript/src/clients.ts",
+        "clients/typescript/src/models/agent-server-api.ts"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "eee8c88c9460f26b5e2748cb9f71508132013d42",
+      "authoredAt": "2026-09-29T11:40:35-03:00",
+      "subject": "fix(ci): poll npm registry for typescript-client integrity in OpenHands bump (#5331)",
+      "units": {},
+      "ignoredPaths": [
+        ".github/workflows/version-bump-prs.yml"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "a72751d7e1476dc4be896da494dd6926653a70bf",
+      "authoredAt": "2026-09-29T13:06:04-05:00",
+      "subject": "feat(agent-server): register refresh-on-401 hook on managed-proxy LLMs (#5222)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/event_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "event",
+              "policyHints": [
+                "DEV-SERVER-007",
+                "DEV-SERVER-008",
+                "DEV-SERVER-009",
+                "DEV-SERVER-010"
+              ]
+            },
+            {
+              "status": "A",
+              "path": "openhands-agent-server/openhands/agent_server/managed_llm_key.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "managed_llm_key",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "tests/agent_server/test_managed_llm_key_http.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_managed_llm_key_http",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "tests/agent_server/test_managed_llm_key.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_managed_llm_key",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "event",
+            "managed_llm_key",
+            "test_managed_llm_key",
+            "test_managed_llm_key_http"
+          ],
+          "policyHints": [
+            "DEV-SERVER-007",
+            "DEV-SERVER-008",
+            "DEV-SERVER-009",
+            "DEV-SERVER-010"
+          ]
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "d62d87e79b2ca9e0f954de89acbd5dcaa77d9be4",
+      "authoredAt": "2026-09-29T14:42:40-04:00",
+      "subject": "fix: surface LiteLLM budget denials without retry backoff (#5309)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/exceptions/classifier.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/fallback_strategy.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/llm.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": [
+                "DEV-SDK-004",
+                "DEV-SDK-008",
+                "DEV-SDK-010"
+              ]
+            },
+            {
+              "status": "A",
+              "path": "tests/sdk/llm/test_budget_denial_http.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/llm/test_llm_fallback.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "llm",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "llm"
+          ],
+          "policyHints": [
+            "DEV-SDK-004",
+            "DEV-SDK-008",
+            "DEV-SDK-010"
+          ]
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "dcf401af7a9a302ef92cb7d092e1df9bb659daa5",
+      "authoredAt": "2026-09-29T16:09:38-04:00",
+      "subject": "chore(main): release 1.50.0 (#5374)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/pyproject.toml",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "pyproject",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-tools/pyproject.toml",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "pyproject",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-workspace/pyproject.toml",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "workspace",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "uv.lock",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "shared",
+              "module": "dependencies",
+              "policyHints": [
+                "DEV-SDK-010"
+              ]
+            }
+          ],
+          "modules": [
+            "dependencies",
+            "pyproject",
+            "workspace"
+          ],
+          "policyHints": [
+            "DEV-SDK-010"
+          ]
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/pyproject.toml",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "pyproject",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "uv.lock",
+              "previousPath": null,
+              "target": "server",
+              "kind": "shared",
+              "module": "dependencies",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "dependencies",
+            "pyproject"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        "clients/typescript/package-lock.json",
+        "clients/typescript/package.json"
+      ],
+      "unmappedPaths": []
+    }
+  ],
+  "summary": {
+    "targets": {
+      "sdk": {
+        "commitUnits": 34,
+        "files": 126,
+        "modules": [
+          "59_route_task_to_model",
+          "agent",
+          "browser_use",
+          "context",
+          "conversation",
+          "delegate",
+          "dependencies",
+          "extensions",
+          "hooks",
+          "llm",
+          "mcp",
+          "pyproject",
+          "repository",
+          "security",
+          "settings",
+          "task",
+          "test_settings",
+          "tool",
+          "utils",
+          "workspace"
+        ],
+        "tests": 47,
+        "examples": 2,
+        "policyHints": [
+          "DEV-SDK-001",
+          "DEV-SDK-002",
+          "DEV-SDK-003",
+          "DEV-SDK-004",
+          "DEV-SDK-007",
+          "DEV-SDK-008",
+          "DEV-SDK-009",
+          "DEV-SDK-010",
+          "DEV-SDK-011",
+          "DEV-SDK-012"
+        ]
+      },
+      "server": {
+        "commitUnits": 22,
+        "files": 54,
+        "modules": [
+          "AGENTS",
+          "README",
+          "api",
+          "canvas_extensions",
+          "conversation",
+          "dependencies",
+          "docker",
+          "docker_runtime",
+          "event",
+          "managed_llm_key",
+          "mcp",
+          "mcp_oauth_store",
+          "meta_profiles",
+          "persistence",
+          "profiles",
+          "pyproject",
+          "repository",
+          "settings",
+          "test_active_meta_profile",
+          "test_agent_server_build_metadata",
+          "test_api",
+          "test_check_issue_readiness",
+          "test_managed_llm_key",
+          "test_managed_llm_key_http",
+          "test_mcp",
+          "test_mcp_oauth_store",
+          "test_meta_profiles",
+          "test_openapi_contract",
+          "test_profiles",
+          "test_secret_masking_tool_payloads",
+          "test_settings",
+          "test_update_debian_snapshot"
+        ],
+        "tests": 17,
+        "examples": 0,
+        "policyHints": [
+          "DEV-SERVER-004",
+          "DEV-SERVER-007",
+          "DEV-SERVER-008",
+          "DEV-SERVER-009",
+          "DEV-SERVER-010"
+        ]
+      }
+    },
+    "ignoredPaths": [
+      ".agents/skills/custom-codereview-guide.md",
+      ".github/ISSUE_TEMPLATE/feature_request.yml",
+      ".github/agent-server-openapi-weak-schema-allowlist.json",
+      ".github/scripts/check_agent_server_openapi_quality.py",
+      ".github/scripts/check_issue_readiness.py",
+      ".github/scripts/post-readiness-comment.mjs",
+      ".github/scripts/update_debian_snapshot.py",
+      ".github/workflows/issue-readiness-check.yml",
+      ".github/workflows/release-binaries.yml",
+      ".github/workflows/server.yml",
+      ".github/workflows/stale.yml",
+      ".github/workflows/typescript-client-ci.yml",
+      ".github/workflows/typescript-client-endpoint-audit.yml",
+      ".github/workflows/typescript-client-integration-tests.yml",
+      ".github/workflows/update-debian-snapshot.yml",
+      ".github/workflows/version-bump-prs.yml",
+      "AGENTS.md",
+      "CONTRIBUTING.md",
+      "DEVELOPMENT.md",
+      "clients/typescript/README.md",
+      "clients/typescript/package-lock.json",
+      "clients/typescript/package.json",
+      "clients/typescript/src/__tests__/acp-providers.test.ts",
+      "clients/typescript/src/__tests__/api-clients.test.ts",
+      "clients/typescript/src/__tests__/canvas-extensions-client.test.ts",
+      "clients/typescript/src/__tests__/conversation-event-stream.test.ts",
+      "clients/typescript/src/__tests__/websocket-callback-client.test.ts",
+      "clients/typescript/src/client/canvas-extensions-client.ts",
+      "clients/typescript/src/client/conversation-event-stream.ts",
+      "clients/typescript/src/client/meta-profiles-client.ts",
+      "clients/typescript/src/client/openhands-client.ts",
+      "clients/typescript/src/clients.ts",
+      "clients/typescript/src/events/websocket-client.ts",
+      "clients/typescript/src/models/acp.ts",
+      "clients/typescript/src/models/agent-server-api.ts",
+      "clients/typescript/src/models/api.ts"
+    ],
+    "unmappedPaths": [
+      "scripts/forbidden_dynamic_attributes_baseline.json"
+    ]
+  }
+}

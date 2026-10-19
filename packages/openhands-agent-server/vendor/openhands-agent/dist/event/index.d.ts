@@ -163,7 +163,7 @@ export declare const systemPromptEventSchema: z.ZodObject<{
         enable_truncation?: boolean | undefined;
         type?: "image" | undefined;
     }>>;
-    tools: z.ZodArray<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+    tools: z.ZodArray<z.ZodPipe<z.ZodRecord<z.ZodString, z.ZodUnknown>, z.ZodTransform<Record<string, unknown>, Record<string, unknown>>>>;
     dynamic_context: z.ZodDefault<z.ZodNullable<z.ZodUnion<readonly [z.ZodPipe<z.ZodObject<{
         cache_prompt: z.ZodDefault<z.ZodBoolean>;
         enable_truncation: z.ZodOptional<z.ZodBoolean>;
@@ -816,7 +816,7 @@ export declare const eventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         enable_truncation?: boolean | undefined;
         type?: "image" | undefined;
     }>>;
-    tools: z.ZodArray<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+    tools: z.ZodArray<z.ZodPipe<z.ZodRecord<z.ZodString, z.ZodUnknown>, z.ZodTransform<Record<string, unknown>, Record<string, unknown>>>>;
     dynamic_context: z.ZodDefault<z.ZodNullable<z.ZodUnion<readonly [z.ZodPipe<z.ZodObject<{
         cache_prompt: z.ZodDefault<z.ZodBoolean>;
         enable_truncation: z.ZodOptional<z.ZodBoolean>;
@@ -1369,7 +1369,7 @@ export declare const llmConvertibleEventSchema: z.ZodDiscriminatedUnion<[z.ZodOb
         enable_truncation?: boolean | undefined;
         type?: "image" | undefined;
     }>>;
-    tools: z.ZodArray<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+    tools: z.ZodArray<z.ZodPipe<z.ZodRecord<z.ZodString, z.ZodUnknown>, z.ZodTransform<Record<string, unknown>, Record<string, unknown>>>>;
     dynamic_context: z.ZodDefault<z.ZodNullable<z.ZodUnion<readonly [z.ZodPipe<z.ZodObject<{
         cache_prompt: z.ZodDefault<z.ZodBoolean>;
         enable_truncation: z.ZodOptional<z.ZodBoolean>;

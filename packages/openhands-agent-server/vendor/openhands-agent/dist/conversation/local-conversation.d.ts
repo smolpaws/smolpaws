@@ -1,5 +1,6 @@
 import { type Event } from '../event/index.js';
 import { type FileStore } from '../io/index.js';
+import { type LLMCallContext } from '../llm/call-context.js';
 import type { Agent } from '../agent/index.js';
 import { ConversationState } from './state.js';
 import { StuckDetector, type StuckDetectionThresholds } from './stuck-detector.js';
@@ -10,6 +11,8 @@ export interface LocalConversationOptions {
     readonly maxIterations?: number;
     readonly stuckDetection?: boolean | StuckDetectionThresholds;
     readonly conversationId?: string;
+    /** Optional cache shard shared with a parent; session identity always remains local. */
+    readonly promptCacheKey?: string | null;
     readonly conversationsDir?: string;
     readonly fileStore?: FileStore;
     /** Runs before the first step and after each fully persisted step, including finish. */
@@ -27,8 +30,10 @@ export declare class LocalConversation {
     readonly state: ConversationState;
     readonly maxIterations: number;
     readonly stuckDetector: StuckDetector | null;
-    readonly conversationId: string | null;
+    readonly conversationId: string;
+    private readonly callContext;
     constructor(options: LocalConversationOptions);
+    getLLMCallContext(): LLMCallContext;
     sendMessage(text: string): Event;
     sendMessageAsync(text: string): Promise<Event>;
     pause(): void;

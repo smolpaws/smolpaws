@@ -45,9 +45,9 @@ export class ConversationProfileRuntime {
     });
   }
 
-  async switchProfile(name: string): Promise<{ model: string }> {
+  async switchProfile(name: string, inlineProfile?: LLMProfile): Promise<{ model: string }> {
     try {
-      return await this.serialize(async () => ({ model: (await this.prepare(name)).model }));
+      return await this.serialize(async () => ({ model: (await this.prepare(name, undefined, inlineProfile)).model }));
     } catch (error) {
       // Tool errors become durable observations; never forward arbitrary request/cause objects.
       throw new Error(error instanceof Error ? redactTextSecrets(error.message)
@@ -104,10 +104,10 @@ export class ConversationProfileRuntime {
     this.prepared = undefined;
   }
 
-  private async prepare(name: string, configuredRef?: string | null): Promise<LLMProfile> {
-    const found = await this.options.getProfile(name);
+  private async prepare(name: string, configuredRef?: string | null, inlineProfile?: LLMProfile): Promise<LLMProfile> {
+    const found = inlineProfile ?? await this.options.getProfile(name);
     if (found === null) throw new Error(`llm_profile_not_found:${name}`);
-    const profile = llmProfileSchema.parse(structuredClone(found));
+    const profile = llmProfileSchema.parse({ ...structuredClone(found), profileId: name });
     const client = await this.options.createClient(profile);
     // Do not wait for the run here: this function can be called by a tool inside that run.
     await this.updateRequest((request) => ({ ...request, llm_profile_selection: {

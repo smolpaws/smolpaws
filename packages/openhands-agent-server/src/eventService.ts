@@ -21,6 +21,8 @@ import {
   pauseEventSchema,
   type Event,
   type LLMClient,
+  type LLMCallContext,
+  type LLMProfile,
   type Message,
   type StreamingDeltaEvent,
 } from '@smolpaws/openhands-agent';
@@ -36,7 +38,10 @@ import { ConversationProfileRuntime, type ProfileRuntimeOptions, type UpdateConv
 
 export interface AgentFactoryContext {
   readonly stored: StoredConversation;
-  readonly switchProfile?: (name: string) => Promise<{ model: string }>;
+  readonly switchProfile?: (name: string, inlineProfile?: LLMProfile) => Promise<{ model: string }>;
+  readonly state?: ConversationState;
+  /** Available when tools execute, after LocalConversation has been constructed. */
+  readonly getLLMCallContext?: () => LLMCallContext;
   /** A validated, already prepared initial replacement; never supplied by an HTTP caller. */
   readonly llmClient?: LLMClient;
   /** Atomically update server-owned configuration under the conversation ownership guard. */
@@ -405,15 +410,22 @@ export class EventService {
       await this.profileRuntime?.observeConfiguration();
     }
     const llmClient = await this.profileRuntime?.prepareInitial(this.state);
+    const runtime: { conversation?: LocalConversation } = {};
     const agent = this.agentFactory === undefined ? defaultUnconfiguredAgent() : await this.agentFactory(this.stored.request.agent, {
       stored: this.stored,
+      state: this.state,
+      getLLMCallContext: () => {
+        if (runtime.conversation === undefined) throw new Error('Conversation call context is unavailable before construction.');
+        return runtime.conversation.getLLMCallContext();
+      },
       updateRequest: this.updateRequest,
-      ...(this.profileRuntime === undefined ? {} : { switchProfile: (name: string) => this.profileRuntime!.switchProfile(name) }),
+      ...(this.profileRuntime === undefined ? {} : { switchProfile: (name: string, inlineProfile?: LLMProfile) => this.profileRuntime!.switchProfile(name, inlineProfile) }),
       ...(llmClient === undefined ? {} : { llmClient }),
     });
-    return new LocalConversation({
+    const conversation = new LocalConversation({
       agent,
       state: this.state,
+      conversationId: this.stored.id,
       maxIterations: this.stored.request.max_iterations,
       stuckDetection: this.stored.request.stuck_detection,
       onStepBoundary: async (currentAgent: Agent) => {
@@ -431,6 +443,8 @@ export class EventService {
         }
       },
     });
+    runtime.conversation = conversation;
+    return conversation;
   }
 
   private async runAndPublish(): Promise<void> {

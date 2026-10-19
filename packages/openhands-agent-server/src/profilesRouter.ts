@@ -59,7 +59,10 @@ export function registerProfileRoutes(app: FastifyInstance, state: ServerStateSe
     const { llm } = parseBody(validateProfileRequestSchema, request.body);
     try {
       const client = await llmClientFactory(llmProfilePayloadSchema.parse(llm), secretStore);
-      await client.complete([messageSchema.parse({ role: 'user', content: [textContent('ping')] })]);
+      await client.complete([
+        messageSchema.parse({ role: 'system', content: [textContent('Reply with one token.')] }),
+        messageSchema.parse({ role: 'user', content: [textContent('ping')] }),
+      ]);
       return { valid: true, error: null };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

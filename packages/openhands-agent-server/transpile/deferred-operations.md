@@ -31,3 +31,37 @@ profile keys resolve directly through asynchronous `SecretStore` references and
 secret GET responses remain redacted. The persistence deviation does not exclude
 the missing runtime protocol. Revisit these semantics with conversation secret
 injection and profile authorization, preserving the no-raw-persistence boundary.
+
+## Bounded v1.50.0 lifecycle expansion
+
+The `e7cc8c27..dcf401af` review explicitly adds six Canvas backend operations to
+`OPENAPI-DEFERRED-001`, individually listed in the policy. This depends on the
+already deferred Canvas manifest/install subsystem. Preparation and start must
+use the exact installed revision, verify checksums, and safely extract immutable
+artifacts with archive/path containment. Executables must remain contained and
+receive a sanitized child environment. Readiness and unsupported-platform states,
+concurrent/idempotent starts, and cancellation of hung startup are part of this
+work. Stop, disable, uninstall and server shutdown must clean up process groups
+and descendants. Uninstall retains backend data; explicit data deletion requires
+a stopped backend. Log tails default to 65,536 bytes and accept 1 through 262,144.
+Forced install must reject with 409 while a backend is running. These requirements
+include changes to existing install routes, beyond the six new operations.
+
+The same interval extends the existing Docker runtime debt (`smolpaws-09ou`) with
+idle eviction: running conversations and active HTTP/WebSocket proxy attachments
+prevent eviction, detachment refreshes the deadline, shutdown cancels the sweeper,
+and a failed stop restores the container to the registry. The native lease is not
+an implementation of this Docker lifecycle.
+
+MCP OAuth debt also includes best-effort inline refreshed-state writeback webhooks,
+retaining new state in memory on webhook failure. Settings-backed state does not
+use that webhook. Session auth headers and immediate successful OAuth start when
+stored/refreshed credentials need no browser consent remain deferred. SDK secret
+hydration debt also includes masking resolved values in observations; redacted
+metadata alone does not provide that behavior.
+
+Server LLM title generation and its conversation-owned call context are tracked
+separately as `openhands-agent-wlw.10`. The current title remains a deterministic
+text fallback. Passing durable conversation IDs into main, condenser and classifier
+calls does not close the missing title model call, reasoning cleanup, or its
+fallback/error behavior. Revisit with the upstream title utility and tests.

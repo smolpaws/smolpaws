@@ -1,5 +1,6 @@
 import type { Condensation, LLMConvertibleEvent } from '../event/index.js';
 import type { LLMClient, LLMCompletionResponse } from '../llm/client.js';
+import type { LLMCallContext } from '../llm/call-context.js';
 import type { LLMProfile, Message } from '../llm/index.js';
 import type { ToolDefinition } from '../tool/index.js';
 import type { View } from './view.js';
@@ -16,6 +17,7 @@ export interface CondenserCompletionAttempt {
 }
 /** Explicit per-operation host state; a condenser never owns a conversation or global metrics. */
 export interface CondenserContext {
+    readonly callContext?: LLMCallContext | null;
     /** Latest successful main-response input usage; undefined permits first-request estimation. */
     readonly reportedInputTokens?: number | null;
     readonly tools?: readonly ToolDefinition[];
