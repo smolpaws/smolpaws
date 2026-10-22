@@ -1,4 +1,3 @@
-import { ExecutionObserver } from './executionObserver.js';
 import { RunRecovery } from './runRecovery.js';
 /**
  * Platform-agnostic Message Relay runtime for standalone bridges.
@@ -52,8 +51,6 @@ export interface RelayRuntimeOptions {
   extractor?: DeliverableExtractor;
   maxDispatchPerTick?: number;
   schedulerDbPath?: string;
-  /** Best-effort canonical execution snapshots, independent of intake and delivery. */
-  onExecutionStatus?: (lane: LaneDescriptor, status: string) => void;
 }
 
 export interface RelayIntake {
@@ -72,7 +69,6 @@ export class RelayRuntime {
   private readonly dbPath: string;
   private readonly db: Database.Database;
   private readonly recovery: RunRecovery;
-  private readonly executionObserver?: ExecutionObserver;
   private readonly agent: HttpAgentServerClient;
   private readonly store: MessageWorkStore;
   private readonly messageRelay: MessageRelay;
@@ -116,17 +112,6 @@ export class RelayRuntime {
         : { createDefaultsFor: (lane) => this.scheduler.lane(this.store.getLane(lane.laneKey)?.conversationId ?? '')?.defaults ?? options.createConversationDefaultsFor!(lane) }),
     });
     this.agent = agent;
-    if (options.onExecutionStatus) {
-      this.executionObserver = new ExecutionObserver({
-        lanes: () => this.listConversationIds().flatMap(id => {
-          const lane = this.store.getLaneByConversationId(id);
-          return lane && !this.store.isProjectionCursorParked(id) ? [{ lane, conversationId: id }] : [];
-        }),
-        status: (id, signal) => agent.executionStatus(id, signal),
-        observe: options.onExecutionStatus,
-        onError: error => this.logger.debug({ err: errorMessage(error) }, 'Execution presence unavailable'),
-      });
-    }
     this.messageRelay = new MessageRelay(this.store, agent, {
       onCommandError: error => this.logger.error({ err: errorMessage(error) }, 'Command outcome persistence failed; recovery will report it as unconfirmed'),
       onEvent: (conversationId, event) => { this.scheduler.observe(conversationId, event); this.recovery.observe(conversationId, event); },
@@ -147,8 +132,6 @@ export class RelayRuntime {
     });
   }
 
-  reconcileExecutionStatus(): void { this.executionObserver?.reconcile(); }
-
   /** Read-only access for operators and tests. */
   get workStore(): MessageWorkStore {
     return this.store;
@@ -157,7 +140,6 @@ export class RelayRuntime {
   async start(): Promise<void> {
     if (this.closed) throw new Error(`${this.platform} RelayRuntime is closed`);
     if (this.timer !== null) return;
-    this.executionObserver?.start();
     await this.runOnce();
     if (this.closed) return;
     this.timer = setInterval(() => {
@@ -170,7 +152,6 @@ export class RelayRuntime {
 
   async stop(): Promise<void> {
     this.closed = true;
-    this.executionObserver?.stop();
     if (this.timer !== null) {
       clearInterval(this.timer);
       this.timer = null;
@@ -249,7 +230,6 @@ export class RelayRuntime {
       }
     }
 
-    this.executionObserver?.refresh();
     const outbound = await this.outboundRelay.tick(this.deliveryWorker);
     for (const failure of outbound.syncFailures) {
       this.logger.warn(
