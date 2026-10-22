@@ -1,0 +1,16 @@
+{
+  "date": "2026-10-22",
+  "source": "local github-mention-router design tracker",
+  "target": "smolpaws/smolpaws",
+  "mapping": {
+    "gmr-nku": "smolpaws-naf1",
+    "gmr-nku.2": "smolpaws-naf1.1",
+    "gmr-nku.3": "smolpaws-naf1.2",
+    "gmr-nku.4": "smolpaws-naf1.3",
+    "gmr-nku.5": "smolpaws-naf1.4",
+    "gmr-nku.6": "smolpaws-naf1.5",
+    "gmr-nku.7": "smolpaws-naf1.6",
+    "gmr-nku.8": "smolpaws-naf1.7",
+    "gmr-nku.9": "smolpaws-naf1.8"
+  }
+}

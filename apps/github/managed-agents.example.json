@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "status": "disabled_example",
+  "enabled": false,
+  "mode": "shadow",
+  "implementation": {
+    "repository": "smolpaws/smolpaws",
+    "app": "apps/github",
+    "module": "src/managedAgents",
+    "host": "existing_github_worker"
+  },
+  "repository": {
+    "id": 1043426082,
+    "full_name": "OpenHands/software-agent-sdk",
+    "aliases": ["OpenHands/agent-sdk"]
+  },
+  "allowed_authors": [
+    {"id": 6080905, "login": "enyst"},
+    {"id": 255025612, "login": "smolpaws"}
+  ],
+  "poll": {
+    "enabled": false,
+    "cron": "* * * * *",
+    "overlap_seconds": 300,
+    "per_page": 100,
+    "max_pages_per_tick": 10,
+    "activation_timestamp": null,
+    "surfaces": ["issue_comment", "pull_request_review_comment"]
+  },
+  "lifecycle": {
+    "owner": "d1",
+    "driver": "existing_cron",
+    "provider_poll_interval_seconds": 60,
+    "max_tick_seconds": 20,
+    "provider_webhooks_enabled": false,
+    "workflows_enabled": false
+  },
+  "direct_intake": {
+    "enabled": false,
+    "principal_id": 255025612,
+    "authentication": "dedicated_worker_service_credential",
+    "client_request_id_required": true,
+    "tools": ["ask_codex", "ask_claude", "managed_agent_status"]
+  },
+  "context": {
+    "max_request_bytes": 16384,
+    "max_context_bytes": 32768,
+    "max_context_comments": 20
+  },
+  "routes": {
+    "codex": {
+      "mention": "@codex",
+      "backend": "openai_agents_api",
+      "beta_header": "agents=v1",
+      "model": null,
+      "network_allowed_domains": ["github.com", "api.github.com", "codeload.github.com", "raw.githubusercontent.com", "objects.githubusercontent.com", "pypi.org", "files.pythonhosted.org"],
+      "enabled": false
+    },
+    "claude": {
+      "mention": "@claude",
+      "backend": "claude_managed_agents",
+      "beta_header": "managed-agents-2026-04-01",
+      "model": null,
+      "agent_id": null,
+      "agent_version": 1,
+      "environment_id": null,
+      "enabled": false
+    }
+  },
+  "limits": {
+    "max_concurrent_jobs": 2,
+    "max_concurrent_jobs_per_thread_and_provider": 1,
+    "max_requests_per_day": 20,
+    "watchdog_minutes": 20,
+    "daily_admission_budget_usd": 20,
+    "claude_session_budget_usd": 5,
+    "reservation_per_job_usd": 5
+  },
+  "publication": {
+    "comment_writer": {"id": 255025612, "login": "smolpaws"},
+    "code_writer": {"id": 6080905, "login": "enyst"},
+    "comments_enabled": false,
+    "formal_review_verdicts_enabled": false,
+    "branches_and_draft_prs_enabled": false,
+    "default_branch_push_enabled": false,
+    "merge_enabled": false
+  }
+}
