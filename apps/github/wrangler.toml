@@ -20,3 +20,7 @@ crons = ["* * * * *"]
 
 [vars]
 ALLOWED_ACTORS = "amanape,neubig,enyst,mamoodi,malhotra5,rbren,xingyaoww"
+
+# Managed routes and durable SDK intake remain absent/off by default.
+# See README.md before adding MANAGED_AGENTS_CONFIG, a GITHUB_DB D1 binding,
+# or GITHUB_DURABLE_INTAKE_BASELINE. Apply migrations before activation.

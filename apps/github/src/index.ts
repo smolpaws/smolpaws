@@ -7,8 +7,10 @@ import type {
   SmolpawsOutboundMessage,
 } from "../../../src/shared/runner.js";
 import { dispatchToAgentServer } from "./agentServerClient.js";
+import { acceptManagedComment, managedHttp, managedIntent, tickManagedAgents, type ManagedEnv } from "./managedAgents/worker.js";
+import { enqueueGithub, flushGithubIntake, isManagedRepository } from "./durableIntake.js";
 
-interface Env {
+interface Env extends ManagedEnv {
   // GitHub App (webhook-installed repos)
   GITHUB_WEBHOOK_SECRET: string;
   GITHUB_APP_ID: string;
@@ -16,6 +18,7 @@ interface Env {
 
   // GitHub user token (notifications polling for @smolpaws mentions)
   GITHUB_USER_TOKEN?: string;
+  GITHUB_DURABLE_INTAKE_BASELINE?: string;
 
   ALLOWED_ACTORS?: string;
   ALLOWED_OWNERS?: string;
@@ -89,6 +92,9 @@ export default {
       return new Response("ok", { status: 200 });
     }
 
+    const managed = await managedHttp(request, env);
+    if (managed) return managed;
+
     if (request.method !== "POST" || url.pathname !== "/webhooks/github") {
       return new Response("Not found", { status: 404 });
     }
@@ -97,10 +103,6 @@ export default {
 
     if (!env.GITHUB_WEBHOOK_SECRET) {
       return new Response("Webhook secret not configured", { status: 500 });
-    }
-
-    if (!hasConfiguredAllowedActors(env)) {
-      return new Response("ALLOWED_ACTORS not configured", { status: 500 });
     }
 
     const signature = request.headers.get("X-Hub-Signature-256");
@@ -129,6 +131,16 @@ export default {
     } catch (error) {
       console.error("Invalid JSON", error);
       return new Response("Invalid payload", { status: 400 });
+    }
+
+    if ((event === "issue_comment" || event === "pull_request_review_comment")
+      && ["created", "edited"].includes(payload.action ?? "")
+      && managedIntent(env, getMentionBody(payload), payload.repository?.full_name)) {
+      return acceptManagedComment(env, event, payload.comment?.id ?? 0);
+    }
+
+    if (!hasConfiguredAllowedActors(env)) {
+      return new Response("ALLOWED_ACTORS not configured", { status: 500 });
     }
 
     if (!isSupportedAction(event, payload.action)) {
@@ -167,7 +179,7 @@ export default {
       meta: { ingress: "github_webhook" },
     };
 
-    await env.SMOLPAWS_QUEUE.send(queueMessage);
+    await enqueueGithub(env, queueMessage, mentionIdentity);
     if (mentionIdentity) {
       await markGithubMentionEnqueued(mentionIdentity);
     }
@@ -181,6 +193,8 @@ export default {
     ctx: ExecutionContext,
   ): Promise<void> {
     ctx.waitUntil(pollGithubNotifications(env));
+    ctx.waitUntil(tickManagedAgents(env));
+    ctx.waitUntil(flushGithubIntake(env));
   },
 
 
@@ -314,6 +328,14 @@ async function processQueueMessage(
   }
 
   try {
+    if (managedIntent(env, getMentionBody(payload), repoFullName)) {
+      if (message.body.event === "issue_comment" || message.body.event === "pull_request_review_comment") {
+        const result = await acceptManagedComment(env, message.body.event, payload.comment?.id ?? 0);
+        if (result.status >= 500) { message.retry(); return; }
+      }
+      message.ack();
+      return;
+    }
     logQueueDelivery("process.start", {
       delivery_id: message.body.delivery_id ?? null,
       ingress: message.body.meta?.ingress ?? null,
@@ -323,8 +345,15 @@ async function processQueueMessage(
       installation_id: installationId ?? null,
     });
     const token = await resolveGithubToken({ env, installationId });
-    const agentResult = await dispatchToAgentServer(message.body, env);
+    const agentResult = await dispatchToAgentServer(message.body, {
+      SMOLPAWS_RUNNER_URL: env.SMOLPAWS_RUNNER_URL,
+      SMOLPAWS_RUNNER_TOKEN: env.SMOLPAWS_RUNNER_TOKEN,
+      DAYTONA_API_KEY: env.DAYTONA_API_KEY,
+      DAYTONA_API_URL: env.DAYTONA_API_URL,
+      DAYTONA_SANDBOX_ID: env.DAYTONA_SANDBOX_ID,
+    });
     const outboundMessages = agentResult?.outbound_messages ?? [];
+    const generatedDb = env.MANAGED_AGENTS_CONFIG && isManagedRepository(repoFullName) ? env.GITHUB_DB : undefined;
 
     for (const outbound of outboundMessages) {
       await deliverRunnerOutboundMessage({
@@ -332,6 +361,7 @@ async function processQueueMessage(
         repoFullName,
         issueNumber,
         outbound,
+        generatedDb,
       });
     }
 
@@ -347,6 +377,7 @@ async function processQueueMessage(
         repoFullName,
         issueNumber,
         body: replyBody,
+        generatedDb,
       });
     }
 
@@ -453,6 +484,8 @@ type NotificationMention = {
   pullRequestNumber?: number;
   repoFullName: string;
   ownerLogin: string;
+  source?: string;
+  timestamp?: string;
 };
 
 type NotificationMentionCandidate = NotificationMention & {
@@ -1125,6 +1158,15 @@ async function handleNotification(
       : {}),
   };
 
+  if (managedIntent(env, mention.body, mention.repoFullName)) {
+    if (mention.event !== "issues" && mention.commentId) {
+      const result = await acceptManagedComment(env, mention.event, mention.commentId);
+      if (result.status >= 500) throw new Error("Managed intake unavailable");
+    }
+    await markNotificationThreadRead(threadId, token);
+    return;
+  }
+
   if (!isAllowed(payload, env)) {
     logNotificationDecision("read.blocked_by_allowlist", {
       ...buildNotificationLogContext(notification),
@@ -1174,7 +1216,8 @@ async function handleNotification(
     pull_request_number: mention.pullRequestNumber ?? null,
     repo: mention.repoFullName,
   });
-  await env.SMOLPAWS_QUEUE.send(queueMessage);
+  await enqueueGithub(env, queueMessage, mentionIdentity ?? dedupeIdentity,
+    mention.source === "pull_request_review" ? mention.timestamp : undefined);
   if (mentionIdentity) {
     await markGithubMentionEnqueued(mentionIdentity);
   }
@@ -1414,6 +1457,7 @@ async function postIssueComment(options: {
   repoFullName: string;
   issueNumber: number;
   body: string;
+  generatedDb?: D1Database;
 }): Promise<void> {
   const response = await fetch(
     `https://api.github.com/repos/${options.repoFullName}/issues/${options.issueNumber}/comments`,
@@ -1425,13 +1469,22 @@ async function postIssueComment(options: {
         "User-Agent": USER_AGENT,
         "X-GitHub-Api-Version": "2022-11-28",
       },
-      body: JSON.stringify({ body: options.body }),
+      body: JSON.stringify({ body: options.generatedDb ? `<!-- smolpaws-github-reply -->\n${options.body}` : options.body }),
     },
   );
 
   if (!response.ok) {
     const message = await response.text();
     throw new Error(`Failed to post comment: ${message}`);
+  }
+  if (options.generatedDb) {
+    // The marker already suppresses this output if receipt persistence fails.
+    try {
+      const receipt = await response.json() as { id?: number };
+      if (Number.isSafeInteger(receipt.id)) await options.generatedDb.prepare(
+        'INSERT OR IGNORE INTO github_generated_comments(repository_id,comment_id) VALUES(?,?)',
+      ).bind(1043426082, receipt.id).run();
+    } catch { console.error('github.generated_receipt_unavailable'); }
   }
 }
 
@@ -1440,6 +1493,7 @@ async function deliverRunnerOutboundMessage(options: {
   repoFullName: string;
   issueNumber: number;
   outbound: SmolpawsOutboundMessage;
+  generatedDb?: D1Database;
 }): Promise<void> {
   if (options.outbound.kind === "current_thread_message") {
     await postIssueComment({
@@ -1447,6 +1501,7 @@ async function deliverRunnerOutboundMessage(options: {
       repoFullName: options.repoFullName,
       issueNumber: options.issueNumber,
       body: options.outbound.text,
+      generatedDb: options.generatedDb,
     });
     return;
   }

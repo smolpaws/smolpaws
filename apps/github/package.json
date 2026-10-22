@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@sinclair/typebox": "^0.34.48"
+    "@sinclair/typebox": "^0.34.48",
+    "mdast-util-from-markdown": "^2.1.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260207.0",
