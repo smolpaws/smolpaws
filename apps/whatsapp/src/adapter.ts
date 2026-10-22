@@ -40,7 +40,6 @@ import {
   splitCommandBatches,
 } from './handler.js';
 import { WhatsAppLedger, type LedgerMessage } from './ledger.js';
-import { WorkingPresence } from './workingPresence.js';
 import { WhatsAppRelayRuntime } from './relayRuntime.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -154,7 +153,6 @@ export function isDirectCommandText(message: WAMessage['message']): boolean {
 
 export class WhatsAppBridge {
   private readonly logger: Logger;
-  private readonly workingPresence: WorkingPresence;
   private readonly serverUrl: string;
   private readonly sessionApiKey: string | undefined;
   private readonly config: WhatsAppConfig;
@@ -193,9 +191,6 @@ export class WhatsAppBridge {
 
   constructor(options: WhatsAppBridgeOptions) {
     this.logger = options.logger.child({ bridge: 'whatsapp' });
-    this.workingPresence = new WorkingPresence((jid, active) => this.setTyping(jid, active),
-      error => this.logger.debug({ err: error }, 'Typing update failed'));
-
     this.startupNotice = new StartupNotice(this.logger);
     this.serverUrl = options.serverUrl.replace(/\/+$/, '');
     this.sessionApiKey = options.sessionApiKey;
@@ -274,9 +269,6 @@ export class WhatsAppBridge {
       sendText: (jid, text) => this.sendText(jid, text),
       sendMedia: (jid, media) => this.sendMedia(jid, media),
       isConnected: () => this.socketConnected,
-      onExecutionStatus: (lane, status) => {
-        if (this.registeredGroups[lane.chatId]) this.workingPresence.observe(lane.laneKey, lane.chatId, status);
-      },
       createConversationDefaults: this.sharedDefaults,
       createConversationDefaultsFor: (lane) => {
         const group = this.registeredGroups[lane.chatId];
@@ -310,7 +302,6 @@ export class WhatsAppBridge {
 
   async stop(): Promise<void> {
     this.stopping = true;
-    this.workingPresence.disconnect();
     this.connectionGeneration += 1;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
@@ -386,7 +377,6 @@ export class WhatsAppBridge {
         return;
       }
       if (update.connection === 'close') {
-        this.workingPresence.disconnect();
         this.socketConnected = false;
         const reason = (update.lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output?.statusCode;
         const loggedOut = reason === DisconnectReason.loggedOut;
@@ -403,8 +393,6 @@ export class WhatsAppBridge {
       if (update.connection === 'open') {
         this.reconnectAttempt = 0;
         this.socketConnected = true;
-        this.workingPresence.connect();
-        this.runtime?.reconcileExecutionStatus();
         this.logger.info({ selfJid: this.selfJid }, 'Connected to WhatsApp');
         void this.startRuntime().catch((error: unknown) => {
           this.logger.error({ err: error }, 'Failed to start the WhatsApp relay runtime');
@@ -545,7 +533,9 @@ export class WhatsAppBridge {
         { chatJid, scope: group.folder, messageCount: batch.length, imageCount: prompt.images.length, documentCount: prompt.documentCount },
         'Accepting WhatsApp batch into the Message Relay',
       );
-      await runtime.accept(laneDescriptorFor(this.selfJid, chatJid, group), last.id, prompt.content);
+      await this.setTyping(chatJid, true);
+      try { await runtime.accept(laneDescriptorFor(this.selfJid, chatJid, group), last.id, prompt.content); }
+      finally { await this.setTyping(chatJid, false); }
       // Only after durable acceptance: this is the ingress success boundary.
       ledger.setLastAgentSeq(chatJid, last.seq);
       ledger.setDispatchSeq(chatJid, last.seq);
@@ -587,9 +577,11 @@ export class WhatsAppBridge {
   }
 
   private async setTyping(jid: string, typing: boolean): Promise<void> {
-    if (!this.socket || !this.socketConnected || !this.registeredGroups[jid]) return;
-    const target = resolveOutboundChatJid(jid, this.socket.user);
-    await this.socket.sendPresenceUpdate(typing ? 'composing' : 'paused', target);
+    try {
+      void this.socket?.sendPresenceUpdate(typing ? 'composing' : 'paused', jid).catch(error => this.logger.debug({ err: error }, 'Typing update failed'));
+    } catch (error) {
+      this.logger.debug({ jid, err: error }, 'Failed to update typing status');
+    }
   }
 
   private async sendMedia(jid: string, media: OutboundMedia): Promise<string | null> {

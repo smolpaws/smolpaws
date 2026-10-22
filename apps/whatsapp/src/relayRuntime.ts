@@ -10,7 +10,6 @@ import { WhatsAppDeliveryTarget, type WhatsAppTextSender } from './deliveryTarge
 
 export interface WhatsAppRelayRuntimeOptions {
   sendMedia?: MediaSender;
-  onExecutionStatus?: (lane: LaneDescriptor, status: string) => void;
   logger: Logger;
   serverUrl: string;
   sessionApiKey?: string;
@@ -39,7 +38,6 @@ export class WhatsAppRelayRuntime {
   constructor(options: WhatsAppRelayRuntimeOptions) {
     this.runtime = new RelayRuntime({
       platform: 'whatsapp',
-      onExecutionStatus: options.onExecutionStatus,
       logger: options.logger,
       serverUrl: options.serverUrl,
       sessionApiKey: options.sessionApiKey,
@@ -55,8 +53,6 @@ export class WhatsAppRelayRuntime {
         : { createConversationDefaultsFor: options.createConversationDefaultsFor }),
     });
   }
-
-  reconcileExecutionStatus(): void { this.runtime.reconcileExecutionStatus(); }
 
   registerLane(lane: LaneDescriptor) { return this.runtime.registerLane(lane); }
   get scheduler() { return this.runtime.scheduler; }

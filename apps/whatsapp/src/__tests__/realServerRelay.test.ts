@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -113,7 +114,7 @@ test('whatsappExtractor delivers send_message actions and terminal responses', (
   assert.equal(whatsappExtractor(other), null);
 });
 
-test('WhatsApp ingress reaches the real TypeScript agent-server and returns through the durable relay', async () => {
+test('WhatsApp delivers interim and final replies with historical lanes without idle status polling', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'whatsapp-relay-'));
   const conversationsPath = path.join(root, 'conversations');
   const repoRoot = path.join(root, 'repo');
@@ -141,8 +142,33 @@ test('WhatsApp ingress reaches the real TypeScript agent-server and returns thro
     return agent;
   };
   const server = await createAgentServerApp({ agentFactory: heldAgentFactory, config: { conversationsPath, sessionApiKey: SESSION_KEY } });
+  const statusRequests: string[] = [];
+  server.app.addHook('onRequest', async (request) => {
+    if (request.method === 'GET' && /^\/api\/conversations\/[^/?]+$/.test(request.url)) {
+      statusRequests.push(request.url.split('/').at(-1)!);
+    }
+  });
   const app = server.app as unknown as AppLike;
   const baseUrl = await listen(app);
+
+  // Restore a realistic accumulated task history before the bridge starts. These conversations exist
+  // on the real server, so their event cursors remain live rather than being parked by a 404.
+  const historicalConversationIds = new Set<string>();
+  const seedDb = new Database(relayDbPath);
+  try {
+    const store = new MessageWorkStore(seedDb);
+    for (let index = 0; index < 64; index += 1) {
+      const id = randomUUID();
+      const laneKey = `whatsapp:4915551234:123@g.us:history:${index}`;
+      const created = await server.app.inject({ method: 'POST', url: '/api/conversations',
+        headers: { 'x-session-api-key': SESSION_KEY }, payload: { id } });
+      assert.equal(created.statusCode, 201);
+      store.resolveLane({ laneKey, platform: 'whatsapp', accountId: '4915551234', chatId: '123@g.us',
+        threadId: `history:${index}` }, id, Date.parse('2026-01-01'));
+      store.markLaneConversationReady(laneKey, Date.parse('2026-01-01'));
+      historicalConversationIds.add(id);
+    }
+  } finally { seedDb.close(); }
 
   const socket = new FakeSocket();
   const bridge = new WhatsAppBridge({
@@ -166,6 +192,14 @@ test('WhatsApp ingress reaches the real TypeScript agent-server and returns thro
     await socket.emit('connection.update', { connection: 'open' } satisfies ConnectionUpdate);
     await bridge.whenReady();
 
+    // Observe two full five-second presence intervals, including normal delivery scans. An idle
+    // bridge with historical task lanes must not repeatedly request every conversation's status.
+    for (let interval = 0; interval < 2; interval += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5_100));
+      await bridge['runtime']!.runOnce();
+    }
+    assert.equal(statusRequests.length, 0, 'An idle bridge must not poll conversation statuses');
+
     const upsert = (id: string, text: string, seconds: number, chat = '123@g.us') => ({
       messages: [{
         key: { remoteJid: chat, id, fromMe: false, participant: '111@s.whatsapp.net' },
@@ -185,22 +219,19 @@ test('WhatsApp ingress reaches the real TypeScript agent-server and returns thro
     await socket.emit('messages.upsert', upsert('M2', '@smolpaws say the words', 1_700_000_002));
     await bridge.pollOnce();
 
-    // Durable intake resolves while the real agent keeps running after its interim send.
-    await waitFor(() => socket.sent.length === 1 && socket.presence.includes('composing'),
-      () => bridge['runtime']!.runOnce());
+    // Delivery must continue while the agent is still working, without status/presence polling.
+    await waitFor(() => socket.sent.length === 1, () => bridge['runtime']!.runOnce());
     assert.equal(socket.sent[0]?.text, `smolpaws: ${MID_TURN}`);
-    assert.equal(socket.presence.includes('paused'), false);
     finishTurn();
     await waitFor(
-      () => socket.sent.length >= 2 && socket.presence.at(-1) === 'paused',
+      () => socket.sent.length >= 2,
       () => bridge['runtime']!.runOnce(),
     );
     assert.deepEqual(socket.sent, [
       { jid: '4915551234@s.whatsapp.net', text: `smolpaws: ${MID_TURN}` },
       { jid: '4915551234@s.whatsapp.net', text: `smolpaws: ${FINAL}` },
     ].map((entry) => ({ ...entry, jid: '123@g.us' })));
-    assert.equal(socket.presence[0], 'composing');
-    assert.equal(socket.presence.at(-1), 'paused');
+    assert.deepEqual(socket.presence, ['composing', 'paused']);
 
     // A voice note has no text prefix. Its preallocated ID must suppress its own account echo.
     const voiceId = await bridge['sendMedia']('123@g.us', { kind: 'current_thread_media', path: '/tmp/fake.ogg', mediaType: 'audio', mimeType: 'audio/ogg; codecs=opus', fileName: 'fake.ogg', voiceNote: true });
@@ -214,6 +245,7 @@ test('WhatsApp ingress reaches the real TypeScript agent-server and returns thro
     await bridge.pollOnce();
     await bridge['runtime']!.runOnce();
     assert.equal(socket.sent.length, 2);
+    assert.equal(statusRequests.filter((id) => historicalConversationIds.has(id)).length, 0);
     const handoffDb = new Database(relayDbPath);
     try {
       await verifyRelayDrained(handoffDb, baseUrl, SESSION_KEY);
@@ -230,7 +262,10 @@ test('WhatsApp ingress reaches the real TypeScript agent-server and returns thro
   const db = new Database(relayDbPath, { readonly: true });
   try {
     const lanes = db.prepare(`SELECT lane_key, platform, chat_id FROM lanes`).all() as Array<{ lane_key: string; platform: string; chat_id: string }>;
-    assert.deepEqual(lanes, [{ lane_key: 'whatsapp:4915551234:123@g.us', platform: 'whatsapp', chat_id: '123@g.us' }]);
+    assert.equal(lanes.filter((lane) => lane.lane_key.includes(':history:')).length, 64);
+    assert.deepEqual(lanes.filter((lane) => !lane.lane_key.includes(':history:')), [
+      { lane_key: 'whatsapp:4915551234:123@g.us', platform: 'whatsapp', chat_id: '123@g.us' },
+    ]);
     const rows = db
       .prepare(`SELECT kind, source_key, state, send_attempted, external_message_id FROM work ORDER BY kind ASC, sequence ASC`)
       .all() as Array<{ kind: string; source_key: string; state: string; send_attempted: number; external_message_id: string | null }>;
