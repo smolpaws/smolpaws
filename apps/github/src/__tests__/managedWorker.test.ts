@@ -87,6 +87,18 @@ test('legacy D1 handoff recovers queue failure and rejects the historical lookba
   assert.equal(sent.length, 1);
 });
 
+test('durable cutover preserves ordinary review-summary requests using their verified submitted timestamp', async t => {
+  const storage = testDatabase(); t.after(storage.close);
+  t.mock.method(globalThis, 'fetch', async () => { throw new Error('A review ID is not an inline-comment ID'); });
+  const sent: SmolpawsQueueMessage[] = [];
+  const env = { GITHUB_DB: storage.db, GITHUB_DURABLE_INTAKE_BASELINE: '2026-10-22T00:00:00Z',
+    SMOLPAWS_QUEUE: { async send(message: SmolpawsQueueMessage) { sent.push(message); } } as unknown as Queue<SmolpawsQueueMessage> };
+  const message: SmolpawsQueueMessage = { event: 'pull_request_review_comment', payload: { repository: { full_name: repo.full_name },
+    pull_request: { number: 1 }, comment: { id: 888, body: '@smolpaws follow up on my review' } } };
+  await enqueueGithub(env, message, 'review_888', '2026-10-22T12:00:00Z');
+  assert.equal(sent.length, 1); assert.equal(sent[0].payload.comment?.body, message.payload.comment?.body);
+});
+
 test('a signed managed webhook is consumed before local self filtering and never calls the unavailable runner', async t => {
   const storage = testDatabase(); t.after(storage.close);
   const source = { id: 900, body: '@codex explain this', created_at: '2026-10-22T12:00:00Z', user: { id: 255025612, login: 'smolpaws' },

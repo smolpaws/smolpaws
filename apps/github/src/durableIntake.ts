@@ -12,7 +12,7 @@ export const isManagedRepository = (name?: string): boolean =>
   ['openhands/software-agent-sdk', 'openhands/agent-sdk'].includes(name?.toLowerCase() ?? '');
 
 /** Existing Cache receipts remain a cutover input. D1 is authoritative after admission. */
-export async function enqueueGithub(env: IntakeEnv, message: SmolpawsQueueMessage, identity?: string | null): Promise<void> {
+export async function enqueueGithub(env: IntakeEnv, message: SmolpawsQueueMessage, identity?: string | null, sourceCreatedAt?: string): Promise<void> {
   if (!env.GITHUB_DURABLE_INTAKE_BASELINE || !isManagedRepository(message.payload.repository?.full_name)) {
     await env.SMOLPAWS_QUEUE.send(message); return;
   }
@@ -24,13 +24,17 @@ export async function enqueueGithub(env: IntakeEnv, message: SmolpawsQueueMessag
   const repo = message.payload.repository!.full_name!;
   const path = message.event === 'issues' ? `issues/${message.payload.issue?.number}`
     : `${message.event === 'issue_comment' ? 'issues' : 'pulls'}/comments/${message.payload.comment?.id}`;
-  const response = await boundedFetch(fetch)(`https://api.github.com/repos/${repo}/${path}`, { headers: {
-    Accept: 'application/vnd.github+json', 'User-Agent': 'smolpaws-durable-intake',
-    ...(env.GITHUB_USER_TOKEN ? { Authorization: `Bearer ${env.GITHUB_USER_TOKEN}` } : {}),
-  } });
-  if (response.status === 404) { await response.body?.cancel(); return; }
-  const source = await jsonResponse<{ created_at: string }>(response);
-  const created = Date.parse(source.created_at);
+  // Review-summary fallback already fetched submitted_at from GitHub's reviews
+  // endpoint; a review ID must not be reinterpreted as an inline comment ID.
+  if (!sourceCreatedAt) {
+    const response = await boundedFetch(fetch)(`https://api.github.com/repos/${repo}/${path}`, { headers: {
+      Accept: 'application/vnd.github+json', 'User-Agent': 'smolpaws-durable-intake',
+      ...(env.GITHUB_USER_TOKEN ? { Authorization: `Bearer ${env.GITHUB_USER_TOKEN}` } : {}),
+    } });
+    if (response.status === 404) { await response.body?.cancel(); return; }
+    sourceCreatedAt = (await jsonResponse<{ created_at: string }>(response)).created_at;
+  }
+  const created = Date.parse(sourceCreatedAt);
   if (!Number.isFinite(created)) throw new Error('GitHub source timestamp unavailable');
   // Explicit migration baseline prevents lookback replay when Cache receipts expire.
   if (created < baseline) return;

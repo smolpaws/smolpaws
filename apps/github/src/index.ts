@@ -484,6 +484,8 @@ type NotificationMention = {
   pullRequestNumber?: number;
   repoFullName: string;
   ownerLogin: string;
+  source?: string;
+  timestamp?: string;
 };
 
 type NotificationMentionCandidate = NotificationMention & {
@@ -1214,7 +1216,8 @@ async function handleNotification(
     pull_request_number: mention.pullRequestNumber ?? null,
     repo: mention.repoFullName,
   });
-  await enqueueGithub(env, queueMessage, mentionIdentity ?? dedupeIdentity);
+  await enqueueGithub(env, queueMessage, mentionIdentity ?? dedupeIdentity,
+    mention.source === "pull_request_review" ? mention.timestamp : undefined);
   if (mentionIdentity) {
     await markGithubMentionEnqueued(mentionIdentity);
   }
