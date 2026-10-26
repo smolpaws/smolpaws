@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/pbakaus/impeccable",
+  "tag": "skill-v4.7.0",
+  "commit": "aeeb3d8c30b5f95aeeb3e893b0f1a308af8fdb8f",
+  "artifact": "universal.zip",
+  "sha256": "358c8b6bbc2113e9910bf4adbdba4523612453ec58d56a5c1b14654416a13fe3",
+  "path": ".agents/skills/impeccable/",
+  "engineVersion": "0.1.16"
+}
