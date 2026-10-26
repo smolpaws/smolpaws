@@ -7507,6 +7507,9 @@
       // one request never gets two Go presses.
       claimAgentTarget(msg.targetId, { eligible: true }).then((renewal) => {
         if (!renewal.granted) { noteAgentTarget(msg.targetId, 'done'); return; }
+        if (agentTargetOverlayGone()) return;
+        const busy = agentTargetBusyReason(msg.targetId);
+        if (busy) { declineAgentTargetBusy(msg, busy); return; }
         // An insert placement left mid-configure gives way, exactly as a
         // click outside it does in handleClick.
         if (state === 'CONFIGURING' && configureKind === 'insert') cancelInsertConfigure();

@@ -115,7 +115,7 @@
   // alternatives at all, and demanding a waiver match under both stops
   // prototype/index.html from applying anywhere. When the globs share no
   // common root, no prefix is asserted and only the URL path itself matches.
-  function pageCandidates(pathname, roots, pageFiles) {
+  function pageCandidates(pathname, roots, pageFiles, includeSuffixes = true) {
     let pagePath = String(pathname || '');
     try {
       pagePath = decodeURIComponent(pagePath);
@@ -130,11 +130,16 @@
     const candidates = new Set();
     const addSuffixes = (fullPath) => {
       const parts = fullPath.split('/').filter(Boolean);
-      for (let i = 0; i < parts.length; i++) {
-        candidates.add(parts.slice(i).join('/'));
+      candidates.add(fullPath);
+      if (includeSuffixes) {
+        for (let i = 1; i < parts.length; i++) {
+          candidates.add(parts.slice(i).join('/'));
+        }
+      } else {
+        candidates.add(parts[parts.length - 1]);
       }
     };
-    addSuffixes(pagePath);
+    if (includeSuffixes) addSuffixes(pagePath);
 
     // The served page list names the real files the inject config serves.
     // A URL that suffix-matches exactly one of them has an unambiguous
@@ -165,7 +170,7 @@
       common = common.slice(0, i);
     }
 
-    if (common.length > 0) addSuffixes(common.join('/') + '/' + pagePath);
+    addSuffixes(common.length > 0 ? common.join('/') + '/' + pagePath : pagePath);
     return [...candidates];
   }
 
@@ -202,7 +207,9 @@
     // empty because nothing will run.
     const ignoreFileGlobs = asArray(config.ignoreFiles)
       .filter((glob) => typeof glob === 'string' && glob.trim());
-    if (ignoreFileGlobs.length > 0 && matchesScope(ignoreFileGlobs, candidates)) {
+    // Whole-file globs match project paths and basenames, never arbitrary suffixes.
+    const fileCandidates = pageCandidates(pathname, config.roots, config.pageFiles, false);
+    if (ignoreFileGlobs.length > 0 && matchesScope(ignoreFileGlobs, fileCandidates)) {
       return { disabledRules: [], disabledValues: [], skipScan: true };
     }
 

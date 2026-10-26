@@ -198,7 +198,7 @@ rem unknown verb with "Unknown command", exit 1, so it never passes.
 set "probe_ok="
 set "probe_tmp=%TEMP%\impeccable-probe-%RANDOM%%RANDOM%.txt"
 set "IMPECCABLE_LAUNCHER_PROBE=1"
-"%~1" engine-probe >"%probe_tmp%" 2>nul
+call "%~1" engine-probe >"%probe_tmp%" 2>nul
 set "probe_err=%ERRORLEVEL%"
 set "IMPECCABLE_LAUNCHER_PROBE="
 if not "%probe_err%"=="0" goto probe_done

@@ -5,5 +5,19 @@
   "artifact": "universal.zip",
   "sha256": "358c8b6bbc2113e9910bf4adbdba4523612453ec58d56a5c1b14654416a13fe3",
   "path": ".agents/skills/impeccable/",
-  "engineVersion": "0.1.16"
+  "engineVersion": "0.1.16",
+  "localPatches": [
+    {
+      "path": "scripts/live-browser.js",
+      "reason": "Recheck session eligibility and overlay teardown after target lease renewal."
+    },
+    {
+      "path": "scripts/impeccable.cmd",
+      "reason": "Return from legacy Windows batch shim probes before parsing results and downloading."
+    },
+    {
+      "path": "scripts/live-browser-ignores.js",
+      "reason": "Match whole-file ignores against project paths and basenames, without suffix waivers."
+    }
+  ]
 }
