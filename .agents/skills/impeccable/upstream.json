@@ -9,15 +9,18 @@
   "localPatches": [
     {
       "path": "scripts/live-browser.js",
-      "reason": "Recheck session eligibility and overlay teardown after target lease renewal."
+      "reason": "Recheck session eligibility and overlay teardown after target lease renewal.",
+      "sha256": "5e4ca714fd4c5b139b43a88b935161df09f61716c152e43230c79c85205a2263"
     },
     {
       "path": "scripts/impeccable.cmd",
-      "reason": "Return from legacy Windows batch shim probes before parsing results and downloading."
+      "reason": "Return from legacy Windows batch shim probes before parsing results and downloading.",
+      "sha256": "9fc1854bf6545896b4c8d07b65d3a3efabc557563ba81832ce9ba602fb07f558"
     },
     {
       "path": "scripts/live-browser-ignores.js",
-      "reason": "Match whole-file ignores against project paths and basenames, without suffix waivers."
+      "reason": "Match whole-file ignores against project paths and basenames, without suffix waivers.",
+      "sha256": "b69d38ff7efe655871cd62c582cbcff63a81d426b45e7bbdd1f6b1fb6fcd5827"
     }
   ]
 }
