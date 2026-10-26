@@ -1,0 +1,26 @@
+name: Impeccable regressions
+
+on:
+  pull_request:
+    paths:
+      - '.agents/skills/impeccable/**'
+      - '.github/workflows/impeccable.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.agents/skills/impeccable/**'
+      - '.github/workflows/impeccable.yml'
+
+jobs:
+  regressions:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test .agents/skills/impeccable/tests/*.test.mjs
