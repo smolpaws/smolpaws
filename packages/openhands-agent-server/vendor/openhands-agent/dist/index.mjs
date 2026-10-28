@@ -481,11 +481,34 @@ function getUserPersistenceDir(defaultDir) {
       const slash = expanded.indexOf("/");
       const user = slash === -1 ? expanded.slice(1) : expanded.slice(1, slash);
       const rest = slash === -1 ? "" : expanded.slice(slash);
-      expanded = user === "" ? homedir() + rest : path2.join(path2.dirname(homedir()), user) + rest;
+      const home = user === "" ? homedir() : namedUserHome(user);
+      expanded = home + rest;
     }
     return path2.isAbsolute(expanded) ? expanded : path2.resolve(INITIAL_CWD, expanded);
   }
   return defaultDir ?? path2.join(homedir(), ".openhands");
+}
+function namedUserHome(user) {
+  if (process.platform === "win32") return path2.join(path2.dirname(homedir()), user);
+  const command = process.platform === "darwin" ? "/usr/bin/id" : "getent";
+  const args = process.platform === "darwin" ? ["-P", "--", user] : ["passwd", "--", user];
+  const result = spawnSync(command, args, { encoding: "utf8", timeout: 5e3, maxBuffer: 64 * 1024 });
+  let record4 = result.status === 0 ? result.stdout.trim() : "";
+  let homeField = process.platform === "darwin" ? 8 : 5;
+  if (result.error && "code" in result.error && result.error.code === "ENOENT") {
+    try {
+      record4 = readFileSync("/etc/passwd", "utf8").split("\n").find((line) => line.split(":")[0] === user) ?? "";
+      homeField = 5;
+    } catch {
+      record4 = "";
+    }
+  }
+  const fields2 = record4.split(":");
+  const home = fields2[homeField];
+  if (fields2[0] !== user || !home || !path2.isAbsolute(home)) {
+    throw new Error("Could not determine home directory");
+  }
+  return home;
 }
 var AsyncCallbackWrapper = class {
   callback;
