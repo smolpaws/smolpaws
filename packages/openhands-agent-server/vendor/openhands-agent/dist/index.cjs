@@ -480,7 +480,15 @@ var INITIAL_CWD = process.cwd();
 function getUserPersistenceDir(defaultDir) {
   const envDir = process.env.OH_PERSISTENCE_DIR?.trim();
   if (envDir !== void 0 && envDir !== "") {
-    const expanded = envDir.startsWith("~/") ? path2__default.default.join(os.homedir(), envDir.slice(2)) : envDir;
+    let expanded = envDir;
+    if (expanded.startsWith("~/")) {
+      expanded = path2__default.default.join(os.homedir(), expanded.slice(2));
+    } else if (expanded.startsWith("~")) {
+      const slash = expanded.indexOf("/");
+      const user = slash === -1 ? expanded.slice(1) : expanded.slice(1, slash);
+      const rest = slash === -1 ? "" : expanded.slice(slash);
+      expanded = user === "" ? os.homedir() + rest : path2__default.default.join(path2__default.default.dirname(os.homedir()), user) + rest;
+    }
     return path2__default.default.isAbsolute(expanded) ? expanded : path2__default.default.resolve(INITIAL_CWD, expanded);
   }
   return defaultDir ?? path2__default.default.join(os.homedir(), ".openhands");
@@ -747,9 +755,10 @@ function redactUrlParams(url) {
 }
 var keyValueSecretPattern = /\b([A-Za-z0-9_.-]*(?:api[_-]?key|authorization|cookie|credential|password|secret|session|token|key)[A-Za-z0-9_.-]*)\s*=\s*("[^"]*"|'[^']*'|[^\s]+)/giu;
 var anthropicKeyPattern = /sk-ant-api\d{2}-[A-Za-z0-9_-]{20,}/gu;
+var githubTokenPattern = /\bgh[uso]_[A-Za-z0-9]{20,}/gu;
 var quotedDictSecretPattern = /(?<head>(?<kq>\\?["'])[\p{L}\p{N}_-]*(?:key|secret|token|password|authorization)[\p{L}\p{N}_-]*\k<kq>\s*:\s*)(?<q>\\?["']).*?\k<q>/gisu;
 function redactTextSecrets(text) {
-  return redactUrlCredentialsInText(text).replace(anthropicKeyPattern, "<redacted>").replace(keyValueSecretPattern, (_match, key) => `${key}=<redacted>`).replace(quotedDictSecretPattern, "$<head>$<q><redacted>$<q>");
+  return redactUrlCredentialsInText(text).replace(anthropicKeyPattern, "<redacted>").replace(githubTokenPattern, "<redacted>").replace(keyValueSecretPattern, (_match, key) => `${key}=<redacted>`).replace(quotedDictSecretPattern, "$<head>$<q><redacted>$<q>");
 }
 function utcNow() {
   return /* @__PURE__ */ new Date();
@@ -17268,7 +17277,7 @@ async function runGitProbe(args, cwd) {
 async function getChangesInRepo(repoDir, ref) {
   const repo = await validateGitRepository(repoDir);
   const base = await getValidRef(repo, ref, "display");
-  const output = await runGitCommand(["git", "--no-pager", "diff", "--name-status", base], { cwd: repo });
+  const output = await runGitCommand(["git", "--no-pager", "diff", "--name-status", "--relative", base], { cwd: repo });
   const changes = parseNameStatus(output.split(/\r?\n/u).filter((entry2) => entry2.trim().length > 0));
   const untracked = await runGitCommand(["git", "--no-pager", "ls-files", "--others", "--exclude-standard"], { cwd: repo }).catch(() => "");
   for (const path4 of untracked.split(/\r?\n/u).filter((entry2) => entry2.trim().length > 0)) {

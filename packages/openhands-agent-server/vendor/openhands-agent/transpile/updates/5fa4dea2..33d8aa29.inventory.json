@@ -1,0 +1,3200 @@
+{
+  "schemaVersion": 1,
+  "repository": "OpenHands/software-agent-sdk",
+  "from": "5fa4dea24c52fe3ac53fa4e3e67a1376b72189e2",
+  "to": "33d8aa29c3078d074799e2fbf5e847aeb2d71360",
+  "fromAuthoredAt": "2026-10-15T21:58:41-04:00",
+  "toAuthoredAt": "2026-10-19T09:32:16-04:00",
+  "totalCommits": 61,
+  "firstParentCommits": 61,
+  "commits": [
+    {
+      "sha": "12e967664c2353f4cb85dd27da04ade035ff078c",
+      "authoredAt": "2026-10-16T09:13:44+02:00",
+      "subject": "ci: defer PR artifact cleanup until after merge (#5998)",
+      "units": {},
+      "ignoredPaths": [
+        ".agents/skills/pr-design-doc/SKILL.md",
+        ".agents/skills/pr-design-doc/references/html-craft.md",
+        ".github/PULL_REQUEST_TEMPLATE.md",
+        ".github/workflows/pr-artifacts.yml",
+        ".github/workflows/precommit.yml",
+        "AGENTS.md",
+        "CONTRIBUTING.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "6530325e9dd0ea1b6b4f1994d7dab52764cfc3f1",
+      "authoredAt": "2026-10-16T12:04:36-04:00",
+      "subject": "fix(marketplace): load skills from registered repositories without a manifest (#6009)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/marketplace/registry.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "marketplace",
+              "policyHints": [
+                "EXC-SDK-002"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/marketplace/types.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "marketplace",
+              "policyHints": [
+                "EXC-SDK-002"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/conversation/test_local_conversation_plugins.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "conversation",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/marketplace/test_marketplace_registry.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "marketplace",
+              "policyHints": [
+                "EXC-SDK-002"
+              ]
+            }
+          ],
+          "modules": [
+            "conversation",
+            "marketplace"
+          ],
+          "policyHints": [
+            "EXC-SDK-002"
+          ]
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_skills_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_skills",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "test_skills"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "4a5f5a09096aea331b91481a5ff94dbfed22940e",
+      "authoredAt": "2026-10-17T00:03:47+02:00",
+      "subject": "fix(agent-server): reserve the run slot before a gateway turn saves its message (#5955)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/event_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "event",
+              "policyHints": [
+                "DEV-SERVER-007",
+                "DEV-SERVER-008",
+                "DEV-SERVER-009",
+                "DEV-SERVER-010"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/openai/service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "openai",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_run_admission.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_run_admission",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "event",
+            "openai",
+            "test_run_admission"
+          ],
+          "policyHints": [
+            "DEV-SERVER-007",
+            "DEV-SERVER-008",
+            "DEV-SERVER-009",
+            "DEV-SERVER-010"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F30-openai-gateway.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "304ea67a7993c04c45a4d2caefa5a0ad228e9c61",
+      "authoredAt": "2026-10-17T00:04:40+02:00",
+      "subject": "fix(agent-server): apply bash order__gt filter before paging (#5842)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/bash_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "bash",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_bash_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_bash",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "bash",
+            "test_bash"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F13-bash.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "60c6f62133e0f649e2e71ec8c8aa51a06a1fb0f0",
+      "authoredAt": "2026-10-17T00:05:19+02:00",
+      "subject": "fix(agent-server): log failed runs without rendering a rich traceback on the loop (#5780)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/event_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "event",
+              "policyHints": [
+                "DEV-SERVER-007",
+                "DEV-SERVER-008",
+                "DEV-SERVER-009",
+                "DEV-SERVER-010"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_event_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_event",
+              "policyHints": [
+                "DEV-SERVER-008"
+              ]
+            }
+          ],
+          "modules": [
+            "event",
+            "test_event"
+          ],
+          "policyHints": [
+            "DEV-SERVER-007",
+            "DEV-SERVER-008",
+            "DEV-SERVER-009",
+            "DEV-SERVER-010"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F05-run-pause-interrupt.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "a6c7bf5591f64ca62c653565d7498d72e155e789",
+      "authoredAt": "2026-10-17T00:08:24+02:00",
+      "subject": "fix(sdk): install the posted LLM when switch_llm targets a registered usage_id (#5779)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": [
+                "DEV-SDK-008",
+                "DEV-SDK-009",
+                "DEV-SDK-012"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/conversation/test_switch_model.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "conversation",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "conversation"
+          ],
+          "policyHints": [
+            "DEV-SDK-008",
+            "DEV-SDK-009",
+            "DEV-SDK-012"
+          ]
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_switch_llm_survives_reload.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_switch_llm_survives_reload",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "test_switch_llm_survives_reload"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F09-model-switching-plugins.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "8ba8ccbeb1a5306835f44f5f0f8ab20516373ee9",
+      "authoredAt": "2026-10-17T00:14:07+02:00",
+      "subject": "fix(agent-server): mark a goal loop left active at restart as interrupted (#5772)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/event_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "event",
+              "policyHints": [
+                "DEV-SERVER-007",
+                "DEV-SERVER-008",
+                "DEV-SERVER-009",
+                "DEV-SERVER-010"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_goal_loop.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_goal_loop",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "event",
+            "test_goal_loop"
+          ],
+          "policyHints": [
+            "DEV-SERVER-007",
+            "DEV-SERVER-008",
+            "DEV-SERVER-009",
+            "DEV-SERVER-010"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F11-goals.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "c87fddb623f0b7a43f697fa6bb3006e10203cd4c",
+      "authoredAt": "2026-10-17T00:21:57+02:00",
+      "subject": "fix(typescript): use the global WebSocket in the callback socket clients (#5769)",
+      "units": {},
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F34-typescript-client.md",
+        "clients/typescript/README.md",
+        "clients/typescript/src/__tests__/package-import.test.ts",
+        "clients/typescript/src/__tests__/websocket-callback-client.test.ts",
+        "clients/typescript/src/events/bash-websocket-client.ts",
+        "clients/typescript/src/events/global-websocket.ts",
+        "clients/typescript/src/events/websocket-client.ts"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "76055f697a5e9295252e0d54ab4ea822946e5c54",
+      "authoredAt": "2026-10-17T00:23:32+02:00",
+      "subject": "fix(agent-server): bound profile pre-flight and reject exhausted quotas (#5768)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/profiles_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "profiles",
+              "policyHints": [
+                "DEV-SERVER-004"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_profiles_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_profiles",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "profiles",
+            "test_profiles"
+          ],
+          "policyHints": [
+            "DEV-SERVER-004"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F20-llm-profiles.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "c73ec79e3fd1dfc1e5d6326fca4e0c14fa10029f",
+      "authoredAt": "2026-10-17T00:25:28+02:00",
+      "subject": "fix(agent-server): return the whole output from execute_bash_command (#5778)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/bash_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "bash",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "tests/agent_server/test_bash_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_bash",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "bash",
+            "test_bash"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F13-bash.md",
+        ".agents/skills/verify-agent-server/references/feature-map/F34-typescript-client.md",
+        "clients/typescript/src/__tests__/remote-workspace-execute.test.ts",
+        "clients/typescript/src/workspace/remote-workspace.ts"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "bf9b6057b00e1b2b532ecff508c0d92d818adced",
+      "authoredAt": "2026-10-16T18:35:29-04:00",
+      "subject": "test: guard Linux-only Canvas backend cases on macOS (#6036)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "tests/agent_server/canvas_extensions/test_canvas_extension_backend.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "canvas_extensions",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "canvas_extensions"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "6235a41b5b847296e9f8bece1479c060e9a14a5f",
+      "authoredAt": "2026-10-17T01:56:40+02:00",
+      "subject": "fix(agent-server): let OH_*_IS_NONE=1 clear a config file value (#5951)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/config.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "config",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/env_parser.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "env_parser",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_config.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_config",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "config",
+            "env_parser",
+            "test_config"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F31-persistence-and-limits.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "8869bcd914af1ef3fb588eeeab7c4b502b83a93e",
+      "authoredAt": "2026-10-17T02:06:05+02:00",
+      "subject": "fix(agent-server): answer 422 for a malformed id on scoped bash routes (#5840)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/dependencies.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "dependencies",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_runtime_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_runtime",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "dependencies",
+            "test_runtime"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F13-bash.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "cab7bb4b29476cf4a70150f5f94ba97f22766b9a",
+      "authoredAt": "2026-10-17T02:07:48+02:00",
+      "subject": "fix(sdk): reject skill installs with unparsable frontmatter as invalid (#5901)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/skills/installed.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "skills",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/skills/test_installed_skills.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "skills",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "skills"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F25-skills.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "acf55bcd26729d3f9212d5d5334047b6cd595d2a",
+      "authoredAt": "2026-10-17T02:09:09+02:00",
+      "subject": "fix(sdk): drop Bedrock-only ids from the supported model list (#5885)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/utils/unverified_models.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/llm/test_model_list.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "llm",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "llm"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F23-llm-catalog-and-connections.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "3adf42f6377b570dfea53cc02bc669e1515f18f8",
+      "authoredAt": "2026-10-17T02:10:21+02:00",
+      "subject": "fix(sdk): expand ~ in OH_PERSISTENCE_DIR for the meta-profile store (#5884)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/meta_profile_store.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/llm/test_meta_profile_store.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "llm",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "llm"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F22-meta-profiles.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "e5a1602e3bbc8b55571b7777bd6b6142101f11ad",
+      "authoredAt": "2026-10-17T02:12:02+02:00",
+      "subject": "fix(agent-server): reject MCP OAuth callback URLs with a bad port as 400 (#5867)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/mcp_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "mcp",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_mcp_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_mcp",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "mcp",
+            "test_mcp"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F19-mcp.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "7abcd3bab78f988b2f2ca2485f4626a5484ce313",
+      "authoredAt": "2026-10-17T02:13:25+02:00",
+      "subject": "fix(agent-server): drop upstream Date and Server from proxied responses (#5916)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/docker_runtime/proxy.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "docker_runtime",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/docker_runtime/test_proxy.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "docker_runtime",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "docker_runtime"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F29-app-backend-bridge.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "079d410db4fe17ccfe28b80f58b12676cf854c7c",
+      "authoredAt": "2026-10-17T02:25:16+02:00",
+      "subject": "fix(agent-server): read agent_final_response from the active branch (#5826)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/event_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "event",
+              "policyHints": [
+                "DEV-SERVER-007",
+                "DEV-SERVER-008",
+                "DEV-SERVER-009",
+                "DEV-SERVER-010"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_conversation_response.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_conversation_response",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "event",
+            "test_conversation_response"
+          ],
+          "policyHints": [
+            "DEV-SERVER-007",
+            "DEV-SERVER-008",
+            "DEV-SERVER-009",
+            "DEV-SERVER-010"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F10-fork-navigate-condense-ask.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "9ad70fedddc4e7e68df476a30f9c464b4ca1081c",
+      "authoredAt": "2026-10-17T02:34:06+02:00",
+      "subject": "docs(typescript): describe the pre-run 200-and-defer switchAcpModel behaviour (#5812)",
+      "units": {},
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F09-model-switching-plugins.md",
+        "clients/typescript/src/client/conversation-client.ts",
+        "clients/typescript/src/conversation/remote-conversation.ts"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "f676088d7a46f7bf6ab15f4b2d6551f8106cc30e",
+      "authoredAt": "2026-10-17T02:37:16+02:00",
+      "subject": "fix(agent-server): reject a whitespace-only conversation title on PATCH (#5802)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/models.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "models",
+              "policyHints": [
+                "DEV-SERVER-007"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_conversation_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_conversation",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "models",
+            "test_conversation"
+          ],
+          "policyHints": [
+            "DEV-SERVER-007"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F04-conversation-lifecycle.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "478a6f9caebc42e3e2625f741ea73336a2551b90",
+      "authoredAt": "2026-10-17T02:41:31+02:00",
+      "subject": "fix(agent-server): skip the workspaces save when a write changes nothing (#5864)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/persistence/store.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "persistence",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_workspaces_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_workspaces",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "persistence",
+            "test_workspaces"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F17-workspaces-registry.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "07e6e059afd836817d8263d3edb67cb95d5c203e",
+      "authoredAt": "2026-10-17T02:44:59+02:00",
+      "subject": "fix(agent-server): document 422 for an invalid secret name (#5851)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/settings_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "settings",
+              "policyHints": [
+                "DEV-SERVER-004"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_settings_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_settings",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "settings",
+            "test_settings"
+          ],
+          "policyHints": [
+            "DEV-SERVER-004"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F18-settings-and-secrets.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "fd96074269cee08e8d8da917512b26b8d49c98f6",
+      "authoredAt": "2026-10-17T02:50:59+02:00",
+      "subject": "fix(agent-server): describe the real materialize report in the seed docstring (#5874)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/agent_profiles_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "agent_profiles",
+              "policyHints": [
+                "DEV-SERVER-004"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_agent_profiles_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_agent_profiles",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "agent_profiles",
+            "test_agent_profiles"
+          ],
+          "policyHints": [
+            "DEV-SERVER-004"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F21-agent-profiles.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "8d2c996de5bf4bc558c03451618124c49df24397",
+      "authoredAt": "2026-10-17T03:01:34+02:00",
+      "subject": "fix(sdk): keep streamed deltas out of RemoteConversation.state.events (#5966)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/conversation/impl/remote_conversation.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/conversation/remote/test_remote_events_list.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "conversation",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "conversation"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F33-sdk-remote-client.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "57c71706e83c83b8f58a6b4efc959f5132cec94b",
+      "authoredAt": "2026-10-17T03:03:50+02:00",
+      "subject": "fix(agent-server): refuse a non-gzip canvas backend artifact with 409 (#5917)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/canvas_extensions/backend.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "canvas_extensions",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/canvas_extensions/test_canvas_extension_backend.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "canvas_extensions",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "canvas_extensions"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F28-canvas-extensions.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "1396fa7ff6510a28fe9587b1708376f23507cd5b",
+      "authoredAt": "2026-10-17T03:04:29+02:00",
+      "subject": "fix(agent-server): map profile-store errors in scoped secrets list (#5898)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/settings_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "settings",
+              "policyHints": [
+                "DEV-SERVER-004"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_settings_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_settings",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "settings",
+            "test_settings"
+          ],
+          "policyHints": [
+            "DEV-SERVER-004"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F18-settings-and-secrets.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "75dec1d3ef1cf1630502b31e83527e8e3301fb18",
+      "authoredAt": "2026-10-17T03:04:38+02:00",
+      "subject": "fix(agent-server): honor UTC offsets in bash event timestamp filters (#5875)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/bash_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "bash",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_bash_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_bash",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "bash",
+            "test_bash"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F13-bash.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "5f2185ed63334dca95a54839848d2518f9d7f513",
+      "authoredAt": "2026-10-17T03:07:44+02:00",
+      "subject": "fix(typescript-client): type GitChange.status with the server's wire values (#5957)",
+      "units": {},
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F34-typescript-client.md",
+        "clients/typescript/src/__tests__/agent-server-contract-types.test.ts",
+        "clients/typescript/src/__tests__/remote-workspace-git.test.ts",
+        "clients/typescript/src/index.ts",
+        "clients/typescript/src/models/workspace.ts"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "47c50f7e5c6862822990065b6eee23718f5e650e",
+      "authoredAt": "2026-10-16T21:11:35-04:00",
+      "subject": "fix: use short tmux sockets for overlong paths (#6038)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-tools/openhands/tools/terminal/terminal/tmux_terminal.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "terminal",
+              "policyHints": [
+                "DEV-SDK-006"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/tools/terminal/test_tmux_pane_pool.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "terminal",
+              "policyHints": [
+                "DEV-SDK-006"
+              ]
+            }
+          ],
+          "modules": [
+            "terminal"
+          ],
+          "policyHints": [
+            "DEV-SDK-006"
+          ]
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_api.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_api",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "test_api"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "f621dab57be854aaee3a982c83b6bf34b8ce5705",
+      "authoredAt": "2026-10-17T03:13:03+02:00",
+      "subject": "fix(agent-server): answer 409 and keep state when a write loses ownership (#5973)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/api.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "api",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/conversation_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": [
+                "DEV-SERVER-007",
+                "DEV-SERVER-009"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/event_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "event",
+              "policyHints": [
+                "DEV-SERVER-007",
+                "DEV-SERVER-008",
+                "DEV-SERVER-009",
+                "DEV-SERVER-010"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_auto_title_span_metadata.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_auto_title_span_metadata",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_conversation_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_conversation",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_unhandled_exception_error_id.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_unhandled_exception_error_id",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "api",
+            "conversation",
+            "event",
+            "test_auto_title_span_metadata",
+            "test_conversation",
+            "test_unhandled_exception_error_id"
+          ],
+          "policyHints": [
+            "DEV-SERVER-007",
+            "DEV-SERVER-008",
+            "DEV-SERVER-009",
+            "DEV-SERVER-010"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F31-persistence-and-limits.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "8cfff960ff3b9de94d9346eac9802405d6af0bed",
+      "authoredAt": "2026-10-17T03:21:58+02:00",
+      "subject": "fix(typescript): resolve updateConversation with the updated conversation (#5956)",
+      "units": {},
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F34-typescript-client.md",
+        "clients/typescript/src/__tests__/api-clients.test.ts",
+        "clients/typescript/src/client/conversation-client.ts",
+        "clients/typescript/src/conversation/conversation-manager.ts"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "804498a61126a90917efebb5c2c25defb53f2cf0",
+      "authoredAt": "2026-10-17T03:23:48+02:00",
+      "subject": "fix(agent-server): answer 409 when a continued gateway run waits for confirmation (#5968)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/openai/service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "openai",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "tests/agent_server/test_openai_gateway_reused_wait.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_openai_gateway_reused_wait",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "openai",
+            "test_openai_gateway_reused_wait"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F30-openai-gateway.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "b301ee008178ec4a357d3c2bc6370495c6ce1e3f",
+      "authoredAt": "2026-10-17T03:27:19+02:00",
+      "subject": "fix(sdk): deliver streamed deltas to RemoteConversation token_callbacks (#5965)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/conversation/impl/remote_conversation.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/conversation/remote/test_remote_conversation.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "conversation",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "conversation"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F33-sdk-remote-client.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "4fedb7e2b524b5f6d2d5d0efa9be3c03e072da40",
+      "authoredAt": "2026-10-17T04:01:50+02:00",
+      "subject": "fix(ts-client): match agent-profile payload types to the server models (#5877)",
+      "units": {},
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F21-agent-profiles.md",
+        "clients/typescript/config/public-type-budget.json",
+        "clients/typescript/src/__tests__/agent-server-contract-types.test.ts",
+        "clients/typescript/src/__tests__/api-clients.test.ts",
+        "clients/typescript/src/__tests__/derive-switch-plan.test.ts",
+        "clients/typescript/src/models/agent-profile.ts"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "8ee5cba234d14f7841b52c3c8259a884a9179fdb",
+      "authoredAt": "2026-10-17T04:12:49+02:00",
+      "subject": "fix(agent-server): guard LLM profile delete through the .json alias (#5868)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/llm/llm_profile_store.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "llm",
+              "policyHints": [
+                "DEV-SDK-004"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/profiles/profile_refs.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "profiles",
+              "policyHints": [
+                "DEV-SDK-004"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/profiles/test_profile_refs.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "profiles",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "llm",
+            "profiles"
+          ],
+          "policyHints": [
+            "DEV-SDK-004"
+          ]
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/profiles_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "profiles",
+              "policyHints": [
+                "DEV-SERVER-004"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_profiles_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_profiles",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "profiles",
+            "test_profiles"
+          ],
+          "policyHints": [
+            "DEV-SERVER-004"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F20-llm-profiles.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "e785defbf652f9c819d53d5ab8ea8eeb8332a942",
+      "authoredAt": "2026-10-17T04:43:42+02:00",
+      "subject": "fix(agent-server): post webhook events that fill the buffer during an in-flight batch (#5953)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/conversation_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": [
+                "DEV-SERVER-007",
+                "DEV-SERVER-009"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_webhook_subscriber.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_webhook_subscriber",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "conversation",
+            "test_webhook_subscriber"
+          ],
+          "policyHints": [
+            "DEV-SERVER-007",
+            "DEV-SERVER-009"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F32-webhooks-and-telemetry.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "14f821bb2af5439bdcdb84193b470739e68d971f",
+      "authoredAt": "2026-10-17T05:10:16+02:00",
+      "subject": "fix(sdk): list git changes of a repository subdirectory relative to it (#5848)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/git/git_changes.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "git",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/git/test_git_changes.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "git",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "git"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F15-git.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "9af99982a1250b1b5d5095a5a49df4107fc18e14",
+      "authoredAt": "2026-10-17T05:11:24+02:00",
+      "subject": "fix(agent-server): report real usage buckets in telemetry outcome events (#5967)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/telemetry/subscriber.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "telemetry",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/telemetry/test_telemetry_subscriber.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "telemetry",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "telemetry"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F32-webhooks-and-telemetry.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "7d459bcb1111e42cb2e8059d26bc6354ca6cb510",
+      "authoredAt": "2026-10-17T05:12:19+02:00",
+      "subject": "fix(agent-server): describe the secret-key fallback of TelemetrySpec.salt (#5964)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/config.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "config",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/telemetry/test_telemetry_disabled_by_default.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "telemetry",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "config",
+            "telemetry"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F32-webhooks-and-telemetry.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "615759cc3497c8e4a8037a65c3f960da50156b65",
+      "authoredAt": "2026-10-17T05:16:33+02:00",
+      "subject": "fix(agent-server): reject a create whose agent tool module cannot be imported (#5958)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/conversation_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": [
+                "DEV-SERVER-010"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/conversation_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": [
+                "DEV-SERVER-007",
+                "DEV-SERVER-009"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_conversation_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_conversation",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_conversation_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_conversation",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "conversation",
+            "test_conversation"
+          ],
+          "policyHints": [
+            "DEV-SERVER-007",
+            "DEV-SERVER-009",
+            "DEV-SERVER-010"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F27-hooks-subagents-tools.md",
+        ".agents/skills/verify-agent-server/references/feature-map/F33-sdk-remote-client.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "eac3ee16cc988ca4182f3f4e52b1dee67828cd12",
+      "authoredAt": "2026-10-17T05:20:36+02:00",
+      "subject": "fix(agent-server): URL-encode the VS Code URL's folder and token (#5859)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/vscode_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "vscode",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_vscode_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_vscode",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "test_vscode",
+            "vscode"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F16-workspace-serving-and-vscode.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "af05c8b46a8a0a318f853e6297736fb883c8de73",
+      "authoredAt": "2026-10-17T05:26:37+02:00",
+      "subject": "fix(agent-server): report the uploaded file_size in the upload response (#5856)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/file_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "file",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/models.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "models",
+              "policyHints": [
+                "DEV-SERVER-007"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_file_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_file",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "file",
+            "models",
+            "test_file"
+          ],
+          "policyHints": [
+            "DEV-SERVER-007"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F14-files.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "501d27323cf36325242508de6fbf6a6a66c05b2b",
+      "authoredAt": "2026-10-17T05:32:10+02:00",
+      "subject": "fix(agent-server): page search_subdirs past names that differ only by case (#5853)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/file_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "file",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_file_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_file",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "file",
+            "test_file"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F14-files.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "e98b95654fdfe4001d605a6f61893d65d8fa0b3d",
+      "authoredAt": "2026-10-17T05:34:14+02:00",
+      "subject": "fix(agent-server): return 404 from ask_agent for an unknown conversation (#5819)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/conversation_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": [
+                "DEV-SERVER-010"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_conversation_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_conversation",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "conversation",
+            "test_conversation"
+          ],
+          "policyHints": [
+            "DEV-SERVER-010"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F10-fork-navigate-condense-ask.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "7f41284acefd65a978c1075d7e19631a6730b782",
+      "authoredAt": "2026-10-17T05:35:41+02:00",
+      "subject": "fix(sdk): refuse a blank ACP model before the first run (#5811)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": [
+                "DEV-SDK-008",
+                "DEV-SDK-009",
+                "DEV-SDK-012"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/conversation/test_switch_model.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "conversation",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "conversation"
+          ],
+          "policyHints": [
+            "DEV-SDK-008",
+            "DEV-SDK-009",
+            "DEV-SDK-012"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F09-model-switching-plugins.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "9d07c6d55d1b371ed3d7ce6fba472ecef50f7a90",
+      "authoredAt": "2026-10-17T05:45:44+02:00",
+      "subject": "fix(agent-server): refuse more than 99 batch-get ids with a 422 (#5795)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/conversation_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": [
+                "DEV-SERVER-010"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_conversation_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_conversation",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "conversation",
+            "test_conversation"
+          ],
+          "policyHints": [
+            "DEV-SERVER-010"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F04-conversation-lifecycle.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "75abe1eb3f5fca908578d4437e8fee36125e4b0b",
+      "authoredAt": "2026-10-17T06:00:17+02:00",
+      "subject": "fix(agent-server): accept short event kinds in events search and count (#5773)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/event_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "event",
+              "policyHints": [
+                "DEV-SERVER-007",
+                "DEV-SERVER-008",
+                "DEV-SERVER-009",
+                "DEV-SERVER-010"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_event_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_event",
+              "policyHints": [
+                "DEV-SERVER-008"
+              ]
+            }
+          ],
+          "modules": [
+            "event",
+            "test_event"
+          ],
+          "policyHints": [
+            "DEV-SERVER-007",
+            "DEV-SERVER-008",
+            "DEV-SERVER-009",
+            "DEV-SERVER-010"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F05-run-pause-interrupt.md",
+        ".agents/skills/verify-agent-server/references/feature-map/F06-conversation-events.md",
+        ".agents/skills/verify-agent-server/references/feature-map/F08-confirmation-security-secrets.md",
+        ".agents/skills/verify-agent-server/references/feature-map/F33-sdk-remote-client.md",
+        ".agents/skills/verify-agent-server/references/feature-map/F34-typescript-client.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "1fbfd37f6fb21491ed733fc92d409aff1517ff4a",
+      "authoredAt": "2026-10-17T06:10:34+02:00",
+      "subject": "fix(ts): honor maxIterations and stuckDetection in ConversationManager.createConversation (#5783)",
+      "units": {},
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F34-typescript-client.md",
+        "clients/typescript/src/__tests__/conversation-create-options.test.ts",
+        "clients/typescript/src/conversation/base.ts",
+        "clients/typescript/src/conversation/conversation-manager.ts",
+        "clients/typescript/src/conversation/remote-conversation.ts"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "5966c781ed014efc96c028a99bddd4ff78426741",
+      "authoredAt": "2026-10-17T16:03:12+07:00",
+      "subject": "feat(agent-server): add start_child_conversation tool with a pluggable launcher (#5126)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/conversation/request.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "openhands-tools/openhands/tools/child_conversation/__init__.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "child_conversation",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "openhands-tools/openhands/tools/child_conversation/definition.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "child_conversation",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "openhands-tools/openhands/tools/child_conversation/impl.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "child_conversation",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "tests/tools/child_conversation/test_start_child_conversation.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "child_conversation",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "child_conversation",
+            "conversation"
+          ],
+          "policyHints": []
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/api.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "api",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/config.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "config",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/conversation_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": [
+                "DEV-SERVER-010"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/conversation_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": [
+                "DEV-SERVER-007",
+                "DEV-SERVER-009"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/init_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "init",
+              "policyHints": [
+                "DEV-SERVER-005"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/models.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "models",
+              "policyHints": [
+                "DEV-SERVER-007"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/tool_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "tool",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/conftest.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "conftest",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_config.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_config",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_init_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_init",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_parent_child_conversations.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_parent_child_conversations",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "api",
+            "config",
+            "conftest",
+            "conversation",
+            "init",
+            "models",
+            "test_config",
+            "test_init",
+            "test_parent_child_conversations",
+            "tool"
+          ],
+          "policyHints": [
+            "DEV-SERVER-005",
+            "DEV-SERVER-007",
+            "DEV-SERVER-009",
+            "DEV-SERVER-010"
+          ]
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "10b9b5a9242f548e6a38a7e9bfa7ddeb1795b976",
+      "authoredAt": "2026-10-17T18:03:22-04:00",
+      "subject": "test: isolate live servers from inherited Canvas environment (#6061)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "tests/cross/test_event_loss_repro.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_event_loss_repro",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/cross/test_remote_conversation_live_server.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_remote_conversation_live_server",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "test_event_loss_repro",
+            "test_remote_conversation_live_server"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "e642683a1af330ae4315db85d91a863ad0ef1d47",
+      "authoredAt": "2026-10-17T18:03:49-04:00",
+      "subject": "ci: add opt-in macOS test suite workflow (#6039)",
+      "units": {},
+      "ignoredPaths": [
+        ".github/workflows/tests-macos.yml"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "fd268089e257bee4ad704ce4fdc6466bc756c71c",
+      "authoredAt": "2026-10-18T00:10:30+02:00",
+      "subject": "docs(verify): use existing OpenHands profiles for critic checks (#6065)",
+      "units": {},
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/SKILL.md",
+        ".agents/skills/verify-agent-server/references/feature-map/F18-settings-and-secrets.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "7a714f41db5cee3191735a4539a453755f6a5e7c",
+      "authoredAt": "2026-10-17T20:56:22-04:00",
+      "subject": "fix(agent-server): honor create_app config for the conversation service (#5686)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "tests/conftest.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "shared",
+              "module": "test-infrastructure",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "test-infrastructure"
+          ],
+          "policyHints": []
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/api.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "api",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_api.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_api",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/conftest.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "shared",
+              "module": "test-infrastructure",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "api",
+            "test-infrastructure",
+            "test_api"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "3f26a0570e96e92c6af0b75388e31c9bf4f23efc",
+      "authoredAt": "2026-10-17T22:04:38-04:00",
+      "subject": "test: keep the full macOS suite free of order-dependent failures (#6070)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_file_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_file",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_openapi_discriminator.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_openapi_discriminator",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/cross/test_agent_secrets_integration.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_agent_secrets_integration",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "test_agent_secrets_integration",
+            "test_file",
+            "test_openapi_discriminator"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "0b51554da5baa94fbd0b7919eec6a610fdbe93ec",
+      "authoredAt": "2026-10-18T06:33:39+02:00",
+      "subject": "fix(agent-server): re-arm the webhook flush timer after a failed batch (#6046)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/conversation_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": [
+                "DEV-SERVER-007",
+                "DEV-SERVER-009"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_webhook_subscriber.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_webhook_subscriber",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "conversation",
+            "test_webhook_subscriber"
+          ],
+          "policyHints": [
+            "DEV-SERVER-007",
+            "DEV-SERVER-009"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F32-webhooks-and-telemetry.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "59b2831c17fbd6793f1cb8103d3fd91e57420324",
+      "authoredAt": "2026-10-18T06:37:04+02:00",
+      "subject": "fix(agent-server): answer /run 409 without waiting for the state lock (#5954)",
+      "units": {
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/event_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "event",
+              "policyHints": [
+                "DEV-SERVER-007",
+                "DEV-SERVER-008",
+                "DEV-SERVER-009",
+                "DEV-SERVER-010"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_event_service.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_event",
+              "policyHints": [
+                "DEV-SERVER-008"
+              ]
+            }
+          ],
+          "modules": [
+            "event",
+            "test_event"
+          ],
+          "policyHints": [
+            "DEV-SERVER-007",
+            "DEV-SERVER-008",
+            "DEV-SERVER-009",
+            "DEV-SERVER-010"
+          ]
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F33-sdk-remote-client.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "6ae64079cfd30cfe2f01a060c59168a4d650d883",
+      "authoredAt": "2026-10-18T08:09:49-04:00",
+      "subject": "fix(sdk): add ghu_/ghs_/gho_ GitHub token patterns to redact_api_key_literals (#6072)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/utils/redact.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "utils",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "utils"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "3f3294581ebf40f3bbe5b96aec1d28b7fec96226",
+      "authoredAt": "2026-10-19T03:22:56+02:00",
+      "subject": "fix(sdk): pass events missed during a WebSocket reconnect to RemoteConversation callbacks (#5950)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/conversation/impl/remote_conversation.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "conversation",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/conversation/remote/test_remote_conversation.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "conversation",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "conversation"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        ".agents/skills/verify-agent-server/references/feature-map/F33-sdk-remote-client.md"
+      ],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "3e8e17bee85494eb5ec2eae71ad0bb011e35b33d",
+      "authoredAt": "2026-10-19T04:45:16-04:00",
+      "subject": "Cap litellm below 1.106 until the SDK can use mcp 2.x (#6089)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/pyproject.toml",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "pyproject",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "uv.lock",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "shared",
+              "module": "dependencies",
+              "policyHints": [
+                "DEV-SDK-010"
+              ]
+            }
+          ],
+          "modules": [
+            "dependencies",
+            "pyproject"
+          ],
+          "policyHints": [
+            "DEV-SDK-010"
+          ]
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "uv.lock",
+              "previousPath": null,
+              "target": "server",
+              "kind": "shared",
+              "module": "dependencies",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "dependencies"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [],
+      "unmappedPaths": []
+    },
+    {
+      "sha": "33d8aa29c3078d074799e2fbf5e847aeb2d71360",
+      "authoredAt": "2026-10-19T09:32:16-04:00",
+      "subject": "Release v1.56.0 (#6091)",
+      "units": {
+        "sdk": {
+          "target": "sdk",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/agent/base.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "agent",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/profiles/agent_profile.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "profiles",
+              "policyHints": [
+                "DEV-SDK-004"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/settings/model.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "settings",
+              "policyHints": [
+                "DEV-SDK-011",
+                "DEV-SDK-012"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/openhands/sdk/tool/defaults.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "tool",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-sdk/pyproject.toml",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "pyproject",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-tools/pyproject.toml",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "pyproject",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-workspace/pyproject.toml",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "source",
+              "module": "workspace",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/agent/test_build_prompt_context.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "agent",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/conversation/local/test_state_serialization.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "conversation",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/launch/test_field_ownership.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "launch",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "tests/sdk/persisted_settings_baselines/v3/agent_profile_tool_switches.json",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "persisted_settings_baselines",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/persisted_settings_baselines/v3/persisted_settings.json",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "persisted_settings_baselines",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "tests/sdk/persisted_settings_baselines/v4/agent_profile_default.json",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "persisted_settings_baselines",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/persisted_settings_baselines/v4/persisted_settings.json",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "persisted_settings_baselines",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/persisted_settings_baselines/v5/agent_settings_mcp_oauth.json",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "persisted_settings_baselines",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/persisted_settings_baselines/v5/persisted_settings.json",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "persisted_settings_baselines",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/persisted_settings_baselines/v6/agent_settings_acp.json",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "persisted_settings_baselines",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "tests/sdk/persisted_settings_baselines/v6/persisted_settings.json",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "persisted_settings_baselines",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "tests/sdk/persisted_settings_baselines/v8/agent_settings_acp.json",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "persisted_settings_baselines",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "tests/sdk/persisted_settings_baselines/v8/agent_settings_tool_switches.json",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "persisted_settings_baselines",
+              "policyHints": []
+            },
+            {
+              "status": "A",
+              "path": "tests/sdk/persisted_settings_baselines/v9/agent_settings_openhands.json",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "persisted_settings_baselines",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/profiles/test_agent_profile.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "profiles",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/profiles/test_resolver.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "profiles",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/test_apply_agent_settings_diff.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "test_apply_agent_settings_diff",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/test_settings.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "test_settings",
+              "policyHints": [
+                "DEV-SDK-011",
+                "DEV-SDK-012"
+              ]
+            },
+            {
+              "status": "M",
+              "path": "tests/sdk/utils/test_pydantic_secrets.py",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "test",
+              "module": "utils",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "uv.lock",
+              "previousPath": null,
+              "target": "sdk",
+              "kind": "shared",
+              "module": "dependencies",
+              "policyHints": [
+                "DEV-SDK-010"
+              ]
+            }
+          ],
+          "modules": [
+            "agent",
+            "conversation",
+            "dependencies",
+            "launch",
+            "persisted_settings_baselines",
+            "profiles",
+            "pyproject",
+            "settings",
+            "test_apply_agent_settings_diff",
+            "test_settings",
+            "tool",
+            "utils",
+            "workspace"
+          ],
+          "policyHints": [
+            "DEV-SDK-004",
+            "DEV-SDK-010",
+            "DEV-SDK-011",
+            "DEV-SDK-012"
+          ]
+        },
+        "server": {
+          "target": "server",
+          "files": [
+            {
+              "status": "M",
+              "path": "openhands-agent-server/openhands/agent_server/persistence/models.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "persistence",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "openhands-agent-server/pyproject.toml",
+              "previousPath": null,
+              "target": "server",
+              "kind": "source",
+              "module": "pyproject",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_agent_profiles_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_agent_profiles",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/agent_server/test_settings_router.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_settings",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "tests/cross/test_check_persisted_settings_compat.py",
+              "previousPath": null,
+              "target": "server",
+              "kind": "test",
+              "module": "test_check_persisted_settings_compat",
+              "policyHints": []
+            },
+            {
+              "status": "M",
+              "path": "uv.lock",
+              "previousPath": null,
+              "target": "server",
+              "kind": "shared",
+              "module": "dependencies",
+              "policyHints": []
+            }
+          ],
+          "modules": [
+            "dependencies",
+            "persistence",
+            "pyproject",
+            "test_agent_profiles",
+            "test_check_persisted_settings_compat",
+            "test_settings"
+          ],
+          "policyHints": []
+        }
+      },
+      "ignoredPaths": [
+        "clients/typescript/package-lock.json",
+        "clients/typescript/package.json",
+        "clients/typescript/src/generated/agent-server-schema.ts"
+      ],
+      "unmappedPaths": []
+    }
+  ],
+  "summary": {
+    "targets": {
+      "sdk": {
+        "commitUnits": 17,
+        "files": 63,
+        "modules": [
+          "agent",
+          "child_conversation",
+          "conversation",
+          "dependencies",
+          "git",
+          "launch",
+          "llm",
+          "marketplace",
+          "persisted_settings_baselines",
+          "profiles",
+          "pyproject",
+          "settings",
+          "skills",
+          "terminal",
+          "test-infrastructure",
+          "test_apply_agent_settings_diff",
+          "test_settings",
+          "tool",
+          "utils",
+          "workspace"
+        ],
+        "tests": 33,
+        "examples": 0,
+        "policyHints": [
+          "DEV-SDK-004",
+          "DEV-SDK-006",
+          "DEV-SDK-008",
+          "DEV-SDK-009",
+          "DEV-SDK-010",
+          "DEV-SDK-011",
+          "DEV-SDK-012",
+          "EXC-SDK-002"
+        ]
+      },
+      "server": {
+        "commitUnits": 43,
+        "files": 105,
+        "modules": [
+          "agent_profiles",
+          "api",
+          "bash",
+          "canvas_extensions",
+          "config",
+          "conftest",
+          "conversation",
+          "dependencies",
+          "docker_runtime",
+          "env_parser",
+          "event",
+          "file",
+          "init",
+          "mcp",
+          "models",
+          "openai",
+          "persistence",
+          "profiles",
+          "pyproject",
+          "settings",
+          "telemetry",
+          "test-infrastructure",
+          "test_agent_profiles",
+          "test_agent_secrets_integration",
+          "test_api",
+          "test_auto_title_span_metadata",
+          "test_bash",
+          "test_check_persisted_settings_compat",
+          "test_config",
+          "test_conversation",
+          "test_conversation_response",
+          "test_event",
+          "test_event_loss_repro",
+          "test_file",
+          "test_goal_loop",
+          "test_init",
+          "test_mcp",
+          "test_openai_gateway_reused_wait",
+          "test_openapi_discriminator",
+          "test_parent_child_conversations",
+          "test_profiles",
+          "test_remote_conversation_live_server",
+          "test_run_admission",
+          "test_runtime",
+          "test_settings",
+          "test_skills",
+          "test_switch_llm_survives_reload",
+          "test_unhandled_exception_error_id",
+          "test_vscode",
+          "test_webhook_subscriber",
+          "test_workspaces",
+          "tool",
+          "vscode"
+        ],
+        "tests": 53,
+        "examples": 0,
+        "policyHints": [
+          "DEV-SERVER-004",
+          "DEV-SERVER-005",
+          "DEV-SERVER-007",
+          "DEV-SERVER-008",
+          "DEV-SERVER-009",
+          "DEV-SERVER-010"
+        ]
+      }
+    },
+    "ignoredPaths": [
+      ".agents/skills/pr-design-doc/SKILL.md",
+      ".agents/skills/pr-design-doc/references/html-craft.md",
+      ".agents/skills/verify-agent-server/SKILL.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F04-conversation-lifecycle.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F05-run-pause-interrupt.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F06-conversation-events.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F08-confirmation-security-secrets.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F09-model-switching-plugins.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F10-fork-navigate-condense-ask.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F11-goals.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F13-bash.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F14-files.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F15-git.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F16-workspace-serving-and-vscode.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F17-workspaces-registry.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F18-settings-and-secrets.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F19-mcp.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F20-llm-profiles.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F21-agent-profiles.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F22-meta-profiles.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F23-llm-catalog-and-connections.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F25-skills.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F27-hooks-subagents-tools.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F28-canvas-extensions.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F29-app-backend-bridge.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F30-openai-gateway.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F31-persistence-and-limits.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F32-webhooks-and-telemetry.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F33-sdk-remote-client.md",
+      ".agents/skills/verify-agent-server/references/feature-map/F34-typescript-client.md",
+      ".github/PULL_REQUEST_TEMPLATE.md",
+      ".github/workflows/pr-artifacts.yml",
+      ".github/workflows/precommit.yml",
+      ".github/workflows/tests-macos.yml",
+      "AGENTS.md",
+      "CONTRIBUTING.md",
+      "clients/typescript/README.md",
+      "clients/typescript/config/public-type-budget.json",
+      "clients/typescript/package-lock.json",
+      "clients/typescript/package.json",
+      "clients/typescript/src/__tests__/agent-server-contract-types.test.ts",
+      "clients/typescript/src/__tests__/api-clients.test.ts",
+      "clients/typescript/src/__tests__/conversation-create-options.test.ts",
+      "clients/typescript/src/__tests__/derive-switch-plan.test.ts",
+      "clients/typescript/src/__tests__/package-import.test.ts",
+      "clients/typescript/src/__tests__/remote-workspace-execute.test.ts",
+      "clients/typescript/src/__tests__/remote-workspace-git.test.ts",
+      "clients/typescript/src/__tests__/websocket-callback-client.test.ts",
+      "clients/typescript/src/client/conversation-client.ts",
+      "clients/typescript/src/conversation/base.ts",
+      "clients/typescript/src/conversation/conversation-manager.ts",
+      "clients/typescript/src/conversation/remote-conversation.ts",
+      "clients/typescript/src/events/bash-websocket-client.ts",
+      "clients/typescript/src/events/global-websocket.ts",
+      "clients/typescript/src/events/websocket-client.ts",
+      "clients/typescript/src/generated/agent-server-schema.ts",
+      "clients/typescript/src/index.ts",
+      "clients/typescript/src/models/agent-profile.ts",
+      "clients/typescript/src/models/workspace.ts",
+      "clients/typescript/src/workspace/remote-workspace.ts"
+    ],
+    "unmappedPaths": []
+  }
+}
