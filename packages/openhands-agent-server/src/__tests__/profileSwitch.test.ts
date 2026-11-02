@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -51,7 +51,7 @@ async function fixture(extra: Partial<AgentServerAppOptions> = {}, complete?: (p
   const server = await createAgentServerApp(options); servers.push(server);
   for (const name of ['a', 'b', 'c']) await server.serverStateService.saveProfile(llmProfileSchema.parse({ profileId: name, providerId: 'openai', model: `model-${name}` }));
   const start = await server.app.inject({ method: 'POST', url: '/api/conversations', payload: {
-    agent: { condenser: { enabled: false }, llm_profile_ref: 'a', tools: ['finish', 'think'], enable_switch_llm_tool: true, tool_concurrency_limit: 2 },
+    agent: { condenser: { enabled: false }, llm_profile_ref: 'a', tools: ['finish', 'think', 'switch_llm'], tool_concurrency_limit: 2 },
   } });
   expect(start.statusCode).toBe(201);
   return { server, id: start.json<{ id: string }>().id, observed, built, root, options };
@@ -325,11 +325,11 @@ test('public callers cannot inject a pending profile or configuration-observatio
 });
 
 test.each([
-  { enabled: true, explicit: false, count: 1 },
-  { enabled: false, explicit: false, count: 0 },
-  { enabled: true, explicit: true, count: 1 },
-  { enabled: false, explicit: true, count: 0 },
-])('retired switch setting folds into canonical tool selection: $enabled / $explicit', async ({ enabled, explicit, count }) => {
+  { enabled: true, explicit: false },
+  { enabled: false, explicit: false },
+  { enabled: true, explicit: true },
+  { enabled: false, explicit: true },
+])('rejects removed switch input on new conversations: $enabled / $explicit', async ({ enabled, explicit }) => {
   const names: string[][] = [];
   const f = await fixture({ llmClientFactory: async (profile) => ({ profile, complete: async (_messages, tools) => {
     names.push(tools?.map((tool) => tool.name) ?? []);
@@ -338,7 +338,49 @@ test.each([
   const start = await f.server.app.inject({ method: 'POST', url: '/api/conversations', payload: {
     agent: { condenser: { enabled: false }, llm_profile_ref: 'a', tools: explicit ? ['switch_llm', 'finish'] : ['finish'], enable_switch_llm_tool: enabled },
   } });
+  expect(start.statusCode).toBe(422);
+  expect(names).toEqual([]);
+});
+
+test.each([false, true])('current tool selection controls switch_llm availability: %s', async enabled => {
+  const names: string[][] = [];
+  const f = await fixture({ llmClientFactory: async (profile) => ({ profile, complete: async (_messages, tools) => {
+    names.push(tools?.map((tool) => tool.name) ?? []);
+    return { message: reply('done'), usage: null };
+  } }) });
+  const start = await f.server.app.inject({ method: 'POST', url: '/api/conversations', payload: {
+    agent: { condenser: { enabled: false }, llm_profile_ref: 'a', tools: enabled ? ['switch_llm', 'finish'] : ['finish'] },
+  } });
   expect(start.statusCode).toBe(201);
   await send(f.server, start.json().id); await settled(f.server, start.json().id);
-  expect(names[0]!.filter((name) => name === 'switch_llm')).toHaveLength(count);
+  expect(names[0]!.filter((name) => name === 'switch_llm')).toHaveLength(enabled ? 1 : 0);
+});
+
+test.each([
+  { schemaVersion: 5, enableSwitch: false, tools: ['finish', 'think', 'switch_llm'], expectedSwitch: false },
+  { schemaVersion: 6, enableSwitch: false, tools: ['finish', 'think', 'switch_llm'], expectedSwitch: false },
+  { schemaVersion: 8, enableSwitch: false, tools: ['finish', 'think', 'switch_llm'], expectedSwitch: true },
+  { schemaVersion: 5, enableSwitch: true, tools: ['finish', 'think'], expectedSwitch: true },
+  { schemaVersion: 6, enableSwitch: true, tools: ['finish', 'think'], expectedSwitch: true },
+])('restores stored tool switches at schema version $schemaVersion (enabled=$enableSwitch) without losing conversation history', async ({ schemaVersion, enableSwitch, tools, expectedSwitch }) => {
+  const names: string[][] = [];
+  const messages: (readonly Message[])[] = [];
+  const f = await fixture({ resolveProfileSelection: () => 'a', llmClientFactory: async profile => ({ profile, complete: async (history, tools) => {
+    names.push(tools?.map(tool => tool.name) ?? []);
+    messages.push(history);
+    return { message: reply('done'), usage: null };
+  } }) });
+  await send(f.server, f.id, 'before migration'); await settled(f.server, f.id);
+  await f.server.app.close();
+  const filename = path.join(f.root, 'conversations', f.id, 'meta.json');
+  const saved = JSON.parse(await readFile(filename, 'utf8'));
+  saved.request.agent.schema_version = schemaVersion;
+  saved.request.agent.tools = tools;
+  saved.request.agent.enable_switch_llm_tool = enableSwitch;
+  saved.request.agent.enable_sub_agents = false;
+  await writeFile(filename, JSON.stringify(saved));
+  const restored = await createAgentServerApp(f.options); servers.push(restored);
+  await send(restored, f.id, 'after migration'); await settled(restored, f.id);
+  expect(names[1]!.includes('switch_llm')).toBe(expectedSwitch);
+  expect(JSON.stringify(messages[1])).toContain('before migration');
 });

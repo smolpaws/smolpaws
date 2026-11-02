@@ -49,6 +49,8 @@ async function run(server: AgentServerApp, id: string, status: 'error' | 'finish
     payload: { role: 'user', content: 'Continue the saved work.', run: true } });
   expect(response.statusCode).toBe(200);
   await expect.poll(async () => (await server.app.inject(`/api/conversations/${id}`)).json().execution_status).toBe(status);
+  // Execution status can change before the error event and metadata finish persisting.
+  await (await server.conversationService.getEventService(id))!.whenIdle();
 }
 
 async function closeServer(server: AgentServerApp): Promise<void> {

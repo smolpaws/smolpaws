@@ -2350,12 +2350,8 @@ function foldRetiredToolSwitches(payload, options = {}) {
   folded.tools = entries;
   return folded;
 }
-function foldDeprecatedToolSwitches(data) {
-  if (typeof data !== "object" || data === null || Array.isArray(data)) return data;
-  const payload = data;
-  if (!("enable_sub_agents" in payload || "enable_switch_llm_tool" in payload)) return data;
-  process.emitWarning("enable_sub_agents and enable_switch_llm_tool are deprecated; select task_tool_set and switch_llm in tools instead.", { type: "DeprecationWarning", code: "OPENHANDS_RETIRED_TOOL_SWITCHES" });
-  return foldRetiredToolSwitches(payload, { sparse: true });
+function dropRetiredToolSwitches(payload) {
+  return Object.fromEntries(Object.entries(payload).filter(([key]) => key !== "enable_sub_agents" && key !== "enable_switch_llm_tool"));
 }
 function toggle(entries, name, enabled) {
   if (!enabled) return entries.filter((entry2) => canonicalToolName(entry2.name) !== name);
@@ -15310,7 +15306,7 @@ async function materializeHardCondenser(data, options) {
     hardContextResetContextScaling: settings.hard_context_reset_context_scaling
   });
 }
-var AGENT_PROFILE_SCHEMA_VERSION = 3;
+var AGENT_PROFILE_SCHEMA_VERSION = 4;
 var summaryRevisionSchema = zod.z.preprocess((value) => {
   if (typeof value === "boolean") return Number(value);
   if (typeof value === "string") {
@@ -15381,7 +15377,13 @@ var openHandsAgentProfileObjectSchema = zod.z.object({
     context.addIssue({ code: "custom", path: ["hard_condenser"], message: "hard_condenser requires an enabled agent_reset condenser" });
   }
 });
-var openHandsAgentProfileSchema = zod.z.preprocess(foldDeprecatedToolSwitches, openHandsAgentProfileObjectSchema);
+function rejectRemovedToolSwitches(data, context) {
+  if (isRecord4(data) && ("enable_sub_agents" in data || "enable_switch_llm_tool" in data)) {
+    context.addIssue({ code: "custom", message: "Retired tool switches were removed; select tools instead." });
+  }
+  return data;
+}
+var openHandsAgentProfileSchema = zod.z.preprocess(rejectRemovedToolSwitches, openHandsAgentProfileObjectSchema);
 var acpAgentProfileSchema = zod.z.object({
   ...agentProfileBaseFields,
   agent_kind: zod.z.literal("acp").default("acp"),
@@ -15440,6 +15442,8 @@ function applyAgentProfileMigrations(data) {
       delete migrated.enable_sub_agents;
       delete migrated.enable_switch_llm_tool;
     }
+  } else if (version === 3) {
+    migrated = dropRetiredToolSwitches(migrated);
   }
   migrated.schema_version = AGENT_PROFILE_SCHEMA_VERSION;
   return migrated;
@@ -15468,7 +15472,7 @@ var RAW_LLM_FIELDS_IGNORED_WHEN_PROFILE_SELECTED = [
   "inputCostPerToken",
   "outputCostPerToken"
 ];
-var AGENT_SETTINGS_SCHEMA_VERSION = 8;
+var AGENT_SETTINGS_SCHEMA_VERSION = 9;
 var CONVERSATION_SETTINGS_SCHEMA_VERSION = 1;
 var settingsSchemaVersion = (version) => zod.z.literal(version).default(version);
 var observabilityMetadataSchema = zod.z.record(zod.z.string().min(1), zod.z.unknown());
@@ -15512,7 +15516,16 @@ var openHandsAgentSettingsObjectSchema = zod.z.object({
     });
   }
 });
-var openHandsAgentSettingsSchema = zod.z.preprocess(foldDeprecatedToolSwitches, openHandsAgentSettingsObjectSchema);
+function rejectRemovedSettingsInput(data, context, options = {}) {
+  if (!isRecord5(data)) return data;
+  const removed = [];
+  if ("enable_sub_agents" in data) removed.push("enable_sub_agents");
+  if ("enable_switch_llm_tool" in data) removed.push("enable_switch_llm_tool");
+  if ((options.acp === true || data.agent_kind === "acp") && "llm" in data) removed.push("llm");
+  if (removed.length > 0) context.addIssue({ code: "custom", message: `Removed agent settings: ${removed.sort().join(", ")}` });
+  return data;
+}
+var openHandsAgentSettingsSchema = zod.z.preprocess((data, context) => rejectRemovedSettingsInput(data, context), openHandsAgentSettingsObjectSchema);
 var acpAgentSettingsObjectSchema = zod.z.object({
   ...agentSettingsBaseFields,
   agent_kind: zod.z.literal("acp").default("acp"),
@@ -15524,15 +15537,7 @@ var acpAgentSettingsObjectSchema = zod.z.object({
   acp_prompt_timeout: zod.z.number().positive().default(1800),
   acp_startup_timeout: zod.z.number().positive().default(90)
 }).strict();
-var acpAgentSettingsSchema = zod.z.preprocess((data) => {
-  if (!isRecord5(data)) return data;
-  const payload = { ...data };
-  if ("llm" in payload) process.emitWarning("ACPAgentSettings.llm is deprecated and ignored; ACP manages its own LLM.", { type: "DeprecationWarning", code: "OPENHANDS_ACP_LLM_IGNORED" });
-  delete payload.llm;
-  delete payload.enable_sub_agents;
-  delete payload.enable_switch_llm_tool;
-  return payload;
-}, acpAgentSettingsObjectSchema);
+var acpAgentSettingsSchema = zod.z.preprocess((data, context) => rejectRemovedSettingsInput(data, context, { acp: true }), acpAgentSettingsObjectSchema);
 var agentSettingsSchema = zod.z.union([openHandsAgentSettingsSchema, acpAgentSettingsSchema]);
 function clearRawLlmFieldsWhenProfileSelected(llm) {
   const profileId = typeof llm.profileId === "string" ? llm.profileId.trim() : "";
@@ -15561,16 +15566,17 @@ function clearRawLlmFieldsWhenProfileSelected(llm) {
   };
 }
 function validateAgentSettings(data, options = {}) {
-  let payload = applySettingsVersion(data, AGENT_SETTINGS_SCHEMA_VERSION, "AgentSettings");
   const originalVersion = isRecord5(data) ? data.schema_version : void 0;
-  const legacy = typeof originalVersion === "number" ? originalVersion < 8 : options.persisted === true;
-  if (legacy && (payload.agent_kind ?? "openhands") !== "acp") payload = foldRetiredToolSwitches(payload);
-  const legacyAcpLlm = typeof originalVersion === "number" ? originalVersion < 7 : options.persisted === true;
-  if (payload.agent_kind === "acp" && legacyAcpLlm) delete payload.llm;
+  let payload = applySettingsVersion(data, AGENT_SETTINGS_SCHEMA_VERSION, "AgentSettings");
   const kind = payload.agent_kind ?? "openhands";
+  const version = typeof originalVersion === "number" ? originalVersion : options.persisted === true ? 7 : AGENT_SETTINGS_SCHEMA_VERSION;
   if (kind === "acp") {
+    if (version <= 8) payload = dropRetiredToolSwitches(payload);
+    if (version <= 8) delete payload.llm;
     return acpAgentSettingsSchema.parse(payload);
   }
+  if (version < 8) payload = foldRetiredToolSwitches(payload);
+  else if (version === 8) payload = dropRetiredToolSwitches(payload);
   if (kind === "llm" || kind === "openhands") {
     return openHandsAgentSettingsSchema.parse({ ...payload, agent_kind: "openhands" });
   }
@@ -20269,7 +20275,7 @@ var OpenAIResponsesClient = class {
       const requestHeaders = buildHeaders3({ ...this.profile, headers }, key);
       const response = await this.fetchImpl(`${resolveBaseUrl3(this.profile)}/responses`, {
         method: "POST",
-        headers: applyLLMCallContextHeaders(refreshed ? replaceCredentialHeader(requestHeaders, "authorization", `Bearer ${key}`) : requestHeaders, context),
+        headers: applyResponsesCallContextHeaders(refreshed ? replaceCredentialHeader(requestHeaders, "authorization", `Bearer ${key}`) : requestHeaders, context, this.profile.authType === "subscription"),
         body: serializedBody,
         signal: deadline.signal
       }).catch((error) => {
@@ -20294,6 +20300,15 @@ var OpenAIResponsesClient = class {
     return parseOpenAIResponsesResponse(raw);
   }
 };
+function applyResponsesCallContextHeaders(headers, context, subscription) {
+  const contextualHeaders = applyLLMCallContextHeaders(headers, context);
+  if (!subscription || !context.sessionId) return contextualHeaders;
+  return {
+    ...Object.fromEntries(Object.entries(contextualHeaders).filter(([name]) => !["session-id", "thread-id"].includes(name.toLowerCase()))),
+    "session-id": context.sessionId,
+    "thread-id": context.sessionId
+  };
+}
 async function createOpenAIChatClientFromProfile(profile, store, options = {}) {
   const apiKey = await getLlmApiKey(
     {
@@ -29065,6 +29080,7 @@ exports.discoverAgents = discoverAgents;
 exports.discoverBuiltinAgents = discoverBuiltinAgents;
 exports.dispatchLlmResponse = dispatchLlmResponse;
 exports.displayJson = displayJson;
+exports.dropRetiredToolSwitches = dropRetiredToolSwitches;
 exports.dumps = dumps;
 exports.endRootSpan = endRootSpan;
 exports.ensureLlmHistoryOrigin = ensureLlmHistoryOrigin;
@@ -29082,7 +29098,6 @@ exports.fileEditorActionSchema = fileEditorActionSchema;
 exports.fileEditorObservationSchema = fileEditorObservationSchema;
 exports.finalizeLaunch = finalizeLaunch;
 exports.finishActionSchema = finishActionSchema;
-exports.foldDeprecatedToolSwitches = foldDeprecatedToolSwitches;
 exports.foldRetiredToolSwitches = foldRetiredToolSwitches;
 exports.generatePKCE = generatePKCE;
 exports.getAgentFactory = getAgentFactory;
