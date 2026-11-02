@@ -35,4 +35,4 @@ export declare function foldRetiredToolSwitches(payload: Readonly<Record<string,
     readonly sparse?: boolean;
     readonly enableBrowser?: boolean;
 }): Record<string, unknown>;
-export declare function foldDeprecatedToolSwitches(data: unknown): unknown;
+export declare function dropRetiredToolSwitches(payload: Readonly<Record<string, unknown>>): Record<string, unknown>;

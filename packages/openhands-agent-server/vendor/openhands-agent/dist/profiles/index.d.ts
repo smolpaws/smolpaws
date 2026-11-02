@@ -1,5 +1,5 @@
 import { z } from 'zod';
-export declare const AGENT_PROFILE_SCHEMA_VERSION = 3;
+export declare const AGENT_PROFILE_SCHEMA_VERSION = 4;
 /** Stored-profile summary; parsing does not resolve references or instantiate an agent. */
 export declare const agentProfileInfoSchema: z.ZodObject<{
     id: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -64,7 +64,7 @@ export declare const openHandsAgentProfileSchema: z.ZodPreprocess<z.ZodObject<{
     enable_classify_and_switch_llm_tool: z.ZodDefault<z.ZodBoolean>;
     meta_profile_ref: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     tool_concurrency_limit: z.ZodDefault<z.ZodNumber>;
-    schema_version: z.ZodDefault<z.ZodLiteral<3>>;
+    schema_version: z.ZodDefault<z.ZodLiteral<4>>;
     id: z.ZodDefault<z.ZodString>;
     name: z.ZodString;
     revision: z.ZodDefault<z.ZodNumber>;
@@ -80,7 +80,7 @@ export declare const acpAgentProfileSchema: z.ZodObject<{
     acp_startup_timeout: z.ZodDefault<z.ZodNumber>;
     acp_command: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     acp_args: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
-    schema_version: z.ZodDefault<z.ZodLiteral<3>>;
+    schema_version: z.ZodDefault<z.ZodLiteral<4>>;
     id: z.ZodDefault<z.ZodString>;
     name: z.ZodString;
     revision: z.ZodDefault<z.ZodNumber>;
@@ -118,7 +118,7 @@ export declare const agentProfileSchema: z.ZodUnion<readonly [z.ZodPreprocess<z.
     enable_classify_and_switch_llm_tool: z.ZodDefault<z.ZodBoolean>;
     meta_profile_ref: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     tool_concurrency_limit: z.ZodDefault<z.ZodNumber>;
-    schema_version: z.ZodDefault<z.ZodLiteral<3>>;
+    schema_version: z.ZodDefault<z.ZodLiteral<4>>;
     id: z.ZodDefault<z.ZodString>;
     name: z.ZodString;
     revision: z.ZodDefault<z.ZodNumber>;
@@ -133,7 +133,7 @@ export declare const agentProfileSchema: z.ZodUnion<readonly [z.ZodPreprocess<z.
     acp_startup_timeout: z.ZodDefault<z.ZodNumber>;
     acp_command: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     acp_args: z.ZodDefault<z.ZodNullable<z.ZodArray<z.ZodString>>>;
-    schema_version: z.ZodDefault<z.ZodLiteral<3>>;
+    schema_version: z.ZodDefault<z.ZodLiteral<4>>;
     id: z.ZodDefault<z.ZodString>;
     name: z.ZodString;
     revision: z.ZodDefault<z.ZodNumber>;

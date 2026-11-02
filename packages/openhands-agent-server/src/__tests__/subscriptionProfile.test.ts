@@ -13,9 +13,11 @@ it('uses SDK subscription auth for preflight, execution and persisted conversati
   const authFetch = vi.fn(async () => new Response(JSON.stringify({ access_token: 'new-private-access', refresh_token: 'new-private-refresh', expires_in: 3600 }), { status: 200 }));
   const auth = new OpenAISubscriptionAuth({ credentialStore: store, fetch: authFetch });
   const bodies: Record<string, unknown>[] = [];
+  const requestHeaders: Headers[] = [];
   const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
     expect(String(url)).toBe('https://chatgpt.com/backend-api/codex/responses');
     expect(new Headers(init?.headers).get('authorization')).toBe('Bearer new-private-access');
+    requestHeaders.push(new Headers(init?.headers));
     const body = JSON.parse(String(init?.body));
     bodies.push(body);
     expect(body.stream).toBe(true);
@@ -45,6 +47,16 @@ it('uses SDK subscription auth for preflight, execution and persisted conversati
     await server.app.inject({ method: 'POST', url: `/api/conversations/${id}/run` });
     await expect.poll(async () => (await server.app.inject(`/api/conversations/${id}`)).json().execution_status, { timeout: 10_000 }).toBe('finished');
     expect(bodies).toHaveLength(3);
+    // Preflight has no conversation identity. Execution and disk restore must
+    // route to the same Codex prompt-cache session through the vendored SDK.
+    expect(requestHeaders[0]!.has('session-id')).toBe(false);
+    expect(requestHeaders[0]!.has('thread-id')).toBe(false);
+    for (const [index, headers] of requestHeaders.entries()) {
+      if (index === 0) continue;
+      expect(headers.get('session-id')).toBe(id);
+      expect(headers.get('thread-id')).toBe(id);
+      expect(bodies[index]!.prompt_cache_key).toBe(id);
+    }
     expect(JSON.stringify(bodies[2]?.input)).toContain('Finish first turn');
     expect(JSON.stringify(bodies[2]?.input)).toContain('Finish the continuation');
     expect(authFetch).toHaveBeenCalledOnce();

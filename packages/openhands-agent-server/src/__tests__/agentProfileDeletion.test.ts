@@ -48,7 +48,7 @@ describe('agent profile deletion settings cleanup', () => {
     const { app } = await fixture();
     await createAndActivateProfile(app, kind);
     expect((await app.inject({ method: 'PATCH', url: '/api/settings', payload: { agent_settings: {
-      ...defaultAgentSettings('selected-llm'), enable_sub_agents: false, tool_concurrency_limit: 3,
+      ...defaultAgentSettings('selected-llm'), tool_concurrency_limit: 3,
       condenser: { condenser_kind: 'no_op', enabled: false }, mcp_config: mcpConfig,
     } } })).statusCode).toBe(200);
     const before = await settings(app);
