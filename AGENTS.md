@@ -49,6 +49,7 @@ SmolPaws is an OpenHands agent in TypeScript, with inspiration from NanoClaw, Op
 | `/teach-me` | Teach a code change deeply as an interactive HTML page — Background → Intuition → Code → an interactive quiz that verifies the reader understood. For learning, where `/show-me` is for deciding |
 | `/printing-press` | Install a ready-made, token-efficient CLI (+ skill/MCP) for an external service from the Printing Press catalog instead of re-reading API docs. Discovery-first; installs third-party code, so approval + verification required |
 | `/fieldtheory` | Search or analyze a user's locally synced Field Theory X/Twitter bookmarks through the `ft` CLI; read-only by default |
+| `/impeccable` | Design, audit, or refine frontend interfaces; follow `.agents/skills/impeccable/SKILL.md` |
 
 Reference skills for GitHub/Cloudflare/Fastify/Daytona work also live under `.agents/skills/`.
 For the weekly SDK revendor and server PR handoff, follow `packages/openhands-agent-server/docs/REVENDOR_AUTOMATION.md`.
@@ -146,6 +147,7 @@ npm run runner:image:build
 npm run ci --prefix packages/openhands-agent-server  # Validate vendored SDK provenance, server review, API parity, tests, and build
 npm --prefix apps/discord run test  # Run Discord ingress regression tests
 npm run email:test   # Run Resend email ingress tests
+node --test .agents/skills/impeccable/tests/*.test.mjs  # Run Impeccable regressions when changing the vendored skill
 ```
 
 Service management:
