@@ -4,7 +4,7 @@ This file is live for the local LaunchAgent heartbeat ingress.
 
 Heartbeat runs should go through the normal local agent-server. If the local loopback agent-server is not already running, the launcher may start it first and then queue this heartbeat as a normal conversation.
 
-Default schedule on this machine is once every 24 hours. Reuse one heartbeat conversation per local day, then start a new conversation on the next day.
+Default schedule on this machine is daily at 07:30 local time (`StartCalendarInterval`), not hourly. Reuse one heartbeat conversation per local day, then start a new conversation on the next day.
 
 ## Scope
 
