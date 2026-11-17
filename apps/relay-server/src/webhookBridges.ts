@@ -20,6 +20,7 @@ const disclosure = '\n\n— Sent by SmolPaws, an AI agent, on behalf of its user
 
 export interface WebhookBridgeOptions {
   dbDirectory: string;
+  schedulerDbPath: string;
   sessionApiKey: string;
   env?: Readonly<Record<string, string | undefined>>;
   fetcher?: typeof fetch;
@@ -63,7 +64,7 @@ export function registerWebhookBridges(app: AgentServerApp['app'], options: Webh
     for (const platform of ['github', 'email'] as const) {
       const runtime: RelayRuntime = new RelayRuntime({ platform, serverUrl, sessionApiKey: options.sessionApiKey,
         logger: pino(), dbPath: path.join(options.dbDirectory, `${platform}-relay-v1.db`),
-        tickMs: options.tickMs, createConversationDefaults: defaults,
+        tickMs: options.tickMs, schedulerDbPath: options.schedulerDbPath, createConversationDefaults: defaults,
         createConversationDefaultsFor: lane => runtime.scheduler.lane(deterministicConversationId(lane.laneKey))?.defaults ?? {},
         target: {
           isReady: platform === 'github' ? githubReady : emailReady,

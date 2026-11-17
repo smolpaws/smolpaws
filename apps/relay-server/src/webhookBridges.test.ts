@@ -41,7 +41,7 @@ test('Workers hand off durable intake; host delivers once across duplicate submi
       secretStore: new InMemorySecretStore(), llmClientFactory: async () => TestLLM.fromMessages([call]),
       context: { homeDir: root }, models: { homeDir: root },
     }, new TaskScheduler(path.join(root, 'scheduler.db')));
-    registerWebhookBridges(app, { sessionApiKey: 'session', dbDirectory: root, env, fetcher, tickMs: 20,
+    registerWebhookBridges(app, { sessionApiKey: 'session', dbDirectory: root, schedulerDbPath: path.join(root, 'scheduler.db'), env, fetcher, tickMs: 20,
       createConversationDefaults: { agent: { agent_kind: 'openhands', llm_profile_ref: 'test', condenser: { enabled: false } }, workspace: { kind: 'LocalWorkspace', working_dir: root } } });
     await app.inject({ method: 'POST', url: '/api/profiles', headers: { 'x-session-api-key': 'session' }, payload: { profileId: 'test', providerId: 'openai', model: 'test', openAiApiMode: 'responses' } });
     const address = await app.listen({ host: '127.0.0.1', port: 0 });
@@ -85,7 +85,7 @@ test('an ambiguous GitHub send is parked and never automatically repeated after 
       secretStore: new InMemorySecretStore(), context: { homeDir: root }, models: { homeDir: root },
       llmClientFactory: async () => TestLLM.fromMessages([messageSchema.parse({ role: 'assistant', content: [], tool_calls: [{ id: randomUUID(), name: 'finish', arguments: JSON.stringify({ message: 'done' }), origin: 'completion' }] })]),
     }, new TaskScheduler(path.join(root, 'scheduler.db')));
-    registerWebhookBridges(app, { sessionApiKey: 'session', dbDirectory: root, tickMs: 20, env: { GITHUB_USER_TOKEN: 'test', SMOLPAWS_WORKSPACE_ROOT: root },
+    registerWebhookBridges(app, { sessionApiKey: 'session', dbDirectory: root, schedulerDbPath: path.join(root, 'scheduler.db'), tickMs: 20, env: { GITHUB_USER_TOKEN: 'test', SMOLPAWS_WORKSPACE_ROOT: root },
       fetcher: async () => { attempts++; throw new Error('Connection lost after sending'); },
       createConversationDefaults: { agent: { agent_kind: 'openhands', llm_profile_ref: 'test', condenser: { enabled: false } }, workspace: { kind: 'LocalWorkspace', working_dir: root } } });
     await app.inject({ method: 'POST', url: '/api/profiles', headers: { 'x-session-api-key': 'session' }, payload: { profileId: 'test', providerId: 'openai', model: 'test', openAiApiMode: 'responses' } });
@@ -103,4 +103,36 @@ test('an ambiguous GitHub send is parked and never automatically repeated after 
     await new Promise(resolve => setTimeout(resolve, 150));
     assert.equal(attempts, 1);
   } finally { await server.app.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('webhook scheduling shares the host scheduler when relay databases live elsewhere', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'webhook-scheduler-'));
+  const scheduler = new TaskScheduler(path.join(root, 'host', 'scheduler.db'));
+  const sent: Array<Record<string, unknown>> = [];
+  let calls = 0;
+  const call = (name: string, args: object) => messageSchema.parse({ role: 'assistant', content: [], tool_calls: [{ id: randomUUID(), name, arguments: JSON.stringify(args), origin: 'completion' }] });
+  const { app } = await createRelayServerApp({
+    config: { conversationsPath: path.join(root, 'conversations'), statePath: path.join(root, 'state'), workspaceRoot: root, sessionApiKey: 'session' },
+    secretStore: new InMemorySecretStore(), context: { homeDir: root }, models: { homeDir: root },
+    llmClientFactory: async () => TestLLM.fromMessages(++calls === 1
+      ? [call('schedule_task', { prompt: 'Send the follow-up', schedule_type: 'once', schedule_value: new Date(Date.now() - 1).toISOString(), context_mode: 'group' }), call('finish', { message: 'scheduled' }), call('finish', { message: 'follow-up' })]
+      : [call('finish', { message: 'follow-up' })]),
+  }, scheduler);
+  registerWebhookBridges(app, {
+    sessionApiKey: 'session', dbDirectory: path.join(root, 'relays'), schedulerDbPath: scheduler.db.name,
+    env: { RESEND_API_KEY: 'test', EMAIL_FROM_ADDRESS: 'cat@example.com' }, tickMs: 20,
+    fetcher: async (_input, init) => { sent.push(JSON.parse(String(init?.body))); return new Response(JSON.stringify({ id: `sent-${sent.length}` })); },
+    createConversationDefaults: { agent: { agent_kind: 'openhands', llm_profile_ref: 'test', condenser: { enabled: false } }, workspace: { kind: 'LocalWorkspace', working_dir: root }, tags: { scope: 'mail-scope' } },
+  });
+  try {
+    await app.inject({ method: 'POST', url: '/api/profiles', headers: { 'x-session-api-key': 'session' }, payload: { profileId: 'test', providerId: 'openai', model: 'test', openAiApiMode: 'responses' } });
+    const address = await app.listen({ host: '127.0.0.1', port: 0 });
+    await dispatchEmailToAgentServer({ emailId: 'scheduled-email', sender: 'human@example.com', text: 'Schedule a follow-up' }, { SMOLPAWS_RELAY_SERVER_URL: address, SMOLPAWS_RELAY_SERVER_API_KEY: 'session' });
+    for (let n = 0; n < 500 && !sent.some(item => String(item.text).includes('follow-up')); n++) await new Promise(resolve => setTimeout(resolve, 20));
+    assert.ok(sent.some(item => String(item.text).includes('follow-up')), 'the webhook worker must drain the host-scheduled occurrence');
+    const task = scheduler.db.prepare('SELECT conversation_id, scope_id, status FROM scheduler_tasks').get() as { conversation_id: string; scope_id: string; status: string };
+    assert.equal(task.scope_id, 'mail-scope'); assert.equal(task.status, 'completed');
+    assert.equal(scheduler.lane(task.conversation_id)?.lane.platform, 'email');
+    assert.equal(scheduler.lane(task.conversation_id)?.relayDbPath, path.join(root, 'relays', 'email-relay-v1.db'));
+  } finally { await app.close(); rmSync(root, { recursive: true, force: true }); }
 });
