@@ -3,16 +3,11 @@ import type {
   SmolpawsEvent,
   SmolpawsQueueMessage,
 } from "../../../src/shared/github.js";
-import type {
-  SmolpawsOutboundMessage,
-} from "../../../src/shared/runner.js";
 import { dispatchToAgentServer } from "./agentServerClient.js";
 
 interface Env {
   // GitHub App (webhook-installed repos)
   GITHUB_WEBHOOK_SECRET: string;
-  GITHUB_APP_ID: string;
-  GITHUB_APP_PRIVATE_KEY: string;
 
   // GitHub user token (notifications polling for @smolpaws mentions)
   GITHUB_USER_TOKEN?: string;
@@ -24,22 +19,15 @@ interface Env {
 
   // Only applies to webhook flow (notifications have no installation id)
   ALLOWED_INSTALLATIONS?: string;
-  SMOLPAWS_RUNNER_URL?: string;
-  SMOLPAWS_RUNNER_TOKEN?: string;
+  SMOLPAWS_RELAY_SERVER_URL?: string;
+  SMOLPAWS_RELAY_SERVER_API_KEY?: string;
 
-  // Daytona sandbox auto-wake (optional)
-  DAYTONA_API_KEY?: string;
-  DAYTONA_API_URL?: string;
-  DAYTONA_SANDBOX_ID?: string;
 }
 
 const MENTION = "@smolpaws";
 const AGENT_LOGIN = "smolpaws";
 const USER_AGENT = "smolpaws-webhook";
 const NOTIFICATION_POLL_LOOKBACK_MINUTES = 30;
-const RUNNER_NOT_CONFIGURED_REPLY =
-  "🐾 smolpaws heard you and is waking up. Runner is not configured yet.";
-
 function buildNotificationsPollUrl(nowMs = Date.now()): string {
   const url = new URL("https://api.github.com/notifications");
   url.searchParams.set("all", "true");
@@ -163,7 +151,7 @@ export default {
     const queueMessage: SmolpawsQueueMessage = {
       event,
       payload,
-      delivery_id: request.headers.get("X-GitHub-Delivery") ?? undefined,
+      delivery_id: mentionIdentity ?? request.headers.get("X-GitHub-Delivery") ?? undefined,
       meta: { ingress: "github_webhook" },
     };
 
@@ -322,50 +310,8 @@ async function processQueueMessage(
       issue_number: issueNumber,
       installation_id: installationId ?? null,
     });
-    const token = await resolveGithubToken({ env, installationId });
-    const agentResult = await dispatchToAgentServer(message.body, env);
-    const outboundMessages = agentResult?.outbound_messages ?? [];
-
-    for (const outbound of outboundMessages) {
-      await deliverRunnerOutboundMessage({
-        token,
-        repoFullName,
-        issueNumber,
-        outbound,
-      });
-    }
-
-    const replyBody = resolveQueueReplyBody(agentResult);
-    const postedReply =
-      replyBody
-        ? shouldPostReplyAfterOutbound(replyBody, outboundMessages)
-        : false;
-
-    if (replyBody && postedReply) {
-      await postIssueComment({
-        token,
-        repoFullName,
-        issueNumber,
-        body: replyBody,
-      });
-    }
-
-    logQueueDelivery("process.completed", {
-      delivery_id: message.body.delivery_id ?? null,
-      ingress: message.body.meta?.ingress ?? null,
-      notification_thread_id: message.body.meta?.notification_thread_id ?? null,
-      repo: repoFullName,
-      issue_number: issueNumber,
-      outbound_count: outboundMessages.length,
-      posted_reply: postedReply,
-      runner_result: agentResult === null
-        ? "runner_not_configured"
-        : outboundMessages.length > 0
-          ? "outbound_messages"
-          : agentResult?.reply
-            ? "reply_only"
-            : "no_reply",
-    });
+    await dispatchToAgentServer(message.body, env);
+    logQueueDelivery("process.accepted", { delivery_id: message.body.delivery_id, repo: repoFullName, issue_number: issueNumber });
 
     message.ack();
   } catch (error) {
@@ -380,22 +326,6 @@ async function processQueueMessage(
     message.retry({ delaySeconds: 30 });
   }
 }
-
-export function resolveQueueReplyBody(
-  agentResult: Awaited<ReturnType<typeof dispatchToAgentServer>>,
-): string | undefined {
-  if (agentResult?.reply) {
-    return agentResult.reply;
-  }
-  if ((agentResult?.outbound_messages?.length ?? 0) > 0) {
-    return undefined;
-  }
-  if (agentResult === null) {
-    return RUNNER_NOT_CONFIGURED_REPLY;
-  }
-  return undefined;
-}
-
 
 type GithubNotification = {
   id?: string;
@@ -466,45 +396,6 @@ function normalizeToken(value?: string): string | null {
   return trimmed ? trimmed : null;
 }
 
-function normalizeComparableMessageText(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-export function shouldPostReplyAfterOutbound(
-  reply: string,
-  outboundMessages: SmolpawsOutboundMessage[],
-): boolean {
-  const normalizedReply = normalizeComparableMessageText(reply);
-  if (!normalizedReply) {
-    return false;
-  }
-  if (outboundMessages.length === 0) {
-    return true;
-  }
-  const lastOutbound = outboundMessages[outboundMessages.length - 1];
-  if (!lastOutbound || lastOutbound.kind !== "current_thread_message") {
-    return true;
-  }
-  const normalizedOutbound = normalizeComparableMessageText(lastOutbound.text);
-  if (!normalizedOutbound) {
-    return true;
-  }
-  if (normalizedOutbound.includes(normalizedReply)) {
-    return false;
-  }
-
-  const replyWords = normalizedReply.split(/\s+/).filter(Boolean);
-  const looksLikeShortLeadIn =
-    replyWords.length <= 12 &&
-    normalizedReply.endsWith(':') &&
-    normalizedOutbound.length >= normalizedReply.length;
-  if (looksLikeShortLeadIn) {
-    return false;
-  }
-
-  return true;
-}
-
 async function githubApiFetch(
   token: string,
   url: string,
@@ -516,20 +407,6 @@ async function githubApiFetch(
   headers.set("User-Agent", USER_AGENT);
   headers.set("X-GitHub-Api-Version", "2022-11-28");
   return fetch(url, { ...init, headers });
-}
-
-async function resolveGithubToken(options: {
-  env: Env;
-  installationId?: number;
-}): Promise<string> {
-  if (options.installationId) {
-    return createInstallationToken(options.installationId, options.env);
-  }
-  const userToken = normalizeToken(options.env.GITHUB_USER_TOKEN);
-  if (!userToken) {
-    throw new Error("GITHUB_USER_TOKEN not configured");
-  }
-  return userToken;
 }
 
 function isReviewCommentUrl(url: string): boolean {
@@ -1223,235 +1100,4 @@ function bufferToHex(buffer: ArrayBuffer): string {
   return Array.from(new Uint8Array(buffer))
     .map((value) => value.toString(16).padStart(2, "0"))
     .join("");
-}
-
-async function createInstallationToken(
-  installationId: number,
-  env: Env,
-): Promise<string> {
-  if (!env.GITHUB_APP_ID || !env.GITHUB_APP_PRIVATE_KEY) {
-    throw new Error("GitHub App credentials not configured");
-  }
-
-  const jwt = await createAppJwt(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY);
-  const response = await fetch(
-    `https://api.github.com/app/installations/${installationId}/access_tokens`,
-    {
-      method: "POST",
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${jwt}`,
-        "User-Agent": USER_AGENT,
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    },
-  );
-
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(`Failed to get installation token: ${message}`);
-  }
-
-  const data = (await response.json()) as { token: string };
-  return data.token;
-}
-
-async function createAppJwt(
-  appId: string,
-  privateKeyPem: string,
-): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
-  const header = { alg: "RS256", typ: "JWT" };
-  const payload = {
-    iat: now - 60,
-    exp: now + 540,
-    iss: appId,
-  };
-
-  const encodedHeader = base64UrlEncode(JSON.stringify(header));
-  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
-  const signingInput = `${encodedHeader}.${encodedPayload}`;
-
-  const keyData = pemToArrayBuffer(privateKeyPem);
-  const key = await crypto.subtle.importKey(
-    "pkcs8",
-    keyData,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-
-  const signature = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    key,
-    new TextEncoder().encode(signingInput),
-  );
-
-  const encodedSignature = base64UrlEncode(signature);
-  return `${signingInput}.${encodedSignature}`;
-}
-
-function base64UrlEncode(input: string | ArrayBuffer): string {
-  const bytes =
-    typeof input === "string" ? new TextEncoder().encode(input) : input;
-  let binary = "";
-  for (const byte of new Uint8Array(bytes)) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-type ParsedPem = {
-  label: string;
-  der: Uint8Array;
-};
-
-function encodeDerLength(length: number): Uint8Array {
-  if (length < 0x80) {
-    return Uint8Array.from([length]);
-  }
-  const octets: number[] = [];
-  let remaining = length;
-  while (remaining > 0) {
-    octets.unshift(remaining & 0xff);
-    remaining >>= 8;
-  }
-  return Uint8Array.from([0x80 | octets.length, ...octets]);
-}
-
-function encodeDerSequence(contents: Uint8Array): Uint8Array {
-  const length = encodeDerLength(contents.length);
-  const result = new Uint8Array(1 + length.length + contents.length);
-  result[0] = 0x30;
-  result.set(length, 1);
-  result.set(contents, 1 + length.length);
-  return result;
-}
-
-function encodeDerIntegerZero(): Uint8Array {
-  return Uint8Array.from([0x02, 0x01, 0x00]);
-}
-
-function encodeDerOctetString(contents: Uint8Array): Uint8Array {
-  const length = encodeDerLength(contents.length);
-  const result = new Uint8Array(1 + length.length + contents.length);
-  result[0] = 0x04;
-  result.set(length, 1);
-  result.set(contents, 1 + length.length);
-  return result;
-}
-
-function concatUint8Arrays(...arrays: Uint8Array[]): Uint8Array {
-  const totalLength = arrays.reduce((sum, array) => sum + array.length, 0);
-  const result = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const array of arrays) {
-    result.set(array, offset);
-    offset += array.length;
-  }
-  return result;
-}
-
-function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  const copy = new Uint8Array(bytes.length);
-  copy.set(bytes);
-  return copy.buffer;
-}
-
-function wrapPkcs1RsaPrivateKeyInPkcs8(pkcs1Der: Uint8Array): Uint8Array {
-  // PKCS#8 PrivateKeyInfo ::= SEQUENCE {
-  //   version                   INTEGER,
-  //   privateKeyAlgorithm       AlgorithmIdentifier,
-  //   privateKey                OCTET STRING
-  // }
-  // rsaEncryption OID = 1.2.840.113549.1.1.1 with NULL params.
-  const rsaAlgorithmIdentifier = Uint8Array.from([
-    0x30, 0x0d,
-    0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01,
-    0x05, 0x00,
-  ]);
-  return encodeDerSequence(
-    concatUint8Arrays(
-      encodeDerIntegerZero(),
-      rsaAlgorithmIdentifier,
-      encodeDerOctetString(pkcs1Der),
-    ),
-  );
-}
-
-function parsePem(pem: string): ParsedPem {
-  const normalized = pem.replace(/\\n/g, "\n").trim();
-  const match = normalized.match(
-    /-----BEGIN ([A-Z0-9 ]+)-----([\s\S]+?)-----END \1-----/,
-  );
-  if (!match) {
-    throw new Error("Invalid GitHub App private key PEM format");
-  }
-  const [, label, body] = match;
-  const base64Body = body.replace(/\s+/g, "");
-  const binary = atob(base64Body);
-  const der = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    der[i] = binary.charCodeAt(i);
-  }
-  return { label, der };
-}
-
-function pemToArrayBuffer(pem: string): ArrayBuffer {
-  const parsed = parsePem(pem);
-  if (parsed.label === "PRIVATE KEY") {
-    return copyToArrayBuffer(parsed.der);
-  }
-  if (parsed.label === "RSA PRIVATE KEY") {
-    const wrapped = wrapPkcs1RsaPrivateKeyInPkcs8(parsed.der);
-    return copyToArrayBuffer(wrapped);
-  }
-  throw new Error(`Unsupported GitHub App private key label: ${parsed.label}`);
-}
-
-async function postIssueComment(options: {
-  token: string;
-  repoFullName: string;
-  issueNumber: number;
-  body: string;
-}): Promise<void> {
-  const response = await fetch(
-    `https://api.github.com/repos/${options.repoFullName}/issues/${options.issueNumber}/comments`,
-    {
-      method: "POST",
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${options.token}`,
-        "User-Agent": USER_AGENT,
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-      body: JSON.stringify({ body: options.body }),
-    },
-  );
-
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(`Failed to post comment: ${message}`);
-  }
-}
-
-async function deliverRunnerOutboundMessage(options: {
-  token: string;
-  repoFullName: string;
-  issueNumber: number;
-  outbound: SmolpawsOutboundMessage;
-}): Promise<void> {
-  if (options.outbound.kind === "current_thread_message") {
-    await postIssueComment({
-      token: options.token,
-      repoFullName: options.repoFullName,
-      issueNumber: options.issueNumber,
-      body: options.outbound.text,
-    });
-    return;
-  }
-
-  throw new Error(
-    `Unsupported outbound message kind: ${(options.outbound as { kind?: string }).kind ?? "unknown"}`,
-  );
 }

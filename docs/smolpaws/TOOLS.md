@@ -22,9 +22,9 @@ This file captures local-machine facts that help SmolPaws work effectively.
 
 ## Useful Local Commands
 
-- Start local agent-server: `scripts/run-local-agent-server.sh`
-- Health check: `curl http://127.0.0.1:8788/health`
-- Readiness check: `curl http://127.0.0.1:8788/ready`
+- Start local agent-server: `npm run relay-server:start`
+- Health check: `curl http://127.0.0.1:8790/health`
+- Readiness check: `curl http://127.0.0.1:8790/ready`
 
 ## Physical Presence
 

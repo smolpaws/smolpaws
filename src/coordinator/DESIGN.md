@@ -14,7 +14,7 @@ One fact should have one owner. The Message Relay must not duplicate the agent-s
 
 ## Integration target
 
-The Message Relay talks to `packages/openhands-agent-server` through the narrow `AgentServerClient` interface. The old `apps/agent-server` `/turns` runner is migration/reference code, not the target architecture.
+The Message Relay talks to `packages/openhands-agent-server` through the narrow `AgentServerClient` interface. The product composition is `apps/relay-server`; the legacy `/turns` runner is retired.
 
 The current agent-server extension `EXT-SERVER-001` allows an optional deterministic caller-supplied `event_id` on `POST /events`. This closes the intake append-response-loss window without moving queue behavior into agent-server.
 
@@ -172,6 +172,6 @@ Proceed incrementally:
 2. run standalone `paws` against the TypeScript agent-server and configured real LLM profile, verify durable rows/EventLog, and soak restart/reconciliation behavior;
 3. design a rollback-safe canary for the primary WhatsApp path;
 4. migrate other bridges only after reviewing their existing behavior and delivery semantics;
-5. remove the old `/turns` runner only after every in-use bridge has a clean soak on the new path.
+5. Keep all bridge intake and delivery on this path; do not restore the retired `/turns` runner.
 
 This document records current invariants and boundaries. Historical implementation experiments belong in git history, not here.

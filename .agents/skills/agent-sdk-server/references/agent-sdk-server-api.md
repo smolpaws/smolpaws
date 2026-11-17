@@ -26,7 +26,7 @@ The durable SmolPaws coordinator may orchestrate this flow, but queue claims, re
 
 ## Before writing a client
 
-Inspect `openapi.json` at the exact revision being used. Do not copy request fields from the old `apps/agent-server` runner, retired `/turns` flows, confirmation endpoints, or raw nested LLM/API-key examples.
+Inspect `openapi.json` at the exact revision being used. Do not copy request fields from retired `/turns` flows, confirmation endpoints, or raw nested LLM/API-key examples.
 
 ## Validation
 

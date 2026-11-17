@@ -87,3 +87,18 @@ test('a stalled send becomes delivery_unknown once and never automatically retri
   assert.equal(store.getWork(row.id)?.state, 'delivery_unknown');
   assert.equal((await dispatcher.dispatchNext('worker')).kind, 'idle'); assert.equal(sends, 1); db.close();
 });
+
+test('preparing credentials can retry without marking an external send or losing prepared state', async () => {
+  const db = new Database(':memory:'); const store = new MessageWorkStore(db); const targets = new DeliveryTargetRegistry();
+  let now = 1_000; let ready = false; let sends = 0;
+  store.resolveLane(lane, 'conversation', now);
+  const row = store.insertDelivery({ sourceKey: 'preparation', laneKey: lane.laneKey, agentEventId: 'event', payload: {} }, now);
+  targets.register('whatsapp', { validate() {}, async prepare() { if (!ready) throw new Error('Token endpoint unavailable'); return 'prepared-token'; },
+    async deliver(_lane, _payload, prepared) { assert.equal(prepared, 'prepared-token'); sends++; return {}; } });
+  const dispatcher = new DeliveryDispatcher(store, targets, { now: () => now });
+  assert.equal((await dispatcher.dispatchNext('worker')).kind, 'retry');
+  assert.equal(store.getWork(row.id)?.state, 'retry_wait'); assert.equal(store.getWork(row.id)?.sendAttempted, false); assert.equal(sends, 0);
+  ready = true; now += 600_000; store.reconcile(now);
+  assert.equal((await dispatcher.dispatchNext('worker')).kind, 'delivered'); assert.equal(sends, 1);
+  db.close();
+});

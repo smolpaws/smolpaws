@@ -21,8 +21,10 @@ export interface DeliveryTarget {
   isReady?(): boolean;
   /** Pure/preflight validation. Must not perform external I/O. */
   validate(lane: LaneRow, payload: unknown): void;
+  /** Optional retryable preflight. Must not send the outbound message; returned state stays in memory. */
+  prepare?(lane: LaneRow, payload: unknown): Promise<unknown>;
   /** Perform the external side effect. Throwing after this starts is treated as ambiguous delivery. */
-  deliver(lane: LaneRow, payload: unknown): Promise<DeliverySendResult>;
+  deliver(lane: LaneRow, payload: unknown, prepared?: unknown): Promise<DeliverySendResult>;
 }
 
 export class DeliveryTargetRegistry {
@@ -41,6 +43,7 @@ export type DeliveryDispatchOutcome =
   | { kind: 'idle' }
   | { kind: 'delivered'; workId: string; externalMessageId: string | null }
   | { kind: 'failed'; workId: string; error: string }
+  | { kind: 'retry'; workId: string; error: string }
   | { kind: 'delivery_unknown'; workId: string; error: string }
   | { kind: 'stale'; workId: string }
   /** The platform transport is not connected; the claim was released to `ready` without any send attempt. */
@@ -99,13 +102,23 @@ export class DeliveryDispatcher {
       return { kind: 'transport_unavailable', workId: claim.row.id };
     }
 
+    let prepared: unknown;
+    try {
+      prepared = await target.prepare?.(lane, claim.row.payload);
+    } catch (error) {
+      const message = errorMessage(error);
+      const settled = this.store.settle(claim, { kind: 'retry', error: message }, this.now());
+      if (settled === null) return { kind: 'stale', workId: claim.row.id };
+      return { kind: settled === 'failed' ? 'failed' : 'retry', workId: claim.row.id, error: message };
+    }
+
     if (!this.store.markSending(claim, this.now())) {
       return { kind: 'stale', workId: claim.row.id };
     }
 
     try {
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const result = await Promise.race([target.deliver(lane, claim.row.payload), new Promise<never>((_resolve, reject) => {
+      const result = await Promise.race([target.deliver(lane, claim.row.payload, prepared), new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => reject(new Error('Platform delivery timed out; outcome unknown')), this.sendTimeoutMs);
       })]).finally(() => { if (timer) clearTimeout(timer); });
       const externalMessageId = result.externalMessageId ?? null;

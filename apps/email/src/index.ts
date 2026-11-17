@@ -9,8 +9,8 @@
  *      an allowed sender. Fail closed on an empty allowlist.
  *   5. Dedup by email id (Cache API), then enqueue and return 202 fast so
  *      Svix gets a prompt 2xx.
- *   6. Queue consumer fetches the full email, dispatches to the agent server,
- *      and emails the reply back through Resend.
+ *   6. Queue consumer authenticates the full email and hands it to the host relay.
+ *      The host owns execution and reply delivery.
  *
  * This mirrors apps/github: a standalone webhook Worker (not a socket bridge),
  * because Resend pushes inbound email to us rather than exposing a socket.
@@ -26,13 +26,10 @@ import {
 import { checkInboundAuth, domainOf } from './authcheck.js';
 import {
   dispatchEmailToAgentServer,
-  resolveEmailReplyBody,
   type EmailAgentEnv,
 } from './agentDispatch.js';
 import {
-  buildReplySubject,
   retrieveReceivedEmail,
-  sendEmail,
 } from './resendClient.js';
 
 export interface Env extends EmailAgentEnv {
@@ -42,8 +39,6 @@ export interface Env extends EmailAgentEnv {
   RESEND_API_KEY: string;
   /** Comma-separated allowlist of permitted sender addresses. */
   EMAIL_ALLOWED_SENDERS: string;
-  /** From address for replies (default smolpaws@mail.enyst.org). */
-  EMAIL_FROM_ADDRESS?: string;
   /** Inbound email queue. */
   EMAIL_QUEUE: Queue<EmailQueueMessage>;
 }
@@ -56,7 +51,6 @@ export type EmailQueueMessage = {
 };
 
 const WEBHOOK_PATH = '/webhooks/resend';
-const DEFAULT_FROM = 'smolpaws <smolpaws@mail.enyst.org>';
 const DEDUPE_CACHE = 'smolpaws-email-dedupe';
 const DEDUPE_TTL_SECONDS = 60 * 60 * 24;
 
@@ -228,40 +222,18 @@ async function processMessage(
     // emails so the agent still gets the content.
     const body = email.text?.trim() ? email.text : htmlToText(email.html);
 
-    const agentResult = await dispatchEmailToAgentServer(
+    await dispatchEmailToAgentServer(
       {
         sender,
         subject: email.subject ?? message.body.subject,
         text: body,
         emailId,
+        messageId: email.message_id ?? message.body.messageId,
       },
       env,
     );
 
-    const replyBody = resolveEmailReplyBody(agentResult);
-
-    if (agentResult === null) {
-      log('process.no_runner', { emailId });
-      message.ack();
-      return;
-    }
-
-    if (replyBody) {
-      const fromAddress = env.EMAIL_FROM_ADDRESS?.trim() || DEFAULT_FROM;
-      const originalMessageId = email.message_id ?? message.body.messageId;
-      await sendEmail({
-        apiKey: env.RESEND_API_KEY,
-        from: fromAddress,
-        to: sender,
-        subject: buildReplySubject(email.subject ?? message.body.subject),
-        text: replyBody,
-        inReplyTo: originalMessageId,
-        references: originalMessageId,
-      });
-      log('process.replied', { emailId, sender: maskSender(sender) });
-    } else {
-      log('process.no_reply', { emailId });
-    }
+    log('process.accepted', { emailId });
 
     message.ack();
   } catch (error) {

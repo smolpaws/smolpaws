@@ -15,10 +15,6 @@ queue = "smolpaws-email-queue"
 max_batch_size = 1
 max_batch_timeout = 5
 
-# Secrets set via `wrangler secret put`: RESEND_WEBHOOK_SECRET, RESEND_API_KEY,
-# and EMAIL_ALLOWED_SENDERS (comma-separated allowlist — kept as a secret rather
-# than a committed var so the owner's addresses aren't published in this public
-# repo). SMOLPAWS_RUNNER_URL / SMOLPAWS_RUNNER_TOKEN are set for the deployment
-# environment that can reach the agent server.
-[vars]
-EMAIL_FROM_ADDRESS = "smolpaws <smolpaws@mail.enyst.org>"
+# Worker secrets: RESEND_WEBHOOK_SECRET, RESEND_API_KEY (receiving access),
+# EMAIL_ALLOWED_SENDERS, SMOLPAWS_RELAY_SERVER_URL, SMOLPAWS_RELAY_SERVER_API_KEY.
+# Sending credentials and EMAIL_FROM_ADDRESS belong to the product host.

@@ -231,7 +231,7 @@ The token can be extracted from `~/.claude/.credentials.json` if you're logged i
 ANTHROPIC_API_KEY=sk-ant-api03-...
 ```
 
-The shared runner forwards the required model/auth environment into the per-scope AppleWorkspace host. The agent-server implementation and runner image source now live under `apps/agent-server`. The older stdin-entrypoint `.env` mount workaround is no longer part of the active runtime path.
+The current host is `apps/relay-server`, composed over `packages/openhands-agent-server`. It executes through the TypeScript SDK with server-owned profiles and secret storage. The AppleWorkspace runner and its image are retired.
 
 ### Changing the Assistant Name
 

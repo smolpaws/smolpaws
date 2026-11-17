@@ -22,13 +22,12 @@ SmolPaws is an OpenHands agent in TypeScript, with inspiration from NanoClaw, Op
 | `scripts/run-local-bridge.sh` | Starts any standalone bridge, booting the `:8790` agent-server first if needed; used by the bridge LaunchAgents |
 | `src/coordinator/` | Message Relay: durable intake/delivery around the agent-server (`relayRuntime.ts` is the shared loop) |
 | `packages/openhands-agent-server/` | The upstream-shaped TypeScript agent-server every relay bridge talks to |
-| `src/index.ts` | Legacy root process: WhatsApp connection and message routing on the old `/turns` runner (rollback path) |
 | `src/config.ts` | Trigger pattern, paths, intervals |
 | `apps/github/` | Cloudflare Worker for GitHub webhook + notification ingress |
 | `apps/email/` | Cloudflare Worker for Resend inbound-email ingress (Svix-verified webhook, strict sender allowlist) |
-| `apps/agent-server/` | Legacy Fastify `/turns` runner on `:8788` (reference code; hosts the Discord adapter until it moves) |
-| `src/task-scheduler.ts` | Runs scheduled tasks |
-| `src/db.ts` | SQLite operations |
+| `apps/relay-server/` | Product host on `:8790`: context/tools, heartbeat, authenticated GitHub/email relay intake |
+| `src/coordinator/taskScheduler.ts` | Durable scheduled tasks |
+| `apps/whatsapp/src/ledger.ts` | WhatsApp message ledger |
 | `groups/{name}/AGENTS.md` | Per-group memory (isolated) |
 | `docs/smolpaws/` | Canonical SmolPaws identity and context files |
 
@@ -142,8 +141,7 @@ Run commands directly—don't tell the user to run them.
 npm run dev          # Run with hot reload
 npm run build        # Compile TypeScript
 npm run github:dev   # Run the GitHub Worker locally
-npm run runner:dev   # Run the shared agent-server locally
-npm run runner:image:build
+npm run relay-server:start # Run the shared product host locally
 npm run ci --prefix packages/openhands-agent-server  # Validate vendored SDK provenance, server review, API parity, tests, and build
 npm --prefix apps/discord run test  # Run Discord ingress regression tests
 npm run email:test   # Run Resend email ingress tests
@@ -152,8 +150,10 @@ node --test .agents/skills/impeccable/tests/*.test.mjs  # Run Impeccable regress
 
 Service management:
 ```bash
-launchctl load ~/Library/LaunchAgents/com.smolpaws.plist
-launchctl unload ~/Library/LaunchAgents/com.smolpaws.plist
+npm run bridge:launchagent:install -- whatsapp
+npm run bridge:launchagent:remove -- whatsapp
 ```
+
+Dependency installs use repository-local `.npmrc` files with `min-release-age=7` (npm 11.19.1 or newer). Keep the seven-day window in every independent npm project; do not add blanket exemptions. Before refreshing a locked install, verify publication ages because frozen installs may reuse existing lock entries.
 
 For local agent-server log retention, use `npm run logs:maintain -- --dry-run` to preview, then `npm run logs:launchagent:install` to schedule it on macOS. Reinstall after changing the helper; `npm run logs:launchagent:remove` stops maintenance. See [docs/bridges.md](docs/bridges.md#local-server-log-retention) for status, checkpoints, and limits.

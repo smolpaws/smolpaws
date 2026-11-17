@@ -1,79 +1,29 @@
-# GitHub Ingress
+# GitHub ingress
 
-Cloudflare Worker app for GitHub webhook and notification ingress.
+This Cloudflare Worker verifies GitHub webhooks, applies ingress allowlists, queues work, and polls
+notifications for mentions. It forwards accepted work to the product host's durable relay.
 
-## Quick Context
+- Worker client: `src/agentServerClient.ts`
+- Shared HTTP handoff: `src/shared/webhookRelay.ts` at the repository root
+- Host intake and delivery: `apps/relay-server/src/webhookBridges.ts`
+- Worker config: `wrangler.toml`
 
-This app validates GitHub events, queues work, forwards prompts to the shared SmolPaws runner surface, and posts replies back to the active issue or pull request thread.
+The Worker needs `GITHUB_WEBHOOK_SECRET`, `SMOLPAWS_RELAY_SERVER_URL`, and
+`SMOLPAWS_RELAY_SERVER_API_KEY`. `GITHUB_USER_TOKEN` enables notification polling.
+The host needs `GITHUB_USER_TOKEN` for notification-origin replies, or `GITHUB_APP_ID` plus
+`GITHUB_APP_PRIVATE_KEY` for webhook installation replies. Installation identity comes from the
+verified webhook; credentials never enter the intake payload or relay database.
 
-There are two practical ways to test it:
+The Worker acknowledges its Cloudflare queue only after the host returns 202 with `accepted: true`.
+It does not poll conversation completion or post comments. The host's DeliveryDispatcher owns sends
+and parks uncertain deliveries instead of blindly repeating them.
 
-1. Local worker mode
-   - Run `npm run github:dev`
-   - This now goes through `scripts/run-local-github-worker.sh`
-   - That launcher loads `~/.smolpaws/.env`, writes a temporary `apps/github/.dev.vars.smolpaws`, and starts `wrangler dev --env smolpaws`
-   - Local mode does **not** pull deployed Cloudflare secrets automatically; `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_ID`, and `GITHUB_APP_PRIVATE_KEY` must exist locally if you want webhook handling on `localhost:8787`
-
-2. Deployed worker + local runner mode
-   - Leave the webhook URL pointed at the deployed Cloudflare worker
-   - Run the local agent-server with `npm run runner:local`
-   - Expose it temporarily with `cloudflared tunnel --url http://localhost:8788`
-   - Point the deployed Worker secret `SMOLPAWS_RUNNER_URL` at the resulting public tunnel URL
-   - This is the simplest real end-to-end GitHub test path on this machine
-
-## Key Files
-
-| File | Purpose |
-|------|---------|
-| `src/index.ts` | Worker entrypoint, queue consumer, GitHub API helpers |
-| `src/agentServerClient.ts` | Worker-to-agent-server turn client |
-| `wrangler.toml` | Cloudflare Worker/Queues configuration |
-| `../../src/shared/runner.ts` | Shared runner protocol types |
-| `../../src/shared/turnClient.ts` | Shared turn API client used by GitHub/Discord/local runtime |
-| `../../scripts/run-local-github-worker.sh` | Canonical local launcher that loads `~/.smolpaws/.env` |
-
-## Development
-
-```bash
-npm run github:dev       # Local worker with wrangler dev
-npm run typecheck        # Type-check the whole repo
-npm run github:test      # Run GitHub ingress tests
+```sh
+npm run github:dev
+npm run github:test
+npm run typecheck --prefix apps/github
 ```
 
-## Deployment
-
-Deploy the Worker to Cloudflare after merging to main:
-
-```bash
-npm run github:deploy    # wrangler deploy from apps/github
-```
-
-Verify the deployment:
-
-```bash
-curl https://smolpaws.liberty-labs.org/health   # should return "ok"
-```
-
-### Secrets
-
-Worker secrets are managed with `wrangler secret` (run from `apps/github/`):
-
-```bash
-npx wrangler secret list                        # list configured secrets
-npx wrangler secret put SMOLPAWS_RUNNER_URL     # set/update a secret (prompts for value)
-```
-
-Required secrets: `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `SMOLPAWS_RUNNER_URL`, `SMOLPAWS_RUNNER_TOKEN`. Optional: `GITHUB_USER_TOKEN` (for notification polling).
-
-### Deployed URL
-
-- Production: `https://smolpaws.liberty-labs.org`
-- Webhook endpoint: `POST https://smolpaws.liberty-labs.org/webhooks/github`
-- Notification polling runs on a cron schedule (`* * * * *`)
-
-## Local Notes
-
-- Canonical local worker URL: `http://127.0.0.1:8787`
-- Canonical local agent-server URL: `http://127.0.0.1:8788`
-- The Worker `SMOLPAWS_RUNNER_URL` must be the agent-server base URL and must not end with `/run`
-- Remote `wrangler dev --remote` is not the preferred GitHub test path here because Queue behavior is not reliable enough for the real ingress flow
+The local host is `http://127.0.0.1:8790` (`npm run relay-server:start`). Configure an authenticated
+reachable host URL for a deployed Worker; do not deploy or enable ingress without authorization.
+`npm run github:deploy` deploys the Worker when explicitly requested.

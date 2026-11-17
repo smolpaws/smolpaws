@@ -28,4 +28,4 @@ export SMOLPAWS_RELAY_SERVER_URL="${SMOLPAWS_RELAY_SERVER_URL:-${SMOLPAWS_COORD_
 source "$ROOT_DIR/scripts/lib/product-server.sh"
 ensure_smolpaws_product_server "$SMOLPAWS_RELAY_SERVER_URL"
 
-exec npm --prefix apps/agent-server run heartbeat:start
+exec node --import tsx/esm apps/relay-server/src/runHeartbeat.ts

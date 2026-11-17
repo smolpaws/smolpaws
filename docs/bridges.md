@@ -1,6 +1,6 @@
 # Bridges: how they start and what they share
 
-A bridge is one channel's front door. Every bridge on the new stack is a **standalone process** that
+A bridge is one channel's front door. Each socket bridge is a **standalone process** that
 attaches to the shared TypeScript OpenHands agent-server through the Message Relay. Nothing runs
 "inside the app" anymore; the app is the set of bridges plus one server.
 
@@ -263,3 +263,12 @@ Each heartbeat tick creates or reuses its daily conversation, appends a message 
 per-minute event ID, and starts a run only for a newly appended tick. Repeating conversation
 creation alone does not run another turn. Failed submissions remain visible in the LaunchAgent
 error log; a successfully queued tick is not evidence of a completed agent run.
+
+## Webhook bridges
+
+GitHub and email Workers verify and queue inbound events, then call authenticated
+`POST /api/bridges/{github,email}/messages` on the product host. The 202 receipt confirms committed
+SQLite intake, not completed agent execution. Host-side `RelayRuntime` workers own their per-platform
+queues and send replies through DeliveryDispatcher. These product routes do not extend the transpiled
+server package or its OpenAPI contract. Missing bridge credentials reject intake rather than silently
+dropping it. Nothing in this migration enables or deploys the dormant Workers.

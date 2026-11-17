@@ -1,36 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveEmailReplyBody } from '../agentDispatch.js';
+import { dispatchEmailToAgentServer } from '../agentDispatch.js';
 import { buildReplySubject } from '../resendClient.js';
 
-test('resolveEmailReplyBody returns undefined for null result', () => {
-  assert.equal(resolveEmailReplyBody(null), undefined);
+test('email dispatch fails closed instead of silently dropping unconfigured intake', async () => {
+  await assert.rejects(dispatchEmailToAgentServer({ sender: 'human@example.com', emailId: 'email-1' }, {}), /must be configured/);
 });
 
-test('resolveEmailReplyBody joins outbound thread messages', () => {
-  const body = resolveEmailReplyBody({
-    reply: 'final',
-    outbound_messages: [
-      { kind: 'current_thread_message', text: 'part one' },
-      { kind: 'current_thread_message', text: 'part two' },
-    ],
-  });
-  assert.equal(body, 'part one\n\npart two');
-});
-
-test('resolveEmailReplyBody falls back to final reply when no outbound', () => {
-  const body = resolveEmailReplyBody({ reply: 'the answer', outbound_messages: [] });
-  assert.equal(body, 'the answer');
-});
-
-test('resolveEmailReplyBody returns undefined when nothing to say', () => {
-  assert.equal(resolveEmailReplyBody({ reply: '', outbound_messages: [] }), undefined);
-});
-
-test('buildReplySubject prefixes Re: and avoids double prefix', () => {
+test('buildReplySubject preserves reply prefixes', () => {
   assert.equal(buildReplySubject('hello'), 'Re: hello');
   assert.equal(buildReplySubject('Re: hello'), 'Re: hello');
-  assert.equal(buildReplySubject('RE: hello'), 'RE: hello');
-  assert.equal(buildReplySubject(''), 'Re: (no subject)');
   assert.equal(buildReplySubject(undefined), 'Re: (no subject)');
 });

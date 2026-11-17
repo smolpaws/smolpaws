@@ -238,7 +238,7 @@ export class RelayRuntime {
       );
     }
     for (const outcome of outbound.dispatchOutcomes) {
-      if (outcome.kind === 'failed' || outcome.kind === 'delivery_unknown') {
+      if (outcome.kind === 'failed' || outcome.kind === 'retry' || outcome.kind === 'delivery_unknown') {
         this.logger.warn({ outcome }, 'Delivery did not settle cleanly');
       }
     }

@@ -5,7 +5,7 @@ primary channel between the cat and its human, rebuilt in the shape `apps/slack`
 `smolpaws-kxa`, epic `smolpaws-zlo`): its own process, the shared Message Relay, the TypeScript
 OpenHands agent-server on `:8790`, no `/turns`.
 
-The legacy root process (`src/index.ts`, `npm start`) remains reference and rollback code. Normal
+The legacy root process is retired. `npm start` uses this standalone bridge. Normal
 operation uses the standalone bridge. Run only one WhatsApp bridge for a given account.
 
 ## Deployment status
@@ -202,8 +202,7 @@ npm run bridge:launchagent:remove -- whatsapp
 Logs: `~/.smolpaws/logs/bridge.whatsapp.launchagent.log` and
 `~/.smolpaws/logs/openhands-agent-server-8790.log`.
 
-Before the first start on a host that still runs the legacy root process, stop that LaunchAgent
-(`npm run smolpaws:launchagent:remove`) or you get two clients on one account and duplicate replies.
+On a host upgraded from the legacy process, remove its old `com.smolpaws` LaunchAgent before starting the standalone bridge. Never run two clients on one account.
 
 ## Verification (six-point canary)
 
