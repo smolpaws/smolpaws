@@ -7,8 +7,8 @@ import path from 'node:path';
 import test from 'node:test';
 import { createRelayServerApp } from './app.js';
 import { TaskScheduler } from '../../../src/coordinator/taskScheduler.js';
-import { submitHeartbeat } from '../../agent-server/src/agent-server/heartbeatClient.js';
-import { heartbeatRequestHeaders, type HeartbeatConversationRequest } from '../../agent-server/src/agent-server/heartbeat.js';
+import { submitHeartbeat } from './heartbeatClient.js';
+import { heartbeatRequestHeaders, type HeartbeatConversationRequest } from './heartbeat.js';
 import type * as Sdk from '../../../packages/openhands-agent-server/vendor/openhands-agent/dist/index.js';
 const { TestLLM, InMemorySecretStore, messageSchema } = createRequire(import.meta.url)('../../../packages/openhands-agent-server/vendor/openhands-agent/dist/index.cjs') as typeof Sdk;
 

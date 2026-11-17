@@ -18,7 +18,7 @@ if [[ -f "${SMOLPAWS_ENV_FILE}" ]]; then
 fi
 
 if [[ "$#" -eq 0 ]]; then
-  exec npm run dev:start
+  exec npm run whatsapp:start
 fi
 
 exec "$@"

@@ -18,6 +18,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Use npm with release-age filtering
+        run: npm install --global npm@11.19.1 --min-release-age=7
+
       - name: Check Slack Relay launcher syntax
         run: bash -n scripts/run-local-slack-relay.sh
 
@@ -52,6 +55,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Use npm with release-age filtering
+        run: npm install --global npm@11.19.1 --min-release-age=7
 
       - name: Check bridge launcher syntax
         run: bash -n scripts/lib/product-server.sh scripts/run-local-heartbeat.sh scripts/run-local-bridge.sh scripts/install-bridge-launchagent.sh scripts/remove-bridge-launchagent.sh scripts/vendor-openhands-agent.sh
@@ -102,11 +108,11 @@ jobs:
         with:
           node-version: 22
 
+      - name: Use npm with release-age filtering
+        run: npm install --global npm@11.19.1 --min-release-age=7
+
       - name: Install root dependencies
         run: npm ci
-
-      - name: Install agent-server dependencies
-        run: npm ci --prefix apps/agent-server
 
       - name: Install OpenHands agent-server package dependencies
         run: npm ci --prefix packages/openhands-agent-server
@@ -120,14 +126,17 @@ jobs:
       - name: Typecheck root
         run: npm run typecheck
 
-      - name: Typecheck agent-server
-        run: npm run typecheck --prefix apps/agent-server
+      - name: Install email ingress dependencies
+        run: npm ci --prefix apps/email
+
+      - name: Typecheck email ingress
+        run: npm run typecheck --prefix apps/email
+
+      - name: Run email ingress tests
+        run: npm run email:test
 
       - name: Typecheck GitHub ingress
         run: npm run typecheck --prefix apps/github
-
-      - name: Run agent-server runtime tests
-        run: npm run agent-server:test
 
       - name: Run OpenHands agent-server package CI
         run: npm run ci --prefix packages/openhands-agent-server
@@ -142,18 +151,18 @@ jobs:
 
       - name: Start agent-server and verify health
         run: |
-          npm run runner:start > /tmp/smolpaws-runner.log 2>&1 &
+          npm run relay-server:start > /tmp/smolpaws-runner.log 2>&1 &
           echo $! > /tmp/smolpaws-runner.pid
 
           for i in $(seq 1 30); do
-            if curl -fsS http://localhost:8788/health >/tmp/smolpaws-runner-health.json; then
+            if curl -fsS http://localhost:8790/health >/tmp/smolpaws-runner-health.json; then
               break
             fi
             sleep 1
           done
 
-          curl -fsS http://localhost:8788/health
-          curl -fsS http://localhost:8788/ready
+          curl -fsS http://localhost:8790/health
+          curl -fsS http://localhost:8790/ready
 
       - name: Print agent-server log on failure
         if: failure()

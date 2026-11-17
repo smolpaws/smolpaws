@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import type { Logger } from 'pino';
-import type { IncomingMessage, ReplyContext } from '../../../../src/shared/bridgeAdapter.js';
+import type { IncomingMessage, ReplyContext } from '../../../../src/shared/bridgeMessage.js';
 import { handleSlackEvent, splitMessage, type SlackDeps } from '../slackHandler.js';
 import type { SlackConfig } from '../config.js';
 import {

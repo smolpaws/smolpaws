@@ -13,7 +13,7 @@ import { StartupNotice } from '../../../src/shared/startupNotice.js';
 import type {
   IncomingMessage,
   ReplyContext,
-} from '../../../src/shared/bridgeAdapter.js';
+} from '../../../src/shared/bridgeMessage.js';
 import { loadConfig, type SlackConfig } from './config.js';
 import { SlackRelayRuntime } from './relayRuntime.js';
 import {

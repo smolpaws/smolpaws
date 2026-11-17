@@ -145,7 +145,7 @@ npm ci --prefix apps/slack
 ./scripts/run-local-smolpaws.sh npm --prefix apps/slack run start
 ```
 
-The new server listens on `127.0.0.1:8790` by default. Do not rely on the old `apps/agent-server` process to host Slack.
+The new server listens on `127.0.0.1:8790` by default. Slack runs as its own standalone bridge.
 
 ## Verification
 

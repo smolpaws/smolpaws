@@ -27,7 +27,7 @@ WhatsApp is the primary channel. Follow the [WhatsApp guide](docs/whatsapp/READM
 - [Identity and memory context](docs/context-files.md)
 - [Documentation index](docs/README.md)
 
-Normal chat operation uses the standalone bridges, such as `npm run whatsapp:start`. The root `npm start` and `npm run dev` entry points run the legacy WhatsApp process; see the WhatsApp guide before starting on an existing account.
+Normal chat operation uses the standalone bridges, such as `npm run whatsapp:start`. The root `npm start` and `npm run dev` entry points start that same WhatsApp bridge.
 
 ## What lives here
 

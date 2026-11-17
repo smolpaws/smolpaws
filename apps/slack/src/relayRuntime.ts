@@ -4,7 +4,7 @@ import type { Logger } from 'pino';
 import { deterministicConversationId } from '../../../src/coordinator/ids.js';
 import { RelayRuntime, defaultRelayDbPath } from '../../../src/coordinator/relayRuntime.js';
 import type { MessageWorkStore } from '../../../src/coordinator/store.js';
-import type { IncomingMessage } from '../../../src/shared/bridgeAdapter.js';
+import type { IncomingMessage } from '../../../src/shared/bridgeMessage.js';
 import { SlackDeliveryTarget, type SlackChunkSender } from './deliveryTarget.js';
 
 const SLACK_RELAY_ID_NAMESPACE = 'slack-relay:v1';

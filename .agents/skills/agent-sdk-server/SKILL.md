@@ -26,7 +26,7 @@ Use this skill when changing `packages/openhands-agent-server`, integrating with
 - `EXT-SERVER-001` permits optional caller-supplied `event_id` for idempotent append; omitting it preserves upstream behavior.
 - Do not reintroduce `/turns`, confirmation gates, security analyzers, ACP execution, or raw secret persistence as accidental compatibility work.
 
-`apps/agent-server` is a separate legacy/product runner retained during migration. Do not use its routes or models as the transpilation oracle unless work explicitly targets that runner.
+`apps/relay-server` composes product context, tools, heartbeat and webhook relay intake over the package. Product routes stay there; `/turns` and the legacy runner are retired.
 
 ## Validation
 

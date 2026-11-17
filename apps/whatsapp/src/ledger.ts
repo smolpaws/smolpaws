@@ -13,7 +13,7 @@
  * remote timestamp is only presentation order. `seq` is an explicit column rather than the rowid so it
  * survives VACUUM and is assigned for any writer of the table.
  *
- * The schema is the legacy `src/db.ts` schema so an existing `~/.smolpaws/whatsapp/messages.db` keeps
+ * The schema preserves the original WhatsApp ledger format so an existing `~/.smolpaws/whatsapp/messages.db` keeps
  * working; the scheduled-task tables it already contains are left untouched for the scheduler.
  */
 import { mkdirSync } from 'node:fs';

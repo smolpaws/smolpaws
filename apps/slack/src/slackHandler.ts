@@ -3,7 +3,7 @@ import type { Logger } from 'pino';
 import type {
   IncomingMessage,
   ReplyContext,
-} from '../../../src/shared/bridgeAdapter.js';
+} from '../../../src/shared/bridgeMessage.js';
 import type { SlackConfig } from './config.js';
 import {
   buildConversationId,
